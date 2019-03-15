@@ -1,5 +1,5 @@
 //TODO: use ip of raspberry pi instead of localhost
-const socket = new WebSocket("ws://localhost:8080/ws")
+const socket = new WebSocket(`ws://${location.host}/ws`)
 let data = {}
 
 socket.onopen = () => {
