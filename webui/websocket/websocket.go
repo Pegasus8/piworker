@@ -29,7 +29,7 @@ func Upgrade(w http.ResponseWriter, request *http.Request) (*websocket.Conn, err
 		log.Println(err)
 		return ws, err
 	}
-
+	log.Println("Connected with:",request.RemoteAddr)
 	// Return WebSocket connection
 	return ws, nil
 }
@@ -39,31 +39,26 @@ func Writer(conn *websocket.Conn) {
 
 	
 	// Other way to do that
-	// // for range time.Tick(5 * time.Second) {
-		// // 	log.Printf("Updating Stats")
-		// // }
-
-	for {
-		ticker := time.NewTicker(5 * time.Second)
-		
-		// Every 5 seconds sends stats
-		for t := range ticker.C {
-			log.Printf("Sending Stats: %+v", t)
-
-			// Get data
-			data, err := stats.GetStats()
-			if err != nil {
-				log.Println(err)
-			}
-
-			// Send data
-			err = conn.WriteMessage(websocket.TextMessage, []byte(data))
-			if err != nil {
-				log.Println(err)
-				return
-			}
+	// // for {
+	// // 	ticker := time.NewTicker(5 * time.Second)
+	// // 	for t := range ticker.C { ... }
+	// // }
+	
+	log.Println("Sending data to ", conn.RemoteAddr())
+	// Send data to client every 5 secs
+	for range time.Tick(5 * time.Second) {
+		// Get data
+		data, err := stats.GetStats()
+		if err != nil {
+			log.Println(err)
 		}
-
+	
+		// Send data
+		err = conn.WriteMessage(websocket.TextMessage, []byte(data))
+		if err != nil {
+			log.Println(err)
+			return
+		}
 	}
 }
 	

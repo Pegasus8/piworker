@@ -2,7 +2,6 @@ package stats
 
 import (
 	"encoding/json"
-	"log"
 )
 
 //TODO: pensar como será la estructura de las estadísticas
@@ -19,7 +18,6 @@ type Stats struct {
 
 // GetStats return general stats of PiWorker
 func GetStats() (jsondata []byte, err error) {
-	log.Println("Collecting statistical data to send...")
 	data := map[string]Response{
 		"activeTasksTest": Response{1},
 	}
