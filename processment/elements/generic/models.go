@@ -1,11 +1,15 @@
 package generic
 
+import (
+	"github.com/Pegasus8/piworker/processment/data"
+)
+
 // Element is the generic struct used by structs Trigger and Action
 type Element struct {
 	ID string
 	Name string
 	Description string
-	Run func(*[]Arg) (bool, error)
+	Run func(*[]data.UserArg) (bool, error)
 	Args []Arg
 }
 
