@@ -5,7 +5,7 @@ type Element struct {
 	ID string
 	Name string
 	Description string
-	RunFunc func([]Arg) (bool, error)
+	Run func(*[]Arg) (bool, error)
 	Args []Arg
 }
 
@@ -19,10 +19,10 @@ type Arg struct {
 }
 
 // Run is a method of the Element struct that executes the main function of the element in question
-func (e *Element) Run(args []Arg) (bool, error) {
-	result, err := e.RunFunc(args)
-	if err != nil {
-		return false, err
-	}
-	return result, nil
-}
+// // func (e *Element) Run(args []Arg) (bool, error) {
+// // 	result, err := e.Run(&args)
+// // 	if err != nil {
+// // 		return false, err
+// // 	}
+// // 	return result, nil
+// // }
