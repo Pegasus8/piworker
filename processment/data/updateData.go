@@ -28,7 +28,7 @@ func UpdateTask(taskName string, updatedTask *UserTask) error {
 	}
 
 	// Re-write data into file
-	_, err = files.WriteFile(".", Filename, byteData)
+	_, err = files.WriteFile(DataPath, Filename, byteData)
 	if err != nil {
 		return err
 	}
@@ -62,7 +62,7 @@ func UpdateTaskName(oldName, newName string) error {
 		return err
 	}
 
-	_, err = files.WriteFile(".", Filename, byteData)
+	_, err = files.WriteFile(DataPath, Filename, byteData)
 	if err != nil {
 		return err
 	}
@@ -95,7 +95,7 @@ func UpdateTaskTrigger(name string, newTrigger *UserTrigger) error {
 		return err
 	}
 
-	_, err = files.WriteFile(".", Filename, byteData)
+	_, err = files.WriteFile(DataPath, Filename, byteData)
 	if err != nil {
 		return err
 	}
@@ -128,7 +128,7 @@ func UpdateTaskActions(name string, newActions *[]UserAction) error {
 		return err
 	}
 
-	_, err = files.WriteFile(".", Filename, byteData)
+	_, err = files.WriteFile(DataPath, Filename, byteData)
 	if err != nil {
 		return err
 	}
@@ -161,7 +161,7 @@ func UpdateTaskState(name string, newState string) error {
 		return err
 	}
 
-	_, err = files.WriteFile(".", Filename, byteData)
+	_, err = files.WriteFile(DataPath, Filename, byteData)
 	if err != nil {
 		return err
 	}
