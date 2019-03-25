@@ -8,8 +8,8 @@ import (
 )
 
 // ReadData is a func that returns the user data into structs
-func ReadData(filename string) (*UserData, error){
-	jsonData, err := os.Open(filename)
+func ReadData() (*UserData, error){
+	jsonData, err := os.Open(Filename)
 	if err != nil {
 		log.Println("User data can't be read")
 		log.Println(err)
@@ -30,9 +30,9 @@ func ReadData(filename string) (*UserData, error){
 	return &data, nil
 }
 
-// GetTask is a method of the UserData struct that returns a specific task, 
+// GetTaskByName is a method of the UserData struct that returns a specific task, 
 // searching it by it name.
-func (data *UserData) GetTask(name string) (findedTask *UserTask, indexPosition int, err error) {
+func (data *UserData) GetTaskByName(name string) (findedTask *UserTask, indexPosition int, err error) {
 	for index, task := range data.Tasks[:] {
 		if task.Task.Name == name {
 			return &data.Tasks[index].Task, index, nil
