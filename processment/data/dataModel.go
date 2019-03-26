@@ -2,16 +2,16 @@ package data
 
 // UserData is the general struct for parsing data
 type UserData struct {
-	Tasks []UserTasks `json:"user-data"` 
+	Tasks []UserTask `json:"user-data"` 
 }
 
-// UserTasks is the structure used for parsing all the tasks
-type UserTasks struct {
-	Task UserTask `json:"task"`
-}
-
-// UserTask is a struct for parsing every task
+// UserTask is the structure used for parsing all the tasks
 type UserTask struct {
+	TaskInfo TaskInfo `json:"task"`
+}
+
+// TaskInfo is a struct for parsing every task
+type TaskInfo struct {
 	Name string `json:"name"`
 	State string `json:"state"`
 	Trigger UserTrigger `json:"trigger"`

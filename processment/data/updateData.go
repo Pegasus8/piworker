@@ -20,7 +20,7 @@ func UpdateTask(taskName string, updatedTask *UserTask) error {
 	}
 
 	log.Printf("Task with name '%s' finded, updating data...\n", taskName)
-	data.Tasks[index].Task = *updatedTask
+	data.Tasks[index] = *updatedTask
 
 	byteData, err := json.MarshalIndent(data, "", "   ")
 	if err != nil {
@@ -50,11 +50,11 @@ func UpdateTaskName(oldName, newName string) error {
 		return err
 	}
 	
-	data.Tasks[index].Task = UserTask{
+	data.Tasks[index].TaskInfo = TaskInfo{
 		Name: newName,
-		State: oldTask.State,
-		Trigger: oldTask.Trigger,
-		Actions: oldTask.Actions,
+		State: oldTask.TaskInfo.State,
+		Trigger: oldTask.TaskInfo.Trigger,
+		Actions: oldTask.TaskInfo.Actions,
 	}
 
 	byteData, err := json.MarshalIndent(data, "", "   ")
@@ -83,11 +83,11 @@ func UpdateTaskTrigger(name string, newTrigger *UserTrigger) error {
 		return err
 	}
 	
-	data.Tasks[index].Task = UserTask{
-		Name: oldTask.Name,
-		State: oldTask.State,
+	data.Tasks[index].TaskInfo = TaskInfo{
+		Name: oldTask.TaskInfo.Name,
+		State: oldTask.TaskInfo.State,
 		Trigger: *newTrigger,
-		Actions: oldTask.Actions,
+		Actions: oldTask.TaskInfo.Actions,
 	}
 
 	byteData, err := json.MarshalIndent(data, "", "   ")
@@ -116,10 +116,10 @@ func UpdateTaskActions(name string, newActions *[]UserAction) error {
 		return err
 	}
 	
-	data.Tasks[index].Task = UserTask{
-		Name: oldTask.Name,
-		State: oldTask.State,
-		Trigger: oldTask.Trigger,
+	data.Tasks[index].TaskInfo = TaskInfo{
+		Name: oldTask.TaskInfo.Name,
+		State: oldTask.TaskInfo.State,
+		Trigger: oldTask.TaskInfo.Trigger,
 		Actions: *newActions,
 	}
 
@@ -149,11 +149,11 @@ func UpdateTaskState(name string, newState string) error {
 		return err
 	}
 	
-	data.Tasks[index].Task = UserTask{
-		Name: oldTask.Name,
+	data.Tasks[index].TaskInfo = TaskInfo{
+		Name: oldTask.TaskInfo.Name,
 		State: newState,
-		Trigger: oldTask.Trigger,
-		Actions: oldTask.Actions,
+		Trigger: oldTask.TaskInfo.Trigger,
+		Actions: oldTask.TaskInfo.Actions,
 	}
 
 	byteData, err := json.MarshalIndent(data, "", "   ")

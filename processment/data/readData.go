@@ -5,21 +5,22 @@ import (
 	"os"
 	"log"
 	"encoding/json"
+	"path/filepath"
 )
 
 // ReadData is a func that returns the user data into structs
 func ReadData() (*UserData, error){
-	jsonData, err := os.Open(Filename)
+	fullpath := filepath.Join(DataPath, Filename)
+
+	jsonData, err := os.Open(fullpath)
 	if err != nil {
-		log.Println("User data can't be read")
-		log.Println(err)
+		return nil, err
 	}
-	log.Println("Data user loaded")
 	defer jsonData.Close()
+	log.Println("Data user loaded")
 
 	byteContent, err := ioutil.ReadAll(jsonData)
 	if err != nil {
-		log.Println(err)
 		return nil, err
 	}
 
@@ -34,8 +35,8 @@ func ReadData() (*UserData, error){
 // searching it by it name.
 func (data *UserData) GetTaskByName(name string) (findedTask *UserTask, indexPosition int, err error) {
 	for index, task := range data.Tasks[:] {
-		if task.Task.Name == name {
-			return &data.Tasks[index].Task, index, nil
+		if task.TaskInfo.Name == name {
+			return &data.Tasks[index], index, nil
 		}
 	}
 	return nil, 0, ErrBadTaskName

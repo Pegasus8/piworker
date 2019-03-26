@@ -21,7 +21,7 @@ func DeleteTask(name string) error {
 	log.Printf("Task with the name '%s' finded, deleting...\n", name)
 
 	if len(data.Tasks) == 1 {
-		data.Tasks = []UserTasks{}
+		data.Tasks = []UserTask{}
 	} else {
 		data.Tasks = append(data.Tasks[:index], data.Tasks[index+1:]...)
 	}
