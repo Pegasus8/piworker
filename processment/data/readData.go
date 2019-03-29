@@ -25,8 +25,10 @@ func ReadData() (*UserData, error){
 	}
 
 	var data UserData
-
-	json.Unmarshal(byteContent, &data)
+	err = json.Unmarshal(byteContent, &data)
+	if err != nil {
+		return nil, err
+	}
 
 	return &data, nil
 }
