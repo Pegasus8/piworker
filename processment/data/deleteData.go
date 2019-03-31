@@ -9,6 +9,9 @@ import (
 
 // DeleteTask is a function used to delete a specific task from the JSON user database.
 func DeleteTask(name string) error {
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	data, err := ReadData()
 	if err != nil {
 		return err

@@ -24,6 +24,10 @@ func NewTask(task *UserTask) error {
 	if err := checkFile(fullpath); err != nil {
 		return err
 	}
+
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	data, err := ReadData()
 	if err != nil {
 		return err
@@ -43,6 +47,11 @@ func NewTask(task *UserTask) error {
 	}
 	log.Printf("Successfully added a new task with the name '%s' into " + 
 		"JSON user data\n", task.TaskInfo.Name)
+
+	// If the backup loop is not on, then start it
+	if BackupLoopState != true {
+		StartBackupLoop()
+	} 
 
 	return nil
 }
@@ -69,8 +78,10 @@ func checkFile(filepath string) error {
 }
 
 func newJSONDataFile() error {
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	// Initialize a data file
-	// emptyDataStruct := UserData{[]UserTasks{}}
 	emptyDataStruct := UserData{[]UserTask{}}
 	byteData, err := json.MarshalIndent(emptyDataStruct, "", "   ")
 	if err != nil {

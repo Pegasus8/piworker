@@ -7,6 +7,9 @@ import (
 // UpdateBehaviorConfigs is the function used to update the behavior configs in the
 // configs file.
 func UpdateBehaviorConfigs(behaviorCfg *Behavior) error {
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	data, err := ReadConfigs()
 	if err != nil {
 		return err
@@ -26,6 +29,9 @@ func UpdateBehaviorConfigs(behaviorCfg *Behavior) error {
 // UpdateSecurityConfigs is the function used to update the security configs in the
 // configs file.
 func UpdateSecurityConfigs(securityCfg *Security) error {
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	data, err := ReadConfigs()
 	if err != nil {
 		return err
@@ -44,6 +50,9 @@ func UpdateSecurityConfigs(securityCfg *Security) error {
 // UpdateAPIConfigs is the function used to update the API configs in the
 // configs file.
 func UpdateAPIConfigs(apiCfg *APIConfigs) error {
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	data, err := ReadConfigs()
 	if err != nil {
 		return err
@@ -62,6 +71,9 @@ func UpdateAPIConfigs(apiCfg *APIConfigs) error {
 // UpdateUpdatesConfigs is the function used to update the PiWorker updates configs in the
 // configs file.
 func UpdateUpdatesConfigs(updatesCfg *Updates) error {
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	data, err := ReadConfigs()
 	if err != nil {
 		return err
@@ -80,6 +92,9 @@ func UpdateUpdatesConfigs(updatesCfg *Updates) error {
 // UpdateWebUIConfigs is the function used to update the WebUI configs in the
 // configs file.
 func UpdateWebUIConfigs(webuiCfg *WebUI) error {
+	mutex.Lock()
+	defer mutex.Unlock()
+	
 	data, err := ReadConfigs()
 	if err != nil {
 		return err

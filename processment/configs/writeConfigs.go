@@ -10,6 +10,9 @@ import (
 // WriteConfigs is a function used to write the configs into the configs file, 
 // overwritting the previous content if exists. Use carefully.
 func WriteConfigs(configs *Configs) error {
+	mutex.Lock()
+	defer mutex.Unlock()
+	
 	byteData, err := json.MarshalIndent(configs, "", "   ")
 	if err != nil {
 		return err

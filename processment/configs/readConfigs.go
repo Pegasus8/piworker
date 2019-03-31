@@ -12,6 +12,9 @@ import (
 // the `Configs` struct.
 func ReadConfigs() (configs *Configs, err error) {
 	fullpath := filepath.Join(ConfigsPath, Filename)
+	
+	mutex.Lock()
+	defer mutex.Unlock()
 
 	jsonData, err := os.Open(fullpath)
 	if err != nil {
