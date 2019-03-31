@@ -14,3 +14,8 @@ var	ErrBadTaskName = errors.New("Invalid task name: the task name provided not e
 var ErrNoFilenameAsigned = errors.New("No Filename: the filename of the data file was" + 
 	" not asigned")
 
+// ErrBackupLoopAlreadyActive is the error used when the backup loop was already started 
+// and is called to start again.
+var ErrBackupLoopAlreadyActive = errors.New(
+	"Error: the backup loop is already active, new loop aborted",
+)
