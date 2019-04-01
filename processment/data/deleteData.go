@@ -2,15 +2,16 @@ package data
 
 import (
 	"encoding/json"
-	"log"
 
 	"github.com/Pegasus8/piworker/utilities/files"
+	"github.com/Pegasus8/piworker/utilities/log"
 )
 
 // DeleteTask is a function used to delete a specific task from the JSON user database.
 func DeleteTask(name string) error {
 	mutex.Lock()
 	defer mutex.Unlock()
+	log.Infoln("Deleting a task...")
 
 	data, err := ReadData()
 	if err != nil {
@@ -21,7 +22,7 @@ func DeleteTask(name string) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("Task with the name '%s' finded, deleting...\n", name)
+	log.Infof("Task with the name '%s' finded, deleting...\n", name)
 
 	if len(data.Tasks) == 1 {
 		data.Tasks = []UserTask{}
@@ -39,7 +40,7 @@ func DeleteTask(name string) error {
 	if err != nil {
 		return err
 	}
-	log.Println("Task deleted successfully")
+	log.Infoln("Task deleted successfully")
 
 	return nil
 }

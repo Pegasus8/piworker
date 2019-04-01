@@ -1,7 +1,7 @@
 package configs
 
 import (
-
+	"github.com/Pegasus8/piworker/utilities/log"
 )
 
 // UpdateBehaviorConfigs is the function used to update the behavior configs in the
@@ -9,6 +9,7 @@ import (
 func UpdateBehaviorConfigs(behaviorCfg *Behavior) error {
 	mutex.Lock()
 	defer mutex.Unlock()
+	log.Infoln("Updating Behavior configs...")
 
 	data, err := ReadConfigs()
 	if err != nil {
@@ -23,6 +24,7 @@ func UpdateBehaviorConfigs(behaviorCfg *Behavior) error {
 		return err
 	}
 
+	log.Infoln("Behavior configs updated successfully")
 	return nil
 }
 
@@ -31,6 +33,7 @@ func UpdateBehaviorConfigs(behaviorCfg *Behavior) error {
 func UpdateSecurityConfigs(securityCfg *Security) error {
 	mutex.Lock()
 	defer mutex.Unlock()
+	log.Infoln("Updating Security configs...")
 
 	data, err := ReadConfigs()
 	if err != nil {
@@ -44,6 +47,7 @@ func UpdateSecurityConfigs(securityCfg *Security) error {
 		return err
 	}
 	
+	log.Infoln("Security configs updated successfully")
 	return nil
 }
 
@@ -52,6 +56,7 @@ func UpdateSecurityConfigs(securityCfg *Security) error {
 func UpdateAPIConfigs(apiCfg *APIConfigs) error {
 	mutex.Lock()
 	defer mutex.Unlock()
+	log.Infoln("Updating API configs...")
 
 	data, err := ReadConfigs()
 	if err != nil {
@@ -65,6 +70,7 @@ func UpdateAPIConfigs(apiCfg *APIConfigs) error {
 		return err
 	}
 	
+	log.Infoln("API configs updated successfully")
 	return nil
 }
 
@@ -73,6 +79,7 @@ func UpdateAPIConfigs(apiCfg *APIConfigs) error {
 func UpdateUpdatesConfigs(updatesCfg *Updates) error {
 	mutex.Lock()
 	defer mutex.Unlock()
+	log.Infoln("Updating Updates configs...")
 
 	data, err := ReadConfigs()
 	if err != nil {
@@ -86,6 +93,7 @@ func UpdateUpdatesConfigs(updatesCfg *Updates) error {
 		return err
 	}
 	
+	log.Infoln("Updates configs updated successfully")
 	return nil
 }
 
@@ -94,6 +102,7 @@ func UpdateUpdatesConfigs(updatesCfg *Updates) error {
 func UpdateWebUIConfigs(webuiCfg *WebUI) error {
 	mutex.Lock()
 	defer mutex.Unlock()
+	log.Infoln("Updating WebUI configs...")
 	
 	data, err := ReadConfigs()
 	if err != nil {
@@ -107,5 +116,6 @@ func UpdateWebUIConfigs(webuiCfg *WebUI) error {
 		return err
 	}
 	
+	log.Infoln("WebUI configs updated successfully")
 	return nil
 }

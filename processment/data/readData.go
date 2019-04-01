@@ -3,9 +3,10 @@ package data
 import (
 	"io/ioutil"
 	"os"
-	"log"
 	"encoding/json"
 	"path/filepath"
+
+	"github.com/Pegasus8/piworker/utilities/log"
 )
 
 // ReadData is a func that returns the user data into structs
@@ -13,13 +14,14 @@ func ReadData() (*UserData, error){
 	fullpath := filepath.Join(DataPath, Filename)
 	mutex.Lock()
 	defer mutex.Unlock()
+	log.Infoln("Reading user data...")
 
 	jsonData, err := os.Open(fullpath)
 	if err != nil {
 		return nil, err
 	}
 	defer jsonData.Close()
-	log.Println("Data user loaded")
+	log.Infoln("Data user loaded")
 
 	byteContent, err := ioutil.ReadAll(jsonData)
 	if err != nil {
@@ -32,6 +34,7 @@ func ReadData() (*UserData, error){
 		return nil, err
 	}
 
+	log.Infoln("User data obtained")
 	return &data, nil
 }
 

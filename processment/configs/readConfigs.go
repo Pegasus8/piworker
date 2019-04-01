@@ -5,7 +5,8 @@ import (
 	"path/filepath"
 	"io/ioutil"
 	"os"
-	"log"
+	
+	"github.com/Pegasus8/piworker/utilities/log"
 )
 
 // ReadConfigs is a function used to read the configs file and parse the content into
@@ -16,12 +17,13 @@ func ReadConfigs() (configs *Configs, err error) {
 	mutex.Lock()
 	defer mutex.Unlock()
 
+	log.Infoln("Reading config file...")
 	jsonData, err := os.Open(fullpath)
 	if err != nil {
 		return nil, err
 	}
 	defer jsonData.Close()
-	log.Println("Configs loaded")
+	log.Infoln("Configs loaded")
 
 	byteContent, err := ioutil.ReadAll(jsonData)
 	if err != nil {

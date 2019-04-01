@@ -4,7 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"errors"
-	"log"
+	"github.com/Pegasus8/piworker/utilities/log"
 )
 
 //! This internal tool was created with this help:
@@ -31,7 +31,7 @@ func DescryptContent(contentToDecrypt, key []byte) (decryptedContent []byte, err
 	if len(contentToDecrypt) < nonceSize {
 		err = errors.New("Error: the length of the content to decrypt" + 
 			" is lower than the length of the nonce.")
-		log.Println(err)
+		log.Errorln(err)
 	}
 
 	nonce, contentToDecrypt := contentToDecrypt[:nonceSize], contentToDecrypt[nonceSize:]

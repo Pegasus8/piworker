@@ -2,9 +2,9 @@ package data
 
 import (
 	"encoding/json"
-	"log"
 
 	"github.com/Pegasus8/piworker/utilities/files"
+	"github.com/Pegasus8/piworker/utilities/log"
 )
 
 // UpdateTask is a function used to update an existing task from the JSON data file.
@@ -19,7 +19,7 @@ func UpdateTask(taskName string, updatedTask *UserTask) error {
 		return err
 	}
 
-	log.Printf("Task with name '%s' finded, updating data...\n", taskName)
+	log.Infof("Task with name '%s' finded, updating data...\n", taskName)
 	data.Tasks[index] = *updatedTask
 
 	byteData, err := json.MarshalIndent(data, "", "   ")
@@ -33,7 +33,7 @@ func UpdateTask(taskName string, updatedTask *UserTask) error {
 		return err
 	}
 
-	log.Println("Task updated successfully")
+	log.Infoln("Task updated successfully")
 	return nil
 }
 

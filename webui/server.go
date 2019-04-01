@@ -2,10 +2,10 @@ package webui
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/Pegasus8/piworker/webui/websocket"
+	"github.com/Pegasus8/piworker/utilities/log"
 )
 
 func loadMainPage(w http.ResponseWriter, request *http.Request) {
@@ -33,13 +33,13 @@ func setupRoutes() {
 	http.HandleFunc("/ws", mainStats)
 
 	//TODO: implement https
-	log.Println("Listening an serving on", PORT)
-	log.Fatal(http.ListenAndServe(PORT, nil))
+	log.Infoln("Listening and serving on", PORT)
+	log.Fatalln(http.ListenAndServe(PORT, nil))
 }
 
 // Run - start the server
 func Run() {
-	log.Println("Starting server...")
+	log.Infoln("Starting server...")
 
 	setupRoutes()
 }

@@ -2,10 +2,10 @@ package data
 
 import (
 	"time"
-	"log"
 	"encoding/json"
 
 	"github.com/Pegasus8/piworker/utilities/files"
+	"github.com/Pegasus8/piworker/utilities/log"
 )
 
 // StartBackupLoop is a function used to backup the user data every 1 day.
@@ -19,25 +19,25 @@ func StartBackupLoop() error {
 	// Set the state of the loop on true for prevention of multiple executions
 	BackupLoopState = true
 
-	log.Println("Backup loop started")
+	log.Infoln("Backup loop started")
 
 	go func() {
 		// If the loop ends for some reason the state must be false
 		defer func() {
 			BackupLoopState = false
-			log.Println("Backup loop finished")
+			log.Errorln("Backup loop finished")
 		}()
 
 		// First backup
 		if err := backup(); err != nil {
-			log.Println("Error when trying to backup the data:", err)
+			log.Errorln("Error when trying to backup the data:", err)
 		}
 
 		// Backup loop
 		for range time.Tick(time.Hour*24) {
 			err := backup()
 			if err != nil {
-				log.Println("Error when trying to backup the data:", err)
+				log.Errorln("Error when trying to backup the data:", err)
 			}
 		}
 
@@ -52,7 +52,7 @@ func backup() error {
 
 	data, err := ReadData()
 	if err != nil {
-		log.Println("Error:", err)
+		log.Errorln("Error:", err)
 		return err
 	}
 
