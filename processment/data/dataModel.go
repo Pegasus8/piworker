@@ -33,7 +33,7 @@ type UserAction struct {
 	Order int `json:"order"`
 }
 
-// UserArg is a struct por arg parsing
+// UserArg is a struct for arg parsing
 type UserArg struct {
 	ID string `json:"ID"`
 	Content string `json:"content"`
