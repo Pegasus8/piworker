@@ -1,6 +1,9 @@
 package stats
 
 import (
+	"regexp"
+	"strconv"
+	"os/exec"
 
 	"github.com/Pegasus8/piworker/processment/data"
 )
@@ -55,4 +58,25 @@ func GetStatistics() (statistics *Statistic, err error) {
 			RAMUsage: rRAMUsage,
 		},
 	}, nil
+}
+
+func getRaspberryTemperature() (temperature float64, err error) {
+	rgx := regexp.MustCompile(`(?m)^\w+=([0-9]+\.[0-9]).+$`)
+	
+	cmd := exec.Command("vcgencmd", "measure_temp")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0.0, err
+	}
+
+	match := rgx.Find([]byte(output))
+	if match != nil {
+		temp, err := strconv.ParseFloat(string(match), 64)
+		if err != nil {
+			return 0.0, err
+		}
+		return temp, nil
+	}
+
+	return 0.0, ErrBadTemperatureParse
 }
