@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strconv"
 	"os/exec"
+	"os"
+	"io/ioutil"
 
 	"github.com/Pegasus8/piworker/processment/data"
 )
@@ -79,4 +81,41 @@ func getRaspberryTemperature() (temperature float64, err error) {
 	}
 	
 	return 0.0, ErrBadTemperatureParse
+}
+
+func getRaspberryCPULoad() (cpuload string, err error) {
+	filePath := "/proc/stat"
+	rgx := regexp.MustCompile(
+		`(?m)^cpu[^0-9]\s*([0-9]+)\s*([0-9]+)\s*([0-9]+)\s*([0-9]+)\s*([0-9]+)\s*([0-9]+)\s*([0-9]+)[\s0-9]*`,
+	)
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	content, err := ioutil.ReadAll(file)
+	if err != nil {
+		return "", err
+	}
+
+	match := rgx.FindStringSubmatch(string(content))
+	if len(match) > 1 {
+		values := make([]int64, 0)
+		for index, m := range match {
+			if index == 0 { continue } // Skip the line matched
+			val, err := strconv.ParseInt(m, 10, 64)
+			if err != nil {
+				return "", err
+			}
+			values = append(values, val)
+		}
+		result := (values[3] * 100) / (values[0] + values[1] + values[2] + 
+			values[3] + values[4] + values[5] + values[6])
+
+		return string(result) + "%", nil
+	} 
+		
+	return "", ErrBadCPULoadParse
 }
