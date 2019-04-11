@@ -9,3 +9,7 @@ import (
 var ErrBadTemperatureParse = errors.New(
 	"Failed temperature parsing: can't locate the temperature",
 )
+
+var ErrBadCPULoadParse = errors.New(
+	"Falied CPU load parsing: can't locate the values",
+)
