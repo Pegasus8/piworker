@@ -69,14 +69,14 @@ func getRaspberryTemperature() (temperature float64, err error) {
 		return 0.0, err
 	}
 
-	match := rgx.Find([]byte(output))
+	match := rgx.FindStringSubmatch(string(output))
 	if match != nil {
-		temp, err := strconv.ParseFloat(string(match), 64)
+		temp, err := strconv.ParseFloat(match[1], 64)
 		if err != nil {
 			return 0.0, err
 		}
 		return temp, nil
 	}
-
+	
 	return 0.0, ErrBadTemperatureParse
 }
