@@ -34,10 +34,6 @@ func GetStatistics() (statistics *Statistic, err error) {
 	if err != nil {
 		return nil, err
 	}
-	rFilesCreated, err := getRaspberryFilesCreated()
-	if err != nil {
-		return nil, err
-	}
 	rRAMUsage,err := getRaspberryRAMUsage()
 	if err != nil {
 		return nil, err
@@ -56,7 +52,6 @@ func GetStatistics() (statistics *Statistic, err error) {
 			Temperature: rTemperature,
 			CPULoad: rCPULoad,
 			FreeStorage: rFreeStorage,
-			FilesCreated: rFilesCreated,
 			RAMUsage: rRAMUsage,
 		},
 	}, nil
