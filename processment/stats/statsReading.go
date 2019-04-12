@@ -137,3 +137,25 @@ func getRaspberryFreeStorage() (freestorage string, err error) {
 
 	return "", ErrBadFreeStorageParse
 }
+
+func getRaspberryRAMUsage() (ramusage string, err error) {
+	rgx := regexp.MustCompile(
+		`(?m)^Mem:\s+(\w+,?\w*)\s+(\w+,?\w*).+`,
+	)
+
+	cmd := exec.Command("free", "-h")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	match := rgx.FindStringSubmatch(string(output))
+	if match != nil {
+		ramusage := match[2]
+		// totalmemory := match[1] -> can be used
+
+		return ramusage, nil
+	}
+
+	return "", ErrBadRAMUsageParse
+}
