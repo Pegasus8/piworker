@@ -25,5 +25,5 @@ type RaspberryStats struct {
 	Temperature float64 // ºC
 	CPULoad string // %
 	FreeStorage string
-	RAMUsage float64 // MB
+	RAMUsage string
 }
