@@ -114,3 +114,26 @@ func getRaspberryCPULoad() (cpuload string, err error) {
 		
 	return "", ErrBadCPULoadParse
 }
+
+func getRaspberryFreeStorage() (freestorage string, err error) {
+	rgx := regexp.MustCompile(
+		`(?m)^/dev/root\s+(\w+,?\w*)\s+(\w+,?\w*)\s+(\w+,?\w*).+$`,
+	)
+
+	cmd := exec.Command("df", "-h")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	match := rgx.FindStringSubmatch(string(output))
+	if match != nil {
+		freestorage := match[3]
+		// totalstorage := match[1] -> can be used
+		// usedstorage := match[2] -> can be used
+
+		return freestorage, nil
+	}
+
+	return "", ErrBadFreeStorageParse
+}
