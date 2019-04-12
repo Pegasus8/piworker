@@ -24,7 +24,7 @@ type Statistic struct {
 type RaspberryStats struct {
 	Temperature float64 // ºC
 	CPULoad string // %
-	FreeStorage float64 // MB
+	FreeStorage string
 	FilesCreated int
 	RAMUsage float64 // MB
 }
