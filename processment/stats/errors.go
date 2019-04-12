@@ -19,3 +19,8 @@ var ErrBadCPULoadParse = errors.New(
 var ErrBadFreeStorageParse = errors.New(
 	"Falied Free Storage parsing:  can't locate the value",
 )
+
+// ErrBadRAMUsageParse is the error used whem the RAM usage can't be parsed.
+var ErrBadRAMUsageParse = errors.New(
+	"Falied RAM usage parsing: can't locate the value",
+)
