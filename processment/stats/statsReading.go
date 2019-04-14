@@ -10,6 +10,7 @@ import (
 	"github.com/Pegasus8/piworker/processment/data"
 )
 
+// GetStatistics is a function used to get PiWorker general statistics.
 func GetStatistics() (statistics *Statistic, err error) {
 	tasks, err := data.ReadData()
 	if err != nil {
@@ -19,7 +20,7 @@ func GetStatistics() (statistics *Statistic, err error) {
 	activeTasks := len(*tasks.GetActiveTasks())
 	inactiveTasks := len(*tasks.GetInactiveTasks())
 	completedTasks := len(*tasks.GetCompletedTasks())
-	onExecutionTasks := len(*tasks.OnExecutionTasks())
+	onExecutionTasks := len(*tasks.GetOnExecutionTasks())
 
 	// Raspberry
 	rTemperature, err := getRaspberryTemperature()
