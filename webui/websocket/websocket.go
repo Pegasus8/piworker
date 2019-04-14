@@ -1,11 +1,12 @@
 package websocket
 
 import (
-	"log"
 	"net/http"
 	"time"
+	"encoding/json"
 
-	"github.com/Pegasus8/piworker/webui/websocket/stats"
+	"github.com/Pegasus8/piworker/processment/stats"
+	"github.com/Pegasus8/piworker/utilities/log"
 	"github.com/gorilla/websocket"
 )
 
@@ -26,10 +27,10 @@ func Upgrade(w http.ResponseWriter, request *http.Request) (*websocket.Conn, err
 	// WebSocket connection
 	ws, err := upgrader.Upgrade(w, request, nil)
 	if err != nil {
-		log.Println(err)
+		log.Criticalln(err)
 		return ws, err
 	}
-	log.Println("Connected with:",request.RemoteAddr)
+	log.Infoln("Connected with:", request.RemoteAddr)
 	// Return WebSocket connection
 	return ws, nil
 }
@@ -44,19 +45,26 @@ func Writer(conn *websocket.Conn) {
 	// // 	for t := range ticker.C { ... }
 	// // }
 	
-	log.Println("Sending data to ", conn.RemoteAddr())
-	// Send data to client every 5 secs
-	for range time.Tick(5 * time.Second) {
+	log.Infoln("Sending data to ", conn.RemoteAddr())
+	// Send data to client every 1 sec
+	for range time.Tick(1 * time.Second) {
 		// Get data
-		data, err := stats.GetStats()
+		data, err := stats.GetStatistics()
 		if err != nil {
-			log.Println(err)
+			log.Criticalln(err)
+			return
+		}
+
+		jsonData, err := json.Marshal(data)
+		if err != nil {
+			log.Criticalln(err)
+			return
 		}
 	
 		// Send data
-		err = conn.WriteMessage(websocket.TextMessage, []byte(data))
+		err = conn.WriteMessage(websocket.TextMessage, jsonData)
 		if err != nil {
-			log.Println(err)
+			log.Criticalln(err)
 			return
 		}
 	}
