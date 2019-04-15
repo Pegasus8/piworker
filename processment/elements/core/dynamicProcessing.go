@@ -62,6 +62,10 @@ func runTrigger(pwtrigger *triggersList.Trigger, userTask *data.UserTask) bool {
 
 func runActions(pwactions *[]actionsList.Action, userTask *data.UserTask) {
 	userActions := &userTask.TaskInfo.Actions
+	previousState := userTask.TaskInfo.State
+
+	// Set task state to on-execution
+	data.UpdateTaskState(userTask.TaskInfo.Name, data.StateTaskOnExecution)
 
 	orderN := 0
 	for range *userActions {
@@ -95,4 +99,7 @@ func runActions(pwactions *[]actionsList.Action, userTask *data.UserTask) {
 		}
 		
 	}
+
+	// Return task to the original state
+	data.UpdateTaskState(userTask.TaskInfo.Name, previousState)
 }
