@@ -28,6 +28,11 @@ func RunEngine() {
 		// Execute the trigger
 		for _, userTask := range *userTasks {
 
+			// Skip task if the state is not active
+			if userTask.TaskInfo.State != data.StateTaskActive {
+				continue
+			}
+
 			for _, pwtrigger := range *triggers {
 
 				if userTask.TaskInfo.Trigger.ID == pwtrigger.ID {
