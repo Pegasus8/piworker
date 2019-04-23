@@ -8,4 +8,5 @@ import (
 var TRIGGERS = []triggers.Trigger {
 	ByHour,
 	ByDate,
+	RaspberryTemperature,
 }
