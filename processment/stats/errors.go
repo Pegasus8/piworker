@@ -24,3 +24,8 @@ var ErrBadFreeStorageParse = errors.New(
 var ErrBadRAMUsageParse = errors.New(
 	"Falied RAM usage parsing: can't locate the value",
 )
+
+// ErrNilDB is the error used when the database returns nil
+var ErrNilDB = errors.New(
+	"Database error: database is nil",
+)
