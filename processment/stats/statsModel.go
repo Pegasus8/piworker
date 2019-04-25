@@ -1,5 +1,7 @@
 package stats
 
+import "time"
+
 // Stats is the struct used to work with general stats.
 type Stats struct {
 	Statistics []Statistic
@@ -26,4 +28,5 @@ type RaspberryStats struct {
 	CPULoad string // %
 	FreeStorage string
 	RAMUsage string
+	Timestamp time.Time
 }
