@@ -30,8 +30,12 @@ func StartLoop(statsChannel chan Statistic) {
 		if err != nil {
 			log.Fatalln(err)
 		}
-	
-		statsChannel <- *statistics
+		select {
+		case statsChannel <- *statistics:
+			// Sending data to channel
+		default:
+			// No receiver
+		}
 
 		StoreRasberryStatistics(db, statistics.RaspberryStats)
 	}
