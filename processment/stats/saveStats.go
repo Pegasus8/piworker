@@ -59,7 +59,7 @@ func CreateTable(db *sql.DB) error {
 
 // StoreRasberryStatistics is the function used to save a slice of 
 // `RaspberryStats` struct into the sqlite3 database.
-func StoreRasberryStatistics(db *sql.DB, items *[]RaspberryStats) error {
+func StoreRasberryStatistics(db *sql.DB, items ...RaspberryStats) error {
 	sqlStatement := `
 	INSERT INTO RaspberryStats(
 		Temperature,
@@ -76,7 +76,7 @@ func StoreRasberryStatistics(db *sql.DB, items *[]RaspberryStats) error {
 	}
 	defer stmt.Close()
 
-	for _, item := range *items {
+	for _, item := range items {
 		_, err = stmt.Exec(
 			item.Temperature,
 			item.CPULoad,
