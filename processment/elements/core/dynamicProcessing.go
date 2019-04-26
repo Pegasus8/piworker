@@ -104,7 +104,18 @@ func runActions(pwactions *[]actionsList.Action, userTask *data.UserTask) {
 		}
 		
 	}
-
-	// Return task to the original state
-	data.UpdateTaskState(userTask.TaskInfo.Name, previousState)
+	// Needed read the actual task state
+	updatedData, err := data.ReadData()
+	if err != nil {
+		log.Fatalln(err)
+	}
+	task, _, err := updatedData.GetTaskByName(userTask.TaskInfo.Name)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	lastState := task.TaskInfo.State
+	// If the state has no changes, return to the original state
+	if lastState == data.StateTaskOnExecution{
+		data.UpdateTaskState(userTask.TaskInfo.Name, previousState)
+	}
 }
