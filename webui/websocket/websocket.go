@@ -2,7 +2,6 @@ package websocket
 
 import (
 	"net/http"
-	"time"
 	"encoding/json"
 
 	"github.com/Pegasus8/piworker/processment/stats"
@@ -36,7 +35,7 @@ func Upgrade(w http.ResponseWriter, request *http.Request) (*websocket.Conn, err
 }
 
 // Writer func sends data into WebSocket to the client
-func Writer(conn *websocket.Conn) {
+func Writer(conn *websocket.Conn, statsChannel chan stats.Statistic) {
 
 	
 	// Other way to do that
@@ -47,24 +46,25 @@ func Writer(conn *websocket.Conn) {
 	
 	log.Infoln("Sending data to ", conn.RemoteAddr())
 	// Send data to client every 1 sec
-	for range time.Tick(1 * time.Second) {
+	for {
+
 		// Get data
-		data, err := stats.GetStatistics()
-		if err != nil {
-			log.Criticalln(err)
-			return
-		}
+		data := <- statsChannel
 
 		jsonData, err := json.Marshal(data)
 		if err != nil {
 			log.Criticalln(err)
 			return
 		}
-	
+
 		// Send data
 		err = conn.WriteMessage(websocket.TextMessage, jsonData)
 		if err != nil {
-			log.Criticalln(err)
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway){
+				log.Errorln(err)
+				return
+			} 
+			log.Infoln("The client", conn.RemoteAddr(), "has closed the websocket connection")
 			return
 		}
 	}

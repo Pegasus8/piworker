@@ -6,7 +6,10 @@ import (
 
 	"github.com/Pegasus8/piworker/webui/websocket"
 	"github.com/Pegasus8/piworker/utilities/log"
+	"github.com/Pegasus8/piworker/processment/stats"
 )
+
+var statsChannel chan stats.Statistic
 
 func loadMainPage(w http.ResponseWriter, request *http.Request) {
 	//TODO: launch main page
@@ -22,7 +25,7 @@ func mainStats(w http.ResponseWriter, request *http.Request) {
 	}
 	// Execution of data sending to the client 
 	// into another goroutine
-	go websocket.Writer(ws)
+	go websocket.Writer(ws, statsChannel)
 }
 
 func setupRoutes() {
@@ -38,8 +41,10 @@ func setupRoutes() {
 }
 
 // Run - start the server
-func Run() {
+func Run(statsChan chan stats.Statistic) {
 	log.Infoln("Starting server...")
+
+	statsChannel = statsChan
 
 	setupRoutes()
 }

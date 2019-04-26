@@ -5,13 +5,15 @@ import (
 	"time"
 	"os"
 	"strings"
-	
+
 	"github.com/Pegasus8/piworker/utilities/log"
 	"github.com/Pegasus8/piworker/webui"
 	"github.com/Pegasus8/piworker/processment/data"
+	"github.com/Pegasus8/piworker/processment/stats"
 )
 
 func main() {
+
 	// Logs settings
 	var (
 		loggingDir = "./logs/"
@@ -31,9 +33,14 @@ func main() {
 	// Set user data filename
 	data.Filename = "user_data.json" //TODO: assign the name dinamically
 
+	// Statistics channel
+	var statsChannel chan stats.Statistic
+
+	// Stats loop
+	go stats.StartLoop(statsChannel)
 
 	// WebUI
-	webui.Run()
+	webui.Run(statsChannel)
 }
 
 
