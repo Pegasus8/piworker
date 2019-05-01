@@ -8,4 +8,10 @@ var (
 	ErrUnrecognizedArgID = errors.New(
 		"Error with the ID of an argument: unrecognized ID",
 	)
+
+	// ErrUnrecognizedTimeFormat is the error used when the content of the Arg
+	// ´T4-1´ (EveryXTime trigger) uses an unrecognized string.
+	ErrUnrecognizedTimeFormat = errors.New(
+		"Error with the time unit used: unrecognized unit",
+	)
 )
