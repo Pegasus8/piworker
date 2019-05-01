@@ -55,7 +55,6 @@ func prepareLogsDirectory(dir string) error {
 
 func setLogNameByDate(name string) (formattedName string) {
 	now := time.Now().Format("02/01/2006")
-	now = strings.ReplaceAll(now, " ", "_")
 
 	return name + "_" + now + ".log"
 }
