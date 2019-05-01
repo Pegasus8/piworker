@@ -9,4 +9,5 @@ var TRIGGERS = []triggers.Trigger {
 	ByHour,
 	ByDate,
 	RaspberryTemperature,
+	VariationOfFileSize,
 }
