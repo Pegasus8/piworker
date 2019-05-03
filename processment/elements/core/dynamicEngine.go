@@ -12,6 +12,7 @@ import (
 	actionsList "github.com/Pegasus8/piworker/processment/elements/actions"
 )
 
+// StartEngine is the function used to start the Dynamic Engine
 func StartEngine() {
 
 	var triggerGoroutines map[string]chan []data.UserTask
