@@ -68,24 +68,24 @@ func StartEngine() {
 
 func checkForAnUpdate(updateChannel chan bool) {
 	dataPath := filepath.Join(data.DataPath, data.Filename)
-	var oldSize int64
-	var newSize int64
+	var oldModTime time.Time
+	var newModTime time.Time
 	for range time.Tick(time.Millisecond * 300) {
 		fileInfo, err := os.Stat(dataPath)
 		if err != nil {
 			log.Criticalln(err)
 		}
 		// First run
-		if oldSize == 0 {
-			oldSize = fileInfo.Size()
+		if oldModTime.IsZero() {
+			oldModTime = fileInfo.ModTime()
 		}
-		newSize = fileInfo.Size()
-		if oldSize != newSize {
+		newModTime = fileInfo.ModTime()
+		if oldModTime != newModTime {
 			// Send the signal
 			updateChannel <- true
 			// Update the variable
-			oldSize = newSize
-		} 
+			oldModTime = newModTime
+		}
 	}
 }
 
