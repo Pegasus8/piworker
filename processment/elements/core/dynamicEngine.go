@@ -2,6 +2,8 @@ package core
 
 import (
 	"time"
+	"path/filepath"
+	"os"
 
 	"github.com/Pegasus8/piworker/utilities/log"
 
@@ -21,11 +23,28 @@ func StartEngine() {
 		go runTriggerLoop(trigger, triggerGoroutines[trigger.ID])
 	}
 
+	var needUpdateData chan bool
+
+	// Read the data for first time
+	userData, err := data.ReadData()
+	if err != nil {
+		log.Criticalln(err)
+	}
+
+	go checkForAnUpdate(needUpdateData)
+
 	// Keep the data updated
 	for range time.Tick(time.Millisecond * 200) {
-		userData, err := data.ReadData()
-		if err != nil {
-			log.Criticalln(err)
+		select {
+		case <- needUpdateData: {
+			// Renew the data variable
+			userData, err = data.ReadData()
+			if err != nil {
+				log.Criticalln(err)
+			}
+		}
+		default: 
+			// Keep using the current data
 		}
 
 		// Discriminate data for each trigger
@@ -43,6 +62,29 @@ func StartEngine() {
 		for key, value := range discriminedData {
 			triggerGoroutines[key] <- value
 		}
+	}
+}
+
+func checkForAnUpdate(updateChannel chan bool) {
+	dataPath := filepath.Join(data.DataPath, data.Filename)
+	var oldSize int64
+	var newSize int64
+	for range time.Tick(time.Millisecond * 300) {
+		fileInfo, err := os.Stat(dataPath)
+		if err != nil {
+			log.Criticalln(err)
+		}
+		// First run
+		if oldSize == 0 {
+			oldSize = fileInfo.Size()
+		}
+		newSize = fileInfo.Size()
+		if oldSize != newSize {
+			// Send the signal
+			updateChannel <- true
+			// Update the variable
+			oldSize = newSize
+		} 
 	}
 }
 
