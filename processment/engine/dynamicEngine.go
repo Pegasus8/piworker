@@ -14,34 +14,42 @@ import (
 
 // StartEngine is the function used to start the Dynamic Engine
 func StartEngine() {
+	log.Infoln("Dynamic Engine started")
 
 	var triggerGoroutines map[string]chan []data.UserTask
 
+	log.Infoln("Creating channels of the triggers...")
 	for _, trigger := range triggersList.TRIGGERS {
 		// Create the channel for each task
 		triggerGoroutines[trigger.ID] = make(chan []data.UserTask)
 		// Start the trigger goroutine
 		go runTriggerLoop(trigger, triggerGoroutines[trigger.ID])
 	}
+	log.Infoln("Channels created correctly")
 
 	var needUpdateData chan bool
 
+	log.Infoln("Reading user data for first time...")
 	// Read the data for first time
 	userData, err := data.ReadData()
 	if err != nil {
-		log.Criticalln(err)
+		log.Fatalln(err)
 	}
 
+	log.Infoln("Running the data file watchdog...")
 	go checkForAnUpdate(needUpdateData)
 
 	// Keep the data updated
 	for range time.Tick(time.Millisecond * 200) {
 		select {
 		case <- needUpdateData: {
+			log.Infoln("Updating the data variable due to a change detected...")
 			// Renew the data variable
 			userData, err = data.ReadData()
 			if err != nil {
-				log.Criticalln(err)
+				log.Fatalln(err)
+			} else {
+				log.Infoln("Data variable updated successfully")
 			}
 		}
 		default: 
@@ -77,10 +85,12 @@ func checkForAnUpdate(updateChannel chan bool) {
 		}
 		// First run
 		if oldModTime.IsZero() {
+			log.Infoln("First run of the data file watchdog, setting variable of comparison")
 			oldModTime = fileInfo.ModTime()
 		}
 		newModTime = fileInfo.ModTime()
 		if oldModTime != newModTime {
+			log.Infoln("Change detected on the data file, sending the signal...")
 			// Send the signal
 			updateChannel <- true
 			// Update the variable
@@ -90,6 +100,7 @@ func checkForAnUpdate(updateChannel chan bool) {
 }
 
 func runTriggerLoop(trigger triggersList.Trigger, dataChannel chan []data.UserTask) {
+	log.Infof("Loop for the trigger '%s' started\n", trigger.Name)
 	for range time.Tick(time.Millisecond * 200) {
 		// Receive the renewed data for the trigger in question, if there is not data
 		// just keep waiting for it.
@@ -105,19 +116,28 @@ func runTriggerLoop(trigger triggersList.Trigger, dataChannel chan []data.UserTa
 			}
 			// If the trigger is activated, then run the actions
 			if result {
+				log.Infof("Trigger '%s' of the task '%s' activated, running actions...\n",
+					trigger.Name, task.TaskInfo.Name)
 				go runTaskActions(&task)
-
 			}
 		}
 	}
 }
 
 func runTaskActions(task *data.UserTask) {
+	log.Infof("Running actions of the task '%s'\n", task.TaskInfo.Name)
+	startTime := time.Now()
+
 	userActions := &task.TaskInfo.Actions
 	previousState := task.TaskInfo.State
 
+	log.Infof("Changing task state of '%s' to '%s'\n", task.TaskInfo.Name, data.StateTaskOnExecution)
 	// Set task state to on-execution
-	data.UpdateTaskState(task.TaskInfo.Name, data.StateTaskOnExecution)
+	err := data.UpdateTaskState(task.TaskInfo.Name, data.StateTaskOnExecution)
+	if err != nil {
+		log.Fatalf("Error when trying to update the task state of '%s' to '%s'\n",
+			task.TaskInfo.Name, data.StateTaskOnExecution)
+	}
 
 	orderN := 0
 	for range *userActions {
@@ -164,6 +184,11 @@ func runTaskActions(task *data.UserTask) {
 	lastState := updatedTask.TaskInfo.State
 	// If the state has no changes, return to the original state
 	if lastState == data.StateTaskOnExecution{
-		data.UpdateTaskState(task.TaskInfo.Name, previousState)
+		err = data.UpdateTaskState(task.TaskInfo.Name, previousState)
+		if err != nil {
+			log.Fatalln(err)
+		}
 	}
+	executionTime := time.Since(startTime).String()
+	log.Infof("Task with name '%s' executed in %s\n", task.TaskInfo.Name, executionTime)
 }
