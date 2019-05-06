@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"io/ioutil"
 
 	"github.com/Pegasus8/piworker/utilities/log"
 
@@ -17,6 +18,7 @@ import (
 // StartEngine is the function used to start the Dynamic Engine
 func StartEngine() {
 	log.Infoln("Dynamic Engine started")
+	defer os.RemoveAll(TempDir)
 
 	var triggerGoroutines map[string]chan []data.UserTask
 	var needUpdateData chan bool
@@ -137,9 +139,32 @@ func runTriggerLoop(trigger triggersList.Trigger, dataChannel chan []data.UserTa
 			}
 			// If the trigger is activated, then run the actions
 			if result {
+
+				if wasRecentlyExecuted(task.TaskInfo.Name) {
+					log.Infof("The task with the name '%s' was recently executed, the trigger " +
+					"stills active. Skipping it...\n", task.TaskInfo.Name)
+					goto skipTaskExecution
+				}
+
 				log.Infof("Trigger '%s' of the task '%s' activated, running actions...\n",
 					trigger.Name, task.TaskInfo.Name)
 				go runTaskActions(&task)
+
+				err = setAsRecentlyExecuted(task.TaskInfo.Name)
+				if err != nil {
+					log.Criticalln(err)
+				}
+
+				skipTaskExecution:
+					// Skip the execution of the task but not skip the entire iteration
+					// in case of have to do something else with the task.
+			} else {
+				if wasRecentlyExecuted(task.TaskInfo.Name) {
+					err = setAsReadyToExecuteAgain(task.TaskInfo.Name)
+					if err != nil {
+						log.Criticalln(err)
+					}
+				}
 			}
 		}
 	}
@@ -212,4 +237,44 @@ func runTaskActions(task *data.UserTask) {
 	}
 	executionTime := time.Since(startTime).String()
 	log.Infof("Task with name '%s' executed in %s\n", task.TaskInfo.Name, executionTime)
+}
+
+func setAsRecentlyExecuted(taskName string) error {
+	dir, err := ioutil.TempDir(TempDir, "")
+	if err != nil {
+		return err
+	}
+
+	file, err := ioutil.TempFile(filepath.Join(dir, taskName), "")
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	return nil
+}
+
+func wasRecentlyExecuted(taskName string) bool {
+	_, err := os.Stat(filepath.Join(TempDir, taskName))
+	if err != nil {
+		if os.IsNotExist(err){
+			return false
+		} else if os.IsExist(err) {
+			return true
+		}
+		log.Criticalln(err)
+		return false
+	}
+
+	return true
+}
+
+func setAsReadyToExecuteAgain(taskName string) error {
+	path := filepath.Join(TempDir, taskName)
+	err := os.Remove(path)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
