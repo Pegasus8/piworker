@@ -1,15 +1,15 @@
 package engine
 
 import (
-	"time"
-	"path/filepath"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/Pegasus8/piworker/utilities/log"
 
 	"github.com/Pegasus8/piworker/processment/data"
-	triggersList "github.com/Pegasus8/piworker/processment/elements/triggers"
 	actionsList "github.com/Pegasus8/piworker/processment/elements/actions"
+	triggersList "github.com/Pegasus8/piworker/processment/elements/triggers"
 	"github.com/Pegasus8/piworker/processment/stats"
 	"github.com/Pegasus8/piworker/webui"
 )
@@ -31,8 +31,6 @@ func StartEngine() {
 		go runTriggerLoop(trigger, triggerGoroutines[trigger.ID])
 	}
 	log.Infoln("Channels created correctly")
-
-	
 
 	log.Infoln("Reading user data for first time...")
 	// Read the data for first time
@@ -56,17 +54,18 @@ func StartEngine() {
 	// Keep the data updated
 	for range time.Tick(time.Millisecond * 200) {
 		select {
-		case <- needUpdateData: {
-			log.Infoln("Updating the data variable due to a change detected...")
-			// Renew the data variable
-			userData, err = data.ReadData()
-			if err != nil {
-				log.Fatalln(err)
-			} else {
-				log.Infoln("Data variable updated successfully")
+		case <-needUpdateData:
+			{
+				log.Infoln("Updating the data variable due to a change detected...")
+				// Renew the data variable
+				userData, err = data.ReadData()
+				if err != nil {
+					log.Fatalln(err)
+				} else {
+					log.Infoln("Data variable updated successfully")
+				}
 			}
-		}
-		default: 
+		default:
 			// Keep using the current data
 		}
 
@@ -74,7 +73,7 @@ func StartEngine() {
 		case dataChannel <- *userData:
 			// Send the data to the stats loop.
 		default:
-			// If casually the loop is not awaiting for it, continue the loop for prevention 
+			// If casually the loop is not awaiting for it, continue the loop for prevention
 			// of blocking and delay.
 		}
 
@@ -166,7 +165,7 @@ func runTaskActions(task *data.UserTask) {
 
 		for _, userAction := range *userActions {
 			if userAction.Order == orderN {
-					
+
 				// Run the action
 				for _, action := range actionsList.ACTIONS {
 					if userAction.ID == action.ID {
@@ -175,23 +174,23 @@ func runTaskActions(task *data.UserTask) {
 							log.Errorln(err)
 						}
 						if result {
-							log.Infof("Action in order %d of the task '%s' finished correctly", 
+							log.Infof("Action in order %d of the task '%s' finished correctly",
 								userAction.Order, task.TaskInfo.Name)
 						} else {
 							log.Errorf("Action in order %d of the task '%s' wasn't executed correctly",
 								userAction.Order, task.TaskInfo.Name)
 						}
-		
+
 						// It's not necessary to continue iterating
-						break 
+						break
 					}
 				}
-		
+
 				orderN++
 				break
 			}
 		}
-		
+
 	}
 
 	// Needed read the actual task state
@@ -205,7 +204,7 @@ func runTaskActions(task *data.UserTask) {
 	}
 	lastState := updatedTask.TaskInfo.State
 	// If the state has no changes, return to the original state
-	if lastState == data.StateTaskOnExecution{
+	if lastState == data.StateTaskOnExecution {
 		err = data.UpdateTaskState(task.TaskInfo.Name, previousState)
 		if err != nil {
 			log.Fatalln(err)
