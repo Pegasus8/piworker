@@ -4,12 +4,10 @@ import (
 	"path/filepath"
 	"time"
 	"os"
-	"strings"
 
 	"github.com/Pegasus8/piworker/utilities/log"
-	"github.com/Pegasus8/piworker/webui"
 	"github.com/Pegasus8/piworker/processment/data"
-	"github.com/Pegasus8/piworker/processment/stats"
+	"github.com/Pegasus8/piworker/processment/engine"
 )
 
 func main() {
@@ -33,14 +31,8 @@ func main() {
 	// Set user data filename
 	data.Filename = "user_data.json" //TODO: assign the name dinamically
 
-	// Statistics channel
-	var statsChannel chan stats.Statistic
-
-	// Stats loop
-	go stats.StartLoop(statsChannel)
-
-	// WebUI
-	webui.Run(statsChannel)
+	// Start the Dynamic Engine
+	engine.StartEngine()
 }
 
 
