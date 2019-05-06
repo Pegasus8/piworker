@@ -1,4 +1,4 @@
-package core
+package engine
 
 import (
 	"time"
@@ -10,6 +10,8 @@ import (
 	"github.com/Pegasus8/piworker/processment/data"
 	triggersList "github.com/Pegasus8/piworker/processment/elements/triggers"
 	actionsList "github.com/Pegasus8/piworker/processment/elements/actions"
+	"github.com/Pegasus8/piworker/processment/stats"
+	"github.com/Pegasus8/piworker/webui"
 )
 
 // StartEngine is the function used to start the Dynamic Engine
@@ -17,6 +19,9 @@ func StartEngine() {
 	log.Infoln("Dynamic Engine started")
 
 	var triggerGoroutines map[string]chan []data.UserTask
+	var needUpdateData chan bool
+	var statsChannel chan stats.Statistic // Chanel thought WebUI and Stats loop
+	var dataChannel chan data.UserData
 
 	log.Infoln("Creating channels of the triggers...")
 	for _, trigger := range triggersList.TRIGGERS {
@@ -27,7 +32,7 @@ func StartEngine() {
 	}
 	log.Infoln("Channels created correctly")
 
-	var needUpdateData chan bool
+	
 
 	log.Infoln("Reading user data for first time...")
 	// Read the data for first time
@@ -36,8 +41,17 @@ func StartEngine() {
 		log.Fatalln(err)
 	}
 
+	// Start the watchdog of the data file
 	log.Infoln("Running the data file watchdog...")
 	go checkForAnUpdate(needUpdateData)
+
+	// Start the WebUI server
+	log.Infoln("Starting the WebUI server...")
+	go webui.Run(statsChannel)
+
+	// Start the stats recollection
+	log.Infoln("Starting the stats loop...")
+	go stats.StartLoop(statsChannel, dataChannel)
 
 	// Keep the data updated
 	for range time.Tick(time.Millisecond * 200) {
@@ -54,6 +68,14 @@ func StartEngine() {
 		}
 		default: 
 			// Keep using the current data
+		}
+
+		select {
+		case dataChannel <- *userData:
+			// Send the data to the stats loop.
+		default:
+			// If casually the loop is not awaiting for it, continue the loop for prevention 
+			// of blocking and delay.
 		}
 
 		// Discriminate data for each trigger
