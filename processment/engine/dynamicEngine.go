@@ -150,14 +150,20 @@ func runTriggerLoop(trigger triggersList.Trigger, dataChannel chan []data.UserTa
 					trigger.Name, task.TaskInfo.Name)
 				go runTaskActions(&task)
 
-				setAsRecentlyExecuted(task.TaskInfo.Name)
+				err = setAsRecentlyExecuted(task.TaskInfo.Name)
+				if err != nil {
+					log.Criticalln(err)
+				}
 
 				skipTaskExecution:
 					// Skip the execution of the task but not skip the entire iteration
 					// in case of have to do something else with the task.
 			} else {
 				if wasRecentlyExecuted(task.TaskInfo.Name) {
-					setAsReadyToExecuteAgain(task.TaskInfo.Name)
+					err = setAsReadyToExecuteAgain(task.TaskInfo.Name)
+					if err != nil {
+						log.Criticalln(err)
+					}
 				}
 			}
 		}
