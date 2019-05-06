@@ -20,7 +20,7 @@ func StartEngine() {
 
 	var triggerGoroutines map[string]chan []data.UserTask
 	var needUpdateData chan bool
-	var statsChannel chan stats.Statistic // Chanel thought WebUI and Stats loop
+	var statsChannel chan stats.Statistic // Channel between the WebUI and Stats loop
 	var dataChannel chan data.UserData
 
 	log.Infoln("Creating channels of the triggers...")
