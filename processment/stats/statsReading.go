@@ -11,11 +11,11 @@ import (
 )
 
 // GetStatistics is a function used to get PiWorker general statistics.
-func GetStatistics() (statistics *Statistic, err error) {
-	tasks, err := data.ReadData()
-	if err != nil {
-		return nil, err
-	}
+func GetStatistics(tasks *data.UserData) (statistics *Statistic, err error) {
+	// tasks, err := data.ReadData()
+	// if err != nil {
+	// 	return nil, err
+	// }
 
 	activeTasks := len(*tasks.GetActiveTasks())
 	inactiveTasks := len(*tasks.GetInactiveTasks())
