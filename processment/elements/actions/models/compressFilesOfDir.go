@@ -58,13 +58,9 @@ func compressFilesOfDir(args *[]data.UserArg) (result bool, err error) {
 	for _, arg := range *args {
 		switch arg.ID {
 		case directoryCompressFilesOfDirArgID:
-			targetDir = filepath.Dir(
-				filepath.Clean(arg.Content),
-			)
+			targetDir = filepath.Clean(arg.Content)
 		case savetoCompressFilesOfDirArgID: 
-			outputDir = filepath.Dir(
-				filepath.Clean(arg.Content),
-			)
+			outputDir = filepath.Clean(arg.Content)
 
 		default:
 			return false, ErrUnrecognizedArgID
@@ -82,7 +78,7 @@ func compressFilesOfDir(args *[]data.UserArg) (result bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	log.Infoln("Files obtained:", files)
+	log.Infoln("Files obtained")
 
 	for _, file := range files {
 		if file.IsDir() {
