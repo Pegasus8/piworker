@@ -67,7 +67,7 @@ func compressFilesOfDir(args *[]data.UserArg) (result bool, err error) {
 		}
 	}
 
-	log.Infof("Creating the directory '%s' if it doesn't exist ...\n", targetDir)
+	log.Infof("Creating the directory '%s' if it doesn't exist...\n", outputDir)
 	err = os.MkdirAll(outputDir, 0700)
 	if err != nil {
 		return false, nil
@@ -87,7 +87,9 @@ func compressFilesOfDir(args *[]data.UserArg) (result bool, err error) {
 		}
 		log.Infof("Starting the compression of the file '%s'...\n", file.Name())
 		
-		openedFile, err := os.Open(file.Name())
+		openedFile, err := os.Open(
+			filepath.Join(targetDir, file.Name()),
+		)
 		if err != nil {
 			return false, err
 		}
