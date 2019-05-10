@@ -72,7 +72,7 @@ func compressFilesOfDir(args *[]data.UserArg) (result bool, err error) {
 	}
 
 	log.Infof("Creating the directory '%s' if it doesn't exist ...\n", targetDir)
-	err = os.MkdirAll(outputDir, 0666)
+	err = os.MkdirAll(outputDir, 0700)
 	if err != nil {
 		return false, nil
 	}
