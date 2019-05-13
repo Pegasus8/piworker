@@ -8,4 +8,5 @@ import  (
 var ACTIONS = []actions.Action {
 	WriteTextFile,
 	CompressFilesOfDir,
+	ExecuteCommand,
 }
