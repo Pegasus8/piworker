@@ -9,16 +9,12 @@
 
         <!-- Normalize -->
         <link rel="stylesheet" href="css/vendor/normalize.css">
-        
+
         <!-- Modernizr -->
         <script src="scripts/vendor/modernizr-custom.js"></script>
         
         <!-- Bootstrap -->
         <link rel="stylesheet" href="css/vendor/bootstrap.min.css">
-        <!-- Bootstrap dependences -->
-        <script src="scripts/vendor/jquery-3.3.1.slim.min.js"></script>
-        <script src="scripts/vendor/propper.min.js"></script>
-        <script src="scripts/vendor/bootstrap.min.js"></script>
 
         <!-- Vue -->
         <script src="scripts/vendor/vue.min.js"></script>
@@ -31,51 +27,62 @@
     <body>
 
         <header class="text-center">
-            <h1 class="display-2 font-weight-bold">PiWorker</h1>
-            <nav>
-                <ul>
-                    <li><a href="#">Statistics</a></li>
-                    <li><a href="#">New Task</a></li>
-                    <li><a href="#">Settings</a></li>
-                </ul>
+            
+            <nav class="navbar navbar-expand-lg navbar navbar-dark bg-dark">
+                <a class="navbar-brand mb-0 h1" href="#">PiWorker <span class="badge badge-secondary badge-light badge-pill" id="version">Alpha-v0.1.0</span> </a>
+                <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <div class="collapse navbar-collapse" id="navbarSupportedContent">
+                    <ul class="navbar-nav mr-auto">
+                        <li class="nav-item active">
+                            <a class="nav-link" href="#">Statistics</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#">New Task</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#">Settings</a>
+                        </li>
+                    </ul>
+                </div>
             </nav>
+
         </header>
 
 
         <div class="container">
+
             <div class="row justify-content-center">
-                <div class="box col-4">
-                    <div class="card">
-                        <div class="bottom-box"></div>
-                        <div class="top-box text-center py-5 container">
-                            <h3 id="active-tasks-number">0</h3>
-                            <p id="title">Counter</p>
-                        </div>
+                <div class="box col-auto col-sm-auto border card m-3 mx-md-4 mx-lg-5 py-3">
+                    <div class="card-body text-center">
+                        <h4 class="card-title">Counter</h4>
+                        <span class="card-subtitle mb-2 text-muted display-4">0</span>
                     </div>
                 </div>
 
-                <div class="box col-4">
-                    <div class="card">
-                        <div class="bottom-box"></div>
-                        <div class="top-box text-center py-5 container">
-                            <h3 id="active-tasks-number">0</h3>
-                            <p id="title">Counter</p>
-                        </div>
+                <div class="box col-auto col-sm-auto border card m-3 mx-md-4 mx-lg-5 py-3">
+                    <div class="card-body text-center">
+                        <h4 class="card-title">Counter</h4>
+                        <span class="card-subtitle mb-2 text-muted display-4">0</span>
                     </div>
                 </div>
 
-                <div class="box col-4">
-                    <div class="card">
-                        <div class="bottom-box"></div>
-                        <div class="top-box text-center py-5 container">
-                            <h3 id="active-tasks-number">0</h3>
-                            <p id="title">Counter</p>
-                        </div>
+                <div class="box col-auto col-sm-auto border card m-3 mx-md-4 mx-lg-5 py-3">
+                    <div class="card-body text-center">
+                        <h4 class="card-title">Counter</h4>
+                        <span class="card-subtitle mb-2 text-muted display-4">0</span>
                     </div>
                 </div>
             </div>
+
         </div>
     
+        <!-- Bootstrap dependences -->
+        <script src="scripts/vendor/jquery-3.3.1.slim.min.js"></script>
+        <script src="scripts/vendor/propper.min.js"></script>
+        <script src="scripts/vendor/bootstrap.min.js"></script>
 
         <!-- Custom scripts -->
         <script src="scripts/updateData.js"></script>
