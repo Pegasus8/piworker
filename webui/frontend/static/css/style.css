@@ -1,15 +1,4 @@
 body {
-  background: #1E1E1E; }
-
-header {
-  background: linear-gradient(#00695c, #00e3c6);
-  background: -webkit-linear-gradient(#00695c, #00e3c6);
-  background: -moz-linear-gradient(#00695c, #00e3c6);
-  background: -o-linear-gradient(#00695c, #00e3c6); }
-  header h1 {
-    color: #ff9d5c; }
-
-li a {
-  color: #003f37; }
+  background: #1e1e1e; }
 
 /*# sourceMappingURL=style.css.map */

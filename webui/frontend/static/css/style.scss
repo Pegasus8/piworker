@@ -1,8 +1,8 @@
 //! ---- Possible colors --- //
 // Body
-$body-bg: #1E1E1E;
+$body-bg: #1e1e1e;
 // Header
-$header-bg: rgb(0,105,92); // rgb(40, 58, 67)
+$header-bg: rgb(0, 105, 92); // rgb(40, 58, 67)
 $header-shadow: #189485;
 $title-font-color: rgb(255, 157, 92);
 $menu-items-color: scale-color($header-bg, $lightness: -40%);
@@ -10,29 +10,6 @@ $menu-items-color: scale-color($header-bg, $lightness: -40%);
 $box-font-color: rgb(255, 157, 92);
 //! ------------------------ //
 
-
 body {
-    background: $body-bg;
-}
-
-header {
-    background: linear-gradient($header-bg, scale-color($header-bg, $lightness: +30%));
-    background: -webkit-linear-gradient($header-bg, scale-color($header-bg, $lightness: +30%));
-    background: -moz-linear-gradient($header-bg, scale-color($header-bg, $lightness: +30%));
-    background: -o-linear-gradient($header-bg, scale-color($header-bg, $lightness: +30%));
-
-    h1 {
-        color: $title-font-color;
-    }
-}
-
-li {
-    // display: inline-block;
-    // margin: 0px, 10px;
-    // padding: 10px;
-    // font-size: $menu-items-fz;
-
-    a {
-        color: $menu-items-color;
-    }
+  background: $body-bg;
 }
