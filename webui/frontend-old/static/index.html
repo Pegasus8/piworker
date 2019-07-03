@@ -21,6 +21,7 @@
 
     <!-- Custom styles -->
     <link rel="stylesheet" href="css/style.css">
+
 </head>
 
 
@@ -53,7 +54,6 @@
 
     </header>
 
-
     <div class="container-fluid my-4">
 
         <div class="row justify-content-center mx-5 p-4">
@@ -61,7 +61,9 @@
                 class="box col-10 col-sm-6 col-md-5 col-lg-3 col-xl-2 border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark">
                 <div class="card-body text-center">
                     <p class="card-title text-muted h4">Active</p>
-                    <h3 class="card-subtitle mb-2 text-light display-4">0</h3>
+                    <h3 class="card-subtitle mb-2 text-light display-4" id="active-tasks-number">
+                        {{ number }}
+                    </h3>
                 </div>
             </div>
 
@@ -69,7 +71,9 @@
                 class="box col-10 col-sm-6 col-md-5 col-lg-3 col-xl-2 border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark">
                 <div class="card-body text-center">
                     <p class="card-title text-muted h4">On Execution</p>
-                    <h3 class="card-subtitle mb-2 text-light display-4">0</h3>
+                    <h3 class="card-subtitle mb-2 text-light display-4" id="onexecution-tasks-number">
+                        {{ number }}
+                    </h3>
                 </div>
             </div>
 
@@ -77,7 +81,9 @@
                 class="box col-10 col-sm-6 col-md-5 col-lg-3 col-xl-2 border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark">
                 <div class="card-body text-center">
                     <p class="card-title text-muted h4">Inactive</h4>
-                        <h3 class="card-subtitle mb-2 text-light display-4">0</h3>
+                        <h3 class="card-subtitle mb-2 text-light display-4" id="inactive-tasks-number">
+                            {{ number }}
+                        </h3>
                 </div>
             </div>
         </div>
@@ -146,7 +152,7 @@
     <script src="scripts/vendor/propper.min.js"></script>
     <script src="scripts/vendor/bootstrap.min.js"></script>
 
-    <!-- Custom scripts -->
+    <script src="scripts/index.js"></script>
     <script src="scripts/updateData.js"></script>
 
 </body>

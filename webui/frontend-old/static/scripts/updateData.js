@@ -1,4 +1,3 @@
-//TODO: use ip of raspberry pi instead of localhost
 const socket = new WebSocket(`ws://${location.host}/ws`)
 let data = {}
 
@@ -15,8 +14,9 @@ socket.onmessage = (event) => {
     data = JSON.parse(event.data)
     console.log(data)
 
-    //TODO: implement ui update of elements parsing JSON data
-    document.getElementById("test").innerText = data.activeTasksTest.activeTasks
+    if (length(data) > 0 ){
+        activeTasks.number = data.Statistic.ActiveTasks
+    }
  }
 
  socket.onclose = (event) => {
