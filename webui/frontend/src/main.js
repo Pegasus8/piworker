@@ -4,9 +4,11 @@ import router from './router'
 import store from './store'
 import axios from 'axios'
 
+import 'bootstrap'; import 'bootstrap/dist/css/bootstrap.min.css'
+
 Vue.config.productionTip = false
 
-                      // FIXME Check if https enabled on server
+// FIXME Check if https enabled on server
 axios.defaults.baseURL = `https://${location.host}/api`
 
 new Vue({
