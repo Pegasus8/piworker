@@ -28,7 +28,7 @@
           <li class="nav-item">
             <router-link :to="{name: 'settings'}" class="nav-link">Settings</router-link>
           </li>
-          <li class="nav-item navbar-right">
+          <li class="nav-item navbar-right ml-lg-3">
             <button class="btn btn-primary" id="newTaskBtn">New</button>
           </li>
         </ul>
