@@ -7,7 +7,7 @@
         {title: 'Average execution time', value: '0 milliseconds'},
         {title: 'Time operating', value: '0 seconds'},
         {title: 'State of the backup loop', value: 'inactive'}
-      ]" 
+      ]"
     />
     <app-panel
       title="Raspberry statistics"
@@ -16,7 +16,7 @@
         {title: 'CPU load', value: '0%'},
         {title: 'Free storage', value: '0GB'},
         {title: 'RAM usage', value: '0MB'}
-      ]" 
+      ]"
     />
   </div>
 </template>
