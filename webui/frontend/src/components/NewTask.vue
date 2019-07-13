@@ -41,15 +41,16 @@
               </select>
             </div>
 
-            <div class="form-group">
+            <div class="form-group" v-if="triggers.length > 0">
               <label for="trigger-slector" class="text-light">Trigger</label>
               <select
                 id="trigger-selector"
                 class="form-control"
                 aria-describedby="trigger-selector-description"
               >
-                <option>...</option>
-                <!-- TODO Add triggers dynamically -->
+                <option v-for="trigger in triggers" :key="trigger.ID" :title="trigger.Description">
+                  {{ trigger.Name }}
+                </option>
               </select>
               <small id="trigger-selector-description" class="form-text text-muted text-left">
                 Select one trigger.
@@ -57,15 +58,16 @@
               <!-- TODO Selection of args -->
             </div>
 
-            <div class="form group">
+            <div class="form group" v-if="actions.length > 0">
               <label for="actions-selector" class="text-light">Action/s</label>
               <select
                 id="actions-selector"
                 class="form-control"
                 aria-describedby="actions-selector-description"
               >
-                <option>...</option>
-                <!-- TODO Add actions dynamically -->
+                <option v-for="action in actions" :key="action.ID" :title="action.Description">
+                  {{ action.Name }}
+                </option>
               </select>
               <small id="actions-selector-description" class="form-text text-muted text-left">
                 Select one or more actions.
@@ -85,5 +87,16 @@
 </template>
 
 <script>
-export default {}
+export default {
+  data () {
+    return {
+      // TODO Obtain the elements from the API
+      triggers: [],
+      actions: []
+    }
+  }
+}
 </script>
+
+<style lang="scss" scoped>
+</style>
