@@ -57,6 +57,9 @@
               </small>
               <!-- TODO Selection of args -->
             </div>
+            <p v-else class="text-center font-weight-bolder text-danger mt-2">
+              Can't get the info of Triggers
+            </p>
 
             <div class="form group" v-if="actions.length > 0">
               <label for="actions-selector" class="text-light">Action/s</label>
@@ -75,6 +78,9 @@
               <!-- TODO Selection of args per task -->
               <!-- TODO Add the selected actions into a list -->
             </div>
+            <p v-else class="text-center font-weight-bolder text-danger mt-2">
+              Can't get the info of Actions
+            </p>
           </div>
         </div>
         <div class="modal-footer">
