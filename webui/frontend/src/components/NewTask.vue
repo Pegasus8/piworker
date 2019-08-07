@@ -17,67 +17,87 @@
         </div>
         <div class="modal-body">
           <!-- SECTION Form -->
-          <div class="form m-3">
-            <div class="form-group">
-              <label for="task-name" class="text-light">Name</label>
-              <input
-                type="text"
-                class="form-control"
-                aria-describedby="task-name-description"
-                placeholder="Enter a task name"
-                id="task-name"
-              />
-              <small
-                id="task-name-description"
-                class="form-text text-muted text-left"
-              >The name for your new task.</small>
-            </div>
+          <div class="form m-1">
 
-            <div class="form-group">
-              <label for="default-state" class="text-light">Default state</label>
-              <select id="default-state" class="form-control">
-                <option>Active</option>
-                <option>Inactive</option>
-              </select>
-            </div>
+            <app-form-group-container
+              containerTitle="Name"
+              containerDescription="The name for your new task."
+              topElementID="task-name">
+              <template v-slot:top>
+                <input
+                  type="text"
+                  class="form-control"
+                  aria-describedby="task-name-description"
+                  placeholder="Enter a task name"
+                  id="task-name"
+                />
+              </template>
+            </app-form-group-container>
 
-            <div class="form-group" v-if="triggers.length > 0">
-              <label for="trigger-slector" class="text-light">Trigger</label>
-              <select
-                id="trigger-selector"
-                class="form-control"
-                aria-describedby="trigger-selector-description"
-              >
-                <option v-for="trigger in triggers" :key="trigger.ID" :title="trigger.Description">
-                  {{ trigger.Name }}
-                </option>
-              </select>
-              <small id="trigger-selector-description" class="form-text text-muted text-left">
-                Select one trigger.
-              </small>
-              <!-- TODO Selection of args -->
-            </div>
+            <app-form-group-container
+              containerTitle="Default state"
+              containerDescription="If the task will be executed (active) or not (inactive)."
+              topElementID="default-state">
+              <template v-slot:top>
+                <select id="default-state" class="form-control">
+                  <option>Active</option>
+                  <option>Inactive</option>
+                </select>
+              </template>
+            </app-form-group-container>
+
+            <app-form-group-container
+              v-if="triggers.length > 0"
+              containerTitle="Trigger"
+              containerDescription="Select one trigger."
+              topElementID="trigger-selector">
+              <template v-slot:top>
+                <select
+                  id='trigger-selector'
+                  class="form-control"
+                  aria-describedby="trigger-selector-description"
+                >
+                  <option v-for="trigger in triggers" :key="trigger.ID" :title="trigger.Description">
+                    {{ trigger.Name }}
+                  </option>
+                </select>
+              </template>
+              <template v-slot:bottom>
+                <button 
+                  class="btn btn-outline-primary btn-sm mt-3 mt-md-2 col-auto"
+                  @click="addActionBtn">
+                  Select
+                </button>
+              </template>
+            </app-form-group-container>
             <p v-else class="text-center font-weight-bolder text-danger mt-2">
               Can't get the info of Triggers
             </p>
 
-            <div class="form group" v-if="actions.length > 0">
-              <label for="actions-selector" class="text-light">Action/s</label>
-              <select
-                id="actions-selector"
-                class="form-control"
-                aria-describedby="actions-selector-description"
-              >
-                <option v-for="action in actions" :key="action.ID" :title="action.Description">
-                  {{ action.Name }}
-                </option>
-              </select>
-              <small id="actions-selector-description" class="form-text text-muted text-left">
-                Select one or more actions.
-              </small>
-              <!-- TODO Selection of args per task -->
-              <!-- TODO Add the selected actions into a list -->
-            </div>
+            <app-form-group-container
+              v-if="actions.length > 0"
+              containerTitle="Actions"
+              containerDescription="Select one or more actions."
+              topElementID="actions-selector">
+              <template v-slot:top>
+                <select
+                  id="actions-selector"
+                  class="form-control"
+                  aria-describedby="actions-selector-description"
+                  v-model="newAction">
+                  <option v-for="action in actions" :key="action.ID" :title="action.Description">
+                    {{ action.Name }}
+                  </option>
+                </select>
+              </template>
+              <template v-slot:bottom>
+                <button 
+                  class="btn btn-outline-primary btn-sm mt-3 mt-md-2 col-auto"
+                  @click="addActionBtn">
+                  Add
+                </button>
+              </template>
+            </app-form-group-container>
             <p v-else class="text-center font-weight-bolder text-danger mt-2">
               Can't get the info of Actions
             </p>
@@ -93,6 +113,9 @@
 </template>
 
 <script>
+import Summary from './Summary.vue'
+import FormGroupContainer from './FormGroupContainer.vue'
+import { mapMutations } from 'vuex'
 export default {
   data () {
     return {
@@ -100,6 +123,10 @@ export default {
       triggers: [],
       actions: []
     }
+  },
+  components: {
+    appSummary: Summary,
+    appFormGroupContainer: FormGroupContainer
   }
 }
 </script>
