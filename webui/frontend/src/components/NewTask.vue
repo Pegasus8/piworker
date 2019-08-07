@@ -101,7 +101,10 @@
             <p v-else class="text-center font-weight-bolder text-danger mt-2">
               Can't get the info of Actions
             </p>
-          </div>
+          </div> 
+
+          <app-summary/>
+
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
