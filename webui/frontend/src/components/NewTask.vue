@@ -123,8 +123,28 @@ export default {
   data () {
     return {
       // TODO Obtain the elements from the API
-      triggers: [],
-      actions: []
+      triggers: [
+        {Name: "Trigger A", Description: "A random trigger", ID: 1},
+        {Name: "Trigger B", Description: "A random trigger", ID: 2}
+      ],
+      actions: [
+        {Name: "Action A2", Description: "A random action", ID: 10},
+        {Name: "Action B", Description: "A random action", ID: 11}
+      ],
+      newAction: ''
+    }
+  },
+  methods: {
+    ...mapMutations(['addAction']),
+    addActionBtn () {
+      if (!this.newAction) {
+        return
+      }
+      let action = this.actions.filter((a) => {
+        return a.Name === this.newAction
+      })
+
+      this.addAction(...action)
     }
   },
   components: {
