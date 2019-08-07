@@ -65,7 +65,7 @@
               <template v-slot:bottom>
                 <button 
                   class="btn btn-outline-primary btn-sm mt-3 mt-md-2 col-auto"
-                  @click="addActionBtn">
+                  @click="addTriggerBtn">
                   Select
                 </button>
               </template>
@@ -145,6 +145,9 @@ export default {
       })
 
       this.addAction(...action)
+    },
+    addTriggerBtn () {
+
     }
   },
   components: {
