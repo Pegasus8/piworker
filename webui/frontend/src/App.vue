@@ -8,7 +8,7 @@
 
 <script>
 import Navbar from './components/navbar/Navbar.vue'
-import NewTaskModal from './components/NewTask.vue'
+import NewTaskModal from './components/newtask-dialog/NewTask.vue'
 
 export default {
   components: {
