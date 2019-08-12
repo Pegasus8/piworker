@@ -20,7 +20,8 @@ const mutations = {
     state.taskState = newTaskState
   },
   setTrigger: (state, newTrigger) => {
-    state.triggerSelected.push(newTrigger)
+    // state.triggerSelected.push(newTrigger)
+    state.triggerSelected = [newTrigger]
   },
   removeTrigger: (state) => {
     state.triggerSelected = []
