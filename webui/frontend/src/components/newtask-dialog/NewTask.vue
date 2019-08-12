@@ -30,6 +30,7 @@
                   aria-describedby="task-name-description"
                   placeholder="Enter a task name"
                   id="task-name"
+                  v-model="taskName"
                 />
               </template>
             </app-form-group-container>
@@ -56,6 +57,7 @@
                   id='trigger-selector'
                   class="form-control"
                   aria-describedby="trigger-selector-description"
+                  v-model="newTrigger"
                 >
                   <option v-for="trigger in triggers" :key="trigger.ID" :title="trigger.Description">
                     {{ trigger.Name }}
@@ -101,6 +103,7 @@
             <p v-else class="text-center font-weight-bolder text-danger mt-2">
               Can't get the info of Actions
             </p>
+
           </div> 
 
           <app-summary/>
@@ -131,11 +134,37 @@ export default {
         {Name: "Action A2", Description: "A random action", ID: 10},
         {Name: "Action B", Description: "A random action", ID: 11}
       ],
+      newTrigger: '',
       newAction: ''
     }
   },
+  computed: {
+    taskName: {
+      get() {
+        return this.$store.getters.taskname
+      },
+      set(newValue) {
+        return this.$store.commit('setTaskname', newValue)
+      }
+    }
+  },
   methods: {
-    ...mapMutations(['addAction']),
+    ...mapMutations([
+      'setTaskname',
+      'setTaskState',
+      'setTrigger',
+      'addAction'
+    ]),
+    addTriggerBtn () {
+      if (!this.newTrigger) {
+        return
+      }
+      let trigger = this.triggers.filter((t) => {
+        return t.Name == this.newTrigger
+      })
+
+      this.setTrigger(...trigger)
+    },
     addActionBtn () {
       if (!this.newAction) {
         return
@@ -145,9 +174,6 @@ export default {
       })
 
       this.addAction(...action)
-    },
-    addTriggerBtn () {
-
     }
   },
   components: {
