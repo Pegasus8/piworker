@@ -121,8 +121,12 @@
 
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-          <button type="button" class="btn btn-primary">Save</button>
+          <button type="button" class="btn btn-secondary" data-dismiss="modal">
+            Close
+          </button>
+          <button type="button" class="btn btn-primary" :disabled='isAllSelected'>
+            Save
+          </button>
         </div>
       </div>
     </div>
@@ -157,6 +161,15 @@ export default {
       },
       set(newValue) {
         return this.$store.commit('setTaskname', newValue)
+      }
+    },
+    isAllSelected () {
+      if (this.taskName !== '' && this.stateSelected !== '' && 
+        this.$store.getters.triggerSelected.length > 0 && 
+        this.$store.getters.actionsSelected.length > 0) {
+        return false
+      } else {
+        return true
       }
     }
   },
