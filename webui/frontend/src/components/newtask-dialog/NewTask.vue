@@ -164,7 +164,7 @@ export default {
       }
     },
     isAllSelected () {
-      if (this.taskName !== '' && this.stateSelected !== '' && 
+      if (this.taskName && this.stateSelected && 
         this.$store.getters.triggerSelected.length > 0 && 
         this.$store.getters.actionsSelected.length > 0) {
         return false
