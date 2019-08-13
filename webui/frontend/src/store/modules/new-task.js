@@ -6,10 +6,7 @@ const state = {
   taskname: '',
   taskState: '',
   triggerSelected: [],
-  actionsSelected: [{ Name: 'Action A', Description: 'A random action', ID: 4 },
-    { Name: 'Action B', Description: 'A random action', ID: 2 },
-    { Name: 'Action C', Description: 'A random action', ID: 5 }
-  ]
+  actionsSelected: []
 }
 
 const mutations = {
