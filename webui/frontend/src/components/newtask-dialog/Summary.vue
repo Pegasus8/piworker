@@ -1,23 +1,26 @@
 <template>
-<div class="mt-4 border rounded summary p-2">
-  <h2 class="text-bold">Summary</h2>
+<div class="card">
+  <div class="card-header font-weight-bold">
+    Summary
+  </div>
 
-  <div class="p-3">
+  <div class="card-body p-3">
 
-    <p class="font-weight-normal text-left">
-      Name of the task: <span class="font-weight-bold" :class="{'text-danger': !taskName}">
-        {{ taskName | hasContent }}
-      </span>
-    </p>
+    <app-summary-card 
+      cardTitle="Name of the task"
+      :contentToEvaluate="taskName">
+      {{ taskName | hasContent }}
+    </app-summary-card>
 
-    <p class="font-weight-normal text-left">
-      Default state: <span class="font-weight-bold" :class="{'text-danger': !taskState}">
-        {{ taskState | hasContent }}
-      </span>
-    </p>
+    <app-summary-card
+      cardTitle="Default state"
+      :contentToEvaluate="taskState">
+      {{ taskState | hasContent }}
+    </app-summary-card>
 
-    <div class="p-1">
-      <h5 class="mt-1">Trigger selected</h5>
+    <app-summary-card
+      cardTitle="Trigger selected"
+      :contentToEvaluate="triggers">
       <draggable 
         v-model="triggers"
         v-if="triggers.length > 0"
@@ -42,16 +45,13 @@
           </button>
         </div>
       </draggable>
-      <p v-else class="text-danger font-weight-bold">
-        Unselected
-      </p>
-    </div>
-
-    <div class="p-1">
-      <h5 class="mt-1">Actions selected</h5>
+    </app-summary-card>
+    
+    <app-summary-card
+      cardTitle="Actions selected"
+      :contentToEvaluate="actions">
       <draggable 
         v-model="actions"
-        v-if="actions.length > 0"
         @start="drag=true" 
         @end="drag=false"
         class="list-group">
@@ -70,20 +70,21 @@
           </button>
         </div>
       </draggable>
-      <p v-else class="text-danger font-weight-bold">
-        Unselected
-      </p>
-      <small v-if="actions.length > 0" class="text-muted">Tip: drag and drop for order the actions</small>
-    </div>
+      <small class="text-muted">Tip: drag and drop for order the actions</small>
+    </app-summary-card>
     
   </div>
-
+  
 </div>
+
+
 </template>
 
 <script>
 import draggable from 'vuedraggable'
-import { mapMutations } from 'vuex' 
+import { mapMutations } from 'vuex'
+import SummaryCard from './SummaryCard.vue'
+
 export default {
   computed: {
     taskName() {
@@ -116,12 +117,13 @@ export default {
     ])
   },
   components: {
-    draggable
+    draggable,
+    appSummaryCard: SummaryCard
   },
   filters: {
     hasContent: (value) => {
       if (!value) {
-        return 'unselected'
+        return '-'
       } else {
         return value
       }
