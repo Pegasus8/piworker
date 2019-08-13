@@ -5,17 +5,22 @@
   <div class="p-3">
 
     <p class="font-weight-normal text-left">
-      Name of the task: <span class="font-weight-bold">{{ taskName }}</span>
+      Name of the task: <span class="font-weight-bold" :class="{'text-danger': !taskName}">
+        {{ taskName | hasContent }}
+      </span>
     </p>
 
     <p class="font-weight-normal text-left">
-      Default state: <span class="font-weight-bold">{{ taskState }}</span>
+      Default state: <span class="font-weight-bold" :class="{'text-danger': !taskState}">
+        {{ taskState | hasContent }}
+      </span>
     </p>
 
     <div class="p-1">
       <h5 class="mt-1">Trigger selected</h5>
       <draggable 
-        v-model="triggers" 
+        v-model="triggers"
+        v-if="triggers.length > 0"
         @start="drag=true" 
         @end="drag=false"
         class="list-group">
@@ -37,12 +42,16 @@
           </button>
         </div>
       </draggable>
+      <p v-else class="text-danger font-weight-bold">
+        Unselected
+      </p>
     </div>
 
     <div class="p-1">
       <h5 class="mt-1">Actions selected</h5>
       <draggable 
-        v-model="actions" 
+        v-model="actions"
+        v-if="actions.length > 0"
         @start="drag=true" 
         @end="drag=false"
         class="list-group">
@@ -61,7 +70,10 @@
           </button>
         </div>
       </draggable>
-      <small class="text-muted">Tip: drag and drop for order the actions</small>
+      <p v-else class="text-danger font-weight-bold">
+        Unselected
+      </p>
+      <small v-if="actions.length > 0" class="text-muted">Tip: drag and drop for order the actions</small>
     </div>
     
   </div>
@@ -105,6 +117,15 @@ export default {
   },
   components: {
     draggable
+  },
+  filters: {
+    hasContent: (value) => {
+      if (!value) {
+        return 'unselected'
+      } else {
+        return value
+      }
+    }
   }
 }
 </script>
