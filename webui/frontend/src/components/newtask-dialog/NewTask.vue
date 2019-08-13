@@ -40,10 +40,21 @@
               containerDescription="If the task will be executed (active) or not (inactive)."
               topElementID="default-state">
               <template v-slot:top>
-                <select id="default-state" class="form-control">
+                <select 
+                  id="default-state" 
+                  class="form-control"
+                  v-model="stateSelected"
+                >
                   <option>Active</option>
                   <option>Inactive</option>
                 </select>
+              </template>
+              <template v-slot:bottom>
+                <button 
+                  class="btn btn-outline-primary btn-sm mt-3 mt-md-2 col-auto"
+                  @click="setStateBtn">
+                  Select
+                </button>
               </template>
             </app-form-group-container>
 
@@ -135,7 +146,8 @@ export default {
         {Name: "Action B", Description: "A random action", ID: 11}
       ],
       newTrigger: '',
-      newAction: ''
+      newAction: '',
+      stateSelected: ''
     }
   },
   computed: {
@@ -174,6 +186,13 @@ export default {
       })
 
       this.addAction(...action)
+    },
+    setStateBtn () {
+      if (!this.stateSelected) {
+        return
+      }
+
+      this.setTaskState(this.stateSelected)
     }
   },
   components: {
