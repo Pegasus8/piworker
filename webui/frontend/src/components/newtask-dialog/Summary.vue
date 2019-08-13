@@ -9,13 +9,13 @@
     <app-summary-card 
       cardTitle="Name of the task"
       :contentToEvaluate="taskName">
-      {{ taskName | hasContent }}
+      {{ taskName }}
     </app-summary-card>
 
     <app-summary-card
       cardTitle="Default state"
       :contentToEvaluate="taskState">
-      {{ taskState | hasContent }}
+      {{ taskState }}
     </app-summary-card>
 
     <app-summary-card
@@ -74,7 +74,7 @@
     </app-summary-card>
     
   </div>
-  
+
 </div>
 
 
@@ -121,13 +121,6 @@ export default {
     appSummaryCard: SummaryCard
   },
   filters: {
-    hasContent: (value) => {
-      if (!value) {
-        return '-'
-      } else {
-        return value
-      }
-    }
   }
 }
 </script>
