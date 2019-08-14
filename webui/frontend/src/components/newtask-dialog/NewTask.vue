@@ -134,8 +134,8 @@
 </template>
 
 <script>
-import Summary from './Summary.vue'
-import FormGroupContainer from './FormGroupContainer.vue'
+import Summary from './components/Summary.vue'
+import FormGroupContainer from './components/FormGroupContainer.vue'
 import { mapMutations } from 'vuex'
 export default {
   data () {
