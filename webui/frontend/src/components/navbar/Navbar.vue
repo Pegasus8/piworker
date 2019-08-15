@@ -21,8 +21,21 @@
         <li class="nav-item active">
           <router-link :to="{name: 'statistics'}" class="nav-link">Statistics</router-link>
         </li>
-        <li class="nav-item">
-          <router-link :to="{name: 'management'}" class="nav-link">Management</router-link>
+        <li class="nav-item dropdown">
+          <a  
+            class="nav-link dropdown-toggle" 
+            id="managementDropdown"
+            role="button"
+            data-toggle='dropdown'
+            aria-haspopup="true"
+            aria-expanded="false"
+            href="#">
+            Management
+          </a>
+          <div class="dropdown-menu" aria-labelledby="managementDropdown">
+            <router-link class="dropdown-item" :to="{ name: 'tasks-list' }">Tasks</router-link>
+            <router-link class="dropdown-item" :to="{ name: 'new-task' }">New Task</router-link>
+          </div>
         </li>
         <li class="nav-item">
           <router-link :to="{name: 'settings'}" class="nav-link">Settings</router-link>
