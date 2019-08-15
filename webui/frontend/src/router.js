@@ -1,6 +1,9 @@
 import Vue from 'vue'
 import Router from 'vue-router'
-import Statistics from './views/Statistics.vue'
+import StatisticsView from './views/Statistics.vue'
+import ManagementView from './views/Management.vue'
+import TasksListSubview from './views/management-subviews/TasksList.vue'
+import NewTaskSubview from './views/management-subviews/NewTask.vue'
 
 Vue.use(Router)
 
@@ -10,12 +13,41 @@ export default new Router({
   routes: [
     {
       path: '/statistics',
-      component: Statistics,
+      component: StatisticsView,
       name: 'statistics',
       beforeEnter: (to, from, next) => {
-        // Check for authentication
+        // TODO Check for authentication
         next()
       }
+    },
+    {
+      path: '/management',
+      component: ManagementView,
+      name: 'management',
+      beforeEnter: (to, from, next) => {
+        // TODO Check for authentication
+        next()
+      },
+      children: [
+        {
+          path: 'tasks',
+          component: TasksListSubview,
+          name: 'tasks-list',
+          beforeEnter: (to, from, next) => {
+            // TODO Check for authentication
+            next()
+          }
+        },
+        {
+          path: 'new',
+          component: NewTaskSubview,
+          name: 'new-task',
+          beforeEnter: (from, to, next) => {
+            // TODO Check for authentication
+            next()
+          }
+        }
+      ]
     }
   ]
 })
