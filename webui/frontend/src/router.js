@@ -21,6 +21,7 @@ export default new Router({
       }
     },
     {
+      // FIXME This view can't be accessed from the menu due the dropdown item
       path: '/management',
       component: ManagementView,
       name: 'management',
