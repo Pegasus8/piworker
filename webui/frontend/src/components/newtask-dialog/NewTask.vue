@@ -10,7 +10,7 @@
     <div class="modal-dialog modal-dialog-centered" role="document">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title" id="modalTitle">Create a new task</h5>
+          <h4 class="modal-title text-capitalize" id="modalTitle">Create a new task</h4>
           <button type="button" class="close" data-dismiss="modal" aria-label="Close">
             <span aria-hidden="true">&times;</span>
           </button>
@@ -22,7 +22,8 @@
             <app-form-group-container
               containerTitle="Name"
               containerDescription="The name for your new task."
-              topElementID="task-name">
+              topElementID="task-name"
+              :withFooter="false">
               <template v-slot:top>
                 <input
                   type="text"
@@ -38,7 +39,8 @@
             <app-form-group-container
               containerTitle="Default state"
               containerDescription="If the task will be executed (active) or not (inactive)."
-              topElementID="default-state">
+              topElementID="default-state"
+              :withFooter="true">
               <template v-slot:top>
                 <select 
                   id="default-state" 
@@ -51,9 +53,13 @@
               </template>
               <template v-slot:bottom>
                 <button 
-                  class="btn btn-outline-primary btn-sm mt-3 mt-md-2 col-auto"
+                  class="btn btn-sm"
+                  :class="{ 
+                    'btn-outline-primary': $store.getters.taskState == '',
+                    'btn-outline-success': !$store.getters.taskState == ''
+                  }"
                   @click="setStateBtn">
-                  Select
+                  {{ stateBtnTxt }}
                 </button>
               </template>
             </app-form-group-container>
@@ -62,7 +68,8 @@
               v-if="triggers.length > 0"
               containerTitle="Trigger"
               containerDescription="Select one trigger."
-              topElementID="trigger-selector">
+              topElementID="trigger-selector"
+              :withFooter="true">
               <template v-slot:top>
                 <select
                   id='trigger-selector'
@@ -77,9 +84,13 @@
               </template>
               <template v-slot:bottom>
                 <button 
-                  class="btn btn-outline-primary btn-sm mt-3 mt-md-2 col-auto"
+                  class="btn btn-sm"
+                  :class="{ 
+                    'btn-outline-primary': !$store.getters.triggerSelected.length > 0,
+                    'btn-outline-success': $store.getters.triggerSelected.length > 0
+                  }"
                   @click="addTriggerBtn">
-                  Select
+                  {{ triggerBtnTxt }}
                 </button>
               </template>
             </app-form-group-container>
@@ -91,7 +102,8 @@
               v-if="actions.length > 0"
               containerTitle="Actions"
               containerDescription="Select one or more actions."
-              topElementID="actions-selector">
+              topElementID="actions-selector"
+              :withFooter="true">
               <template v-slot:top>
                 <select
                   id="actions-selector"
@@ -105,7 +117,11 @@
               </template>
               <template v-slot:bottom>
                 <button 
-                  class="btn btn-outline-primary btn-sm mt-3 mt-md-2 col-auto"
+                  class="btn btn-sm"
+                  :class="{ 
+                    'btn-outline-primary': !$store.getters.actionsSelected.length > 0,
+                    'btn-outline-success': $store.getters.actionsSelected.length > 0
+                  }"
                   @click="addActionBtn">
                   Add
                 </button>
@@ -136,14 +152,21 @@
 <script>
 import Summary from './components/Summary.vue'
 import FormGroupContainer from './components/FormGroupContainer.vue'
+import SummaryCard from './components/SummaryCard.vue'
 import { mapMutations } from 'vuex'
 export default {
   data () {
     return {
       // TODO Obtain the elements from the API
       triggers: [
-        {Name: "Trigger A", Description: "A random trigger", ID: 1},
-        {Name: "Trigger B", Description: "A random trigger", ID: 2}
+        {Name: "Trigger A", Description: "A random trigger", ID: 1, Args: [
+          {ID: 'arg1', Name: 'Arg #1', Description: 'A simple arg', Content: '', ContentType: 'string'},
+          {ID: 'arg2', Name: 'Arg #2', Description: 'A simple arg 2', Content: '', ContentType: 'string'}
+        ]},
+        {Name: "Trigger B", Description: "A random trigger", ID: 2, Args: [
+          {ID: 'arg1', Name: 'Arg #1', Description: 'A simple arg', Content: '', ContentType: 'string'},
+          {ID: 'arg2', Name: 'Arg #2', Description: 'A simple arg 2', Content: '', ContentType: 'string'}
+        ]}
       ],
       actions: [
         {Name: "Action A2", Description: "A random action", ID: 10},
@@ -170,6 +193,20 @@ export default {
         return false
       } else {
         return true
+      }
+    },
+    triggerBtnTxt () {
+      if (this.$store.getters.triggerSelected.length > 0) {
+        return 'Change'
+      } else {
+        return 'Select'
+      }
+    },
+    stateBtnTxt () {
+      if (this.$store.getters.taskState !== '') {
+        return 'Change'
+      } else {
+        return 'Select'
       }
     }
   },
