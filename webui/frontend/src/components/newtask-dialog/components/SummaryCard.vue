@@ -1,5 +1,5 @@
 <template>
-  <div class="card my-2 m-md-2 " :class="{'border-danger': !hasContent, 'border-success': hasContent}">
+  <div class="card my-2 m-md-2" :class="{'border-danger': !hasContent, 'border-success': hasContent}">
     <div class="card-header text-left">{{ cardTitle }}</div>
     <div
       class="card-body"
