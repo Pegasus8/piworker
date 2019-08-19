@@ -1,5 +1,5 @@
 <template>
-<div class="card">
+<div class="card bg-dark text-white" id="summary-card">
   <div class="card-header font-weight-bold">
     Summary
   </div>
@@ -34,7 +34,7 @@
           v-for="userTrigger in triggers" 
           :key="userTrigger.ID + '_' + $uuid.v1()" 
           :title="userTrigger.Description"
-          class="list-group-item text-break text-bolder">
+          class="list-group-item text-break text-bolder text-dark">
           {{ userTrigger.Name }}
           <button 
             type="button" 
@@ -59,7 +59,7 @@
           v-for="(userAction, index) in actions" 
           :key="userAction.ID + '_' + $uuid.v1()" 
           :title="userAction.Description"
-          class="list-group-item text-break text-bolder">
+          class="list-group-item text-break text-bolder text-dark">
           {{ userAction.Name }}
           <button 
             type="button" 
@@ -132,6 +132,8 @@ li {
 .summary {
   background-color: rgba(221, 221, 221, 0.411);
 }
+#summary-card, .card {
+  // background-color: rgb(44, 49, 54),
+  background: rgb(36, 40, 44)
+}
 </style>
-
-
