@@ -72,6 +72,22 @@
             @click="removeAction(index)">
             <span aria-hidden="true">&times;</span>
           </button>
+          <div class="border rounded m-2 p-1 row">
+            
+            <div 
+              class="col-10 col-md-6 mx-auto my-2"
+              v-for="arg in userAction.Args" :key="arg.ID">
+              <div class="card bg-light" :title="arg.Description">
+                <div class="h5 p-1 card-header text-wrap">
+                  {{ arg.Name }}
+                </div>
+                <div class="card-body text-wrap">
+                  <input type="text" class="form-control" placeholder="Content" aria-label="Argument content">
+                </div>
+              </div>
+            </div>
+            
+          </div>
         </div>
       </draggable>
       <small class="text-muted">Tip: drag and drop for order the actions</small>
