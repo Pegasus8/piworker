@@ -169,8 +169,14 @@ export default {
         ]}
       ],
       actions: [
-        {Name: "Action A2", Description: "A random action", ID: 10},
-        {Name: "Action B", Description: "A random action", ID: 11}
+        {Name: "Action A2", Description: "A random action", ID: 10, Args: [
+          {ID: 'arg1', Name: 'Arg #1', Description: 'A simple arg', Content: '', ContentType: 'string'},
+          {ID: 'arg2', Name: 'Arg #2', Description: 'A simple arg 2', Content: '', ContentType: 'string'}
+        ]},
+        {Name: "Action B", Description: "A random action", ID: 11, Args: [
+          {ID: 'arg1', Name: 'Arg #1', Description: 'A simple arg', Content: '', ContentType: 'string'},
+          {ID: 'arg2', Name: 'Arg #2', Description: 'A simple arg 2', Content: '', ContentType: 'string'}
+        ]},
       ],
       newTrigger: '',
       newAction: '',
