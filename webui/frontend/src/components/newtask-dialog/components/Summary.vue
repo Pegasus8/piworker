@@ -20,10 +20,12 @@
 
     <app-summary-card
       cardTitle="Trigger selected"
-      :contentToEvaluate="triggers">
+      :contentToEvaluate="triggers"
+      @switchChange="canDragTriggers = $event">
       <draggable 
         v-model="triggers"
         v-if="triggers.length > 0"
+        :disabled="!canDragTriggers"
         @start="drag=true" 
         @end="drag=false"
         class="list-group">
@@ -49,9 +51,11 @@
     
     <app-summary-card
       cardTitle="Actions selected"
-      :contentToEvaluate="actions">
+      :contentToEvaluate="actions"
+      @switchChange="canDragActions = $event">
       <draggable 
         v-model="actions"
+        :disabled="!canDragActions"
         @start="drag=true" 
         @end="drag=false"
         class="list-group">
@@ -86,6 +90,12 @@ import { mapMutations } from 'vuex'
 import SummaryCard from './SummaryCard.vue'
 
 export default {
+  data () {
+    return {
+      canDragActions: true,
+      canDragTriggers: true
+    }
+  },
   computed: {
     taskName() {
       return this.$store.getters.taskname
