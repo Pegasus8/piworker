@@ -31,6 +31,9 @@ const mutations = {
   },
   removeAction: (state, actionIndex) => {
     state.actionsSelected.splice(actionIndex, 1)
+  },
+  setActionArgContent: (state, payload) => {
+    state.actionsSelected[payload.actionIndex].Args[payload.argumentIndex].Content = payload.contentToSet
   }
 }
 
