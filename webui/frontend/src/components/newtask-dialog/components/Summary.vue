@@ -33,7 +33,7 @@
         due to there is a only one trigger per task. This was made
         in this way for a future implementation of multiple triggers. -->
         <div
-          v-for="userTrigger in triggers" 
+          v-for="(userTrigger, index) in triggers" 
           :key="userTrigger.ID + '_' + $uuid.v1()" 
           :title="userTrigger.Description"
           class="list-group-item text-break text-bolder text-dark">
@@ -42,7 +42,7 @@
             type="button" 
             class="close" 
             aria-label="Remove trigger"
-            @click="removeTrigger">
+            @click="removeTrigger(index)">
             <span aria-hidden="true">&times;</span>
           </button>
         </div>

@@ -20,8 +20,8 @@ const mutations = {
     // state.triggerSelected.push(newTrigger)
     state.triggerSelected = [newTrigger]
   },
-  removeTrigger: (state) => {
-    state.triggerSelected = []
+  removeTrigger: (state, triggerIndex) => {
+    state.triggerSelected.splice(triggerIndex, 1)
   },
   setActions: (state, actions) => {
     state.actionsSelected = actions
