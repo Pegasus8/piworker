@@ -97,7 +97,7 @@
             
             <div 
               class="col-10 col-md-6 mx-auto my-2"
-              v-for="(arg, argIndex) in userAction.Args" :key="arg.ID">
+              v-for="arg in userAction.Args" :key="userAction.ID + arg.ID">
               <div class="card bg-light" :title="arg.Description">
                 <div class="h5 p-1 card-header text-wrap">
                   {{ arg.Name }}
@@ -107,12 +107,8 @@
                     type="text" 
                     class="form-control" 
                     placeholder="Content" 
-                    aria-label="Argument content" 
-                    @change="$store.commit('setActionArgContent', {
-                      actionIndex: index, 
-                      argumentIndex: argIndex, 
-                      contentToSet: $event.target.value
-                    })">
+                    aria-label="Argument content"
+                    v-model.lazy="arg.Content">
                 </div>
               </div>
             </div>
