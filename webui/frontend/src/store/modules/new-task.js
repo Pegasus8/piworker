@@ -2,6 +2,15 @@
 // the default baseURL used on this instance.
 import axios from 'axios'
 
+const cloneObj = (obj) => {
+  if (obj == null || typeof obj !== 'object') return obj
+  var copy = obj.constructor()
+  for (var attr in obj) {
+    if (obj.hasOwnProperty(attr)) copy[attr] = obj[attr]
+  }
+  return copy
+}
+
 const state = {
   taskname: '',
   taskState: '',
@@ -16,8 +25,9 @@ const mutations = {
   setTaskState: (state, newTaskState) => {
     state.taskState = newTaskState
   },
-  setTrigger: (state, newTrigger) => {
+  setTrigger: (state, trigger) => {
     // state.triggerSelected.push(newTrigger)
+    const newTrigger = cloneObj(trigger)
     state.triggerSelected = [newTrigger]
   },
   removeTrigger: (state, triggerIndex) => {
@@ -26,7 +36,8 @@ const mutations = {
   setActions: (state, actions) => {
     state.actionsSelected = actions
   },
-  addAction: (state, newAction) => {
+  addAction: (state, action) => {
+    const newAction = cloneObj(action)
     state.actionsSelected.push(newAction)
   },
   removeAction: (state, actionIndex) => {
