@@ -49,7 +49,7 @@
             
             <div 
               class="col-10 col-md-6 mx-auto my-2"
-              v-for="arg in userTrigger.Args" :key="userTrigger.ID + arg.ID">
+              v-for="arg in userTrigger.Args" :key="arg.ID + '_' + $uuid.v1()">
               <div class="card bg-light" :title="arg.Description">
                 <div class="h5 p-1 card-header text-wrap">
                   {{ arg.Name }}
@@ -97,7 +97,7 @@
             
             <div 
               class="col-10 col-md-6 mx-auto my-2"
-              v-for="arg in userAction.Args" :key="userAction.ID + arg.ID">
+              v-for="arg in userAction.Args" :key="arg.ID + '_' + $uuid.v1()">
               <div class="card bg-light" :title="arg.Description">
                 <div class="h5 p-1 card-header text-wrap">
                   {{ arg.Name }}
