@@ -1,6 +1,6 @@
 <template>
   <nav class="navbar navbar-expand-lg navbar navbar-dark bg-dark">
-    <a class="navbar-brand mb-0 h1" href="#">
+    <a class="navbar-brand mb-0 h1 font-weight-bold" href="#">
       PiWorker
       <span class="badge badge-secondary badge-light badge-pill" id="version">Alpha-v0.1.0</span>
     </a>
