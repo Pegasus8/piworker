@@ -8,6 +8,7 @@
 * [Vuex](https://vuex.vuejs.org/)
 * [Vue.Draggable](https://github.com/SortableJS/Vue.Draggable)
 * [Vue-uuid](https://github.com/VitorLuizC/vue-uuid)
+* [Icomoon](https://icomoon.io/)
 
 ### Backend (Go)
 * [Websocket by Gorilla](github.com/gorilla/websocket)
