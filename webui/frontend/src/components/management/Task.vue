@@ -3,6 +3,7 @@
     <div class="card-header text-left">
       <div class="d-flex">
         <div class="flex-grow-1 font-weight-bold">{{ taskName }}</div>
+        <!-- TODO Add functionality of task edition -->
         <router-link class="icon-pencil mx-3" to=""/>
         <div class="custom-control custom-switch">
           <input
