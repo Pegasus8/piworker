@@ -35,7 +35,7 @@ func runTaskLoop(taskname string, taskChannel chan data.UserTask) {
 
 			log.Infof("[%s] Trigger with the ID '%s' activated, running actions...\n",
 				taskReceived.TaskInfo.Name, taskReceived.TaskInfo.Trigger.ID)
-			runTaskActions(&taskReceived)
+			runActions(&taskReceived)
 
 			err = setAsRecentlyExecuted(taskReceived.TaskInfo.Name)
 			if err != nil {
@@ -74,7 +74,7 @@ func runTrigger(trigger data.UserTrigger) (bool, error) {
 	return false, nil
 }
 
-func runTaskActions(task *data.UserTask) {
+func runActions(task *data.UserTask) {
 	log.Infof("Running actions of the task '%s'\n", task.TaskInfo.Name)
 	startTime := time.Now()
 
