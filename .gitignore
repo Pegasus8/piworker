@@ -3,3 +3,4 @@ keys.go
 /logs/
 /statistics/
 .vscode
+node_modules/
