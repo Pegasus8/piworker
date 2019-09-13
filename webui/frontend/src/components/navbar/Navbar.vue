@@ -18,15 +18,9 @@
 
     <div class="collapse navbar-collapse" id="navbarSupportedContent">
       <ul class="navbar-nav mr-auto text-center">
-        <li class="nav-item active">
-          <router-link :to="{name: 'statistics'}" class="nav-link">Statistics</router-link>
-        </li>
-        <li class="nav-item">
-          <router-link :to="{name: 'management'}" class="nav-link">Management</router-link>
-        </li>
-        <li class="nav-item">
-          <router-link :to="{name: 'settings'}" class="nav-link">Settings</router-link>
-        </li>
+        <router-link :to="{name: 'statistics'}" class="nav-item" active-class="active"><a class="nav-link">Statistics</a></router-link>
+        <router-link :to="{name: 'management'}" class="nav-item" active-class="active"><a class="nav-link">Management</a></router-link>
+        <router-link :to="{name: 'settings'}" class="nav-item" active-class="active"><a class="nav-link">Settings</a></router-link>
         <li class="nav-item navbar-right ml-lg-3">
           <button type="button" data-toggle="modal" data-target="#newTaskModal" class="btn btn-primary" id="newTaskBtn">New</button>
         </li>
