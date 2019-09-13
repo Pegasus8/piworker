@@ -83,6 +83,13 @@ func StartEngine() {
 				continue
 			}
 			taskName := task.TaskInfo.Name
+			// Check if the task loop and channel have already been initialized
+			if _, alreadyExists := tasksGoroutines[taskName]; !alreadyExists {
+				// Initialize the channel
+				tasksGoroutines[taskName] = make(chan data.UserTask)
+				// Start the loop
+				go runTaskLoop(taskName, tasksGoroutines[taskName])
+			}
 			// Send the data to the task's channel
 			tasksGoroutines[taskName] <- task
 		}
