@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"errors"
 
 	"github.com/Pegasus8/piworker/utilities/log"
 
@@ -42,9 +43,9 @@ func runTaskLoop(taskname string, taskChannel chan data.UserTask) {
 				log.Criticalln(err)
 			}
 
-		skipTaskExecution:
-			// Skip the execution of the task but not skip the entire iteration
-			// in case of have to do something else with the task.
+			skipTaskExecution:
+				// Skip the execution of the task but not skip the entire iteration
+				// in case of have to do something else with the task.
 		} else {
 			if wasRecentlyExecuted(taskReceived.TaskInfo.Name) {
 				err = setAsReadyToExecuteAgain(taskReceived.TaskInfo.Name)
@@ -71,21 +72,21 @@ func runTrigger(trigger data.UserTrigger) (bool, error) {
 	}
 
 	log.Errorf("The trigger with the ID '%s' cannot be found\n", trigger.ID)
-	return false, nil
+	return false, errors.New("Trigger not found")
 }
 
 func runActions(task *data.UserTask) {
-	log.Infof("Running actions of the task '%s'\n", task.TaskInfo.Name)
+	log.Infof("[%s] Running actions...\n", task.TaskInfo.Name)
 	startTime := time.Now()
 
 	userActions := &task.TaskInfo.Actions
 	previousState := task.TaskInfo.State
 
-	log.Infof("Changing task state of '%s' to '%s'\n", task.TaskInfo.Name, data.StateTaskOnExecution)
+	log.Infof("[%s] Changing task state to '%s'\n", task.TaskInfo.Name, data.StateTaskOnExecution)
 	// Set task state to on-execution
 	err := data.UpdateTaskState(task.TaskInfo.Name, data.StateTaskOnExecution)
 	if err != nil {
-		log.Fatalf("Error when trying to update the task state of '%s' to '%s'\n",
+		log.Fatalf("[%s] Error when trying to update the task state to '%s'\n",
 			task.TaskInfo.Name, data.StateTaskOnExecution)
 	}
 
@@ -103,11 +104,11 @@ func runActions(task *data.UserTask) {
 							log.Errorln(err)
 						}
 						if result {
-							log.Infof("Action in order %d of the task '%s' finished correctly",
-								userAction.Order, task.TaskInfo.Name)
+							log.Infof("[%s] Action in order %d finished correctly",
+								task.TaskInfo.Name, userAction.Order)
 						} else {
-							log.Errorf("Action in order %d of the task '%s' wasn't executed correctly",
-								userAction.Order, task.TaskInfo.Name)
+							log.Errorf("[%s] Action in order %d wasn't executed correctly",
+								task.TaskInfo.Name, userAction.Order)
 						}
 
 						// It's not necessary to continue iterating
@@ -140,7 +141,7 @@ func runActions(task *data.UserTask) {
 		}
 	}
 	executionTime := time.Since(startTime).String()
-	log.Infof("Task with name '%s' executed in %s\n", task.TaskInfo.Name, executionTime)
+	log.Infof("[%s] Actions executed in %s\n", task.TaskInfo.Name, executionTime)
 }
 
 func checkForAnUpdate(updateChannel chan bool) {
