@@ -21,7 +21,7 @@
         <li class="nav-item active">
           <router-link :to="{name: 'statistics'}" class="nav-link">Statistics</router-link>
         </li>
-        <li class="nav-item dropdown">
+        <li class="nav-item">
           <router-link :to="{name: 'management'}" class="nav-link">Management</router-link>
         </li>
         <li class="nav-item">
