@@ -32,8 +32,6 @@ func StartEngine() {
 		// Create the channel for each task (with active state).
 		if task.TaskInfo.State == data.StateTaskActive {
 			tasksGoroutines[task.TaskInfo.Name] = make(chan data.UserTask)
-
-			// TODO Start the loop for each task.
 			go runTaskLoop(task.TaskInfo.Name, tasksGoroutines[task.TaskInfo.Name])
 		}
 	}
