@@ -21,7 +21,7 @@
         <router-link :to="{name: 'statistics'}" class="nav-item" active-class="active"><a class="nav-link">Statistics</a></router-link>
         <router-link :to="{name: 'management'}" class="nav-item" active-class="active"><a class="nav-link">Management</a></router-link>
         <router-link :to="{name: 'settings'}" class="nav-item" active-class="active"><a class="nav-link">Settings</a></router-link>
-        <li class="nav-item navbar-right ml-lg-3">
+        <li class="nav-item ml-lg-3">
           <button type="button" data-toggle="modal" data-target="#newTaskModal" class="btn btn-primary" id="newTaskBtn">New</button>
         </li>
       </ul>
