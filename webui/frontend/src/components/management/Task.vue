@@ -99,7 +99,7 @@ export default {
     },
     taskState: {
       required: true,
-      type: Boolean
+      type: String
     },
     triggers: {
       required: true,
@@ -118,10 +118,15 @@ export default {
   computed: {
     state: {
       get() {
-        return this.taskState;
+        if (this.taskState == 'active') return true
+        else return false
       },
       set(newValue) {
-        this.$emit("switch-change", newValue);
+        let value
+        if (newValue) value = 'active'
+        else value = 'inactive'
+
+        this.$emit("switch-change", value)
       }
     }
   },
