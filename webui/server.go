@@ -105,10 +105,6 @@ func setupRoutes() {
 	log.Fatal(srv.ListenAndServe())
 }
 
-var notImplemented = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("Not Implemented"))
-})
-
 // Run - start the server
 func Run(statsChan chan stats.Statistic) {
 	log.Println("Starting server...")
