@@ -42,4 +42,7 @@ var DefaultConfigs = Configs{
  	},
 }
 
+// CurrentConfigs is the variable that contains the parsed configs
+var CurrentConfigs *Configs
+
 var mutex = sync.Mutex{}
