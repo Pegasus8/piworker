@@ -12,12 +12,6 @@ import (
 )
 
 func main() {
-	// Read configs
-	userConfigs, err := configs.ReadConfigs()
-	if err != nil {
-		log.Fatal(err.Error())
-	}
-
 	// Logs settings
 	var (
 		loggingDir = "./logs/"
@@ -38,7 +32,7 @@ func main() {
 	data.Filename = "user_data.json" //TODO: assign the name dinamically
 
 	// Start the Dynamic Engine
-	engine.StartEngine(userConfigs)
+	engine.StartEngine()
 }
 
 
