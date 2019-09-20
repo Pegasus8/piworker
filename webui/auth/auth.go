@@ -22,7 +22,10 @@ type CustomClaims struct {
 }
 
 func init() {
-	// TODO Check if the token signing key was already setted
+	if configs.CurrentConfigs.APIConfigs.SigningKey == "" {
+		generateSigningKey()
+	}
+	signingKey = []byte(configs.CurrentConfigs.APIConfigs.SigningKey)
 }
 
 // NewJWT is a function to generate a new JWT tokken
@@ -79,5 +82,8 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 }
 
 func generateSigningKey() {
-	// TODO
+	// TODO Generate the signing key and save it on the configs file
+	// Aditionally, set the variable `CurrentConfigs.APIConfigs.SigningKey` 
+	// to the new signing key. This is to prevent reading the whole configuration 
+	// file again.
 }
