@@ -1,5 +1,9 @@
 package configs
 
+import (
+	"time"
+)
+
 // Configs is the struct used to store all PiWorker configurations.
 type Configs struct {
 	Behavior Behavior `json:"behavior"`
@@ -25,13 +29,16 @@ type Security struct {
 // APIConfigs is the struct used to store API configs of PiWorker.
 type APIConfigs struct {
 	// API's States
-	NewTaskAPI bool `json:"newtask-api"`
-	EditTaskAPI bool `json:"edittask-api"`
-	DeleteTaskAPI bool `json:"deletetask-api"`
+	NewTaskAPI bool `json:"new-task-api"`
+	EditTaskAPI bool `json:"edit-task-api"`
+	DeleteTaskAPI bool `json:"delete-task-api"`
+	GetAllTasksAPI bool `json:"get-all-tasks-api"`
+	StatisticsAPI bool `json:"statistics-api"`
 
 	// Authentication
 	RequireToken bool `json:"require-token"`
-	Token string `json:"token"`
+	SigningKey string `json:"signing-key"`
+	TokenDuration time.Time `json:"token-duration"`
 }
 
 // Updates is the struct used to store update configs of PiWorker.
@@ -43,6 +50,5 @@ type Updates struct {
 
 // WebUI is the struct used to store web user interface configs of PiWorker.
 type WebUI struct {
-	RequireToken bool `json:"require-token"`
-	TokenToAccess string `json:"token"`
+	RequireCredentials bool `json:"require-credentials"`
 }
