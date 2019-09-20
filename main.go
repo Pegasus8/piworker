@@ -7,10 +7,16 @@ import (
 
 	"github.com/Pegasus8/piworker/utilities/log"
 	"github.com/Pegasus8/piworker/processment/data"
-	"github.com/Pegasus8/piworker/processment/engine"
+	"github.com/Pegasus8/piworker/processment/engine" 
+	"github.com/Pegasus8/piworker/processment/configs"
 )
 
 func main() {
+	// Read configs
+	userConfigs, err := configs.ReadConfigs()
+	if err != nil {
+		log.Fatal(err.Error())
+	}
 
 	// Logs settings
 	var (
@@ -32,7 +38,7 @@ func main() {
 	data.Filename = "user_data.json" //TODO: assign the name dinamically
 
 	// Start the Dynamic Engine
-	engine.StartEngine()
+	engine.StartEngine(userConfigs)
 }
 
 
