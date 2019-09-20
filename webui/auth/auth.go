@@ -49,7 +49,7 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 		if !configs.CurrentConfigs.APIConfigs.RequireToken {
 			endpoint(w, r)
 		}
-		
+
         if r.Header["Token"] != nil {
 			
 			token, err := jwt.ParseWithClaims(r.Header["Token"][0], &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
@@ -60,8 +60,7 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 			})
 
             if err != nil {
-				fmt.Fprintf(w, err.Error())
-				panic(err.Error())
+				log.Println("Error when parsing the token:", err.Error())
             }
 
             if token.Valid {
@@ -70,10 +69,11 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
                 endpoint(w, r)
             } else {
 				log.Printf("The IP %s has tried to use a not valid token: '%s'\n", r.Host, token.Raw)
+				fmt.Fprintf(w, "Not authorized, invalid token")
 			}
         } else {
 			log.Printf("The IP %s has tried to access without a token\n", r.Host)
-            fmt.Fprintf(w, "Not Authorized")
+            fmt.Fprintf(w, "Not authorized")
         }
     })
 }
