@@ -51,4 +51,5 @@ type Updates struct {
 // WebUI is the struct used to store web user interface configs of PiWorker.
 type WebUI struct {
 	RequireCredentials bool `json:"require-credentials"`
+	ListeningPort string `json:"listening-port"`
 }
