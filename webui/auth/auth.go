@@ -7,6 +7,7 @@ import (
 	"log"
 
 	// "github.com/Pegasus8/piworker/utilities/files"
+	"github.com/Pegasus8/piworker/processment/configs"
 
 	jwt "github.com/dgrijalva/jwt-go"
 )
@@ -45,6 +46,10 @@ func NewJWT(claim CustomClaims) (jwtToken string, err error) {
 func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
+		if !configs.CurrentConfigs.APIConfigs.RequireToken {
+			endpoint(w, r)
+		}
+		
         if r.Header["Token"] != nil {
 			
 			token, err := jwt.ParseWithClaims(r.Header["Token"][0], &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
