@@ -29,7 +29,7 @@ type APIConfigs struct {
 	EditTaskAPI bool `json:"edittask-api"`
 	DeleteTaskAPI bool `json:"deletetask-api"`
 
-	// Autentication
+	// Authentication
 	RequireToken bool `json:"require-token"`
 	Token string `json:"token"`
 }
