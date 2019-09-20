@@ -21,8 +21,14 @@ func init() {
 		if err != nil {
 			log.Fatal(err.Error())
 		}
+		// Don't need to read the file because we already know what's inside it.
+		CurrentConfigs = &DefaultConfigs
 	} else {
 		log.Println("Configs file found")
+		CurrentConfigs, err = ReadConfigs()
+		if err != nil {
+			log.Fatal(err.Error())
+		}
 	}
 }
 
