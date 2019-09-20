@@ -74,16 +74,28 @@ func setupRoutes() {
 		indexPath:  "./frontend/static/index.html",
 	}
 
+	apiConfigs := &configs.CurrentConfigs.APIConfigs
+
 	// ─── APIS ───────────────────────────────────────────────────────────────────────
 	router.HandleFunc("/api/auth", func(w http.ResponseWriter, r *http.Request) {
 		// TODO Authenticate the user and give him a token
 		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 	})
-	router.Handle("/api/tasks/new", auth.IsAuthorized(newTaskAPI)).Methods("POST")
-	router.Handle("/api/tasks/modify", auth.IsAuthorized(modifyTaskAPI)).Methods("POST")
-	router.Handle("/api/tasks/delete", auth.IsAuthorized(deleteTaskAPI)).Methods("POST")
-	router.Handle("/api/tasks/get-all", auth.IsAuthorized(getTasksAPI)).Methods("GET")
-	router.Handle("/api/info/statistics", auth.IsAuthorized(statisticsAPI)).Methods("GET")
+	if apiConfigs.NewTaskAPI {
+		router.Handle("/api/tasks/new", auth.IsAuthorized(newTaskAPI)).Methods("POST")
+	}
+	if apiConfigs.EditTaskAPI {
+		router.Handle("/api/tasks/modify", auth.IsAuthorized(modifyTaskAPI)).Methods("POST")
+	}
+	if apiConfigs.DeleteTaskAPI {
+		router.Handle("/api/tasks/delete", auth.IsAuthorized(deleteTaskAPI)).Methods("POST")
+	}
+	if apiConfigs.GetAllTasksAPI {
+		router.Handle("/api/tasks/get-all", auth.IsAuthorized(getTasksAPI)).Methods("GET")
+	}
+	if apiConfigs.StatisticsAPI {
+		router.Handle("/api/info/statistics", auth.IsAuthorized(statisticsAPI)).Methods("GET")
+	}
 	// ────────────────────────────────────────────────────────────────────────────────
 
 	// ─── WEBSOCKET ──────────────────────────────────────────────────────────────────
