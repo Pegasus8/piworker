@@ -21,7 +21,6 @@ type Behavior struct {
 // Security is the struct used to store Security configs of PiWorker.
 type Security struct {
 	DeniedIPs []string `json:"denied-ips"`
-	// DeniedMACAdresses []string `json:"denied-macadresses"` 
 	LocalNetworkAccess bool `json:"local-network-access"`
 
 }
