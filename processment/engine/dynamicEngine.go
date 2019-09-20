@@ -12,8 +12,8 @@ import (
 )
 
 // StartEngine is the function used to start the Dynamic Engine
-func StartEngine() {
-	log.Infoln("Starting the Dynamic Engine...")
+func StartEngine(configs *configs.Configs) {
+ 	log.Infoln("Starting the Dynamic Engine...")
 	defer os.RemoveAll(TempDir)
 
 	var tasksGoroutines map[string]chan data.UserTask
