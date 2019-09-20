@@ -106,7 +106,7 @@ func setupRoutes() {
 }
 
 // Run - start the server
-func Run(statsChan chan stats.Statistic, configs *configs.Configs) { // 
+func Run(statsChan chan stats.Statistic) { //  
 	log.Println("Starting server...")
 
 	statsChannel = statsChan
