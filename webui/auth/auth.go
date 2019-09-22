@@ -10,6 +10,7 @@ import (
 	"github.com/Pegasus8/piworker/processment/configs"
 
 	jwt "github.com/dgrijalva/jwt-go"
+	"github.com/aidarkhanov/nanoid"
 )
 // TODO get the configs from the configs file 
 
@@ -82,8 +83,10 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 }
 
 func generateSigningKey() {
-	// TODO Generate the signing key and save it on the configs file
-	// Aditionally, set the variable `CurrentConfigs.APIConfigs.SigningKey` 
-	// to the new signing key. This is to prevent reading the whole configuration 
-	// file again.
+	configs.CurrentConfigs.APIConfigs.SigningKey = nanoid.New()
+	// Write the updated configs (with the SigningKey)
+	err := configs.UpdateAPIConfigs(&configs.CurrentConfigs.APIConfigs)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
 }
