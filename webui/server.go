@@ -8,12 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
-	// "io/ioutil"
+	"io/ioutil"
 
 	"github.com/Pegasus8/piworker/processment/stats"
 	"github.com/Pegasus8/piworker/webui/auth"
 	"github.com/Pegasus8/piworker/webui/websocket"
+	"github.com/Pegasus8/piworker/processment/data"
+	"github.com/Pegasus8/piworker/processment/configs"
 
 	"github.com/gorilla/mux"
 	// jwt "github.com/dgrijalva/jwt-go"
@@ -24,6 +25,11 @@ var statsChannel chan stats.Statistic
 type mainpageHandler struct {
 	staticPath string
 	indexPath  string
+}
+
+type postResponse struct {
+	successful bool
+	error string
 }
 
 func (h mainpageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -149,7 +155,38 @@ func statsWS(w http.ResponseWriter, request *http.Request) {
 	go websocket.Writer(ws, statsChannel)
 }
 
-func newTaskAPI(w http.ResponseWriter, request *http.Request) {
+func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
+	var response postResponse
+	var task data.UserTask 
+
+	body, err := ioutil.ReadAll(request.Body)
+	if err != nil{
+		log.Printf("Error when trying to read the POST data sent by %s\n", request.Host)
+		response.successful = false
+		response.error = err.Error()
+		goto response1
+	}
+	
+	err = json.Unmarshal(body, &task)
+	if err != nil {
+		log.Printf("The data on the POST request of %s cannot be read\n", request.Host)
+		response.successful = false
+		response.error = err.Error()
+		goto response1
+	} 
+
+	err = data.NewTask(&task)
+	if err != nil {
+		response.successful = false
+		response.error = err.Error()
+		goto response1
+	}
+
+	response.successful = true
+
+	response1:
+		
+	json.NewEncoder(w).Encode(response)
 }
 
 func modifyTaskAPI(w http.ResponseWriter, request *http.Request) {
