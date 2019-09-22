@@ -1,3 +1,5 @@
+github.com/aidarkhanov/nanoid v1.0.2 h1:mqcuP4mW+wqJKy/ied8veBHWKJIAdhwZYUn6K4fSPno=
+github.com/aidarkhanov/nanoid v1.0.2/go.mod h1:KmU0bf9Ul0mF+fOTZ1oCoOEtJRUTf8PCFaO0HUY1Qso=
 github.com/dgrijalva/jwt-go v3.2.0+incompatible h1:7qlOGliEKZXTDg6OTjfoBKDXWrumCAMpl/TFQ4/5kLM=
 github.com/dgrijalva/jwt-go v3.2.0+incompatible/go.mod h1:E3ru+11k8xSBh+hMPgOLZmtrrCbhqsmaPHjLKYnJCaQ=
 github.com/gorilla/mux v1.7.3 h1:gnP5JzjVOuiZD07fKKToCAOjS0yOpj/qPETTXCCS6hw=
