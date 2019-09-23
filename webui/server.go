@@ -190,14 +190,87 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	json.NewEncoder(w).Encode(response)
 }
 
-func modifyTaskAPI(w http.ResponseWriter, request *http.Request) {
+func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
+	var response postResponse
+	var task data.UserTask
+
+	body, err := ioutil.ReadAll(request.Body)
+	if err != nil{
+		log.Printf("Error when trying to read the POST data sent by %s\n", request.Host)
+		response.Successful = false
+		response.Error = err.Error()
+		goto response1
+	}
+
+	err = json.Unmarshal(body, &task)
+	if err != nil {
+		log.Printf("The data on the POST request of %s cannot be read\n", request.Host)
+		response.Successful = false
+		response.Error = err.Error()
+		goto response1
+	}
+
+	err = data.UpdateTask(task.TaskInfo.Name, &task)
+	if err != nil {
+		response.Successful = false
+		response.Error = err.Error()
+		goto response1
+	}
+
+	response.Successful = true
+
+	response1:
+		
+	json.NewEncoder(w).Encode(response)
 }
 
-func deleteTaskAPI(w http.ResponseWriter, request *http.Request) {
+func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
+	var response postResponse
+	var toDelete = struct {
+		Taskname string `json:"taskname"`
+	}{}
+
+	// TODO Implementation of partial delete
+
+	body, err := ioutil.ReadAll(request.Body)
+	if err != nil{
+		log.Printf("Error when trying to read the POST data sent by %s\n", request.Host)
+		response.Successful = false
+		response.Error = err.Error()
+		goto response1
+	}
+
+	err = json.Unmarshal(body, &toDelete)
+	if err != nil {
+		log.Printf("The data on the POST request of %s cannot be read\n", request.Host)
+		response.Successful = false
+		response.Error = err.Error()
+		goto response1
+	}
+
+	err = data.DeleteTask(toDelete.Taskname)
+	if err != nil {
+		response.Successful = false
+		response.Error = err.Error()
+		goto response1
+	}
+
+	response.Successful = true
+
+	response1:
+		
+	json.NewEncoder(w).Encode(response)
 }
 
-func getTasksAPI(w http.ResponseWriter, request *http.Request) {
+func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
+	userData, err := data.ReadData()
+	if err != nil {
+		fmt.Fprintf(w, err.Error())
+		return
+	}
+
+	json.NewEncoder(w).Encode(userData.Tasks)
 }
 
-func statisticsAPI(w http.ResponseWriter, request *http.Request) {
+func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 }
