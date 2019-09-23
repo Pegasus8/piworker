@@ -28,8 +28,8 @@ type mainpageHandler struct {
 }
 
 type postResponse struct {
-	successful bool
-	error string
+	Successful bool `json:"successful"`
+	Error string `json:"error"`
 }
 
 func (h mainpageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -163,27 +163,27 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	body, err := ioutil.ReadAll(request.Body)
 	if err != nil{
 		log.Printf("Error when trying to read the POST data sent by %s\n", request.Host)
-		response.successful = false
-		response.error = err.Error()
+		response.Successful = false
+		response.Error = err.Error()
 		goto response1
 	}
 	
 	err = json.Unmarshal(body, &task)
 	if err != nil {
 		log.Printf("The data on the POST request of %s cannot be read\n", request.Host)
-		response.successful = false
-		response.error = err.Error()
+		response.Successful = false
+		response.Error = err.Error()
 		goto response1
 	} 
 
 	err = data.NewTask(&task)
 	if err != nil {
-		response.successful = false
-		response.error = err.Error()
+		response.Successful = false
+		response.Error = err.Error()
 		goto response1
 	}
 
-	response.successful = true
+	response.Successful = true
 
 	response1:
 		
