@@ -73,7 +73,6 @@ func (h mainpageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 //
 
 func setupRoutes() {
-	const PORT = "8080" // TODO Read from the config file
 	router := mux.NewRouter()
 	mainHandler := mainpageHandler{ // FIXME Packr implementation
 		staticPath: "./frontend/static",
@@ -104,6 +103,7 @@ func setupRoutes() {
 	}
 	// ────────────────────────────────────────────────────────────────────────────────
 
+	if configs.CurrentConfigs.WebUI.Enabled {
 		// ─── WEBSOCKET ──────────────────────────────────────────────────────────────────
 		router.Handle("/ws", auth.IsAuthorized(statsWS))
 		// ────────────────────────────────────────────────────────────────────────────────
@@ -111,15 +111,16 @@ func setupRoutes() {
 		// ─── SINGLE PAGE APP ────────────────────────────────────────────────────────────
 		router.PathPrefix("/").Handler(mainHandler)
 		// ────────────────────────────────────────────────────────────────────────────────
+	}
 
 	srv := &http.Server{
 		Handler:      router,
-		Addr:         ":" + PORT,
+		Addr:         ":" + configs.CurrentConfigs.WebUI.ListeningPort,
 		WriteTimeout: 15 * time.Second,
 		ReadTimeout:  15 * time.Second,
 	}
 
-	log.Println("Listening and serving on port", PORT)
+	log.Println("Listening and serving on port", configs.CurrentConfigs.WebUI.ListeningPort)
 	log.Fatal(srv.ListenAndServe())
 }
 
