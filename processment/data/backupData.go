@@ -3,6 +3,7 @@ package data
 import (
 	"time"
 	"encoding/json"
+	"strings"
 
 	"github.com/Pegasus8/piworker/utilities/files"
 	"github.com/Pegasus8/piworker/utilities/log"
@@ -47,9 +48,6 @@ func StartBackupLoop() error {
 }
 
 func backup() error {
-	mutex.Lock()
-	defer mutex.Unlock()
-
 	data, err := ReadData()
 	if err != nil {
 		log.Errorln("Error:", err)
@@ -62,6 +60,7 @@ func backup() error {
 	}
 
 	backupFilename := Filename + "_" + time.Now().String() + ".backup"
+	backupFilename = strings.ReplaceAll(backupFilename, " ", "_")
 
 	_, err = files.WriteFile(DataPath, backupFilename, byteData)
 	if err != nil {
