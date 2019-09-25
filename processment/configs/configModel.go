@@ -11,6 +11,7 @@ type Configs struct {
 	APIConfigs APIConfigs `json:"api-configs"`
 	Updates Updates `json:"updates"`
 	WebUI WebUI `json:"webui"`
+	Users []User `json:"users"`
 }
 
 // Behavior is the struct used to store Behavior configs of PiWorker.
@@ -52,4 +53,14 @@ type WebUI struct {
 	Enabled bool `json:"enabled"`
 	RequireCredentials bool `json:"require-credentials"`
 	ListeningPort string `json:"listening-port"`
+}
+
+// User is used to store each user's credentials.
+type User struct {
+	Username string `json:"username"`
+	// NOTE It would be safer to store the hash instead of the password 
+	// in plain text, but if the user lost the password he could not 
+	// retrieve it.
+	Password string `json:"password"`
+	Admin bool `json:"admin"`
 }
