@@ -82,10 +82,7 @@ func setupRoutes() {
 	apiConfigs := &configs.CurrentConfigs.APIConfigs
 
 	// ─── APIS ───────────────────────────────────────────────────────────────────────
-	router.HandleFunc("/api/auth", func(w http.ResponseWriter, r *http.Request) {
-		// TODO Authenticate the user and give him a token
-		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
-	})
+	router.HandleFunc("/api/auth", authAPI)
 	if apiConfigs.NewTaskAPI {
 		router.Handle("/api/tasks/new", auth.IsAuthorized(newTaskAPI)).Methods("POST")
 	}
@@ -149,6 +146,54 @@ func statsWS(w http.ResponseWriter, request *http.Request) {
 	// Execution of data sending to the client
 	// into another goroutine
 	go websocket.Writer(ws, statsChannel)
+}
+
+func authAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
+	var response struct {
+		Successful bool `json:"successful"`
+		Token string `json:"token"`
+		ExpiresAt int64 `json:"expiresAt"`
+	}
+	var user configs.User
+
+	body, err := ioutil.ReadAll(request.Body)
+	if err != nil{
+		log.Printf("Error when trying to read the POST data sent by %s\n", request.Host)
+		response.Successful = false
+		goto response1
+	}
+
+	err = json.Unmarshal(body, &user)
+	if err != nil {
+		log.Printf("The data on the POST request of %s cannot be read\n", request.Host)
+		response.Successful = false
+		goto response1
+	} 
+
+	if ok := configs.AuthUser(user.Username, user.Password); ok {
+		duration := configs.CurrentConfigs.APIConfigs.TokenDuration
+		expiresAt := time.Now().Add(duration).Unix()
+		token, err := auth.NewJWT(
+			auth.CustomClaims{
+				User: user.Username, 
+				StandardClaims: jwt.StandardClaims{ExpiresAt: expiresAt},
+			},
+		)
+		if err != nil {
+			log.Println(err.Error())
+			response.Successful = false
+			goto response1
+		}
+		response.Successful = true
+		response.Token = token
+		response.ExpiresAt = expiresAt
+	}
+	
+	response1:
+
+	// TODO Save the token on the database
+
+	json.NewEncoder(w).Encode(response)
 }
 
 func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
