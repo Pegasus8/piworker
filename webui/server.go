@@ -139,11 +139,6 @@ func Run(statsChan chan stats.Statistic) { //
 // ──────────────────────────────────────────────────────────────────
 //
 
-func homePage(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Hello World")
-	fmt.Println("Endpoint Hit: homePage")
-}
-
 func statsWS(w http.ResponseWriter, request *http.Request) {
 	// Upgrade the connection from standard HTTP connection to WebSocket connection
 	ws, err := websocket.Upgrade(w, request)
