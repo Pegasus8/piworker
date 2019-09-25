@@ -40,7 +40,8 @@ var DefaultConfigs = Configs{
 		Enabled: true,
 		RequireCredentials: true,
 		ListeningPort: "8080",
- 	},
+	 },
+	 Users: []User{},
 }
 
 // CurrentConfigs is the variable that contains the parsed configs
