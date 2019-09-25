@@ -10,15 +10,10 @@ import (
 func UpdateBehaviorConfigs(behaviorCfg *Behavior) error {
 	log.Println("Updating Behavior configs...")
 
-	data, err := ReadConfigs()
-	if err != nil {
-		return err
-	}
-
 	// Overwrite configs
-	data.Behavior = *behaviorCfg
+	CurrentConfigs.Behavior = *behaviorCfg
 	
-	err = WriteConfigs(data)
+	err := WriteConfigs(CurrentConfigs)
 	if err != nil {
 		return err
 	}
@@ -32,14 +27,9 @@ func UpdateBehaviorConfigs(behaviorCfg *Behavior) error {
 func UpdateSecurityConfigs(securityCfg *Security) error {
 	log.Println("Updating Security configs...")
 
-	data, err := ReadConfigs()
-	if err != nil {
-		return err
-	}
+	CurrentConfigs.Security = *securityCfg
 
-	data.Security = *securityCfg
-
-	err = WriteConfigs(data)
+	err := WriteConfigs(CurrentConfigs)
 	if err != nil {
 		return err
 	}
@@ -53,14 +43,9 @@ func UpdateSecurityConfigs(securityCfg *Security) error {
 func UpdateAPIConfigs(apiCfg *APIConfigs) error {
 	log.Println("Updating API configs...")
 
-	data, err := ReadConfigs()
-	if err != nil {
-		return err
-	}
+	CurrentConfigs.APIConfigs = *apiCfg
 
-	data.APIConfigs = *apiCfg
-
-	err = WriteConfigs(data)
+	err := WriteConfigs(CurrentConfigs)
 	if err != nil {
 		return err
 	}
@@ -74,14 +59,9 @@ func UpdateAPIConfigs(apiCfg *APIConfigs) error {
 func UpdateUpdatesConfigs(updatesCfg *Updates) error {
 	log.Println("Updating Updates configs...")
 
-	data, err := ReadConfigs()
-	if err != nil {
-		return err
-	}
+	CurrentConfigs.Updates = *updatesCfg
 
-	data.Updates = *updatesCfg
-
-	err = WriteConfigs(data)
+	err := WriteConfigs(CurrentConfigs)
 	if err != nil {
 		return err
 	}
@@ -94,15 +74,10 @@ func UpdateUpdatesConfigs(updatesCfg *Updates) error {
 // configs file.
 func UpdateWebUIConfigs(webuiCfg *WebUI) error {
 	log.Println("Updating WebUI configs...")
-	
-	data, err := ReadConfigs()
-	if err != nil {
-		return err
-	}
 
-	data.WebUI = *webuiCfg
+	CurrentConfigs.WebUI = *webuiCfg
 
-	err = WriteConfigs(data)
+	err := WriteConfigs(CurrentConfigs)
 	if err != nil {
 		return err
 	}
