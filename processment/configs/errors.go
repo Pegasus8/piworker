@@ -13,3 +13,12 @@ var ErrConfigFileCorrupted = errors.New(
 	"Error: the configurations stored are corrupt",
 )
 
+// ErrUserNotFound is the error used when a specific user is not found
+// on the users slice (`Configs.Users`).
+var ErrUserNotFound = errors.New("User not found")
+
+// ErrUsernameExists is the error used when, at time of add a new user, 
+// the username already exists on the users slice (`Configs.Users`).
+var ErrUsernameExists = errors.New(
+	"The username is already in use",
+)
