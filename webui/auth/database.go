@@ -57,9 +57,9 @@ func CreateTable(db *sql.DB) error {
 	}
 	return nil
 }
-// StoreToken is the function used to save a `AuthUser` struct into the
+// StoreToken is the function used to save a `UserInfo` struct into the
 // sqlite3 database.
-func StoreToken(db *sql.DB, authUser AuthUser) error {
+func StoreToken(db *sql.DB, authUser UserInfo) error {
 	sqlStatement := `
 	INSERT INTO UsersTokens(
 		User,
@@ -92,7 +92,7 @@ func StoreToken(db *sql.DB, authUser AuthUser) error {
 
 // ReadLastToken is the function used to read the last auth info of a user 
 // from the sqlite3 database.
-func ReadLastToken(db *sql.DB, user string) (AuthUser, error) {
+func ReadLastToken(db *sql.DB, user string) (UserInfo, error) {
 	sqlStatement := `
 	SELECT * FROM UsersTokens
 	ORDER BY datetime(InsertedDatetime) DESC LIMIT 1
@@ -100,11 +100,11 @@ func ReadLastToken(db *sql.DB, user string) (AuthUser, error) {
 	`
 	row, err := db.Query(sqlStatement, user)
 	if err != nil {
-		return AuthUser{}, err
+		return UserInfo{}, err
 	}
 	defer row.Close()
 
-	var result AuthUser
+	var result UserInfo
 	// Must be only one row
 	err = row.Scan(
 		&result.User,
@@ -114,7 +114,7 @@ func ReadLastToken(db *sql.DB, user string) (AuthUser, error) {
 		&result.InsertedDatetime,
 	)
 	if err != nil {
-		return AuthUser{}, err
+		return UserInfo{}, err
 	}
 
 	return result, nil

@@ -11,7 +11,9 @@ type CustomClaims struct {
 	jwt.StandardClaims
 }
 
-type AuthUser struct {
+// UserInfo is the struct used to parse the auth info of some user from the 
+// sqlite3 database.
+type UserInfo struct {
 	ID string
 	User string
 	Token string
