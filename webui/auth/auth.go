@@ -16,12 +16,6 @@ import (
 
 var signingKey []byte
 
-// CustomClaims is the struct used to parse the claims from the JWT token
-type CustomClaims struct {
-	User string `json:"user"`
-	jwt.StandardClaims
-}
-
 func init() {
 	if configs.CurrentConfigs.APIConfigs.SigningKey == "" {
 		generateSigningKey()
