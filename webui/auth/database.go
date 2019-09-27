@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"log"
 	"path/filepath"
+	"os/signal"
+	"syscall"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite3 package
 )
@@ -12,6 +14,25 @@ import (
 func init() {
 	// Create statistics path if not exists
 	err := os.MkdirAll(DatabasePath, os.ModePerm)
+	if err != nil {
+		log.Panicln(err)
+	}
+
+	database, err = InitDB()
+	if err != nil {
+		log.Panicln(err)
+	}
+
+	go func() {
+		defer database.Close()
+		
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+		// Close the database when the shutdown signal is received.
+		<-sigs
+	}()
+
+	err = CreateTable(database)
 	if err != nil {
 		log.Panicln(err)
 	}
