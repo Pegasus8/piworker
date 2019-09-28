@@ -82,7 +82,7 @@ func setupRoutes() {
 	apiConfigs := &configs.CurrentConfigs.APIConfigs
 
 	// ─── APIS ───────────────────────────────────────────────────────────────────────
-	router.HandleFunc("/api/auth", authAPI)
+	router.HandleFunc("/api/login", loginAPI)
 	if apiConfigs.NewTaskAPI {
 		router.Handle("/api/tasks/new", auth.IsAuthorized(newTaskAPI)).Methods("POST")
 	}
@@ -148,7 +148,7 @@ func statsWS(w http.ResponseWriter, request *http.Request) {
 	go websocket.Writer(ws, statsChannel)
 }
 
-func authAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
+func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	var response struct {
 		Successful bool `json:"successful"`
 		Token string `json:"token"`
