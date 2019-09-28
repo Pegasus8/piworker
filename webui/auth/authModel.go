@@ -14,7 +14,7 @@ type CustomClaims struct {
 // UserInfo is the struct used to parse the auth info of some user from the 
 // sqlite3 database.
 type UserInfo struct {
-	ID string
+	ID int64
 	User string
 	Token string
 	ExpiresAt time.Time
