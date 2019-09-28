@@ -64,7 +64,7 @@ func InitDB() (*sql.DB, error) {
 func CreateTable(db *sql.DB) error {
 	sqlStatement := `
 	CREATE TABLE IF NOT EXISTS UsersTokens(
-		ID TEXT NOT NULL PRIMARY KEY,
+		ID INTEGER PRIMARY KEY AUTOINCREMENT,
 		User TEXT NOT NULL,
 		Token TEXT NOT NULL,
 		ExpiresAt DATETIME NOT NULL, 
