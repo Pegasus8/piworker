@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"os/signal"
 	"syscall"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite3 package
 )
@@ -139,4 +140,20 @@ func ReadLastToken(db *sql.DB, user string) (UserInfo, error) {
 	}
 
 	return result, nil
+}
+
+// UpdateLastTimeUsed is the function used to update the the LastTimeUsed field of a specific
+// register.
+func UpdateLastTimeUsed(db *sql.DB, id int64, lastTimeUsed time.Time) error {
+	sqlStatement := `
+		UPDATE UsersTokens 
+		SET LastTimeUsed = ?
+		WHERE ID = ?;
+	`
+	_, err := db.Exec(sqlStatement, lastTimeUsed, id)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
