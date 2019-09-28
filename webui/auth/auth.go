@@ -1,7 +1,7 @@
 package auth
 
 import (
-	// "time"
+	"time"
 	"net/http"
 	"fmt"
 	"log"
@@ -40,7 +40,8 @@ func NewJWT(claim CustomClaims) (jwtToken string, err error) {
     return tokenString, nil
 }
 
-// IsAuthorized checks if the token used (or not) is valid to access the content
+// IsAuthorized checks if the token used is valid to access the content. In case of not required usage of tokens 
+// for the access to the resources, the access will be approved without making checks. 
 func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
@@ -64,14 +65,39 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
             if token.Valid {
 				claims := token.Claims.(*CustomClaims)
 				log.Printf("Token of the user '%s' used by the IP %s\n", claims.User, r.Host)
-                endpoint(w, r)
+
+				log.Printf("Token valid, checking on database...")
+				userAuthInfo, err := ReadLastToken(database, claims.User)
+				if err != nil {
+					fmt.Fprintf(w, "Error on the database, I can't check the authenticity of the token.")
+					log.Println(err.Error())
+				}
+				if userAuthInfo.Token != token.Raw {
+					str := "The token used is not the same as the last one registered in the database."
+					log.Println(str)
+					fmt.Fprintln(w, str)
+					return
+				}
+
+				defer func() {
+					// On case of panicking 
+					if err := recover(); err != nil {
+						log.Println("Recover from panic:", err)
+					}
+				}()
+				err = UpdateLastTimeUsed(database, userAuthInfo.ID, time.Now())
+				if err != nil {
+					log.Panicln(err.Error())
+				}
+				
+				endpoint(w, r)
             } else {
 				log.Printf("The IP %s has tried to use a not valid token: '%s'\n", r.Host, token.Raw)
-				fmt.Fprintf(w, "Not authorized, invalid token")
+				fmt.Fprintf(w, "Not authorized, invalid token.")
 			}
         } else {
 			log.Printf("The IP %s has tried to access without a token\n", r.Host)
-            fmt.Fprintf(w, "Not authorized")
+            fmt.Fprintf(w, "Not authorized.")
         }
     })
 }
