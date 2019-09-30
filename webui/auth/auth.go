@@ -67,7 +67,7 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 				log.Printf("Token of the user '%s' used by the IP %s\n", claims.User, r.Host)
 
 				log.Printf("Token valid, checking on database...")
-				userAuthInfo, err := ReadLastToken(database, claims.User)
+				userAuthInfo, err := ReadLastToken(claims.User)
 				if err != nil {
 					fmt.Fprintf(w, "Error on the database, I can't check the authenticity of the token.")
 					log.Println(err.Error())
@@ -85,7 +85,7 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 						log.Println("Recover from panic:", err)
 					}
 				}()
-				err = UpdateLastTimeUsed(database, userAuthInfo.ID, time.Now())
+				err = UpdateLastTimeUsed(userAuthInfo.ID, time.Now())
 				if err != nil {
 					log.Panicln(err.Error())
 				}
