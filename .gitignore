@@ -5,3 +5,4 @@ keys.go
 .vscode
 node_modules/
 /configs
+tokens.db
