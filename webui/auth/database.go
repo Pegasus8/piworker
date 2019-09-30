@@ -117,8 +117,9 @@ func StoreToken(db *sql.DB, authUser UserInfo) error {
 func ReadLastToken(db *sql.DB, user string) (UserInfo, error) {
 	sqlStatement := `
 	SELECT * FROM UsersTokens
-	ORDER BY datetime(InsertedDatetime) DESC LIMIT 1
-	WHERE User='?'
+	WHERE User=?
+	ORDER BY datetime(InsertedDatetime) DESC
+	LIMIT 1;
 	`
 	row, err := db.Query(sqlStatement, user)
 	if err != nil {
@@ -128,15 +129,18 @@ func ReadLastToken(db *sql.DB, user string) (UserInfo, error) {
 
 	var result UserInfo
 	// Must be only one row
-	err = row.Scan(
-		&result.User,
-		&result.Token,
-		&result.ExpiresAt,
-		&result.LastTimeUsed,
-		&result.InsertedDatetime,
-	)
-	if err != nil {
-		return UserInfo{}, err
+	for row.Next() {
+		err = row.Scan(
+			&result.ID,
+			&result.User,
+			&result.Token,
+			&result.ExpiresAt,
+			&result.LastTimeUsed,
+			&result.InsertedDatetime,
+		)
+		if err != nil {
+			return UserInfo{}, err
+		}
 	}
 
 	return result, nil
