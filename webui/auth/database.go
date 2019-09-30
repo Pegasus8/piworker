@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"log"
 	"path/filepath"
-	"os/signal"
-	"syscall"
+	// "os/signal"
+	// "syscall"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite3 package
@@ -24,15 +24,15 @@ func init() {
 		log.Panicln(err)
 	}
 
-	go func() {
-		defer database.Close()
+	// go func() {
+	// 	sigs := make(chan os.Signal, 1)
+	// 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	// 	// Close the database when the shutdown signal is received.
+	// 	<-sigs
 		
-		sigs := make(chan os.Signal, 1)
-		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-		// Close the database when the shutdown signal is received.
-		<-sigs
-	}()
-
+	// 	log.Println("Database closed")
+	// }()
+	
 	err = CreateTable(database)
 	if err != nil {
 		log.Panicln(err)
