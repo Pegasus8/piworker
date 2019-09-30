@@ -73,6 +73,8 @@ func (h mainpageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 //
 
 func setupRoutes() {
+	defer auth.Database.Close()
+	
 	router := mux.NewRouter()
 	mainHandler := mainpageHandler{ // FIXME Packr implementation
 		staticPath: "./frontend/static",

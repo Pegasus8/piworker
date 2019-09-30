@@ -19,7 +19,7 @@ func init() {
 		log.Panicln(err)
 	}
 
-	database, err = InitDB()
+	Database, err = InitDB()
 	if err != nil {
 		log.Panicln(err)
 	}
@@ -33,7 +33,7 @@ func init() {
 	// 	log.Println("Database closed")
 	// }()
 	
-	err = CreateTable(database)
+	err = CreateTable()
 	if err != nil {
 		log.Panicln(err)
 	}
@@ -62,7 +62,7 @@ func InitDB() (*sql.DB, error) {
 
 // CreateTable is the function used to create the default tables into 
 // the sqlite3 database.
-func CreateTable(db *sql.DB) error {
+func CreateTable() error {
 	sqlStatement := `
 	CREATE TABLE IF NOT EXISTS UsersTokens(
 		ID INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,7 +73,7 @@ func CreateTable(db *sql.DB) error {
 		InsertedDatetime DATETIME NOT NULL
 	);
 	`
-	_, err := db.Exec(sqlStatement)
+	_, err := Database.Exec(sqlStatement)
 	if err != nil {
 		return err
 	}
@@ -81,7 +81,7 @@ func CreateTable(db *sql.DB) error {
 }
 // StoreToken is the function used to save a `UserInfo` struct into the
 // sqlite3 database.
-func StoreToken(db *sql.DB, authUser UserInfo) error {
+func StoreToken(authUser UserInfo) error {
 	sqlStatement := `
 	INSERT INTO UsersTokens(
 		User,
@@ -89,10 +89,10 @@ func StoreToken(db *sql.DB, authUser UserInfo) error {
 		ExpiresAt,
 		LastTimeUsed,
 		InsertedDatetime
-	) values (?,?,?,?,?)
+	) values (?,?,?,?,?);
 	`
 
-	stmt, err := db.Prepare(sqlStatement)
+	stmt, err := Database.Prepare(sqlStatement)
 	if err != nil {
 		return err
 	}
@@ -114,14 +114,14 @@ func StoreToken(db *sql.DB, authUser UserInfo) error {
 
 // ReadLastToken is the function used to read the last auth info of a user 
 // from the sqlite3 database.
-func ReadLastToken(db *sql.DB, user string) (UserInfo, error) {
+func ReadLastToken(user string) (UserInfo, error) {
 	sqlStatement := `
 	SELECT * FROM UsersTokens
 	WHERE User=?
 	ORDER BY datetime(InsertedDatetime) DESC
 	LIMIT 1;
 	`
-	row, err := db.Query(sqlStatement, user)
+	row, err := Database.Query(sqlStatement, user)
 	if err != nil {
 		return UserInfo{}, err
 	}
@@ -148,13 +148,13 @@ func ReadLastToken(db *sql.DB, user string) (UserInfo, error) {
 
 // UpdateLastTimeUsed is the function used to update the the LastTimeUsed field of a specific
 // register.
-func UpdateLastTimeUsed(db *sql.DB, id int64, lastTimeUsed time.Time) error {
+func UpdateLastTimeUsed(id int64, lastTimeUsed time.Time) error {
 	sqlStatement := `
 		UPDATE UsersTokens 
 		SET LastTimeUsed = ?
 		WHERE ID = ?;
 	`
-	_, err := db.Exec(sqlStatement, lastTimeUsed, id)
+	_, err := Database.Exec(sqlStatement, lastTimeUsed, id)
 	if err != nil {
 		return err
 	}
