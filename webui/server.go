@@ -17,7 +17,7 @@ import (
 	"github.com/Pegasus8/piworker/processment/configs"
 
 	"github.com/gorilla/mux"
-	// jwt "github.com/dgrijalva/jwt-go"
+	jwt "github.com/dgrijalva/jwt-go"
 )
 
 var statsChannel chan stats.Statistic
@@ -174,11 +174,11 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 
 	if ok := configs.AuthUser(user.Username, user.Password); ok {
 		duration := configs.CurrentConfigs.APIConfigs.TokenDuration
-		expiresAt := time.Now().Add(duration).Unix()
+		expiresAt := time.Now().Add(duration)
 		token, err := auth.NewJWT(
 			auth.CustomClaims{
 				User: user.Username, 
-				StandardClaims: jwt.StandardClaims{ExpiresAt: expiresAt},
+				StandardClaims: jwt.StandardClaims{ExpiresAt: expiresAt.Unix()},
 			},
 		)
 		if err != nil {
@@ -188,7 +188,22 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 		}
 		response.Successful = true
 		response.Token = token
-		response.ExpiresAt = expiresAt
+		response.ExpiresAt = expiresAt.Unix()
+
+		now := time.Now()
+		err = auth.StoreToken(
+			auth.UserInfo{
+				ID: 0, // Not necessary, will be given by the sqlite database automatically.
+				User: user.Username,
+				Token: token,
+				ExpiresAt: expiresAt,
+				LastTimeUsed: now,
+				InsertedDatetime: now,
+			},
+		)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
 	}
 	
 	response1:
