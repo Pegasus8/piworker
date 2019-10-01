@@ -16,7 +16,7 @@ type Configs struct {
 
 // Behavior is the struct used to store Behavior configs of PiWorker.
 type Behavior struct {
-	LoopSleep float64 `json:"loop-sleep"`
+	LoopSleep int64 `json:"loop-sleep"`
 }
 
 // Security is the struct used to store Security configs of PiWorker.

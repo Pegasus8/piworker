@@ -15,7 +15,7 @@ const ConfigsPath string = "./configs/"
 // used when the config file not exists.
 var DefaultConfigs = Configs{
 	Behavior: Behavior{
-		LoopSleep: 0.5,
+		LoopSleep: 500, // Milliseconds
 	},
 	Security: Security{
 		DeniedIPs: []string{},
