@@ -12,6 +12,11 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 {
+		handleFlags()
+		os.Exit(0)
+	}
+
 	// Logs settings
 	var (
 		loggingDir = "./logs/"
