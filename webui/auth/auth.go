@@ -71,6 +71,7 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 				if err != nil {
 					fmt.Fprintf(w, "Error on the database, I can't check the authenticity of the token.")
 					log.Println(err.Error())
+					return
 				}
 				if userAuthInfo.Token != token.Raw {
 					str := "The token used is not the same as the last one registered in the database."
@@ -78,6 +79,7 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 					fmt.Fprintln(w, str)
 					return
 				}
+				log.Println("Token correctly checked on the database")
 
 				defer func() {
 					// On case of panicking 
