@@ -8,6 +8,7 @@ import (
 
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/stats"
+	"github.com/Pegasus8/piworker/processment/configs"
 	"github.com/Pegasus8/piworker/webui"
 )
 
@@ -50,7 +51,7 @@ func StartEngine() {
 	go stats.StartLoop(statsChannel, dataChannel)
 
 	// Keep the data updated
-	for range time.Tick(time.Millisecond * 200) { // TODO Duration from the config file.
+	for range time.Tick(time.Millisecond * configs.CurrentConfigs.Behavior.LoopSleep) { // TODO Duration from the config file.
 		select {
 		case <-needUpdateData:
 			{
