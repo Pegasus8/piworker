@@ -208,8 +208,6 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	
 	response1:
 
-	// TODO Save the token on the database
-
 	json.NewEncoder(w).Encode(response)
 }
 
