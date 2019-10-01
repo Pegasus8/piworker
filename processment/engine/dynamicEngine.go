@@ -8,12 +8,13 @@ import (
 
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/stats"
+	"github.com/Pegasus8/piworker/processment/configs"
 	"github.com/Pegasus8/piworker/webui"
 )
 
 // StartEngine is the function used to start the Dynamic Engine
 func StartEngine() {
-	log.Infoln("Starting the Dynamic Engine...")
+ 	log.Infoln("Starting the Dynamic Engine...")
 	defer os.RemoveAll(TempDir)
 
 	var tasksGoroutines map[string]chan data.UserTask
@@ -50,7 +51,7 @@ func StartEngine() {
 	go stats.StartLoop(statsChannel, dataChannel)
 
 	// Keep the data updated
-	for range time.Tick(time.Millisecond * 200) { // TODO Duration from the config file.
+	for range time.Tick(time.Millisecond * time.Duration(configs.CurrentConfigs.Behavior.LoopSleep)) {
 		select {
 		case <-needUpdateData:
 			{

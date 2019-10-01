@@ -1,6 +1,8 @@
-user_data.json
+user_data.json*
 keys.go
 /logs/
 /statistics/
 .vscode
 node_modules/
+/configs
+tokens.db

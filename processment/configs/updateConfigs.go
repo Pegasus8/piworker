@@ -1,121 +1,87 @@
 package configs
 
 import (
-	"github.com/Pegasus8/piworker/utilities/log"
+	// "github.com/Pegasus8/piworker/utilities/log"
+	"log"
 )
 
 // UpdateBehaviorConfigs is the function used to update the behavior configs in the
 // configs file.
 func UpdateBehaviorConfigs(behaviorCfg *Behavior) error {
-	mutex.Lock()
-	defer mutex.Unlock()
-	log.Infoln("Updating Behavior configs...")
-
-	data, err := ReadConfigs()
-	if err != nil {
-		return err
-	}
+	log.Println("Updating Behavior configs...")
 
 	// Overwrite configs
-	data.Behavior = *behaviorCfg
+	CurrentConfigs.Behavior = *behaviorCfg
 	
-	err = WriteConfigs(data)
+	err := WriteConfigs(CurrentConfigs)
 	if err != nil {
 		return err
 	}
 
-	log.Infoln("Behavior configs updated successfully")
+	log.Println("Behavior configs updated successfully")
 	return nil
 }
 
 // UpdateSecurityConfigs is the function used to update the security configs in the
 // configs file.
 func UpdateSecurityConfigs(securityCfg *Security) error {
-	mutex.Lock()
-	defer mutex.Unlock()
-	log.Infoln("Updating Security configs...")
+	log.Println("Updating Security configs...")
 
-	data, err := ReadConfigs()
-	if err != nil {
-		return err
-	}
+	CurrentConfigs.Security = *securityCfg
 
-	data.Security = *securityCfg
-
-	err = WriteConfigs(data)
+	err := WriteConfigs(CurrentConfigs)
 	if err != nil {
 		return err
 	}
 	
-	log.Infoln("Security configs updated successfully")
+	log.Println("Security configs updated successfully")
 	return nil
 }
 
 // UpdateAPIConfigs is the function used to update the API configs in the
 // configs file.
 func UpdateAPIConfigs(apiCfg *APIConfigs) error {
-	mutex.Lock()
-	defer mutex.Unlock()
-	log.Infoln("Updating API configs...")
+	log.Println("Updating API configs...")
 
-	data, err := ReadConfigs()
-	if err != nil {
-		return err
-	}
+	CurrentConfigs.APIConfigs = *apiCfg
 
-	data.APIConfigs = *apiCfg
-
-	err = WriteConfigs(data)
+	err := WriteConfigs(CurrentConfigs)
 	if err != nil {
 		return err
 	}
 	
-	log.Infoln("API configs updated successfully")
+	log.Println("API configs updated successfully")
 	return nil
 }
 
 // UpdateUpdatesConfigs is the function used to update the PiWorker updates configs in the
 // configs file.
 func UpdateUpdatesConfigs(updatesCfg *Updates) error {
-	mutex.Lock()
-	defer mutex.Unlock()
-	log.Infoln("Updating Updates configs...")
+	log.Println("Updating Updates configs...")
 
-	data, err := ReadConfigs()
-	if err != nil {
-		return err
-	}
+	CurrentConfigs.Updates = *updatesCfg
 
-	data.Updates = *updatesCfg
-
-	err = WriteConfigs(data)
+	err := WriteConfigs(CurrentConfigs)
 	if err != nil {
 		return err
 	}
 	
-	log.Infoln("Updates configs updated successfully")
+	log.Println("Updates configs updated successfully")
 	return nil
 }
 
 // UpdateWebUIConfigs is the function used to update the WebUI configs in the
 // configs file.
 func UpdateWebUIConfigs(webuiCfg *WebUI) error {
-	mutex.Lock()
-	defer mutex.Unlock()
-	log.Infoln("Updating WebUI configs...")
-	
-	data, err := ReadConfigs()
-	if err != nil {
-		return err
-	}
+	log.Println("Updating WebUI configs...")
 
-	data.WebUI = *webuiCfg
+	CurrentConfigs.WebUI = *webuiCfg
 
-	err = WriteConfigs(data)
+	err := WriteConfigs(CurrentConfigs)
 	if err != nil {
 		return err
 	}
 	
-	log.Infoln("WebUI configs updated successfully")
+	log.Println("WebUI configs updated successfully")
 	return nil
 }

@@ -1,50 +1,331 @@
 package webui
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"time"
+	"io/ioutil"
 
-	"github.com/Pegasus8/piworker/webui/websocket"
-	"github.com/Pegasus8/piworker/utilities/log"
 	"github.com/Pegasus8/piworker/processment/stats"
+	"github.com/Pegasus8/piworker/webui/auth"
+	"github.com/Pegasus8/piworker/webui/websocket"
+	"github.com/Pegasus8/piworker/processment/data"
+	"github.com/Pegasus8/piworker/processment/configs"
+
+	"github.com/gorilla/mux"
+	jwt "github.com/dgrijalva/jwt-go"
 )
 
 var statsChannel chan stats.Statistic
 
-func loadMainPage(w http.ResponseWriter, request *http.Request) {
-	//TODO: launch main page
-	fmt.Fprintf(w, "Hello from main page!")
+type mainpageHandler struct {
+	staticPath string
+	indexPath  string
 }
 
-func mainStats(w http.ResponseWriter, request *http.Request) {
+type postResponse struct {
+	Successful bool `json:"successful"`
+	Error string `json:"error"`
+}
+
+func (h mainpageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// =========================================================
+	//  Copy paste from https://github.com/gorilla/mux#serving-single-page-applications
+	// =========================================================
+
+	// get the absolute path to prevent directory traversal
+	path, err := filepath.Abs(r.URL.Path)
+	if err != nil {
+		// if we failed to get the absolute path respond with a 400 bad request
+		// and stop
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// prepend the path with the path to the static directory
+	path = filepath.Join(h.staticPath, path)
+
+	// check whether a file exists at the given path
+	_, err = os.Stat(path)
+	if os.IsNotExist(err) {
+		// file does not exist, serve index.html
+		http.ServeFile(w, r, filepath.Join(h.staticPath, h.indexPath))
+		return
+	} else if err != nil {
+		// if we got an error (that wasn't that the file doesn't exist) stating the
+		// file, return a 500 internal server error and stop
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// otherwise, use http.FileServer to serve the static dir
+	http.FileServer(http.Dir(h.staticPath)).ServeHTTP(w, r)
+}
+
+//
+// ──────────────────────────────────────────────────── I ──────────
+//   :::::: R O U T E S : :  :   :    :     :        :          :
+// ──────────────────────────────────────────────────────────────
+//
+
+func setupRoutes() {
+	defer auth.Database.Close()
+	
+	router := mux.NewRouter()
+	mainHandler := mainpageHandler{ // FIXME Packr implementation
+		staticPath: "./frontend/static",
+		indexPath:  "./frontend/static/index.html",
+	}
+
+	apiConfigs := &configs.CurrentConfigs.APIConfigs
+
+	// ─── APIS ───────────────────────────────────────────────────────────────────────
+	router.HandleFunc("/api/login", loginAPI)
+	if apiConfigs.NewTaskAPI {
+		router.Handle("/api/tasks/new", auth.IsAuthorized(newTaskAPI)).Methods("POST")
+	}
+	if apiConfigs.EditTaskAPI {
+		router.Handle("/api/tasks/modify", auth.IsAuthorized(modifyTaskAPI)).Methods("POST")
+	}
+	if apiConfigs.DeleteTaskAPI {
+		router.Handle("/api/tasks/delete", auth.IsAuthorized(deleteTaskAPI)).Methods("POST")
+	}
+	if apiConfigs.GetAllTasksAPI {
+		router.Handle("/api/tasks/get-all", auth.IsAuthorized(getTasksAPI)).Methods("GET")
+	}
+	if apiConfigs.StatisticsAPI {
+		router.Handle("/api/info/statistics", auth.IsAuthorized(statisticsAPI)).Methods("GET")
+	}
+	// ────────────────────────────────────────────────────────────────────────────────
+
+	if configs.CurrentConfigs.WebUI.Enabled {
+		// ─── WEBSOCKET ──────────────────────────────────────────────────────────────────
+		router.Handle("/ws", auth.IsAuthorized(statsWS))
+		// ────────────────────────────────────────────────────────────────────────────────
+	
+		// ─── SINGLE PAGE APP ────────────────────────────────────────────────────────────
+		router.PathPrefix("/").Handler(mainHandler)
+		// ────────────────────────────────────────────────────────────────────────────────
+	}
+
+	srv := &http.Server{
+		Handler:      router,
+		Addr:         ":" + configs.CurrentConfigs.WebUI.ListeningPort,
+		WriteTimeout: 15 * time.Second,
+		ReadTimeout:  15 * time.Second,
+	}
+
+	log.Println("Listening and serving on port", configs.CurrentConfigs.WebUI.ListeningPort)
+	log.Fatal(srv.ListenAndServe())
+}
+
+// Run - start the server
+func Run(statsChan chan stats.Statistic) {
+	log.Println("Starting server...")
+
+	statsChannel = statsChan
+
+	setupRoutes()
+}
+
+//
+// ──────────────────────────────────────────────────────── II ──────────
+//   :::::: H A N D L E R S : :  :   :    :     :        :          :
+// ──────────────────────────────────────────────────────────────────
+//
+
+func statsWS(w http.ResponseWriter, request *http.Request) {
 	// Upgrade the connection from standard HTTP connection to WebSocket connection
 	ws, err := websocket.Upgrade(w, request)
 	if err != nil {
 		fmt.Fprintf(w, "%+v\n", err)
 		return
 	}
-	// Execution of data sending to the client 
+	// Execution of data sending to the client
 	// into another goroutine
 	go websocket.Writer(ws, statsChannel)
 }
 
-func setupRoutes() {
-	const PORT = ":8080"
+func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
+	var response struct {
+		Successful bool `json:"successful"`
+		Token string `json:"token"`
+		ExpiresAt int64 `json:"expiresAt"`
+	}
+	var user configs.User
 
-	//? Como lanzar la página principal (index.html)
-	http.Handle("/", http.FileServer(http.Dir("./webui/frontend/static")))
-	http.HandleFunc("/ws", mainStats)
+	body, err := ioutil.ReadAll(request.Body)
+	if err != nil{
+		log.Printf("Error when trying to read the POST data sent by %s\n", request.Host)
+		response.Successful = false
+		goto response1
+	}
 
-	//TODO: implement https
-	log.Infoln("Listening and serving on", PORT)
-	log.Fatalln(http.ListenAndServe(PORT, nil))
+	err = json.Unmarshal(body, &user)
+	if err != nil {
+		log.Printf("The data on the POST request of %s cannot be read\n", request.Host)
+		response.Successful = false
+		goto response1
+	} 
+
+	if ok := configs.AuthUser(user.Username, user.Password); ok {
+		duration := configs.CurrentConfigs.APIConfigs.TokenDuration
+		expiresAt := time.Now().Add(duration)
+		token, err := auth.NewJWT(
+			auth.CustomClaims{
+				User: user.Username, 
+				StandardClaims: jwt.StandardClaims{ExpiresAt: expiresAt.Unix()},
+			},
+		)
+		if err != nil {
+			log.Println(err.Error())
+			response.Successful = false
+			goto response1
+		}
+		response.Successful = true
+		response.Token = token
+		response.ExpiresAt = expiresAt.Unix()
+
+		now := time.Now()
+		err = auth.StoreToken(
+			auth.UserInfo{
+				ID: 0, // Not necessary, will be given by the sqlite database automatically.
+				User: user.Username,
+				Token: token,
+				ExpiresAt: expiresAt,
+				LastTimeUsed: now,
+				InsertedDatetime: now,
+			},
+		)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+	}
+	
+	response1:
+
+	json.NewEncoder(w).Encode(response)
 }
 
-// Run - start the server
-func Run(statsChan chan stats.Statistic) {
-	log.Infoln("Starting server...")
+func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
+	var response postResponse
+	var task data.UserTask 
 
-	statsChannel = statsChan
+	body, err := ioutil.ReadAll(request.Body)
+	if err != nil{
+		log.Printf("Error when trying to read the POST data sent by %s\n", request.Host)
+		response.Successful = false
+		response.Error = err.Error()
+		goto response1
+	}
+	
+	err = json.Unmarshal(body, &task)
+	if err != nil {
+		log.Printf("The data on the POST request of %s cannot be read\n", request.Host)
+		response.Successful = false
+		response.Error = err.Error()
+		goto response1
+	} 
 
-	setupRoutes()
+	err = data.NewTask(&task)
+	if err != nil {
+		response.Successful = false
+		response.Error = err.Error()
+		goto response1
+	}
+
+	response.Successful = true
+
+	response1:
+		
+	json.NewEncoder(w).Encode(response)
+}
+
+func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
+	var response postResponse
+	var task data.UserTask
+
+	body, err := ioutil.ReadAll(request.Body)
+	if err != nil{
+		log.Printf("Error when trying to read the POST data sent by %s\n", request.Host)
+		response.Successful = false
+		response.Error = err.Error()
+		goto response1
+	}
+
+	err = json.Unmarshal(body, &task)
+	if err != nil {
+		log.Printf("The data on the POST request of %s cannot be read\n", request.Host)
+		response.Successful = false
+		response.Error = err.Error()
+		goto response1
+	}
+
+	err = data.UpdateTask(task.TaskInfo.Name, &task)
+	if err != nil {
+		response.Successful = false
+		response.Error = err.Error()
+		goto response1
+	}
+
+	response.Successful = true
+
+	response1:
+		
+	json.NewEncoder(w).Encode(response)
+}
+
+func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
+	var response postResponse
+	var toDelete = struct {
+		Taskname string `json:"taskname"`
+	}{}
+
+	// TODO Implementation of partial delete
+
+	body, err := ioutil.ReadAll(request.Body)
+	if err != nil{
+		log.Printf("Error when trying to read the POST data sent by %s\n", request.Host)
+		response.Successful = false
+		response.Error = err.Error()
+		goto response1
+	}
+
+	err = json.Unmarshal(body, &toDelete)
+	if err != nil {
+		log.Printf("The data on the POST request of %s cannot be read\n", request.Host)
+		response.Successful = false
+		response.Error = err.Error()
+		goto response1
+	}
+
+	err = data.DeleteTask(toDelete.Taskname)
+	if err != nil {
+		response.Successful = false
+		response.Error = err.Error()
+		goto response1
+	}
+
+	response.Successful = true
+
+	response1:
+		
+	json.NewEncoder(w).Encode(response)
+}
+
+func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
+	userData, err := data.ReadData()
+	if err != nil {
+		fmt.Fprintf(w, err.Error())
+		return
+	}
+
+	json.NewEncoder(w).Encode(userData.Tasks)
+}
+
+func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 }

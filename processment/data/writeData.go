@@ -25,9 +25,6 @@ func NewTask(task *UserTask) error {
 		return err
 	}
 
-	mutex.Lock()
-	defer mutex.Unlock()
-
 	data, err := ReadData()
 	if err != nil {
 		return err

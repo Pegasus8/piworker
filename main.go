@@ -7,11 +7,11 @@ import (
 
 	"github.com/Pegasus8/piworker/utilities/log"
 	"github.com/Pegasus8/piworker/processment/data"
-	"github.com/Pegasus8/piworker/processment/engine"
+	"github.com/Pegasus8/piworker/processment/engine" 
+	// "github.com/Pegasus8/piworker/processment/configs"
 )
 
 func main() {
-
 	// Logs settings
 	var (
 		loggingDir = "./logs/"
