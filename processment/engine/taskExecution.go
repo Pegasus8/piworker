@@ -11,8 +11,8 @@ import (
 	"github.com/Pegasus8/piworker/utilities/log"
 
 	"github.com/Pegasus8/piworker/processment/data"
-	actionsList "github.com/Pegasus8/piworker/processment/elements/actions"
-	triggersList "github.com/Pegasus8/piworker/processment/elements/triggers"
+	actionsList "github.com/Pegasus8/piworker/processment/elements/actions/models"
+	triggersList "github.com/Pegasus8/piworker/processment/elements/triggers/models"
 )
 
 func runTaskLoop(taskname string, taskChannel chan data.UserTask) {
