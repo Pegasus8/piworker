@@ -6,18 +6,18 @@ import (
 
 // Action is a struct used in every Action
 type Action struct {
-	ID string
-	Name string
-	Description string
-	Run func(*[]data.UserArg) (bool, error)
-	Args []Arg
+	ID string `json:"ID"`
+	Name string `json:"name"`
+	Description string `json:"description"`
+	Run func(*[]data.UserArg) (bool, error)  `json:"-"`
+	Args []Arg `json:"args"`
 }
 
 // Arg is the struct that defines every argument received by any Action.
 type Arg struct {
-	ID string
-	Name string
-	Description string
-	Content interface{}
-	ContentType string
+	ID string `json:"ID"`
+	Name string `json:"name"`
+	Description string `json:"description"`
+	Content interface{} `json:"content"`
+	ContentType string `json:"content-type"`
 }
