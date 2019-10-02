@@ -15,6 +15,8 @@ import (
 	"github.com/Pegasus8/piworker/webui/websocket"
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/configs"
+	triggersList"github.com/Pegasus8/piworker/processment/elements/triggers/models"
+	actionsList "github.com/Pegasus8/piworker/processment/elements/actions/models"
 
 	"github.com/gorilla/mux"
 	jwt "github.com/dgrijalva/jwt-go"
@@ -100,6 +102,8 @@ func setupRoutes() {
 	if apiConfigs.StatisticsAPI {
 		router.Handle("/api/info/statistics", auth.IsAuthorized(statisticsAPI)).Methods("GET")
 	}
+	router.Handle("/api/webui/triggers-structs", auth.IsAuthorized(triggersInfoAPI))
+	router.Handle("/api/webui/actions-structs", auth.IsAuthorized(actionsInfoAPI))
 	// ────────────────────────────────────────────────────────────────────────────────
 
 	if configs.CurrentConfigs.WebUI.Enabled {
@@ -328,4 +332,18 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 }
 
 func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
+}
+
+func triggersInfoAPI(w http.ResponseWriter, request *http.Request) {
+	err := json.NewEncoder(w).Encode(triggersList.TRIGGERS)
+	if err != nil {
+		log.Println("Error:", err.Error())
+	}
+}
+
+func actionsInfoAPI(w http.ResponseWriter, request *http.Request) {
+	err := json.NewEncoder(w).Encode(actionsList.ACTIONS)
+	if err != nil {
+		log.Println("Error:", err.Error())
+	}
 }
