@@ -20,6 +20,7 @@ import (
 
 	"github.com/gorilla/mux"
 	jwt "github.com/dgrijalva/jwt-go"
+	"github.com/gobuffalo/packr/v2"
 )
 
 var statsChannel chan stats.Statistic
@@ -76,12 +77,10 @@ func (h mainpageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func setupRoutes() {
 	defer auth.Database.Close()
+
+	box := packr.NewBox("./frontend/dist")
 	
 	router := mux.NewRouter()
-	mainHandler := mainpageHandler{ // FIXME Packr implementation
-		staticPath: "./frontend/static",
-		indexPath:  "./frontend/static/index.html",
-	}
 
 	apiConfigs := &configs.CurrentConfigs.APIConfigs
 
@@ -112,7 +111,7 @@ func setupRoutes() {
 		// ────────────────────────────────────────────────────────────────────────────────
 	
 		// ─── SINGLE PAGE APP ────────────────────────────────────────────────────────────
-		router.PathPrefix("/").Handler(mainHandler)
+		router.Handle("/",  http.FileServer(box))
 		// ────────────────────────────────────────────────────────────────────────────────
 	}
 
