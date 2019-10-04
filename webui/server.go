@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"time"
 	"io/ioutil"
 
@@ -25,48 +23,9 @@ import (
 
 var statsChannel chan stats.Statistic
 
-type mainpageHandler struct {
-	staticPath string
-	indexPath  string
-}
-
 type postResponse struct {
 	Successful bool `json:"successful"`
 	Error string `json:"error"`
-}
-
-func (h mainpageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// =========================================================
-	//  Copy paste from https://github.com/gorilla/mux#serving-single-page-applications
-	// =========================================================
-
-	// get the absolute path to prevent directory traversal
-	path, err := filepath.Abs(r.URL.Path)
-	if err != nil {
-		// if we failed to get the absolute path respond with a 400 bad request
-		// and stop
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// prepend the path with the path to the static directory
-	path = filepath.Join(h.staticPath, path)
-
-	// check whether a file exists at the given path
-	_, err = os.Stat(path)
-	if os.IsNotExist(err) {
-		// file does not exist, serve index.html
-		http.ServeFile(w, r, filepath.Join(h.staticPath, h.indexPath))
-		return
-	} else if err != nil {
-		// if we got an error (that wasn't that the file doesn't exist) stating the
-		// file, return a 500 internal server error and stop
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// otherwise, use http.FileServer to serve the static dir
-	http.FileServer(http.Dir(h.staticPath)).ServeHTTP(w, r)
 }
 
 //
@@ -78,8 +37,8 @@ func (h mainpageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func setupRoutes() {
 	defer auth.Database.Close()
 
-	box := packr.NewBox("./frontend/dist")
-	
+	box := packr.New("WebUI", "./frontend/dist")
+
 	router := mux.NewRouter()
 
 	apiConfigs := &configs.CurrentConfigs.APIConfigs
@@ -111,7 +70,7 @@ func setupRoutes() {
 		// ────────────────────────────────────────────────────────────────────────────────
 	
 		// ─── SINGLE PAGE APP ────────────────────────────────────────────────────────────
-		router.Handle("/",  http.FileServer(box))
+		router.PathPrefix("/").Handler(http.FileServer(box))
 		// ────────────────────────────────────────────────────────────────────────────────
 	}
 
