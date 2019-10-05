@@ -1,62 +1,43 @@
-# List of APIs
+## List of APIs
 All the APIs have the base url `http(s)://<host>/api/`
-Some of these APIs need authentication, so at the end of each url the parameter `?token=<TOKEN_ID>` must be added, where `TOKEN_ID` is the logged user's token.
+Some of these APIs need authentication, so each petition needs have a header (`Token`) containing the given token.
 
-## User data APIs
-### New task 
-* Method: POST
-* Url: `/tasks/new`
-* Need token: **yes**
-* Data: 
-  ```json
-  //TODO 
-  ```
-
-### Modify an existent task (edit or delete)
-* Method: POST
-* Url: `/tasks/modify`
-* Need token: **yes**
-* Data: 
-  ```json
-  //TODO 
-  ```
-
-### List of all the user's tasks 
-* Method: GET
-* Url: `/tasks/get-all`
-* Need token: **yes**
-* Data: - 
-
-## General PiWorker info
-### General statistics
-* Method: GET
-* Url: `/info/statistics`
-* Need token: no
-* Data: -
-
-## Exclusive WebUI usage - **Needs user and password**
 ### Login
-* Method: POST
-* Url: `/auth`
-* Need auth: **yes**(user and password)
-* POST data: 
-    ```json
-    {
-        user: "<username>",
-        password: "<password>"
-    }
-    ```
-* Response (in case of a valid user and password):
-    ```json
-    {
-        authorized: true/false,
-        data: {
-            userID: "",
-            token: "",
-            expiresIn: 0
-        }
-    }
-    ```
+- [x] Path: **`/api/login`**. 
+      Method: **POST**. 
+      POST data: **`{"user": "<username>", "password": "<user_password>"}`**.
+      Retreived data: **`{"successful": true/false, "token": "<user_token>", "expiresAt": <expiration_date(unix)>}`**.
 
+### Tasks management
+- [x] Path: **`/api/tasks/new`**. 
+      Method: **POST**.
+      Body: **[UserTask](https://github.com/Pegasus8/PiWorker/blob/6b6f13a04a2d23b782be2c6918a52490e71129a8/processment/data/dataModel.go#L9)**.
+      Retreived data: **`{"successful": true/false, "error": ""}`**. 
+      **Token required**
+- [x] Path: **`/api/tasks/modify`**. 
+      Method: **POST**. 
+      Body: **[UserTask](https://github.com/Pegasus8/PiWorker/blob/6b6f13a04a2d23b782be2c6918a52490e71129a8/processment/data/dataModel.go#L9)**.
+      Retreived data: **`{"successful": true/false, "error": ""}`**. 
+      **Token required**
+      *Warning: this API uses the taskname (`UserTask.TaskInfo.Name`) to find the task to modify. Once finded, the task will be overwritten. **Be careful using it outside of the WebUI.***
+- [x] Path: **`/api/tasks/delete`**. 
+      Method: **POST**.
+      Body: **`{"taskname": ""}`**.
+      Retreived data: **`{"successful": true/false, "error": ""}`**. 
+      **Token required**
+- [x] Path: **`/api/tasks/get-all`**. 
+      Method: **GET**. 
+      Body: **`{}`** (not required)
+      Retreived data: **[[UserData.Tasks](https://github.com/Pegasus8/PiWorker/blob/6b6f13a04a2d23b782be2c6918a52490e71129a8/processment/data/dataModel.go#L4)]**. 
+      **Token required**
 
-
+### Statistics (**Not implemented**)
+- [ ] Path: **`/api/info/statistics`**. 
+      Method: **GET**. 
+      Retreived data: **`{}`**. 
+     **Token required**
+______
+## WebSocket
+- [x] Path: **`/ws`**. 
+      **Token required**
+_____
