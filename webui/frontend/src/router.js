@@ -3,6 +3,7 @@ import Router from 'vue-router'
 import StatisticsView from './views/Statistics.vue'
 import ManagementView from './views/Management.vue'
 import SettingsView from './views/Settings.vue'
+import LoginView from './views/Login.vue'
 
 Vue.use(Router)
 
@@ -10,6 +11,14 @@ export default new Router({
   mode: 'history',
   base: process.env.BASE_URL,
   routes: [
+    {
+      path: '/login',
+      component: LoginView,
+      name: 'login',
+      beforeEnter: (to, from, next) => {
+        next()
+      }
+    },
     {
       path: '/statistics',
       component: StatisticsView,
