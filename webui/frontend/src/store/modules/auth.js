@@ -34,7 +34,7 @@ const actions = {
     localStorage.removeItem('token')
     localStorage.removeItem('userID')
     localStorage.removeItem('expirationTime')
-    router.replace('/signin') // TODO Add "/signin" path to routes's list
+    router.replace('/login')
   },
   tryAutologin: ({ commit }) => {
     const token = localStorage.getItem('token')
@@ -56,7 +56,7 @@ const actions = {
     })
   },
   login: ({ commit, dispatch }, authData) => {
-    axios.post('/auth?key=<MASTER_KEY>', { // FIXME Replace for the user MASTER_KEY
+    axios.post('/api/login', { // FIXME Replace for the user MASTER_KEY
       user: authData.user,
       password: authData.password
     })
@@ -65,16 +65,16 @@ const actions = {
         //  Response: {token: "", userID: "", expiresIn: ""}  //
 
         const now = new Date()
-        const expirationDate = new Date(now.getTime() + (response.data.expiresIn * 1000))
+        const expirationDate = new Date(now.getTime() + (response.data.expiresAt))
         localStorage.setItem('token', response.data.token)
-        localStorage.setItem('userID', response.data.userID)
+        localStorage.setItem('userID', authData.user)
         localStorage.setItem('expirationTime', expirationDate)
 
         commit('authUser', {
           tokenID: response.data.token,
-          userID: response.data.userID
+          userID: authData.user
         })
-        dispatch('setLogoutTimer', response.data.expiresIn)
+        dispatch('setLogoutTimer', response.data.expiresAt)
       })
       .catch((err) => console.error(err))
   }
