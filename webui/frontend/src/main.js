@@ -11,7 +11,7 @@ Vue.config.productionTip = false
 Vue.use(UUID)
 
 // FIXME Check if https enabled on server
-axios.defaults.baseURL = `https://${location.host}/api`
+axios.defaults.baseURL = `http://${location.host}`
 
 new Vue({
   router,
