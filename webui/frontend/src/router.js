@@ -37,6 +37,10 @@ export default new Router({
         // TODO Check for authentication
         next()
       }
+    },
+    {
+      path: '*',
+      redirect: { name: 'statistics' }
     }
   ]
 })
