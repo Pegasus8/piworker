@@ -12,4 +12,8 @@
 
 ### Backend (Go)
 * [Websocket by Gorilla](github.com/gorilla/websocket)
+* [Mux](github.com/gorilla/mux)
 * [Go-sqlite3](https://github.com/mattn/go-sqlite3)
+* [Packr](github.com/gobuffalo/packr/v2)
+* [Jwt-go](github.com/dgrijalva/jwt-go)
+* [Nanoid](github.com/aidarkhanov/nanoid)
