@@ -54,6 +54,7 @@ const actions = {
       token,
       userID
     })
+    axios.defaults.headers.common['Token'] = response.data.token
   },
   login: ({ commit, dispatch }, authData) => {
     axios.post('/api/login', { // FIXME Replace for the user MASTER_KEY
@@ -75,6 +76,7 @@ const actions = {
           userID: authData.user
         })
         dispatch('setLogoutTimer', response.data.expiresAt)
+        axios.defaults.headers.common['Token'] = response.data.token
       })
       .catch((err) => console.error(err))
   }
