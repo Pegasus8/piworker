@@ -59,7 +59,7 @@ const actions = {
 
     console.info("Sending the data to the new tasks's API")
     // TODO API url
-    axios.post('', newTaskData)
+    axios.post('/api/tasks/new', newTaskData, headers)
       .then((response) => {
         console.info('Data submitted correctly, response:', response)
       })
