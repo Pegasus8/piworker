@@ -120,6 +120,9 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	}
 	var user configs.User
 
+	//FIXME Must be removed
+	setCORSHeaders(&w, request)
+
 	body, err := ioutil.ReadAll(request.Body)
 	if err != nil{
 		log.Printf("Error when trying to read the POST data sent by %s\n", request.Host)
@@ -177,6 +180,9 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	var response postResponse
 	var task data.UserTask 
 
+	//FIXME Must be removed
+	setCORSHeaders(&w, request)
+
 	body, err := ioutil.ReadAll(request.Body)
 	if err != nil{
 		log.Printf("Error when trying to read the POST data sent by %s\n", request.Host)
@@ -210,6 +216,9 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	var response postResponse
 	var task data.UserTask
+
+	//FIXME Must be removed
+	setCORSHeaders(&w, request)
 
 	body, err := ioutil.ReadAll(request.Body)
 	if err != nil{
@@ -246,6 +255,9 @@ func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PO
 	var toDelete = struct {
 		Taskname string `json:"taskname"`
 	}{}
+
+	//FIXME Must be removed
+	setCORSHeaders(&w, request)
 
 	// TODO Implementation of partial delete
 
@@ -304,4 +316,10 @@ func actionsInfoAPI(w http.ResponseWriter, request *http.Request) {
 	if err != nil {
 		log.Println("Error:", err.Error())
 	}
+}
+
+func setCORSHeaders(w *http.ResponseWriter, reqest *http.Request) {
+	(*w).Header().Set("Access-Control-Allow-Origin", "*")
+    (*w).Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+    (*w).Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
 }
