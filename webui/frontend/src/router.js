@@ -16,7 +16,11 @@ export default new Router({
       component: LoginView,
       name: 'login',
       beforeEnter: (to, from, next) => {
-        next()
+        if (store.getters['auth/isAuthenticated']) {
+          next({ name: 'statistics' })
+        } else {
+          next()
+        }
       }
     },
     {
