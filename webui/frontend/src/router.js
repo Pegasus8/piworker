@@ -28,8 +28,12 @@ export default new Router({
       component: StatisticsView,
       name: 'statistics',
       beforeEnter: (to, from, next) => {
-        // TODO Check for authentication
-        next()
+        store.dispatch('auth/tryAutologin')
+        if (!store.getters['auth/isAuthenticated']) {
+          next({ name: 'login' })
+        } else {
+          next()
+        }
       }
     },
     {
