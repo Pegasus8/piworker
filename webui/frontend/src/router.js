@@ -1,5 +1,6 @@
 import Vue from 'vue'
 import Router from 'vue-router'
+import store from './store/store.js'
 import StatisticsView from './views/Statistics.vue'
 import ManagementView from './views/Management.vue'
 import SettingsView from './views/Settings.vue'
@@ -16,6 +17,7 @@ export default new Router({
       component: LoginView,
       name: 'login',
       beforeEnter: (to, from, next) => {
+        store.dispatch('auth/tryAutologin')
         if (store.getters['auth/isAuthenticated']) {
           next({ name: 'statistics' })
         } else {
