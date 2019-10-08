@@ -45,7 +45,6 @@
 </template>
 
 <script>
-import axios from "axios";
 export default {
   data() {
     return {
@@ -58,18 +57,13 @@ export default {
       if (!this.username || !this.password){
         return
       }
-      console.log("post data:", this.username, this.password)
-      axios.post("/api/login", {
-          'username': this.username,
-          'password': this.password
-        })
-        .then(response => {})
-        .catch(err => {
-          console.error(err);
-        })
+      this.$store.dispatch('auth/login', {
+        user: this.username,
+        password: this.password
+      })
     }
   }
-};
+}
 </script>
 
 <style lang="scss" scoped>
