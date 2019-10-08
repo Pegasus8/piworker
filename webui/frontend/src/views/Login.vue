@@ -3,7 +3,7 @@
   <div class="m-4 bg-dark card">
     <div class="card-header h4 font-weight-bold text-light">Sign in</div>
     <div class="card-body">
-      <div class="p-4">
+      <div class="p-2 p-md-4">
         <div class="form-group text-left">
           <label for="username" class="text-muted">Username</label>
           <input
