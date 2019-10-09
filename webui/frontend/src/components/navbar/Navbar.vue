@@ -19,11 +19,38 @@
 
     <div class="collapse navbar-collapse" id="navbarSupportedContent">
       <ul class="navbar-nav mr-auto text-center">
-        <router-link v-if="$store.getters['auth/isAuthenticated']" :to="{name: 'statistics'}" class="nav-item" active-class="active"><a class="nav-link">Statistics</a></router-link>
-        <router-link v-if="$store.getters['auth/isAuthenticated']" :to="{name: 'management'}" class="nav-item" active-class="active"><a class="nav-link">Management</a></router-link>
-        <router-link v-if="$store.getters['auth/isAuthenticated']" :to="{name: 'settings'}" class="nav-item" active-class="active"><a class="nav-link">Settings</a></router-link>
+        <router-link
+          v-if="$store.getters['auth/isAuthenticated']"
+          :to="{name: 'statistics'}"
+          class="nav-item"
+          active-class="active"
+        >
+          <a class="nav-link">Statistics</a>
+        </router-link>
+        <router-link
+          v-if="$store.getters['auth/isAuthenticated']"
+          :to="{name: 'management'}"
+          class="nav-item"
+          active-class="active"
+        >
+          <a class="nav-link">Management</a>
+        </router-link>
+        <router-link
+          v-if="$store.getters['auth/isAuthenticated']"
+          :to="{name: 'settings'}"
+          class="nav-item"
+          active-class="active"
+        >
+          <a class="nav-link">Settings</a>
+        </router-link>
         <li v-if="$store.getters['auth/isAuthenticated']" class="nav-item ml-lg-3">
-          <button type="button" data-toggle="modal" data-target="#newTaskModal" class="btn btn-primary" id="newTaskBtn">New</button>
+          <button
+            type="button"
+            data-toggle="modal"
+            data-target="#newTaskModal"
+            class="btn btn-primary"
+            id="newTaskBtn"
+          >New</button>
         </li>
       </ul>
     </div>
@@ -31,8 +58,7 @@
 </template>
 
 <script>
-export default {
-}
+export default {}
 </script>
 
 <style lang="scss" scoped>
