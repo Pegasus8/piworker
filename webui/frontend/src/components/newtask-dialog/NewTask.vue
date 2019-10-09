@@ -55,8 +55,8 @@
                 <button 
                   class="btn btn-sm"
                   :class="{ 
-                    'btn-outline-primary': $store.getters.taskState == '',
-                    'btn-outline-success': !$store.getters.taskState == ''
+                    'btn-outline-primary': $store.getters['newTask/taskState'] == '',
+                    'btn-outline-success': !$store.getters['newTask/taskState'] == ''
                   }"
                   @click="setStateBtn">
                   {{ stateBtnTxt }}
@@ -86,8 +86,8 @@
                 <button 
                   class="btn btn-sm"
                   :class="{ 
-                    'btn-outline-primary': !$store.getters.triggerSelected.length > 0,
-                    'btn-outline-success': $store.getters.triggerSelected.length > 0
+                    'btn-outline-primary': !$store.getters['newTask/triggerSelected'].length > 0,
+                    'btn-outline-success': $store.getters['newTask/triggerSelected'].length > 0
                   }"
                   @click="addTriggerBtn">
                   {{ triggerBtnTxt }}
@@ -119,8 +119,8 @@
                 <button 
                   class="btn btn-sm"
                   :class="{ 
-                    'btn-outline-primary': !$store.getters.actionsSelected.length > 0,
-                    'btn-outline-success': $store.getters.actionsSelected.length > 0
+                    'btn-outline-primary': !$store.getters['newTask/actionsSelected'].length > 0,
+                    'btn-outline-success': $store.getters['newTask/actionsSelected'].length > 0
                   }"
                   @click="addActionBtn">
                   Add
@@ -170,30 +170,30 @@ export default {
   computed: {
     taskName: {
       get() {
-        return this.$store.getters.taskname
+        return this.$store.getters['newTask/taskname']
       },
       set(newValue) {
-        return this.$store.commit('setTaskname', newValue)
+        return this.$store.commit('newTask/setTaskname', newValue)
       }
     },
     isAllSelected () {
       if (this.taskName && this.stateSelected && 
-        this.$store.getters.triggerSelected.length > 0 && 
-        this.$store.getters.actionsSelected.length > 0) {
+        this.$store.getters['newTask/triggerSelected'].length > 0 && 
+        this.$store.getters['newTask/actionsSelected'].length > 0) {
         return false
       } else {
         return true
       }
     },
     triggerBtnTxt () {
-      if (this.$store.getters.triggerSelected.length > 0) {
+      if (this.$store.getters['newTask/triggerSelected'].length > 0) {
         return 'Change'
       } else {
         return 'Select'
       }
     },
     stateBtnTxt () {
-      if (this.$store.getters.taskState !== '') {
+      if (this.$store.getters['newTask/taskState'] !== '') {
         return 'Change'
       } else {
         return 'Select'
@@ -201,7 +201,7 @@ export default {
     }
   },
   methods: {
-    ...mapMutations([
+    ...mapMutations('newTask', [
       'setTaskname',
       'setTaskState',
       'setTrigger',

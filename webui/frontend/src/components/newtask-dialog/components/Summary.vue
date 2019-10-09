@@ -140,30 +140,30 @@ export default {
   },
   computed: {
     taskName() {
-      return this.$store.getters.taskname
+      return this.$store.getters['newTask/taskname']
     },
     taskState() {
-      return this.$store.getters.taskState
+      return this.$store.getters['newTask/taskState']
     },
     triggers: {
       get() {
-        return this.$store.getters.triggerSelected
+        return this.$store.getters['newTask/triggerSelected']
       },
       set(newValue) {
-        this.$store.commit('setTrigger', newValue)
+        this.$store.commit('newTask/setTrigger', newValue)
       }
     },
     actions: {
       get() {
-        return this.$store.getters.actionsSelected
+        return this.$store.getters['newTask/actionsSelected']
       },
       set(newValue) {
-        this.$store.commit('setActions', newValue)
+        this.$store.commit('newTask/setActions', newValue)
       }
     }
   },
   methods: {
-    ...mapMutations([
+    ...mapMutations('newTask', [
       'setTrigger', 'removeTrigger',
       'setActions', 'removeAction'
     ])
