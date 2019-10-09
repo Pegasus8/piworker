@@ -49,10 +49,13 @@ const actions = {
   submitData: ({ state }) => {
     // TODO Modify the object according to the API requirements
     const newTaskData = {
-      Name: state.taskname,
-      State: state.taskState,
-      Trigger: state.triggerSelected,
-      Actions: state.actionsSelected
+      'task': {
+        'name': state.taskname,
+        'state': state.taskState,
+        // Only send one trigger. This is because, for now, multi-triggers are not supported.
+        'trigger': state.triggerSelected[0],
+        'actions': state.actionsSelected
+      }
     }
 
     // TODO Check the integrity of the data
