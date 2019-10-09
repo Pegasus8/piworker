@@ -2,7 +2,7 @@
   <div id="app">
     <app-navbar/>
     <router-view/>
-    <app-new-task-modal/>
+    <app-new-task-modal v-if="$store.getters['auth/isAuthenticated']"/>
   </div>
 </template>
 
