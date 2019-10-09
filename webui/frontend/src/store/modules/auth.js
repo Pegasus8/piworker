@@ -37,6 +37,7 @@ const actions = {
     router.replace('/login')
   },
   tryAutologin: ({ commit }) => {
+    console.info("Trying autologin...")
     const token = localStorage.getItem('token')
     if (!token) {
       console.info("Can't found the token on the local storage, returning...")
