@@ -30,8 +30,10 @@ export default new Router({
       component: StatisticsView,
       name: 'statistics',
       beforeEnter: (to, from, next) => {
+        // Only is needed try autologin here (and on the login view) because is the path by default.
         store.dispatch('auth/tryAutologin')
         if (!store.getters['auth/isAuthenticated']) {
+          // If not authenticated, redirect to login view.
           next({ name: 'login' })
         } else {
           next()
@@ -43,8 +45,12 @@ export default new Router({
       component: ManagementView,
       name: 'management',
       beforeEnter: (to, from, next) => {
-        // TODO Check for authentication
-        next()
+        if (!store.getters['auth/isAuthenticated']) {
+          // If not authenticated, redirect to login view.
+          next({ name: 'login' })
+        } else {
+          next()
+        }
       },
       children: []
     },
@@ -53,8 +59,12 @@ export default new Router({
       component: SettingsView,
       name: 'settings',
       beforeEnter: (to, from, next) => {
-        // TODO Check for authentication
-        next()
+        if (!store.getters['auth/isAuthenticated']) {
+          // If not authenticated, redirect to login view.
+          next({ name: 'login' })
+        } else {
+          next()
+        }
       }
     },
     {
