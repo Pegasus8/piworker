@@ -137,10 +137,19 @@
 
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-dismiss="modal">
+          <button 
+            type="button" 
+            class="btn btn-secondary" 
+            data-dismiss="modal"
+          >
             Close
           </button>
-          <button type="button" class="btn btn-primary" :disabled='isAllSelected'>
+          <button 
+            type="button" 
+            class="btn btn-primary" 
+            :disabled='isAllSelected' 
+            @click="submitTask"
+          >
             Save
           </button>
         </div>
@@ -161,7 +170,7 @@ export default {
     return {
       triggers: [],
       actions: [],
-      
+
       newTrigger: '',
       newAction: '',
       stateSelected: ''
@@ -233,6 +242,10 @@ export default {
       }
 
       this.setTaskState(this.stateSelected)
+    },
+    submitTask () {
+      console.info('Submitting a new task to the API...')
+      this.$store.dispatch['newTask/submitData']
     }
   },
   beforeCreate () {
