@@ -12,6 +12,7 @@
       aria-controls="navbarSupportedContent"
       aria-expanded="false"
       aria-label="Toggle navigation"
+      v-if="$store.getters['auth/isAuthenticated']"
     >
       <span class="navbar-toggler-icon"></span>
     </button>
