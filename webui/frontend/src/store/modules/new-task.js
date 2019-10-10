@@ -1,5 +1,3 @@
-// TODO Use another instance of axios due to
-// the default baseURL used on this instance.
 import axios from 'axios'
 
 const cloneObj = (obj) => {
