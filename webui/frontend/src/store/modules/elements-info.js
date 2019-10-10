@@ -19,22 +19,26 @@ const actions = {
         console.info('Updating triggers info...')
         axios.get('/api/webui/triggers-structs')
             .then((response) => {
-                commit('setTriggers', response.data)
+                console.info('Good response from triggers-structs API, parsing triggers...')
+                const triggersStructs = response.data
+                commit('setTriggers', triggersStructs)
                 console.info('Triggers info updated successfully!')
             })
             .catch((err) => {
-                console.error(err)
+                console.error('Error on triggers-structs API',err)
             }) 
     },
     updateActionsInfo: ({ commit }) => {
         console.info('Updating actions info...')
         axios.get('/api/webui/actions-structs')
             .then((response) => {
-                commit('setActions', response.data)
+                console.info('Good response from actions-structs API, parsing actions...')
+                const actionsStructs = response.data
+                commit('setActions', actionsStructs)
                 console.info('Actions info updated successfully!')
             })
             .catch((err) => {
-                console.error(err)
+                console.error('Error on actions-structs API',err)
             })
     }
 }
