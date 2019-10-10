@@ -162,21 +162,21 @@
 import Summary from './components/Summary.vue'
 import FormGroupContainer from './components/FormGroupContainer.vue'
 import SummaryCard from './components/SummaryCard.vue'
-import { mapMutations } from 'vuex'
-import axios from 'axios'
+import { mapMutations, mapGetters } from 'vuex'
 
 export default {
   data () {
     return {
-      triggers: [],
-      actions: [],
-
       newTrigger: '',
       newAction: '',
       stateSelected: ''
     }
   },
   computed: {
+    ...mapGetters('elementsInfo', [
+      'triggers', 
+      'actions'
+    ]),
     taskName: {
       get() {
         return this.$store.getters['newTask/taskname']
@@ -245,29 +245,16 @@ export default {
     },
     submitTask () {
       console.info('Submitting a new task to the API...')
-      this.$store.dispatch['newTask/submitData']
+      this.$store.dispatch('newTask/submitData')
     }
   },
   beforeCreate () {
-    console.info('Getting triggers structs from API...')
-    axios.get('/api/webui/triggers-structs')
-      .then((response) => {
-        console.info('Good response from triggers-structs API, parsing triggers...')
-        const triggerStructs = response.data
-        this.triggers = triggerStructs
-        console.info('Triggers parsed!')
-      })
-      .catch((err) => console.error('Error on triggers-structs API',err))
-
-    console.info('Getting actions structs from API...')
-    axios.get('/api/webui/actions-structs')
-      .then((response) => {
-        console.info('Good response from actions-structs API, parsing actions...')
-        const triggerStructs = response.data
-        this.triggers = triggerStructs
-        console.info('Actions parsed!')
-      })
-      .catch((err) => console.error('Error on actions-structs API',err))
+    if (!this.$store.getters['elementsInfo/triggers'].length > 0) {
+      this.$store.dispatch('elementsInfo/updateTriggersInfo')
+    }
+    if (!this.$store.getters['elementsInfo/actions'].length > 0) {
+      this.$store.dispatch('elementsInfo/updateActionsInfo')
+    }
   },
   components: {
     appSummary: Summary,
