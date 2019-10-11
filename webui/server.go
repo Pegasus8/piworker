@@ -60,8 +60,8 @@ func setupRoutes() {
 	if apiConfigs.StatisticsAPI {
 		router.Handle("/api/info/statistics", auth.IsAuthorized(statisticsAPI)).Methods("GET")
 	}
-	router.Handle("/api/webui/triggers-structs", auth.IsAuthorized(triggersInfoAPI))
-	router.Handle("/api/webui/actions-structs", auth.IsAuthorized(actionsInfoAPI))
+	router.Handle("/api/webui/triggers-structs", auth.IsAuthorized(triggersInfoAPI)).Methods("GET")
+	router.Handle("/api/webui/actions-structs", auth.IsAuthorized(actionsInfoAPI)).Methods("GET")
 	// ────────────────────────────────────────────────────────────────────────────────
 
 	if configs.CurrentConfigs.WebUI.Enabled {
