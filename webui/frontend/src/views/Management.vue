@@ -32,7 +32,15 @@ export default {
   },
   created () {
     // TODO APIs requests
-  }
+  },
+  beforeCreate () {
+    if (!this.$store.getters['elementsInfo/triggers'].length > 0) {
+      this.$store.dispatch('elementsInfo/updateTriggersInfo')
+    }
+    if (!this.$store.getters['elementsInfo/actions'].length > 0) {
+      this.$store.dispatch('elementsInfo/updateActionsInfo')
+    }
+  },
 }
 </script>
 
