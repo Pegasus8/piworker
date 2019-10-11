@@ -29,8 +29,8 @@
                 v-for="trigger in triggers"
                 :key="trigger.ID + $uuid.v1()"
                 :editable="false"
-                :itemName="trigger.Name"
-                :args="trigger.Args"
+                :itemName="getTriggerName(trigger.ID)"
+                :args="setTriggerArgsNames(trigger.ID, trigger.Args)"
               />
             </ul>
           </div>
@@ -46,8 +46,8 @@
                 v-for="action in actions" 
                 :key="action.ID + $uuid.v1()"
                 :editable="false"
-                :itemName="action.Name"
-                :args="action.Args"
+                :itemName="getActionName(action.ID)"
+                :args="setActionArgsNames(action.ID, action.Args)"
               />
             </ul>
           </div>
@@ -128,6 +128,50 @@ export default {
 
         this.$emit("switch-change", value)
       }
+    }
+  },
+  methods: {
+    getTriggerName (id) {
+      this.$store.getters['elementsInfo/triggers'].find((trigger) => {
+        if (trigger.ID == id) return trigger.Name 
+      })
+    },
+    getActionName (id) {
+      this.$store.getters['elementsInfo/actions'].find((action) => {
+        if (action.ID == id) return action.Name 
+      })
+    },
+    setTriggerArgsNames (userTriggerID, userTriggerArgs) {
+      this.$store.getters['elementsInfo/triggers'].find((trigger) => {
+        if (trigger.ID == userTriggerID) {
+          for (arg in trigger.Args) {
+            userTriggerArgs.find((userArg) => {
+              if (arg.ID == userArg.ID) {
+                // Set the name to the user arg.
+                userArg.Name = arg.Name
+              }
+            })
+          }
+        } 
+      })
+
+      return userTriggerArgs
+    },
+    setActionArgsNames (userActionID, userActionArgs) {
+      this.$store.getters['elementsInfo/actions'].find((action) => {
+        if (action.ID == userActionID) {
+          for (arg in action.Args) {
+            userActionArgs.find((userArg) => {
+              if (arg.ID == userArg.ID) {
+                // Set the name to the user arg.
+                userArg.Name = arg.Name
+              }
+            })
+          }
+        } 
+      })
+
+      return userActionArgs
     }
   },
   components: {
