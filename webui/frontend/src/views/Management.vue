@@ -21,11 +21,18 @@
 
 <script>
 import Task from '../components/management/Task.vue'
+import axios from 'axios'
+import { mapGetters } from 'vuex'
+
 export default {
   data() {
     return {
-      userTasks: []
     }
+  },
+  computed: {
+    ...mapGetters ('userTasks', {
+      userTasks: 'tasks'
+    })
   },
   components: {
     appTask: Task
@@ -40,6 +47,7 @@ export default {
     if (!this.$store.getters['elementsInfo/actions'].length > 0) {
       this.$store.dispatch('elementsInfo/updateActionsInfo')
     }
+    this.$store.dispatch('userTasks/getUserTasks')
   },
 }
 </script>
