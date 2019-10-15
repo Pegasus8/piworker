@@ -24,6 +24,7 @@
           :to="{name: 'statistics'}"
           class="nav-item"
           active-class="active"
+          tag="li"
         >
           <a class="nav-link">Statistics</a>
         </router-link>
@@ -32,6 +33,7 @@
           :to="{name: 'management'}"
           class="nav-item"
           active-class="active"
+          tag="li"
         >
           <a class="nav-link">Management</a>
         </router-link>
@@ -40,6 +42,7 @@
           :to="{name: 'settings'}"
           class="nav-item"
           active-class="active"
+          tag="li"
         >
           <a class="nav-link">Settings</a>
         </router-link>
@@ -48,11 +51,18 @@
             type="button"
             data-toggle="modal"
             data-target="#newTaskModal"
-            class="btn btn-primary"
+            class="btn btn-primary my-2 my-lg-0"
             id="newTaskBtn"
           >New</button>
         </li>
       </ul>
+      <div v-if="$store.getters['auth/isAuthenticated']" class="nav-item">
+        <button 
+          type="button"
+          class="btn btn-secondary my-2 my-lg-0"
+          @click="$store.dispatch('auth/logout')"
+        >Logout</button>
+      </div>
     </div>
   </nav>
 </template>
