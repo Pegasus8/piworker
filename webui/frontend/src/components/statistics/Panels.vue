@@ -3,19 +3,19 @@
     <app-panel
       title="More statistics about my tasks"
       :items="[
-        {title: 'Completed tasks', value: '0'},
-        {title: 'Average execution time', value: '0 milliseconds'},
-        {title: 'Time operating', value: '0 seconds'},
-        {title: 'State of the backup loop', value: 'inactive'}
+        { title: 'Completed tasks', value: completedTasksCounter },
+        { title: 'Average execution time', value: averageExecutionTime + ' milliseconds' },
+        { title: 'Time operating', value: runningTime + ' seconds' },
+        { title: 'State of the backup loop', value: backupLoopState }
       ]"
     />
     <app-panel
       title="Raspberry statistics"
       :items="[
-        {title: 'Temperature', value: '0ºC'},
-        {title: 'CPU load', value: '0%'},
-        {title: 'Free storage', value: '0GB'},
-        {title: 'RAM usage', value: '0MB'}
+        { title: 'Temperature', value: raspberryStats.temperature + 'ºC' },
+        { title: 'CPU load', value: raspberryStats.cpuLoad + '%' },
+        { title: 'Free storage', value: raspberryStats.freeStorage },
+        { title: 'RAM usage', value: raspberryStats.ramUsage }
       ]"
     />
   </div>
@@ -23,10 +23,17 @@
 
 <script>
 import Panel from './Panel.vue'
+import { mapGetters } from 'vuex'
 
 export default {
   computed: {
-    // TODO Set values from vuex
+    ...mapGetters('statistics', [
+      'completedTasksCounter',
+      'averageExecutionTime',
+      'runningTime',
+      'backupLoopState',
+      'raspberryStats'
+    ])
   },
   components: {
     appPanel: Panel
