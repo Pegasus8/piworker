@@ -97,7 +97,8 @@ const getters = {
     return state.runningTime
   },
   backupLoopState: (state) => {
-    return state.backupLoopState
+    if (state.backupLoopState) return 'active'
+    else return 'inactive'
   },
   // RPi statistics
   raspberryStats: (state) => {
