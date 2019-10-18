@@ -37,9 +37,6 @@ export default {
   components: {
     appTask: Task
   },
-  created () {
-    // TODO APIs requests
-  },
   beforeCreate () {
     if (!this.$store.getters['elementsInfo/triggers'].length > 0) {
       this.$store.dispatch('elementsInfo/updateTriggersInfo')
