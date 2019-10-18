@@ -1,0 +1,31 @@
+<template>
+  <div id="app">
+    <app-navbar/>
+    <router-view/>
+    <app-new-task-modal v-if="$store.getters['auth/isAuthenticated']"/>
+  </div>
+</template>
+
+<script>
+import Navbar from './components/navbar/Navbar.vue'
+import NewTaskModal from './components/newtask-dialog/NewTask.vue'
+
+export default {
+  components: {
+    appNavbar: Navbar,
+    appNewTaskModal: NewTaskModal
+  }
+}
+</script>
+
+<style lang="scss">
+@import url("assets/css/icomoon.css");
+
+#app {
+  font-family: 'Avenir', Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-align: center;
+}
+
+</style>
