@@ -21,6 +21,13 @@ var DefaultConfigs = Configs{
 		DeniedIPs: []string{},
 		LocalNetworkAccess: true,
 	},
+	Backups: Backups{
+		BackupData: false, 
+		BackupConfigs: false,
+		DataBackupPath: ".",
+		ConfigsBackupPath: ".",
+		Freq: 24, // 1 day 
+	},
 	APIConfigs: APIConfigs{
 		NewTaskAPI: true,
 		EditTaskAPI: true,
