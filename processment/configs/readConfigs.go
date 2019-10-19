@@ -2,11 +2,11 @@ package configs
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"io/ioutil"
-	"os"
 	"log"
-	
+	"os"
+	"path/filepath"
+
 	"github.com/Pegasus8/piworker/utilities/files"
 )
 
@@ -36,7 +36,7 @@ func init() {
 // the `Configs` struct.
 func ReadConfigs() (configs *Configs, err error) {
 	fullpath := filepath.Join(ConfigsPath, Filename)
-	
+
 	mutex.Lock()
 	defer mutex.Unlock()
 
