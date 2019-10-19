@@ -17,15 +17,14 @@ func init() {
 		log.Fatal(err.Error())
 	}
 	if !exists {
-		err = WriteConfigs(&DefaultConfigs)
+		CurrentConfigs = &DefaultConfigs
+		err = CurrentConfigs.WriteToFile()
 		if err != nil {
 			log.Fatal(err.Error())
 		}
-		// Don't need to read the file because we already know what's inside it.
-		CurrentConfigs = &DefaultConfigs
 	} else {
 		log.Println("Configs file found")
-		CurrentConfigs, err = ReadConfigs()
+		err = CurrentConfigs.ReadFromFile()
 		if err != nil {
 			log.Fatal(err.Error())
 		}

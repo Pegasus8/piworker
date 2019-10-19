@@ -14,7 +14,7 @@ func NewUser(username, password string, admin bool) error {
 		admin,
 	}
 	CurrentConfigs.Users = append(CurrentConfigs.Users, newUser)
-	err := WriteConfigs(CurrentConfigs)
+	err := CurrentConfigs.WriteToFile()
 	if err != nil {
 		return err
 	}
@@ -31,7 +31,7 @@ func DeleteUser(username string) error {
 			CurrentConfigs.Users = append(
 				CurrentConfigs.Users[:index], CurrentConfigs.Users[index+1:]...
 			)
-			err := WriteConfigs(CurrentConfigs)
+			err := CurrentConfigs.WriteToFile()
 			if err != nil {
 				return err
 			}
