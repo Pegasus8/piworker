@@ -120,8 +120,8 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	}
 	var user configs.User
 
-	//FIXME Must be removed
-	setCORSHeaders(&w, request)
+	// Uncomment to enable CORS support.
+	// setCORSHeaders(&w, request)
 
 	body, err := ioutil.ReadAll(request.Body)
 	if err != nil{
@@ -180,8 +180,8 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	var response postResponse
 	var task data.UserTask 
 
-	//FIXME Must be removed
-	setCORSHeaders(&w, request)
+	// Uncomment to enable CORS support.
+	// setCORSHeaders(&w, request)
 
 	body, err := ioutil.ReadAll(request.Body)
 	if err != nil{
@@ -217,8 +217,8 @@ func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PO
 	var response postResponse
 	var task data.UserTask
 
-	//FIXME Must be removed
-	setCORSHeaders(&w, request)
+	// Uncomment to enable CORS support.
+	// setCORSHeaders(&w, request)
 
 	body, err := ioutil.ReadAll(request.Body)
 	if err != nil{
@@ -256,8 +256,8 @@ func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PO
 		Taskname string `json:"taskname"`
 	}{}
 
-	//FIXME Must be removed
-	setCORSHeaders(&w, request)
+	// Uncomment to enable CORS support.
+	//setCORSHeaders(&w, request)
 
 	// TODO Implementation of partial delete
 
