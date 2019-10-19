@@ -5,12 +5,18 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/Pegasus8/piworker/processment/configs"
 	"github.com/Pegasus8/piworker/utilities/files"
 	"github.com/Pegasus8/piworker/utilities/log"
 )
 
 // StartBackupLoop is a function used to backup the user data every 1 day.
 func StartBackupLoop() error {
+	if !configs.CurrentConfigs.Backups.BackupData{
+		log.Infoln("Data backup config disabled, skipping...")
+		return nil
+	}
+
 	if Filename == "" {
 		return ErrNoFilenameAsigned
 	}
@@ -35,7 +41,7 @@ func StartBackupLoop() error {
 		}
 
 		// Backup loop
-		for range time.Tick(time.Hour*24) {
+		for range time.Tick(time.Hour * time.Duration(configs.CurrentConfigs.Backups.Freq)) {
 			err := backup()
 			if err != nil {
 				log.Errorln("Error when trying to backup the data:", err)
