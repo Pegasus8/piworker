@@ -9,9 +9,9 @@ import (
 	// "github.com/Pegasus8/piworker/utilities/log"
 )
 
-// WriteConfigs is a function used to write the configs into the configs file, 
+// WriteToFile is a method used to write the configs into the configs file, 
 // overwritting the previous content if exists. Use carefully.
-func WriteConfigs(configs *Configs) error {
+func (configs *Configs) WriteToFile() error {
 	mutex.Lock()
 	defer mutex.Unlock()
 	log.Println("Writing configs...")

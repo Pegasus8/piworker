@@ -32,9 +32,9 @@ func init() {
 	}
 }
 
-// ReadConfigs is a function used to read the configs file and parse the content into
+// ReadFromFile is a method used to read the configs file and parse the content into
 // the `Configs` struct.
-func ReadConfigs() (configs *Configs, err error) {
+func (configs *Configs) ReadFromFile() error {
 	fullpath := filepath.Join(ConfigsPath, Filename)
 
 	mutex.Lock()
@@ -43,21 +43,24 @@ func ReadConfigs() (configs *Configs, err error) {
 	log.Println("Reading config file...")
 	jsonData, err := os.Open(fullpath)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer jsonData.Close()
 	log.Println("Configs loaded")
 
 	byteContent, err := ioutil.ReadAll(jsonData)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	var cfg Configs
 	err = json.Unmarshal(byteContent, &cfg)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return &cfg, nil
+	// Update configs variable
+	configs = &cfg
+
+	return nil
 }
