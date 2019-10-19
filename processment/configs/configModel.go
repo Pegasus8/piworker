@@ -8,6 +8,7 @@ import (
 type Configs struct {
 	Behavior Behavior `json:"behavior"`
 	Security Security `json:"security"`
+	Backups Backups `json:"backups"`
 	APIConfigs APIConfigs `json:"api-configs"`
 	Updates Updates `json:"updates"`
 	WebUI WebUI `json:"webui"`
@@ -16,7 +17,7 @@ type Configs struct {
 
 // Behavior is the struct used to store Behavior configs of PiWorker.
 type Behavior struct {
-	LoopSleep int64 `json:"loop-sleep"`
+	LoopSleep int64 `json:"loop-sleep(ms)"`
 }
 
 // Security is the struct used to store Security configs of PiWorker.
@@ -24,6 +25,15 @@ type Security struct {
 	DeniedIPs []string `json:"denied-ips"`
 	LocalNetworkAccess bool `json:"local-network-access"`
 
+}
+
+// Backups is the struct used to store Backups configs of PiWorker.
+type Backups struct {
+	BackupData bool `json:"backup-data"`
+	BackupConfigs bool `json:"backup-configs"`
+	DataBackupPath string `json:"data-backup-path"`
+	ConfigsBackupPath string `json:"configs-backup-path"`
+	Freq int16 `json:"frequency(hs)"`
 }
 
 // APIConfigs is the struct used to store API configs of PiWorker.
