@@ -38,6 +38,22 @@ func UpdateSecurityConfigs(securityCfg *Security) error {
 	return nil
 }
 
+// UpdateBackupConfigs is the function used to update the Backup configs
+// in the configs file.
+func UpdateBackupConfigs(backupCfg *Backups) error {
+	log.Println("Updating Backup configs...")
+
+	CurrentConfigs.Backups = *backupCfg
+
+	err := WriteConfigs(CurrentConfigs)
+	if err != nil {
+		return err
+	}
+
+	log.Println("Backup configs updated successfully")
+	return nil
+}
+
 // UpdateAPIConfigs is the function used to update the API configs in the
 // configs file.
 func UpdateAPIConfigs(apiCfg *APIConfigs) error {
