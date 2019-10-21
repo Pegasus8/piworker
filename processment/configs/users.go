@@ -1,20 +1,25 @@
 package configs
 
-import (
-)
+import "golang.org/x/crypto/bcrypt"
 
 // NewUser is the function used to add a new user.
 func NewUser(username, password string, admin bool) error {
 	if usernameExists(username) {
 		return ErrUsernameExists
 	}
+
+	hashedPassword, err := hashAndSalt([]byte(password))
+	if err != nil {
+		return err
+	}
+
 	newUser := User{
 		username, 
-		password,
+		hashedPassword,
 		admin,
 	}
 	CurrentConfigs.Users = append(CurrentConfigs.Users, newUser)
-	err := WriteToFile()
+	err = WriteToFile()
 	if err != nil {
 		return err
 	}
