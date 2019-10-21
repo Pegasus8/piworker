@@ -1,4 +1,4 @@
-package webui
+package backend
 
 import (
 	"encoding/json"
@@ -9,8 +9,8 @@ import (
 	"io/ioutil"
 
 	"github.com/Pegasus8/piworker/processment/stats"
-	"github.com/Pegasus8/piworker/webui/auth"
-	"github.com/Pegasus8/piworker/webui/websocket"
+	"github.com/Pegasus8/piworker/webui/backend/auth"
+	"github.com/Pegasus8/piworker/webui/backend/websocket"
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/configs"
 	triggersList"github.com/Pegasus8/piworker/processment/elements/triggers/models"
@@ -37,7 +37,7 @@ type postResponse struct {
 func setupRoutes() {
 	defer auth.Database.Close()
 
-	box := packr.New("WebUI", "./frontend/dist")
+	box := packr.New("WebUI", "../frontend/dist")
 
 	router := mux.NewRouter()
 
