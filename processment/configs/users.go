@@ -61,3 +61,11 @@ func usernameExists(username string) bool {
 	}
 	return false
 }
+
+func hashAndSalt(password []byte) (hashedPassword string, err error) {
+	hash, err := bcrypt.GenerateFromPassword(password, bcrypt.MinCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
+}
