@@ -53,6 +53,27 @@ func AuthUser(username, password string) (authenticated bool) {
 	return false
 }
 
+// ChangeUserPassword is a function used to change the password of a user.
+func ChangeUserPassword(username, newPassword string) error {
+	for _, user := range CurrentConfigs.Users {
+		if user.Username == username {
+			// TODO Hashed & encrypted password
+			hashedPwd, err := hashAndSalt([]byte(newPassword))
+			if err != nil {
+				return err
+			}
+			user.Password = hashedPwd
+			err = WriteToFile()
+			if err != nil {
+				return err
+			}
+			return nil
+		}
+	}
+
+	return ErrUserNotFound
+}
+
 func usernameExists(username string) bool {
 	for _, user := range CurrentConfigs.Users {
 		if user.Username == username {
