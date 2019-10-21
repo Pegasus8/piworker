@@ -71,6 +71,6 @@ type User struct {
 	// NOTE It would be safer to store the hash instead of the password 
 	// in plain text, but if the user lost the password he could not 
 	// retrieve it.
-	Password string `json:"password"`
+	PasswordHash string `json:"password-hash"`
 	Admin bool `json:"admin"`
 }
