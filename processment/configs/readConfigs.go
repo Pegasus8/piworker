@@ -33,7 +33,7 @@ func init() {
 
 // ReadFromFile is a method used to read the configs file and parse the content into
 // the `Configs` struct.
-func (configs *Configs) ReadFromFile() error {
+func ReadFromFile() error {
 	fullpath := filepath.Join(ConfigsPath, Filename)
 
 	mutex.Lock()
@@ -59,7 +59,7 @@ func (configs *Configs) ReadFromFile() error {
 	}
 
 	// Update configs variable
-	configs = &cfg
+	CurrentConfigs = &cfg
 
 	return nil
 }
