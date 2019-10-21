@@ -11,13 +11,13 @@ import (
 
 // WriteToFile is a method used to write the configs into the configs file, 
 // overwritting the previous content if exists. Use carefully.
-func (configs *Configs) WriteToFile() error {
+func WriteToFile() error {
 	mutex.Lock()
 	defer mutex.Unlock()
 	log.Println("Writing configs...")
 	
 	log.Println("Reading JSON data...")
-	byteData, err := json.MarshalIndent(configs, "", "   ")
+	byteData, err := json.MarshalIndent(CurrentConfigs, "", "   ")
 	if err != nil {
 		return err
 	}
