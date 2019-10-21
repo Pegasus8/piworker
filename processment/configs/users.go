@@ -53,7 +53,7 @@ func AuthUser(username, password string) (authenticated bool) {
 	for _, user := range CurrentConfigs.Users {
 		// TODO Hashed & encrypted password 
 		if user.Username == username {
-			err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
+			err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
 			if err != nil {
 				return false
 			}
@@ -72,7 +72,7 @@ func ChangeUserPassword(username, newPassword string) error {
 			if err != nil {
 				return err
 			}
-			user.Password = hashedPwd
+			user.PasswordHash = hashedPwd
 			err = WriteToFile()
 			if err != nil {
 				return err
