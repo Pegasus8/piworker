@@ -51,7 +51,6 @@ func DeleteUser(username string) error {
 // AuthUser is used to authenticate a user.
 func AuthUser(username, password string) (authenticated bool) {
 	for _, user := range CurrentConfigs.Users {
-		// TODO Hashed & encrypted password 
 		if user.Username == username {
 			err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
 			if err != nil {
@@ -67,7 +66,6 @@ func AuthUser(username, password string) (authenticated bool) {
 func ChangeUserPassword(username, newPassword string) error {
 	for _, user := range CurrentConfigs.Users {
 		if user.Username == username {
-			// TODO Hashed & encrypted password
 			hashedPwd, err := hashAndSalt([]byte(newPassword))
 			if err != nil {
 				return err
