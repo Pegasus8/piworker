@@ -2,9 +2,9 @@ package models
 
 import (
 	"time"
+	"log"
 
 	"github.com/Pegasus8/piworker/processment/data"
-	"github.com/Pegasus8/piworker/utilities/log"
 	"github.com/Pegasus8/piworker/processment/elements/triggers"
 )
 
@@ -51,7 +51,7 @@ func byDateTrigger(args *[]data.UserArg) (result bool, err error) {
 			}
 
 			default: {
-				log.Criticalf("Unrecognized argument with the ID '%s' on the " + 
+				log.Printf("Unrecognized argument with the ID '%s' on the " + 
 					"trigger ByDate\n", arg.ID)
 				return false, ErrUnrecognizedArgID
 			}
@@ -59,7 +59,7 @@ func byDateTrigger(args *[]data.UserArg) (result bool, err error) {
 	}
 
 	if time.Now().Format("02/01/2006") == date.Format("02/01/2006") {
-		log.Infoln("Date matched, trigger launched")
+		log.Println("Date matched, trigger launched")
 		return true, nil
 	}
 

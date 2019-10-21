@@ -7,15 +7,15 @@ import (
 	"math/rand"
 	"io"
 	"fmt"
+	"log"
 
 	"github.com/Pegasus8/piworker/processment/data"
-	"github.com/Pegasus8/piworker/utilities/log"
 )
 
 func TestCompressFilesOfDir(t *testing.T) {
 	// Logs
 	writer := io.Writer(os.Stdout)
-	log.Init(writer,writer,writer,writer,writer)
+	log.SetOutput(writer)
 	dir, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)

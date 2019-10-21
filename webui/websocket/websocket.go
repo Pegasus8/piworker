@@ -3,9 +3,9 @@ package websocket
 import (
 	"net/http"
 	"encoding/json"
+	"log"
 
 	"github.com/Pegasus8/piworker/processment/stats"
-	"github.com/Pegasus8/piworker/utilities/log"
 	"github.com/gorilla/websocket"
 )
 
@@ -26,10 +26,10 @@ func Upgrade(w http.ResponseWriter, request *http.Request) (*websocket.Conn, err
 	// WebSocket connection
 	ws, err := upgrader.Upgrade(w, request, nil)
 	if err != nil {
-		log.Criticalln(err)
+		log.Println(err)
 		return ws, err
 	}
-	log.Infoln("Connected with:", request.RemoteAddr)
+	log.Println("Connected with:", request.RemoteAddr)
 	// Return WebSocket connection
 	return ws, nil
 }
@@ -44,7 +44,7 @@ func Writer(conn *websocket.Conn, statsChannel chan stats.Statistic) {
 	// // 	for t := range ticker.C { ... }
 	// // }
 	
-	log.Infoln("Sending data to ", conn.RemoteAddr())
+	log.Println("Sending data to ", conn.RemoteAddr())
 	// Send data to client every 1 sec
 	for {
 
@@ -53,7 +53,7 @@ func Writer(conn *websocket.Conn, statsChannel chan stats.Statistic) {
 
 		jsonData, err := json.Marshal(data)
 		if err != nil {
-			log.Criticalln(err)
+			log.Println(err)
 			return
 		}
 
@@ -61,10 +61,10 @@ func Writer(conn *websocket.Conn, statsChannel chan stats.Statistic) {
 		err = conn.WriteMessage(websocket.TextMessage, jsonData)
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway){
-				log.Errorln(err)
+				log.Println(err)
 				return
 			} 
-			log.Infoln("The client", conn.RemoteAddr(), "has closed the websocket connection")
+			log.Println("The client", conn.RemoteAddr(), "has closed the websocket connection")
 			return
 		}
 	}

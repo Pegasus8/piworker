@@ -5,10 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"io/ioutil"
+	"log"
 
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/elements/actions"
-	"github.com/Pegasus8/piworker/utilities/log"
 )
 
 // ID's
@@ -67,25 +67,25 @@ func compressFilesOfDir(args *[]data.UserArg) (result bool, err error) {
 		}
 	}
 
-	log.Infof("Creating the directory '%s' if it doesn't exist...\n", outputDir)
+	log.Printf("Creating the directory '%s' if it doesn't exist...\n", outputDir)
 	err = os.MkdirAll(outputDir, 0700)
 	if err != nil {
 		return false, nil
 	}
 	
-	log.Infof("Getting the files of the directory '%s'\n", targetDir)
+	log.Printf("Getting the files of the directory '%s'\n", targetDir)
 	files, err := ioutil.ReadDir(targetDir)
 	if err != nil {
 		return false, err
 	}
-	log.Infoln("Files obtained")
+	log.Println("Files obtained")
 
 	for _, file := range files {
 		if file.IsDir() {
-			log.Infof("Skipping '%s' because it isn't a file\n", file.Name())
+			log.Printf("Skipping '%s' because it isn't a file\n", file.Name())
 			continue
 		}
-		log.Infof("Starting the compression of the file '%s'...\n", file.Name())
+		log.Printf("Starting the compression of the file '%s'...\n", file.Name())
 		
 		openedFile, err := os.Open(
 			filepath.Join(targetDir, file.Name()),
@@ -116,11 +116,11 @@ func compressFilesOfDir(args *[]data.UserArg) (result bool, err error) {
 			return false, err
 		}
 
-		log.Infof("'%s' compressed by the action CompressFilesOfDir\n", newFilename)
+		log.Printf("'%s' compressed by the action CompressFilesOfDir\n", newFilename)
 
 	}
 
-	log.Infof("Files compression finished into directory '%s'\n", outputDir)
+	log.Printf("Files compression finished into directory '%s'\n", outputDir)
 
 	return true, nil
 }

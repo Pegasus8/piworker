@@ -7,8 +7,7 @@ import (
 	"strings"
 	"time"
 	"errors"
-
-	"github.com/Pegasus8/piworker/utilities/log"
+	"log"
 
 	"github.com/Pegasus8/piworker/processment/data"
 	actionsList "github.com/Pegasus8/piworker/processment/elements/actions/models"
@@ -16,7 +15,7 @@ import (
 )
 
 func runTaskLoop(taskname string, taskChannel chan data.UserTask) {
-	log.Infof("[%s] Loop started\n", taskname)
+	log.Printf("[%s] Loop started\n", taskname)
 	for range time.Tick(time.Millisecond * 400) {
 		// Receive the renewed data for the task in question, if there is not data
 		// just keep waiting for it.
@@ -29,18 +28,18 @@ func runTaskLoop(taskname string, taskChannel chan data.UserTask) {
 		}
 		if triggered {
 			if wasRecentlyExecuted(taskReceived.TaskInfo.Name) {
-				log.Infof("[%s] The task was recently executed, the trigger "+
+				log.Printf("[%s] The task was recently executed, the trigger "+
 					"stills active. Skipping it...\n", taskReceived.TaskInfo.Name)
 				goto skipTaskExecution
 			}
 
-			log.Infof("[%s] Trigger with the ID '%s' activated, running actions...\n",
+			log.Printf("[%s] Trigger with the ID '%s' activated, running actions...\n",
 				taskReceived.TaskInfo.Name, taskReceived.TaskInfo.Trigger.ID)
 			runActions(&taskReceived)
 
 			err = setAsRecentlyExecuted(taskReceived.TaskInfo.Name)
 			if err != nil {
-				log.Criticalln(err)
+				log.Printf("[%s] %s\n", taskReceived.TaskInfo.Name, err.Error())
 			}
 
 			skipTaskExecution:
@@ -50,7 +49,7 @@ func runTaskLoop(taskname string, taskChannel chan data.UserTask) {
 			if wasRecentlyExecuted(taskReceived.TaskInfo.Name) {
 				err = setAsReadyToExecuteAgain(taskReceived.TaskInfo.Name)
 				if err != nil {
-					log.Criticalln(err)
+					log.Printf("[%s] %s\n", taskReceived.TaskInfo.Name, err.Error())
 				}
 			}
 		}
@@ -71,18 +70,18 @@ func runTrigger(trigger data.UserTrigger) (bool, error) {
 		}
 	}
 
-	log.Errorf("The trigger with the ID '%s' cannot be found\n", trigger.ID)
+	log.Printf("The trigger with the ID '%s' cannot be found\n", trigger.ID)
 	return false, errors.New("Trigger not found")
 }
 
 func runActions(task *data.UserTask) {
-	log.Infof("[%s] Running actions...\n", task.TaskInfo.Name)
+	log.Printf("[%s] Running actions...\n", task.TaskInfo.Name)
 	startTime := time.Now()
 
 	userActions := &task.TaskInfo.Actions
 	previousState := task.TaskInfo.State
 
-	log.Infof("[%s] Changing task state to '%s'\n", task.TaskInfo.Name, data.StateTaskOnExecution)
+	log.Printf("[%s] Changing task state to '%s'\n", task.TaskInfo.Name, data.StateTaskOnExecution)
 	// Set task state to on-execution
 	err := data.UpdateTaskState(task.TaskInfo.Name, data.StateTaskOnExecution)
 	if err != nil {
@@ -101,13 +100,13 @@ func runActions(task *data.UserTask) {
 					if userAction.ID == action.ID {
 						result, err := action.Run(&userAction.Args)
 						if err != nil {
-							log.Errorln(err)
+							log.Printf("[%s] %s\n",task.TaskInfo.Name, err.Error())
 						}
 						if result {
-							log.Infof("[%s] Action in order %d finished correctly",
+							log.Printf("[%s] Action in order %d finished correctly\n",
 								task.TaskInfo.Name, userAction.Order)
 						} else {
-							log.Errorf("[%s] Action in order %d wasn't executed correctly",
+							log.Printf("[%s] Action in order %d wasn't executed correctly\n",
 								task.TaskInfo.Name, userAction.Order)
 						}
 
@@ -141,7 +140,7 @@ func runActions(task *data.UserTask) {
 		}
 	}
 	executionTime := time.Since(startTime).String()
-	log.Infof("[%s] Actions executed in %s\n", task.TaskInfo.Name, executionTime)
+	log.Printf("[%s] Actions executed in %s\n", task.TaskInfo.Name, executionTime)
 }
 
 func checkForAnUpdate(updateChannel chan bool) {
@@ -151,16 +150,16 @@ func checkForAnUpdate(updateChannel chan bool) {
 	for range time.Tick(time.Millisecond * 300) {
 		fileInfo, err := os.Stat(dataPath)
 		if err != nil {
-			log.Criticalln(err)
+			log.Println(err)
 		}
 		// First run
 		if oldModTime.IsZero() {
-			log.Infoln("First run of the data file watchdog, setting variable of comparison")
+			log.Println("First run of the data file watchdog, setting variable of comparison")
 			oldModTime = fileInfo.ModTime()
 		}
 		newModTime = fileInfo.ModTime()
 		if oldModTime != newModTime {
-			log.Infoln("Change detected on the data file, sending the signal...")
+			log.Println("Change detected on the data file, sending the signal...")
 			// Send the signal
 			updateChannel <- true
 			// Update the variable
@@ -194,7 +193,7 @@ func wasRecentlyExecuted(taskName string) bool {
 		} else if os.IsExist(err) {
 			return true
 		}
-		log.Criticalln(err)
+		log.Printf("[%s] %s\n",taskName, err.Error())
 		return false
 	}
 

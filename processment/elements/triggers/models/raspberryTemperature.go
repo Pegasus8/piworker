@@ -4,9 +4,9 @@ import (
 	"regexp"
 	"strconv"
 	"os/exec"
+	"log"
 
 	"github.com/Pegasus8/piworker/processment/data"
-	"github.com/Pegasus8/piworker/utilities/log"
 	"github.com/Pegasus8/piworker/processment/elements/triggers"
 	"github.com/Pegasus8/piworker/processment/stats"
 )
@@ -54,7 +54,7 @@ func raspberryTempTrigger(args *[]data.UserArg) (result bool, err error) {
 			}
 
 			default: {
-				log.Criticalf("Unrecognized argument with the ID '%s' on the " + 
+				log.Printf("Unrecognized argument with the ID '%s' on the " + 
 				"trigger RaspberryTemperature\n", arg.ID)
 				return false, ErrUnrecognizedArgID
 			}

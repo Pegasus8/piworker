@@ -3,8 +3,7 @@ package stats
 import (
 	"os"
 	"database/sql"
-
-	"github.com/Pegasus8/piworker/utilities/log"
+	"log"
 	
 	_ "github.com/mattn/go-sqlite3" // SQLite3 package
 )
@@ -13,7 +12,7 @@ func init() {
 	// Create statistics path if not exists
 	err := os.MkdirAll(SatisticsPath, os.ModePerm)
 	if err != nil {
-		log.Fatalln(err)
+		log.Panicln(err)
 	}
 }
 

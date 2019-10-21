@@ -3,8 +3,9 @@ package engine
 import (
 	"os"
 	"time"
+	"log"
 
-	"github.com/Pegasus8/piworker/utilities/log"
+	// "github.com/Pegasus8/piworker/utilities/log"
 
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/stats"
@@ -14,7 +15,7 @@ import (
 
 // StartEngine is the function used to start the Dynamic Engine
 func StartEngine() {
- 	log.Infoln("Starting the Dynamic Engine...")
+ 	log.Println("Starting the Dynamic Engine...")
 	defer os.RemoveAll(TempDir)
 
 	var tasksGoroutines map[string]chan data.UserTask
@@ -22,13 +23,13 @@ func StartEngine() {
 	var statsChannel chan stats.Statistic // Channel between the WebUI and Stats loop.
 	var dataChannel chan data.UserData
 
-	log.Infoln("Reading the user data for first time...")
+	log.Println("Reading the user data for first time...")
 	userData, err := data.ReadData()
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	log.Infoln("Creating channels for tasks ...")
+	log.Println("Creating channels for tasks ...")
 	for _, task := range userData.Tasks {
 		// Create the channel for each task (with active state).
 		if task.TaskInfo.State == data.StateTaskActive {
@@ -36,18 +37,18 @@ func StartEngine() {
 			go runTaskLoop(task.TaskInfo.Name, tasksGoroutines[task.TaskInfo.Name])
 		}
 	}
-	log.Infoln("Channels created correctly")
+	log.Println("Channels created correctly")
 
 	// Start the watchdog for the data file.
-	log.Infoln("Running the watchdog for the data file...")
+	log.Println("Running the watchdog for the data file...")
 	go checkForAnUpdate(needUpdateData)
 
 	// Start the WebUI server.
-	log.Infoln("Starting the WebUI server...")
+	log.Println("Starting the WebUI server...")
 	go webui.Run(statsChannel)
 
 	// Start the stats recollection.
-	log.Infoln("Starting the stats loop...")
+	log.Println("Starting the stats loop...")
 	go stats.StartLoop(statsChannel, dataChannel)
 
 	// Keep the data updated
@@ -55,13 +56,13 @@ func StartEngine() {
 		select {
 		case <-needUpdateData:
 			{
-				log.Infoln("Updating the data variable due to a change detected...")
+				log.Println("Updating the data variable due to a change detected...")
 				// Renew the data variable.
 				userData, err = data.ReadData()
 				if err != nil {
 					log.Fatalln(err)
 				} else {
-					log.Infoln("Data variable updated successfully")
+					log.Println("Data variable updated successfully")
 				}
 			}
 		default:

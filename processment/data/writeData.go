@@ -4,9 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"encoding/json"
+	"log"
 
 	"github.com/Pegasus8/piworker/utilities/files"
-	"github.com/Pegasus8/piworker/utilities/log"
 )
 
 func init() {
@@ -19,7 +19,7 @@ func init() {
 
 // NewTask is a function used to add a new task to the JSON data file.
 func NewTask(task *UserTask) error {
-	log.Infoln("Adding a new task into JSON user data...")
+	log.Println("Adding a new task into JSON user data...")
 	fullpath := filepath.Join(DataPath, Filename)
 	if err := checkFile(fullpath); err != nil {
 		return err
@@ -42,7 +42,7 @@ func NewTask(task *UserTask) error {
 	if err != nil {
 		return err
 	}
-	log.Infof("Successfully added a new task with the name '%s' into " + 
+	log.Println("Successfully added a new task with the name '%s' into " + 
 		"JSON user data\n", task.TaskInfo.Name)
 
 	// If the backup loop is not on, then start it
@@ -62,7 +62,7 @@ func checkFile(filepath string) error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Create the file
-			log.Infof("Data file with name '%s' not exists, creating it...\n", Filename)
+			log.Println("Data file with name '%s' not exists, creating it...\n", Filename)
 			if err = newJSONDataFile(); err != nil {
 				return err
 			}
@@ -89,7 +89,7 @@ func newJSONDataFile() error {
 	if err != nil {
 		return err
 	}
-	log.Infof("New JSON data file with name '%s' initialized successfully\n", Filename)
+	log.Println("New JSON data file with name '%s' initialized successfully\n", Filename)
 	
 	return nil
 }	

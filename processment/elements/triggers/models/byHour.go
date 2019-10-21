@@ -2,9 +2,9 @@ package models
 
 import (
 	"time"
+	"log"
 
 	"github.com/Pegasus8/piworker/processment/data"
-	"github.com/Pegasus8/piworker/utilities/log"
 	"github.com/Pegasus8/piworker/processment/elements/triggers"
 )
 
@@ -51,7 +51,7 @@ func byHourTrigger(args *[]data.UserArg) (result bool, err error) {
 			}
 
 			default: {
-				log.Criticalf("Unrecongnized argument with the ID '%s' on the " + 
+				log.Printf("Unrecongnized argument with the ID '%s' on the " + 
 					"trigger ByHour\n", arg.ID)
 				return false, ErrUnrecognizedArgID
 			}
@@ -59,7 +59,7 @@ func byHourTrigger(args *[]data.UserArg) (result bool, err error) {
 	}
 
 	if time.Now().Format("15:04") == hour.Format("15:04") {
-		log.Infoln("Hour matched, trigger launched")
+		log.Println("Hour matched, trigger launched")
 		return true, nil
 	}
 	

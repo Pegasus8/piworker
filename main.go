@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"time"
 	"os"
+	"log"
 
-	"github.com/Pegasus8/piworker/utilities/log"
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/engine" 
 	// "github.com/Pegasus8/piworker/processment/configs"
@@ -23,16 +23,17 @@ func main() {
 		logFile = setLogNameByDate("log")
 		logFullpath = filepath.Join(loggingDir, logFile)
 	)
-	if err := prepareLogsDirectory(loggingDir); err != nil { log.Errorln(err) }
+	if err := prepareLogsDirectory(loggingDir); err != nil { log.Panicln(err) }
 	f, err := os.OpenFile(
 		logFullpath, os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666,
 	)
-	if err != nil { log.Errorln(err) }
+	if err != nil { log.Panicln(err) }
 	defer f.Close()
-	// All logs to the same file. Can be separated but is not necessary.
-	log.Init(f, f, f, f, f)
 
-	log.Infoln("Running PiWorker...")
+	log.SetOutput(f)
+	log.SetFlags(log.Ldate | log.Lshortfile)
+
+	log.Println("Running PiWorker...")
 	// Set user data filename
 	data.Filename = "user_data.json" //TODO: assign the name dinamically
 

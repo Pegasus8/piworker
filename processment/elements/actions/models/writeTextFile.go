@@ -3,10 +3,10 @@ package models
 import (
 	"path/filepath"
 	"os"
+	"log"
 
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/elements/actions"
-	"github.com/Pegasus8/piworker/utilities/log"
 )
 
 // ID's
@@ -95,7 +95,7 @@ func writeTextFileAction(args *[]data.UserArg) (result bool, err error) {
 			path = filepath.Clean(arg.Content)
 		default: 
 			{
-				log.Criticalf("Unrecongnized argument with the ID '%s' on the " + 
+				log.Println("Unrecongnized argument with the ID '%s' on the " + 
 					"action WriteTextFile\n", arg.ID)
 				return false, ErrUnrecognizedArgID
 			}
@@ -124,7 +124,7 @@ func writeTextFileAction(args *[]data.UserArg) (result bool, err error) {
 		return false, err
 	}
 
-	log.Infoln("File written by the action WriteTextFile. Bytes written:", bytesWrited)
+	log.Println("File written by the action WriteTextFile. Bytes written:", bytesWrited)
 
 	return true, nil
 }

@@ -3,10 +3,10 @@ package models
 import (
 	"os"
 	"path/filepath"
+	"log"
 
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/elements/triggers"
-	"github.com/Pegasus8/piworker/utilities/log"
 )
 
 // ID's
@@ -48,7 +48,7 @@ func variationOfFileSize(args *[]data.UserArg) (result bool, err error) {
 			filePath = filepath.Clean(arg.Content)
 		default:
 			{
-				log.Criticalf("Unrecognized argument with the ID '%s' on the "+
+				log.Printf("Unrecognized argument with the ID '%s' on the "+
 					"trigger VariationOfFileSize\n", arg.ID)
 				return false, ErrUnrecognizedArgID
 			}

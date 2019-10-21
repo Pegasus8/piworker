@@ -2,10 +2,10 @@ package models
 
 import (
 	"time"
+	"log"
 
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/elements/triggers"
-	"github.com/Pegasus8/piworker/utilities/log"
 )
 
 // ID's
@@ -50,7 +50,7 @@ func everyXTimeTrigger(args *[]data.UserArg) (result bool, err error) {
 			}
 		default:
 			{
-				log.Criticalf("Unrecognized argument with the ID '%s' on the "+
+				log.Printf("Unrecognized argument with the ID '%s' on the "+
 					"trigger EveryXTime\n", arg.ID)
 				return false, ErrUnrecognizedArgID
 			}
