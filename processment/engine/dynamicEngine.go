@@ -10,7 +10,7 @@ import (
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/stats"
 	"github.com/Pegasus8/piworker/processment/configs"
-	"github.com/Pegasus8/piworker/webui"
+	"github.com/Pegasus8/piworker/webui/backend"
 )
 
 // StartEngine is the function used to start the Dynamic Engine
@@ -45,7 +45,7 @@ func StartEngine() {
 
 	// Start the WebUI server.
 	log.Println("Starting the WebUI server...")
-	go webui.Run(statsChannel)
+	go backend.Run(statsChannel)
 
 	// Start the stats recollection.
 	log.Println("Starting the stats loop...")
