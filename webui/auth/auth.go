@@ -107,7 +107,7 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 func generateSigningKey() {
 	configs.CurrentConfigs.APIConfigs.SigningKey = nanoid.New()
 	// Write the updated configs (with the SigningKey)
-	err := configs.CurrentConfigs.WriteToFile()
+	err := configs.WriteToFile()
 	if err != nil {
 		log.Fatal(err.Error())
 	}

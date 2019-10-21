@@ -18,13 +18,13 @@ func init() {
 	}
 	if !exists {
 		CurrentConfigs = &DefaultConfigs
-		err = CurrentConfigs.WriteToFile()
+		err = WriteToFile()
 		if err != nil {
 			log.Fatal(err.Error())
 		}
 	} else {
 		log.Println("Configs file found")
-		err = CurrentConfigs.ReadFromFile()
+		err = ReadFromFile()
 		if err != nil {
 			log.Fatal(err.Error())
 		}
