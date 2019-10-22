@@ -2,10 +2,12 @@ package configs
 
 import (
 	"time"
+	"sync"
 )
 
 // Configs is the struct used to store all PiWorker configurations.
 type Configs struct {
+	sync.Mutex
 	Behavior Behavior `json:"behavior"`
 	Security Security `json:"security"`
 	Backups Backups `json:"backups"`
