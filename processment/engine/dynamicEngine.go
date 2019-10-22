@@ -51,8 +51,12 @@ func StartEngine() {
 	log.Println("Starting the stats loop...")
 	go stats.StartLoop(statsChannel, dataChannel)
 
+	configs.CurrentConfigs.RLock()
+	tickDuration := time.Millisecond * time.Duration(configs.CurrentConfigs.Behavior.LoopSleep)
+	configs.CurrentConfigs.RUnlock()
+	
 	// Keep the data updated
-	for range time.Tick(time.Millisecond * time.Duration(configs.CurrentConfigs.Behavior.LoopSleep)) {
+	for range time.Tick(tickDuration) {
 		select {
 		case <-needUpdateData:
 			{
