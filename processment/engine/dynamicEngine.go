@@ -18,7 +18,7 @@ func StartEngine() {
  	log.Println("Starting the Dynamic Engine...")
 	defer os.RemoveAll(TempDir)
 
-	var tasksGoroutines map[string]chan data.UserTask
+	var tasksGoroutines = make(map[string]chan data.UserTask)
 	var needUpdateData chan bool
 	var statsChannel chan stats.Statistic // Channel between the WebUI and Stats loop.
 	var dataChannel chan data.UserData
