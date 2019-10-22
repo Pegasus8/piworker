@@ -53,7 +53,7 @@ func setLogSettings() (logFile *os.File){
 	if err != nil { log.Panicln(err) }
 
 	log.SetOutput(f)
-	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+	log.SetFlags(log.Ldate | log.Lmicroseconds | log.Lshortfile)
 
 	return f
 }
