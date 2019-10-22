@@ -17,7 +17,9 @@ func WriteToFile() error {
 	log.Println("Writing configs...")
 	
 	log.Println("Reading JSON data...")
+	CurrentConfigs.RLock()
 	byteData, err := json.MarshalIndent(CurrentConfigs, "", "   ")
+	CurrentConfigs.RUnlock()
 	if err != nil {
 		return err
 	}
