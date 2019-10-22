@@ -17,6 +17,8 @@ import (
 var signingKey []byte
 
 func init() {
+	// Not needed to use CurrentConfigs.RLock() because this happens only one time: when the package 
+	// is imported for first time.
 	if configs.CurrentConfigs.APIConfigs.SigningKey == "" {
 		generateSigningKey()
 	}
@@ -45,9 +47,12 @@ func NewJWT(claim CustomClaims) (jwtToken string, err error) {
 func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
+		configs.CurrentConfigs.RLock()
 		if !configs.CurrentConfigs.APIConfigs.RequireToken {
+			configs.CurrentConfigs.RUnlock()
 			endpoint(w, r)
 		}
+		configs.CurrentConfigs.RUnlock()
 
         if r.Header["Token"] != nil {
 			
