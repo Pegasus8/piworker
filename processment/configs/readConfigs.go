@@ -61,7 +61,9 @@ func ReadFromFile() error {
 	}
 
 	// Update configs variable
+	CurrentConfigs.Lock()
 	CurrentConfigs = &cfg
+	CurrentConfigs.Unlock()
 
 	return nil
 }
