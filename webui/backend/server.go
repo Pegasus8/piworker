@@ -118,7 +118,10 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 		Token string `json:"token"`
 		ExpiresAt int64 `json:"expiresAt"`
 	}
-	var user configs.User
+	var user = struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}{}
 
 	// Uncomment to enable CORS support.
 	// setCORSHeaders(&w, request)
