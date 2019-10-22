@@ -7,7 +7,7 @@ import (
 
 // Configs is the struct used to store all PiWorker configurations.
 type Configs struct {
-	sync.RWMutex
+	sync.RWMutex `json:"-"`
 	Behavior Behavior `json:"behavior"`
 	Security Security `json:"security"`
 	Backups Backups `json:"backups"`
