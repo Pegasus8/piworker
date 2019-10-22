@@ -62,7 +62,7 @@ func checkFile(filepath string) error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Create the file
-			log.Println("Data file with name '%s' not exists, creating it...\n", Filename)
+			log.Printf("Data file with name '%s' not exists, creating it...\n", Filename)
 			if err = newJSONDataFile(); err != nil {
 				return err
 			}
@@ -89,7 +89,7 @@ func newJSONDataFile() error {
 	if err != nil {
 		return err
 	}
-	log.Println("New JSON data file with name '%s' initialized successfully\n", Filename)
+	log.Printf("New JSON data file with name '%s' initialized successfully\n", Filename)
 	
 	return nil
 }	

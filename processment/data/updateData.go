@@ -19,7 +19,7 @@ func UpdateTask(taskName string, updatedTask *UserTask) error {
 		return err
 	}
 
-	log.Println("Task with name '%s' finded, updating data...\n", taskName)
+	log.Printf("Task with name '%s' finded, updating data...\n", taskName)
 	data.Tasks[index] = *updatedTask
 
 	byteData, err := json.MarshalIndent(data, "", "   ")
