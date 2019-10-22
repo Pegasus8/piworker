@@ -41,6 +41,7 @@ func setupRoutes() {
 
 	router := mux.NewRouter()
 
+	configs.CurrentConfigs.RLock()
 	apiConfigs := &configs.CurrentConfigs.APIConfigs
 
 	// ─── APIS ───────────────────────────────────────────────────────────────────────
@@ -82,6 +83,7 @@ func setupRoutes() {
 	}
 
 	log.Println("Listening and serving on port", configs.CurrentConfigs.WebUI.ListeningPort)
+	configs.CurrentConfigs.RUnlock()
 	log.Fatal(srv.ListenAndServe())
 }
 
@@ -138,7 +140,9 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	} 
 
 	if ok := configs.AuthUser(user.Username, user.Password); ok {
+		configs.CurrentConfigs.RLock()
 		duration := configs.CurrentConfigs.APIConfigs.TokenDuration
+		configs.CurrentConfigs.RUnlock()
 		expiresAt := time.Now().Add(duration)
 		token, err := auth.NewJWT(
 			auth.CustomClaims{
