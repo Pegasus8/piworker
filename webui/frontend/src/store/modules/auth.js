@@ -65,7 +65,7 @@ const actions = {
     console.info("Default axios header setted")
   },
   login: ({ commit, dispatch }, authData) => {
-    axios.post('/api/login', { // FIXME Replace for the user MASTER_KEY
+    axios.post('/api/login', {
       user: authData.user,
       password: authData.password
     })
