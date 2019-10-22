@@ -18,20 +18,8 @@ func main() {
 	}
 
 	// Logs settings
-	var (
-		loggingDir = "./logs/"
-		logFile = setLogNameByDate("log")
-		logFullpath = filepath.Join(loggingDir, logFile)
-	)
-	if err := prepareLogsDirectory(loggingDir); err != nil { log.Panicln(err) }
-	f, err := os.OpenFile(
-		logFullpath, os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666,
-	)
-	if err != nil { log.Panicln(err) }
-	defer f.Close()
-
-	log.SetOutput(f)
-	log.SetFlags(log.Ldate | log.Lshortfile)
+	logFile := setLogSettings()
+	defer logFile.Close()
 
 	log.Println("Running PiWorker...")
 	// Set user data filename
@@ -49,6 +37,25 @@ func prepareLogsDirectory(dir string) error {
 		return err
 	}
 	return nil
+}
+
+func setLogSettings() (logFile *os.File){
+	var (
+		loggingDir = "./logs/"
+		logFilename = setLogNameByDate("log")
+		logFullpath = filepath.Join(loggingDir, logFilename)
+	)
+
+	if err := prepareLogsDirectory(loggingDir); err != nil { log.Panicln(err) }
+	f, err := os.OpenFile(
+		logFullpath, os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666,
+	)
+	if err != nil { log.Panicln(err) }
+
+	log.SetOutput(f)
+	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+
+	return f
 }
 
 func setLogNameByDate(name string) (formattedName string) {
