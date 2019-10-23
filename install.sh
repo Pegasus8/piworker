@@ -104,5 +104,10 @@ InstallDependences() {
     
 }
 
+if [[ $EUID -ne 0 ]]; then
+   print_redf "This script must be run as root!" 
+   exit 1
+fi
+
 InstallDependences
 InstallService
