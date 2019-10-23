@@ -104,11 +104,5 @@ InstallDependences() {
     
 }
 
-# print_blueb "Installing service..."
-# read -d '' service_content <<EOF
-
-# EOF
-# InstallService $service_content
-# print_greenb "Service installed!"
 InstallDependences
 InstallService
