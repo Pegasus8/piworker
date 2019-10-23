@@ -51,9 +51,20 @@ PrepareDirectory() {
 }
 
 DownloadLatest() {
-    cd $INSTALL_DIR &&
-        curl -sL $(curl -sL "$LATEST_URL" | grep PiWorker-linux_$ARCH- |
-            grep browser_download_url | head -1 | cut -d \" -f 4)
+    workdir="$(mktemp -d)"
+    curl -sL $(curl -sL "$LATEST_URL" | grep PiWorker-linux_$ARCH- | grep browser_download_url | head -1 | cut -d \" -f 4) |
+    tar xz -C "$workdir" -f - PiWorker && #FIXME Test if this line is correct. Must be after public release (due to url).
+    [ -x $workdir/PiWorker ] &&
+    mv -f "${workdir}/PiWorker" "${INSTALL_DIR}/" && 
+    rm -fr "$workdir"
+    
+    # TODO Finish download section
+
+    if [ -a $INSTALL_DIR/PiWorker ]; then
+        print_greenb "PiWorker downloaded correctly!"
+    else 
+        print_redf "I can't download PiWorker"
+    fi
 }
 
 InstallService() {
@@ -109,4 +120,6 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 InstallDependences
+PrepareDirectory
+DownloadLatest
 InstallService
