@@ -58,8 +58,15 @@ DownloadLatest() {
 }
 
 InstallService() {
-    local absolute_path=$SERVICE_PATH$SERVICE_FILENAME
-    echo "$1" > $absolute_path
+    print_blueb "Installing service..."
+    $INSTALL_DIR/PiWorker --service install
+    if [ -a $SERVICE_ABSPATH ]; then 
+        print_greenb "Service installed!, starting it..."
+        $INSTALL_DIR/PiWorker --service start
+        print_greenb "Service started!"
+    else 
+        print_redf "The service was not installed :("
+    fi
 }
 
 GenerateOpenSSLCertificate() {
@@ -104,3 +111,4 @@ InstallDependences() {
 # InstallService $service_content
 # print_greenb "Service installed!"
 InstallDependences
+InstallService
