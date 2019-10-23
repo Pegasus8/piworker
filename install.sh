@@ -13,8 +13,7 @@
 ARCH="$HOSTTYPE"
 INSTALL_DIR="$HOME/PiWorker"
 LATEST_URL="https://api.github.com/repos/Pegasus8/piworker/releases/latest"
-SERVICE_PATH="/etc/systemd/system/"
-SERVICE_FILENAME="PiWorker.service"
+SERVICE_ABSPATH="/etc/systemd/system/PiWorker.service"
 
 #
 # ─── STRINGS FORMATTING ─────────────────────────────────────────────────────────
