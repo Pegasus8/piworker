@@ -75,7 +75,7 @@ GenerateOpenSSLCertificate() {
         -x509 \
         -keyout server.key \
         -out server.crt
-    if [ -a ./server.key ] && [ -a ./server.crt ]; then
+    if [ -a $INSTALL_DIR/server.key ] && [ -a $INSTALL_DIR/server.crt ]; then
         print_greenb "Certificates generated successfully!"
     else 
         print_redf "The certificates could not be generated :("
