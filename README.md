@@ -1,5 +1,10 @@
 # piworker
 
+Installation (**Untested**):
+```
+    curl -sSL https://github.com/Pegasus8/PiWorker/raw/master/install.sh | sudo bash
+```
+
 ## Acknowledgments
 ### Frontend (JS - VueJS)
 * [Bootstrap](https://getbootstrap.com)
