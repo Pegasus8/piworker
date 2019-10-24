@@ -25,11 +25,14 @@ const mutations = {
 const actions = {
   // `expirationTime` must be seconds
   setLogoutTimer: ({ dispatch }, expirationTime) => {
+    const now = new Date()
+    const timeout = (expirationTime * 1000) - now.getTime()
     setTimeout(() => {
       dispatch('logout')
-    }, expirationTime * 1000)
+    }, timeout)
   },
   logout: ({ commit }) => {
+    console.info('Executing logout')
     commit('clearAuthData')
     localStorage.removeItem('token')
     localStorage.removeItem('userID')
