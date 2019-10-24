@@ -14,6 +14,7 @@ ARCH="$HOSTTYPE"
 INSTALL_DIR="$HOME/PiWorker"
 LATEST_URL="https://api.github.com/repos/Pegasus8/piworker/releases/latest"
 SERVICE_ABSPATH="/etc/systemd/system/PiWorker.service"
+SUPPORTED_ARCHS=("arm") 
 
 #
 # ─── STRINGS FORMATTING ─────────────────────────────────────────────────────────
@@ -118,8 +119,8 @@ InstallDependences() {
 # ─── EXECUTION ──────────────────────────────────────────────────────────────────
 #
 
-if [ !$ARCH=='arm' ]; then
-    print_redf "For now, PiWorker doesn't support your architecture. Sorry."
+if [[ ! " ${SUPPORTED_ARCHS[@]} " =~ " ${ARCH} " ]]; then
+    print_redf "For now, PiWorker doesn't support your architecture ($ARCH). Sorry."
     print_blueb "If you want PiWorker to support your architecture you can open an issue in the Github repository: https://github.com/Pegasus8/PiWorker/issues/new"
     exit 1
 fi
