@@ -70,6 +70,11 @@ const actions = {
       password: authData.password
     })
       .then((response) => {
+        if (!response.data.successful) {
+          console.warn('Server rejected username or password')
+          return
+        }
+        
         console.info('User logged, saving the info...')
         //  Response: {token: "", userID: "", expiresIn: ""}  //
 
