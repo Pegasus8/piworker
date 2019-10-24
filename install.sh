@@ -127,3 +127,4 @@ InstallDependences
 PrepareDirectory
 DownloadLatest
 InstallService
+AddPath
