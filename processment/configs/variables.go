@@ -2,7 +2,6 @@ package configs
 
 import (
 	"sync"
-	"time"
 )
 
 // Filename is the name of the configs file.
@@ -36,7 +35,7 @@ var DefaultConfigs = Configs{
 		StatisticsAPI: true,
 		RequireToken: true,
 		SigningKey: "",
-		TokenDuration: time.Hour * 168, // 7 days 
+		TokenDuration: 168, // 7 days 
 	},
 	Updates: Updates{
 		DailyCheck: true,
