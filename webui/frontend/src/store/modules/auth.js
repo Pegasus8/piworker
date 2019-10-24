@@ -76,11 +76,7 @@ const actions = {
         }
         
         console.info('User logged, saving the info...')
-        //  Response: {token: "", userID: "", expiresIn: ""}  //
-
-        const now = new Date()
-        const expirationDate = new Date(now.getTime() + (response.data.expiresAt))
-        console.info("New expiration date:", expirationDate)
+        const expirationDate = new Date(response.data.expiresAt * 1000) // Seconds to milliseconds
 
         console.info("Saving auth info on local storage")
         localStorage.setItem('token', response.data.token)
