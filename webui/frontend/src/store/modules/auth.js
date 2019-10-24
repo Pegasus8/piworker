@@ -66,7 +66,7 @@ const actions = {
   },
   login: ({ commit, dispatch }, authData) => {
     axios.post('/api/login', {
-      user: authData.user,
+      username: authData.user,
       password: authData.password
     })
       .then((response) => {
