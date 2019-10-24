@@ -1,7 +1,6 @@
 package configs
 
 import (
-	"time"
 	"sync"
 )
 
@@ -50,7 +49,7 @@ type APIConfigs struct {
 	// Authentication
 	RequireToken bool `json:"require-token"`
 	SigningKey string `json:"signing-key"`
-	TokenDuration time.Duration `json:"token-duration"`
+	TokenDuration int64 `json:"token-duration(hs)"`
 }
 
 // Updates is the struct used to store update configs of PiWorker.

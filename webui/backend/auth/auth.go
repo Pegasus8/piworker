@@ -55,6 +55,12 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 		configs.CurrentConfigs.RUnlock()
 
         if r.Header["Token"] != nil {
+
+			// Prevents panic if an empty string is sended as token.
+			if r.Header["Token"][0] == "" { 
+				log.Printf("The adress %s tried to use an empty string as token. Rejected.\n", r.Host)
+				return 
+			}
 			
 			token, err := jwt.ParseWithClaims(r.Header["Token"][0], &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
                 if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {

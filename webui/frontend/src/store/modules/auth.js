@@ -25,11 +25,14 @@ const mutations = {
 const actions = {
   // `expirationTime` must be seconds
   setLogoutTimer: ({ dispatch }, expirationTime) => {
+    const now = new Date()
+    const timeout = (expirationTime * 1000) - now.getTime()
     setTimeout(() => {
       dispatch('logout')
-    }, expirationTime * 1000)
+    }, timeout)
   },
   logout: ({ commit }) => {
+    console.info('Executing logout')
     commit('clearAuthData')
     localStorage.removeItem('token')
     localStorage.removeItem('userID')
@@ -61,21 +64,22 @@ const actions = {
     console.info("Auth info commited on vuex")
 
     console.info("Setting token header on axios")
-    axios.defaults.headers.common['Token'] = response.data.token
+    axios.defaults.headers.common['Token'] = token
     console.info("Default axios header setted")
   },
   login: ({ commit, dispatch }, authData) => {
     axios.post('/api/login', {
-      user: authData.user,
+      username: authData.user,
       password: authData.password
     })
       .then((response) => {
+        if (!response.data.successful) {
+          console.warn('Server rejected username or password')
+          return
+        }
+        
         console.info('User logged, saving the info...')
-        //  Response: {token: "", userID: "", expiresIn: ""}  //
-
-        const now = new Date()
-        const expirationDate = new Date(now.getTime() + (response.data.expiresAt))
-        console.info("New expiration date:", expirationDate)
+        const expirationDate = new Date(response.data.expiresAt * 1000) // Seconds to milliseconds
 
         console.info("Saving auth info on local storage")
         localStorage.setItem('token', response.data.token)
