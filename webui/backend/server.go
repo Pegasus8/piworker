@@ -146,7 +146,7 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 		configs.CurrentConfigs.RLock()
 		duration := configs.CurrentConfigs.APIConfigs.TokenDuration
 		configs.CurrentConfigs.RUnlock()
-		expiresAt := time.Now().Add(duration)
+		expiresAt := time.Now().Add(time.Hour * time.Duration(duration))
 		token, err := auth.NewJWT(
 			auth.CustomClaims{
 				User: user.Username, 
