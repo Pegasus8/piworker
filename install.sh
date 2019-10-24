@@ -118,6 +118,12 @@ InstallDependences() {
 # ─── EXECUTION ──────────────────────────────────────────────────────────────────
 #
 
+if [ !$ARCH=='arm' ]; then
+    print_redf "For now, PiWorker doesn't support your architecture. Sorry."
+    print_blueb "If you want PiWorker to support your architecture you can open an issue in the Github repository: https://github.com/Pegasus8/PiWorker/issues/new"
+    exit 1
+fi
+
 if [[ $EUID -ne 0 ]]; then
    print_redf "This script must be run as root!" 
    exit 1
