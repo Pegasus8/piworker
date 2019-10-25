@@ -23,6 +23,7 @@ import (
 )
 
 var statsChannel chan stats.Statistic
+var tlsSupport bool
 
 type postResponse struct {
 	Successful bool `json:"successful"`
