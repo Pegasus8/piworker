@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 	"io/ioutil"
+	"os"
 
 	"github.com/Pegasus8/piworker/processment/stats"
 	"github.com/Pegasus8/piworker/webui/backend/auth"
@@ -84,7 +85,27 @@ func setupRoutes() {
 
 	log.Println("Listening and serving on port", configs.CurrentConfigs.WebUI.ListeningPort)
 	configs.CurrentConfigs.RUnlock()
-	log.Fatal(srv.ListenAndServe())
+
+	if _, err := os.Stat("./server.key"); err == nil {
+		tlsSupport = true
+		log.Println("File 'server.key' found")
+		if _, err := os.Stat("./server.crt"); err == nil { 
+			log.Println("File 'server.crt' found")
+			tlsSupport = true 
+		} else { 
+			tlsSupport = false
+			log.Println("File 'server.crt' not found")
+		}
+	} else {
+		tlsSupport = false
+		log.Println("File 'server.key' not found")
+	}
+
+	if tlsSupport {
+		log.Fatal(srv.ListenAndServeTLS("./server.crt", "./server.key"))
+	} else {
+		log.Fatal(srv.ListenAndServe())
+	}
 }
 
 // Run - start the server
