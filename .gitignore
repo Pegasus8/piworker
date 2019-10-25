@@ -7,3 +7,6 @@ node_modules/
 /configs
 tokens.db
 *-packr.go
+piworker
+server.crt
+server.key
