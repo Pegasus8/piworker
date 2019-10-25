@@ -12,7 +12,7 @@
 
 ARCH="$HOSTTYPE"
 INSTALL_DIR="$HOME/PiWorker"
-LATEST_URL="https://api.github.com/repos/Pegasus8/piworker/releases/latest"
+LATEST_URL="https://api.github.com/repos/Pegasus8/PiWorker/releases/latest"
 SERVICE_ABSPATH="/etc/systemd/system/PiWorker.service"
 SUPPORTED_ARCHS=("arm") 
 
