@@ -16,7 +16,7 @@ import (
 
 func runTaskLoop(taskname string, taskChannel chan data.UserTask) {
 	log.Printf("[%s] Loop started\n", taskname)
-	for range time.Tick(time.Millisecond * 400) {
+	for {
 		// Receive the renewed data for the task in question, if there is not data
 		// just keep waiting for it.
 		taskReceived := <-taskChannel
