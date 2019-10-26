@@ -137,6 +137,7 @@ func statsWS(w http.ResponseWriter, request *http.Request) {
 }
 
 func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
+	w.Header().Set("Content-Type", "application/json")
 	var response struct {
 		Successful bool `json:"successful"`
 		Token string `json:"token"`
@@ -206,6 +207,7 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 }
 
 func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
+	w.Header().Set("Content-Type", "application/json")
 	var response postResponse
 	var task data.UserTask 
 
@@ -243,6 +245,7 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 }
 
 func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
+	w.Header().Set("Content-Type", "application/json")
 	var response postResponse
 	var task data.UserTask
 
@@ -280,6 +283,7 @@ func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PO
 }
 
 func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
+	w.Header().Set("Content-Type", "application/json")
 	var response postResponse
 	var toDelete = struct {
 		Taskname string `json:"taskname"`
@@ -321,6 +325,7 @@ func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PO
 }
 
 func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
+	w.Header().Set("Content-Type", "application/json")
 	userData, err := data.ReadData()
 	if err != nil {
 		fmt.Fprintf(w, err.Error())
@@ -334,6 +339,7 @@ func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GE
 }
 
 func triggersInfoAPI(w http.ResponseWriter, request *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(triggersList.TRIGGERS)
 	if err != nil {
 		log.Println("Error:", err.Error())
@@ -341,6 +347,7 @@ func triggersInfoAPI(w http.ResponseWriter, request *http.Request) {
 }
 
 func actionsInfoAPI(w http.ResponseWriter, request *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(actionsList.ACTIONS)
 	if err != nil {
 		log.Println("Error:", err.Error())
