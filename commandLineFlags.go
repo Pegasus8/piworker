@@ -19,8 +19,17 @@ func handleFlags() {
 
 	flag.Parse()
 
+	if *newUserFlag && *changeUserPasswordFlag {
+		fmt.Println("You can't use the flags 'new-user' and 'change-password' at the same time.")
+		os.Exit(1)
+	}
+
 	if *newUserFlag {
 		newUserFlagHandler(*username, *password, *admin)
+	}
+
+	if *changeUserPasswordFlag {
+		changeUserPasswordFlagHandler(*username, *newPassword)
 	}
 }
 
