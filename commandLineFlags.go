@@ -13,6 +13,10 @@ func handleFlags() {
 	password := flag.String("password", "", "the password of the new user")
 	admin := flag.Bool("admin", false, "if the user will be admin")
 
+	changeUserPasswordFlag := flag.Bool("change-password", false, "change the password of an existent user")
+	// Uses the flag "username" too
+	newPassword := flag.String("new-password", "", "the new password to the user")
+
 	flag.Parse()
 
 	if *newUserFlag {
