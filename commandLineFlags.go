@@ -40,9 +40,24 @@ func newUserFlagHandler(username, password string, admin bool) {
 	}
 	err := configs.NewUser(username, password, admin)
 	if err != nil {
-		fmt.Println(err.Error())
+		fmt.Println(err)
 		os.Exit(1)
 	} else {
 		fmt.Println("New user created correctly")
 	}
+}
+
+func changeUserPasswordFlagHandler(username, newPassword string) {
+	if username == "" || newPassword == "" {
+		fmt.Println("Some of the flags used to change the password of a user are empty (username and/or new password) which is not allowed.")
+		os.Exit(1)
+	}
+	err := configs.ChangeUserPassword(username, newPassword)
+	if err != nil{
+		fmt.Println(err)
+		os.Exit(1)
+	} else {
+		fmt.Printf("Password of the user '%s' changed correctly!\n", username)
+	}
+
 }
