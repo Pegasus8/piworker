@@ -14,6 +14,8 @@ func httpsCheckServer() {
 
 	router.HandleFunc("/https-check", func(w http.ResponseWriter, r *http.Request){
 		w.Header().Set("Content-type", "application/json")
+		// Needed for CORS block
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 		response := struct {
 			Enabled bool `json:"enabled"` 
 		}{}
