@@ -10,6 +10,7 @@ import (
 
 func httpsCheckServer() {
 	router := mux.NewRouter()
+	router.Use(loggingMiddleware)
 
 	router.HandleFunc("/https-check", func(w http.ResponseWriter, r *http.Request){
 		w.Header().Set("Content-type", "application/json")
