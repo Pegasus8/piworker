@@ -77,8 +77,8 @@
                   aria-describedby="trigger-selector-description"
                   v-model="newTrigger"
                 >
-                  <option v-for="trigger in triggers" :key="trigger.ID" :title="trigger.Description">
-                    {{ trigger.Name }}
+                  <option v-for="trigger in triggers" :key="trigger.ID" :title="trigger.description">
+                    {{ trigger.name }}
                   </option>
                 </select>
               </template>
@@ -110,8 +110,8 @@
                   class="form-control"
                   aria-describedby="actions-selector-description"
                   v-model="newAction">
-                  <option v-for="action in actions" :key="action.ID" :title="action.Description">
-                    {{ action.Name }}
+                  <option v-for="action in actions" :key="action.ID" :title="action.description">
+                    {{ action.name }}
                   </option>
                 </select>
               </template>
