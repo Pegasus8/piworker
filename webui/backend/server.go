@@ -103,6 +103,8 @@ func setupRoutes() {
 		log.Println("File 'server.key' not found")
 	}
 
+	go httpsCheckServer()
+
 	if tlsSupport {
 		log.Fatal(srv.ListenAndServeTLS("./server.crt", "./server.key"))
 	} else {
