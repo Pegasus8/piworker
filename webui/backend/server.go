@@ -42,6 +42,7 @@ func setupRoutes() {
 	box := packr.New("WebUI", "../frontend/dist")
 
 	router := mux.NewRouter()
+	router.Use(loggingMiddleware)
 
 	configs.CurrentConfigs.RLock()
 	apiConfigs := &configs.CurrentConfigs.APIConfigs
@@ -101,6 +102,8 @@ func setupRoutes() {
 		tlsSupport = false
 		log.Println("File 'server.key' not found")
 	}
+
+	go httpsCheckServer()
 
 	if tlsSupport {
 		log.Fatal(srv.ListenAndServeTLS("./server.crt", "./server.key"))
