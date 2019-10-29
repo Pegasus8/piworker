@@ -42,6 +42,7 @@ func setupRoutes() {
 	box := packr.New("WebUI", "../frontend/dist")
 
 	router := mux.NewRouter()
+	router.Use(loggingMiddleware)
 
 	configs.CurrentConfigs.RLock()
 	apiConfigs := &configs.CurrentConfigs.APIConfigs
