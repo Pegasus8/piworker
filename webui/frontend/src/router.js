@@ -17,11 +17,22 @@ export default new Router({
       component: LoginView,
       name: 'login',
       beforeEnter: (to, from, next) => {
-        store.dispatch('auth/tryAutologin')
+        // Check if the user is already authenticated.
         if (store.getters['auth/isAuthenticated']) {
+          // If authenticated, redirect to statistics view.
           next({ name: 'statistics' })
         } else {
-          next()
+          // If not, try an autologin. It will recover (if exists) credentials stored
+          // on local storage.
+          store.dispatch('auth/tryAutologin')
+          // Check if the autologin was successful.
+          if (store.getters['auth/isAuthenticated']) {
+            // If successful, redirect to statistics view.
+            next({ name: 'statistics' })
+          } else {
+            // If not, continue to login view.
+            next()
+          }
         }
       }
     },
@@ -30,11 +41,20 @@ export default new Router({
       component: StatisticsView,
       name: 'statistics',
       beforeEnter: (to, from, next) => {
-        // Only is needed try autologin here (and on the login view) because is the path by default.
-        store.dispatch('auth/tryAutologin')
+        // NOTE Only is needed try autologin here (and on the login view) because is the path by default.
+        // Check if the user is already authenticated.
         if (!store.getters['auth/isAuthenticated']) {
-          // If not authenticated, redirect to login view.
-          next({ name: 'login' })
+          // If not authenticated, try an autologin. It will recover (if exists) credentials stored
+          // on local storage.
+          store.dispatch('auth/tryAutologin')
+          // Check if the autologin was successful.
+          if (store.getters['auth/isAuthenticated']) {
+            // If successful, continue to statistics view.
+            next()
+          } else {
+            // If not, redirect to login view.
+            next({ name: 'login' })
+          }
         } else {
           next()
         }
