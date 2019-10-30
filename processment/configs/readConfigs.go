@@ -17,9 +17,7 @@ func init() {
 		log.Fatal(err.Error())
 	}
 	if !exists {
-		CurrentConfigs.Lock()
 		CurrentConfigs = &DefaultConfigs
-		CurrentConfigs.Unlock()
 		err = WriteToFile()
 		if err != nil {
 			log.Fatal(err.Error())
