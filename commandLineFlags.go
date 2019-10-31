@@ -77,3 +77,8 @@ func changeUserPasswordFlagHandler(username, newPassword string) {
 	}
 
 }
+
+func serviceFlagHandler(action string) {
+	fmt.Println("Action to perform over PiWorker service:", action)
+	manageService(action)
+}
