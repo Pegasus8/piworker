@@ -8,7 +8,7 @@ require (
 	github.com/gobuffalo/packr/v2 v2.7.0
 	github.com/gorilla/mux v1.7.3
 	github.com/gorilla/websocket v1.4.0
-	github.com/kardianos/service v1.0.0 // indirect
+	github.com/kardianos/service v1.0.0
 	github.com/mattn/go-sqlite3 v1.10.0
 	github.com/spf13/pflag v1.0.5 // indirect
 	golang.org/x/crypto v0.0.0-20191011191535-87dc89f01550
