@@ -32,7 +32,7 @@ func handleFlags() {
 			)
 			os.Exit(1)
 		}
-		serviceFlagHandler(os.Args[3])
+		serviceFlagHandler(os.Args[2])
 	}
 
 	if *newUserFlag && *changeUserPasswordFlag {
