@@ -57,7 +57,7 @@ func manageService(action string) {
 		log.Println("Service deleted correctly!")
 	}
 	case "start": {
-		err = pwService.Run()
+		err = pwService.Start()
 		if err != nil {
 			log.Fatalln("Error when trying to start the service:", err.Error())
 		}
