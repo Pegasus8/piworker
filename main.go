@@ -16,7 +16,10 @@ func main() {
 		handleFlags()
 		os.Exit(0)
 	}
+	start()
+}
 
+func start() {
 	// Logs settings
 	logFile := setLogSettings()
 	defer logFile.Close()
@@ -27,7 +30,7 @@ func main() {
 
 	// Start the Dynamic Engine
 	engine.StartEngine()
-}
+} 
 
 
 func prepareLogsDirectory(dir string) error {
