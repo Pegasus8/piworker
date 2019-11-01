@@ -1,14 +1,5 @@
 import axios from 'axios'
 
-const cloneObj = (obj) => {
-  if (obj == null || typeof obj !== 'object') return obj
-  var copy = obj.constructor()
-  for (var attr in obj) {
-    if (obj.hasOwnProperty(attr)) copy[attr] = obj[attr]
-  }
-  return copy
-}
-
 const state = {
   taskname: '',
   taskState: '',
@@ -25,8 +16,8 @@ const mutations = {
   },
   setTrigger: (state, trigger) => {
     // state.triggerSelected.push(newTrigger)
-    const newTrigger = cloneObj(trigger)
-    state.triggerSelected = [newTrigger]
+    // JSON.stringify && JSON.parse create a deep copy of the trigger
+    state.triggerSelected = [JSON.parse(JSON.stringify(trigger))]
   },
   removeTrigger: (state, triggerIndex) => {
     state.triggerSelected.splice(triggerIndex, 1)
@@ -35,8 +26,8 @@ const mutations = {
     state.actionsSelected = actions
   },
   addAction: (state, action) => {
-    const newAction = cloneObj(action)
-    state.actionsSelected.push(newAction)
+    // JSON.stringify && JSON.parse create a deep copy of the action
+    state.actionsSelected.push(JSON.parse(JSON.stringify(action)))
   },
   removeAction: (state, actionIndex) => {
     state.actionsSelected.splice(actionIndex, 1)
