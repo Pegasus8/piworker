@@ -32,14 +32,14 @@ var WriteTextFile = actions.Action{
 			ID:          contentWriteTextFileArgID,
 			Name:        "Content",
 			Description: "Content to write into the text file.",
-			Content:     "",
+			// Content:     "",
 			ContentType: "string",
 		},
 		actions.Arg{
 			ID:          filenameWriteTextFileArgID,
 			Name:        "File Name",
 			Description: "Name of the file that will be written, without the extension.",
-			Content:     "",
+			// Content:     "",
 			ContentType: "string",
 		},
 		actions.Arg{
@@ -49,14 +49,14 @@ var WriteTextFile = actions.Action{
 				", where the main difference is that append mode just add content if the file " +
 				"already exists and the write mode overwrite the file if already exists." +
 				"\nNote: just write the letter, not the quotation marks.",
-			Content:     "",
+			// Content:     "",
 			ContentType: "string",
 		},
 		actions.Arg{
 			ID:   pathWriteTextFileArgID,
 			Name: "Path",
 			Description: "Path where the file will be saved. Example: /home/pegasus8/Desktop/",
-			Content:     "",
+			// Content:     "",
 			ContentType: "string",
 		},
 	},
