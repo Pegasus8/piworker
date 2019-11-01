@@ -29,7 +29,7 @@ var VariationOfFileSize = triggers.Trigger{
 			ID:          filepathVariationOfFileSizeID,
 			Name:        "Path of the Objective File",
 			Description: "Must be on the format 'path/of/the/file.txt'.",
-			Content:     "",
+			// Content:     "",
 			ContentType: "string",
 		},
 	},
