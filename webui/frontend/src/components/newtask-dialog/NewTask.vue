@@ -221,7 +221,7 @@ export default {
         return
       }
       let trigger = this.triggers.filter((t) => {
-        return t.Name == this.newTrigger
+        return t.name == this.newTrigger
       })
 
       this.setTrigger(...trigger)
@@ -231,7 +231,7 @@ export default {
         return
       }
       let action = this.actions.filter((a) => {
-        return a.Name === this.newAction
+        return a.name === this.newAction
       })
 
       this.addAction(...action)

@@ -35,9 +35,9 @@
         <div
           v-for="(userTrigger, index) in triggers" 
           :key="userTrigger.ID + '_' + $uuid.v1()" 
-          :title="userTrigger.Description"
+          :title="userTrigger.description"
           class="list-group-item text-break text-bolder text-dark">
-          {{ userTrigger.Name }}
+          {{ userTrigger.name }}
           <button 
             type="button" 
             class="close" 
@@ -49,10 +49,10 @@
             
             <div 
               class="col-10 col-md-6 mx-auto my-2"
-              v-for="arg in userTrigger.Args" :key="arg.ID + '_' + $uuid.v1()">
-              <div class="card bg-light" :title="arg.Description">
+              v-for="arg in userTrigger.args" :key="arg.ID + '_' + $uuid.v1()">
+              <div class="card bg-light" :title="arg.description">
                 <div class="h5 p-1 card-header text-wrap">
-                  {{ arg.Name }}
+                  {{ arg.name }}
                 </div>
                 <div class="card-body text-wrap">
                   <input 
@@ -60,7 +60,7 @@
                     class="form-control" 
                     placeholder="Content" 
                     aria-label="Argument content" 
-                    v-model.lazy="arg.Content">
+                    v-model.lazy="arg.content">
                 </div>
               </div>
             </div>
@@ -83,9 +83,9 @@
         <div 
           v-for="(userAction, index) in actions" 
           :key="userAction.ID + '_' + $uuid.v1()" 
-          :title="userAction.Description"
+          :title="userAction.description"
           class="list-group-item text-break text-bolder text-dark">
-          {{ userAction.Name }}
+          {{ userAction.name }}
           <button 
             type="button" 
             class="close" 
@@ -97,10 +97,10 @@
             
             <div 
               class="col-10 col-md-6 mx-auto my-2"
-              v-for="arg in userAction.Args" :key="arg.ID + '_' + $uuid.v1()">
-              <div class="card bg-light" :title="arg.Description">
+              v-for="arg in userAction.args" :key="arg.ID + '_' + $uuid.v1()">
+              <div class="card bg-light" :title="arg.description">
                 <div class="h5 p-1 card-header text-wrap">
-                  {{ arg.Name }}
+                  {{ arg.name }}
                 </div>
                 <div class="card-body text-wrap">
                   <input 
@@ -108,7 +108,7 @@
                     class="form-control" 
                     placeholder="Content" 
                     aria-label="Argument content"
-                    v-model.lazy="arg.Content">
+                    v-model.lazy="arg.content">
                 </div>
               </div>
             </div>
