@@ -21,6 +21,11 @@ func handleFlags() {
 
 	flag.Parse()
 
+	if *newUserFlag && *changeUserPasswordFlag && *serviceFlag {
+		fmt.Println("You can't use the flags 'new-user', 'change-password' and 'service' at the same time.")
+		os.Exit(1)
+	}
+
 	if *serviceFlag {
 		if len(os.Args) != 3 {
 			fmt.Printf("It seems that you are using more/less arguments than expected.\n" + 
