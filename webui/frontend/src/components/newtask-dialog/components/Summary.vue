@@ -173,6 +173,11 @@ export default {
     appSummaryCard: SummaryCard
   },
   filters: {
+  },
+  updated () {
+    for (const [index, action] of this.actions.entries()) {
+      action.order = index
+    }
   }
 }
 </script>
