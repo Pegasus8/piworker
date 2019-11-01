@@ -29,7 +29,7 @@ var _EveryXTime = triggers.Trigger{
 			Name: "Time",
 			Description: "Time of repetition. Format must be '1h10m10s' where" +
 				" 'h' = hours, 'm' = minutes and 's' = seconds.",
-			Content:     "",
+			// Content:     "",
 			ContentType: "string",
 		},
 	},

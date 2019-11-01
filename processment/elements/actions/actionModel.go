@@ -18,6 +18,6 @@ type Arg struct {
 	ID string `json:"ID"`
 	Name string `json:"name"`
 	Description string `json:"description"`
-	Content interface{} `json:"content"`
+	// Content interface{} `json:"content"`
 	ContentType string `json:"content-type"`
 }

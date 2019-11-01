@@ -32,7 +32,7 @@ var ExecuteCommand = actions.Action{
 			ID:          commandExecuteCommandID,
 			Name:        "Command",
 			Description: "The command to execute.",
-			Content:     "",
+			// Content:     "",
 			ContentType: "string",
 		},
 		actions.Arg{
@@ -40,7 +40,7 @@ var ExecuteCommand = actions.Action{
 			Name: "Arguments",
 			Description: "The arguments of the command provided, separated" +
 				" by a comma.",
-			Content:     "",
+			// Content:     "",
 			ContentType: "string",
 		},
 	},

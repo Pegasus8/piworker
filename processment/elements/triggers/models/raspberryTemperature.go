@@ -32,7 +32,7 @@ var RaspberryTemperature = triggers.Trigger {
 			Name: "Expected Temperature",
 			Description: "The expected temperature of the Raspberry Pi. Must be in" + 
 				" float format and without the 'ºC'. Example: 55.1.",
-			Content: "",
+			// Content: "",
 			ContentType: "float",
 		},
 	},
