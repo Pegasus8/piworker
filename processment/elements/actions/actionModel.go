@@ -21,3 +21,9 @@ type Arg struct {
 	// Content interface{} `json:"content"`
 	ContentType string `json:"content-type"`
 }
+
+// ChainedResult is the struct used to communicate each consecutive action.
+type ChainedResult struct {
+	Result interface{}
+	ResultType interface{}
+}
