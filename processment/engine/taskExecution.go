@@ -10,6 +10,7 @@ import (
 	"log"
 
 	"github.com/Pegasus8/piworker/processment/data"
+	actionsModel "github.com/Pegasus8/piworker/processment/elements/actions"
 	actionsList "github.com/Pegasus8/piworker/processment/elements/actions/models"
 	triggersList "github.com/Pegasus8/piworker/processment/elements/triggers/models"
 )
@@ -89,6 +90,7 @@ func runActions(task *data.UserTask) {
 			task.TaskInfo.Name, data.StateTaskOnExecution)
 	}
 
+	var chainedResult *actionsModel.ChainedResult
 	orderN := 0
 	for range *userActions {
 
@@ -98,9 +100,17 @@ func runActions(task *data.UserTask) {
 				// Run the action
 				for _, action := range actionsList.ACTIONS {
 					if userAction.ID == action.ID {
-						result, err := action.Run(&userAction.Args)
+						log.Printf("[%s] Running action n%d. Chained: %t | Previous chained result: %+v\n", task.TaskInfo.Name, orderN, userAction.Chained, chainedResult)
+						if !userAction.Chained {
+							// Overwrite previous result to prevent being used.
+							chainedResult = &actionsModel.ChainedResult{}
+						}
+						result, chr, err := action.Run(chainedResult, &userAction.Args)
+						// Set the returned chr (chained result) to our main instance of the ChainedResult struct (`chainedResult`).
+						// This will be given to the next action (if exists).
+						chainedResult = chr
 						if err != nil {
-							log.Printf("[%s] %s\n",task.TaskInfo.Name, err.Error())
+							log.Printf("[%s] %s\n", task.TaskInfo.Name, err.Error())
 						}
 						if result {
 							log.Printf("[%s] Action in order %d finished correctly\n",
