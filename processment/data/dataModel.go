@@ -30,6 +30,7 @@ type UserAction struct {
 	ID string `json:"ID"`
 	Args []UserArg `json:"args"`
 	Timestamp string `json:"timestamp"`
+	Chained bool `json:"chained"`
 	Order int `json:"order"`
 }
 
