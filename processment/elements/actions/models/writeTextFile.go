@@ -81,6 +81,8 @@ func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *da
 	// Path 
 	var path string
 
+	args = &parentAction.Args
+
 	for _, arg := range *args {
 
 		switch arg.ID {
@@ -96,7 +98,7 @@ func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *da
 				case "w":
 					writingMode = arg.Content
 				default:
-					return false, ErrUnrecognizedWritingMode
+					return false, &actions.ChainedResult{}, ErrUnrecognizedWritingMode
 				}
 			}
 		case pathWriteTextFileArgID:
@@ -105,10 +107,27 @@ func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *da
 			{
 				log.Println("Unrecongnized argument with the ID '%s' on the " + 
 					"action WriteTextFile\n", arg.ID)
-				return false, ErrUnrecognizedArgID
+				return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
 			}
 		}
 
+	}
+
+	if parentAction.Chained {
+		if reflect.ValueOf(previousResult.Result).IsNil() {
+			log.Println(ErrEmptyChainedResult.Error())
+		} else {
+			if previousResult.ResultType == reflect.String {
+				// Overwrite path
+				path = typeconversion.ConvertToString(previousResult.Result)
+			} else {
+				log.Printf("Type of previous ChainedResult (%s) differs with the required type (%s).\n", previousResult.ResultType.String(), reflect.String.String())
+			}
+		}
+	}
+
+	if path == "" || filename == "" || writingMode == "" {
+		return false, &actions.ChainedResult{}, errors.New("Error: path, filename or writingMode empty")
 	}
 
 	fullpath := filepath.Join(path, filename)
@@ -123,16 +142,16 @@ func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *da
 
 	file, err := os.OpenFile(fullpath, flags, 0666)
 	if err != nil {
-		return false, err
+		return false, &actions.ChainedResult{}, err
 	}
 	defer file.Close()
 
 	bytesWrited, err := file.WriteString(content)
 	if err != nil {
-		return false, err
+		return false, &actions.ChainedResult{}, err
 	}
 
 	log.Println("File written by the action WriteTextFile. Bytes written:", bytesWrited)
 
-	return true, nil
+	return true, &actions.ChainedResult{Result: fullpath, ResultType: reflect.String}, nil
 }
