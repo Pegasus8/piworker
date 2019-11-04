@@ -44,9 +44,14 @@ var ExecuteCommand = actions.Action{
 			ContentType: "string",
 		},
 	},
+	ReturnedChainResultDescription: "The command to execute.",
+	ReturnedChainResultType: reflect.String,
+	AcceptedChainResultDescription: "The output of the command executed.",
+	AcceptedChainResultType: reflect.String,
 }
 
-func executeCommand(args *[]data.UserArg) (result bool, err error) {
+func executeCommand(previousResult *actions.ChainedResult, parentAction *data.UserAction) (result bool, chainedResult *actions.ChainedResult, err error) {
+	var args *[]data.UserArg
 
 	// Command
 	var command string
