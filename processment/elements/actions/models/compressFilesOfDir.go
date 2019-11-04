@@ -63,28 +63,47 @@ func compressFilesOfDir(previousResult *actions.ChainedResult, parentAction *dat
 	// Output dir
 	var outputDir string
 
+	args = &parentAction.Args
+
 	for _, arg := range *args {
 		switch arg.ID {
 		case directoryCompressFilesOfDirArgID:
 			targetDir = filepath.Clean(arg.Content)
-		case savetoCompressFilesOfDirArgID: 
+		case savetoCompressFilesOfDirArgID:
 			outputDir = filepath.Clean(arg.Content)
 
 		default:
-			return false, ErrUnrecognizedArgID
+			return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
 		}
+	}
+
+	if parentAction.Chained {
+		if reflect.ValueOf(previousResult.Result).IsNil() {
+			log.Println(ErrEmptyChainedResult.Error())
+		} else {
+			if previousResult.ResultType == reflect.String {
+				// Overwrite targetDir
+				targetDir = typeconversion.ConvertToString(previousResult.Result)
+			} else {
+				log.Printf("Type of previous ChainedResult (%s) differs with the required type (%s).\n", previousResult.ResultType.String(), reflect.String.String())
+			}
+		}
+	}
+
+	if targetDir == "" || outputDir == "" {
+		return false, &actions.ChainedResult{}, errors.New("Error: targetDir or outputDir empty")
 	}
 
 	log.Printf("Creating the directory '%s' if it doesn't exist...\n", outputDir)
 	err = os.MkdirAll(outputDir, 0700)
 	if err != nil {
-		return false, nil
+		return false, &actions.ChainedResult{}, nil
 	}
-	
+
 	log.Printf("Getting the files of the directory '%s'\n", targetDir)
 	files, err := ioutil.ReadDir(targetDir)
 	if err != nil {
-		return false, err
+		return false, &actions.ChainedResult{}, err
 	}
 	log.Println("Files obtained")
 
@@ -94,18 +113,18 @@ func compressFilesOfDir(previousResult *actions.ChainedResult, parentAction *dat
 			continue
 		}
 		log.Printf("Starting the compression of the file '%s'...\n", file.Name())
-		
+
 		openedFile, err := os.Open(
 			filepath.Join(targetDir, file.Name()),
 		)
 		if err != nil {
-			return false, err
+			return false, &actions.ChainedResult{}, err
 		}
 		defer openedFile.Close()
 
 		content, err := ioutil.ReadAll(openedFile)
 		if err != nil {
-			return false, err
+			return false, &actions.ChainedResult{}, err
 		}
 
 		newFilename := file.Name() + ".gz"
@@ -113,7 +132,7 @@ func compressFilesOfDir(previousResult *actions.ChainedResult, parentAction *dat
 
 		outputFile, err := os.Create(newPath)
 		if err != nil {
-			return false, err
+			return false, &actions.ChainedResult{}, err
 		}
 
 		gzipWriter := gzip.NewWriter(outputFile)
@@ -121,7 +140,7 @@ func compressFilesOfDir(previousResult *actions.ChainedResult, parentAction *dat
 
 		_, err = gzipWriter.Write(content)
 		if err != nil {
-			return false, err
+			return false, &actions.ChainedResult{}, err
 		}
 
 		log.Printf("'%s' compressed by the action CompressFilesOfDir\n", newFilename)
@@ -130,5 +149,5 @@ func compressFilesOfDir(previousResult *actions.ChainedResult, parentAction *dat
 
 	log.Printf("Files compression finished into directory '%s'\n", outputDir)
 
-	return true, nil
+	return true, &actions.ChainedResult{Result: outputDir, ResultType: reflect.String}, nil
 }
