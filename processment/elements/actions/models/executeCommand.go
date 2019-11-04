@@ -58,6 +58,8 @@ func executeCommand(previousResult *actions.ChainedResult, parentAction *data.Us
 	// Command args
 	var commandArgs []string
 
+	args = &parentAction.Args
+
 	for _, arg := range *args {
 		switch arg.ID {
 		case commandExecuteCommandID:
@@ -65,14 +67,31 @@ func executeCommand(previousResult *actions.ChainedResult, parentAction *data.Us
 		case argumentsExecuteCommandID:
 				commandArgs = strings.Split(arg.Content, ",")
 		default:
-			return false, ErrUnrecognizedArgID
+			return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
 		}
+	}
+
+	if parentAction.Chained {
+		if reflect.ValueOf(previousResult.Result).IsNil() {
+			log.Println(ErrEmptyChainedResult.Error())
+		} else {
+			if previousResult.ResultType == reflect.String {
+				// Overwrite command
+				command = typeconversion.ConvertToString(previousResult.Result)
+			} else {
+				log.Printf("Type of previous ChainedResult (%s) differs with the required type (%s).\n", previousResult.ResultType.String(), reflect.String.String())
+			}
+		}
+	}
+
+	if command == "" || len(commandArgs) == 0 {
+		return false, &actions.ChainedResult{}, errors.New("Error: command or commandArgs empty")
 	}
 
 	cmd := exec.Command(command, commandArgs...)
 	output, err := cmd.Output()
 	if err != nil {
-		return false, err
+		return false, &actions.ChainedResult{}, err
 	}
 
 	now := time.Now().String()
@@ -80,8 +99,8 @@ func executeCommand(previousResult *actions.ChainedResult, parentAction *data.Us
 
 	_, err = files.WriteFile(".", "cmd_" + now + ".txt", output)
 	if err != nil {
-		return false, err
+		return false, &actions.ChainedResult{}, err
 	}
 
-	return true, nil
+	return true, &actions.ChainedResult{Result: string(output), ResultType: reflect.String}, nil
 }
