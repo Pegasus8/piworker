@@ -47,13 +47,15 @@
           <a class="nav-link">Settings</a>
         </router-link>
         <li v-if="$store.getters['auth/isAuthenticated']" class="nav-item ml-lg-3">
-          <button
+          <router-link
             type="button"
-            data-toggle="modal"
-            data-target="#newTaskModal"
             class="btn btn-primary my-2 my-lg-0"
             id="newTaskBtn"
-          >New</button>
+            tag="button"
+            :to="{name: 'new-task'}"
+          >
+            New
+          </router-link>
         </li>
       </ul>
       <div v-if="$store.getters['auth/isAuthenticated']" class="nav-item">
