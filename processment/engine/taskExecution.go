@@ -105,7 +105,7 @@ func runActions(task *data.UserTask) {
 							// Overwrite previous result to prevent being used.
 							chainedResult = &actionsModel.ChainedResult{}
 						}
-						result, chr, err := action.Run(chainedResult, &userAction.Args)
+						result, chr, err := action.Run(chainedResult, &userAction)
 						// Set the returned chr (chained result) to our main instance of the ChainedResult struct (`chainedResult`).
 						// This will be given to the next action (if exists).
 						chainedResult = chr
