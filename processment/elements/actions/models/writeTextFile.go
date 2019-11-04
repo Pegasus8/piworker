@@ -4,9 +4,12 @@ import (
 	"path/filepath"
 	"os"
 	"log"
+	"reflect"
+	"errors"
 
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/elements/actions"
+	"github.com/Pegasus8/piworker/utilities/typeconversion"
 )
 
 // ID's
@@ -60,9 +63,14 @@ var WriteTextFile = actions.Action{
 			ContentType: "string",
 		},
 	},
+	ReturnedChainResultDescription: "The path where will be writed the file.",
+	ReturnedChainResultType: reflect.String,
+	AcceptedChainResultDescription: "The path of the written file.",
+	AcceptedChainResultType: reflect.String,
 }
 
-func writeTextFileAction(args *[]data.UserArg) (result bool, err error) {
+func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *data.UserAction) (result bool, chainedResult *actions.ChainedResult, err error) {
+	var args *[]data.UserArg
 
 	// Content of the file
 	var content string
