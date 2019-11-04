@@ -2,6 +2,7 @@ package actions
 
 import (
 	"github.com/Pegasus8/piworker/processment/data"
+	"reflect"
 )
 
 // Action is a struct used in every Action
@@ -9,7 +10,11 @@ type Action struct {
 	ID string `json:"ID"`
 	Name string `json:"name"`
 	Description string `json:"description"`
-	Run func(*ChainedResult, *[]data.UserArg) (bool, *ChainedResult, error)  `json:"-"`
+	Run func(*ChainedResult, *data.UserAction) (bool, *ChainedResult, error)  `json:"-"`
+	ReturnedChainResultDescription string `json:"returnedChainResultDescription"`
+	ReturnedChainResultType reflect.Kind `json:"returnedChainResultType"`
+	AcceptedChainResultDescription string `json:"acceptedChainResultDescription"`
+	AcceptedChainResultType reflect.Kind `json:"acceptedChainResultType"`
 	Args []Arg `json:"args"`
 }
 
@@ -25,5 +30,5 @@ type Arg struct {
 // ChainedResult is the struct used to communicate each consecutive action.
 type ChainedResult struct {
 	Result interface{}
-	ResultType interface{}
+	ResultType reflect.Kind
 }
