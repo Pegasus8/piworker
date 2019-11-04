@@ -2,13 +2,16 @@ package models
 
 import (
 	"compress/gzip"
-	"os"
-	"path/filepath"
+	"errors"
 	"io/ioutil"
 	"log"
+	"os"
+	"path/filepath"
+	"reflect"
 
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/elements/actions"
+	"github.com/Pegasus8/piworker/utilities/typeconversion"
 )
 
 // ID's
@@ -18,37 +21,42 @@ const (
 
 	// Args
 	directoryCompressFilesOfDirArgID = "A2-1"
-	savetoCompressFilesOfDirArgID = "A2-2"
+	savetoCompressFilesOfDirArgID    = "A2-2"
 )
 
 // CompressFilesOfDir - Action
-var CompressFilesOfDir = actions.Action {
-	ID: compressFilesOfDirID,
+var CompressFilesOfDir = actions.Action{
+	ID:   compressFilesOfDirID,
 	Name: "Compress Files of a Directory",
 	Description: "Compress the files of a directory in gzip format.\nNote: it won't " +
 		"compress subdirectories, just files.",
 	Run: compressFilesOfDir,
 	Args: []actions.Arg{
-		actions.Arg {
-			ID: directoryCompressFilesOfDirArgID,
+		actions.Arg{
+			ID:   directoryCompressFilesOfDirArgID,
 			Name: "Directory Target",
-			Description: "The directory where the files to compress are located." + 
+			Description: "The directory where the files to compress are located." +
 				" Example: '/home/pegasus8/Images/'",
 			// Content: "",
 			ContentType: "string",
 		},
-		actions.Arg {
-			ID: savetoCompressFilesOfDirArgID,
+		actions.Arg{
+			ID:   savetoCompressFilesOfDirArgID,
 			Name: "Directory Where Save",
-			Description: "Directory where save the compressed file, if not exists " + 
+			Description: "Directory where save the compressed file, if not exists " +
 				"it will be created. Example: '/home/'",
 			// Content: "",
-			ContentType: "string", 
+			ContentType: "string",
 		},
 	},
+	ReturnedChainResultDescription: "The path of the compressed file.",
+	ReturnedChainResultType:        reflect.String,
+	AcceptedChainResultDescription: "The directory where the files compressed are located.",
+	AcceptedChainResultType:        reflect.String,
 }
 
-func compressFilesOfDir(args *[]data.UserArg) (result bool, err error) {
+func compressFilesOfDir(previousResult *actions.ChainedResult, parentAction *data.UserAction) (result bool, chainedResult *actions.ChainedResult, err error) {
+	var args *[]data.UserArg
 
 	// Directory of files
 	var targetDir string
