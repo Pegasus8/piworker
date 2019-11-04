@@ -14,4 +14,9 @@ var  (
 	ErrUnrecognizedWritingMode = errors.New(
 		"Error with the writing mode: unrecognized mode",
 	)
+
+	// ErrEmptyChainedResult is the error used when a `ChainedResult.Result` is empty.
+	ErrEmptyChainedResult = errors.New(
+		"Data from received chained result empty",
+	)
 )
