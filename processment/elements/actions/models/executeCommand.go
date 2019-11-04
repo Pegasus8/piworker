@@ -4,11 +4,14 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"reflect"
+	"log"
+	"errors"
 
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/elements/actions"
-	// "github.com/Pegasus8/piworker/utilities/log"
 	"github.com/Pegasus8/piworker/utilities/files"
+	"github.com/Pegasus8/piworker/utilities/typeconversion"
 )
 
 // ID's
