@@ -126,9 +126,11 @@
     </div>
   </div>
 
-  <div class="row">
-    <div class="col">
-      <app-summary/>
+  <div class="m-1">
+    <div class="row">
+      <div class="col">
+        <app-summary/>
+      </div>
     </div>
   </div>
 
