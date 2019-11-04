@@ -1,118 +1,136 @@
 <template>
 <div class="container">
   <div class="form m-1">
-    <app-form-group-container
-      containerTitle="Name"
-      containerDescription="The name for your new task."
-      topElementID="task-name"
-      :withFooter="false"
-    >
-      <template v-slot:top>
-        <input
-          type="text"
-          class="form-control"
-          aria-describedby="task-name-description"
-          placeholder="Enter a task name"
-          id="task-name"
-          v-model="taskName"
-        />
-      </template>
-    </app-form-group-container>
-
-    <app-form-group-container
-      containerTitle="Default state"
-      containerDescription="If the task will be executed (active) or not (inactive)."
-      topElementID="default-state"
-      :withFooter="true"
-    >
-      <template v-slot:top>
-        <select id="default-state" class="form-control" v-model="stateSelected">
-          <option>Active</option>
-          <option>Inactive</option>
-        </select>
-      </template>
-      <template v-slot:bottom>
-        <button
-          class="btn btn-sm"
-          :class="{ 
-                    'btn-outline-primary': $store.getters['newTask/taskState'] == '',
-                    'btn-outline-success': !$store.getters['newTask/taskState'] == ''
-                  }"
-          @click="setStateBtn"
-        >{{ stateBtnTxt }}</button>
-      </template>
-    </app-form-group-container>
-
-    <app-form-group-container
-      v-if="triggers.length > 0"
-      containerTitle="Trigger"
-      containerDescription="Select one trigger."
-      topElementID="trigger-selector"
-      :withFooter="true"
-    >
-      <template v-slot:top>
-        <select
-          id="trigger-selector"
-          class="form-control"
-          aria-describedby="trigger-selector-description"
-          v-model="newTrigger"
+    <div class="row">
+      <div class="col">
+        <app-form-group-container
+          containerTitle="Name"
+          containerDescription="The name for your new task."
+          topElementID="task-name"
+          :withFooter="false"
         >
-          <option
-            v-for="trigger in triggers"
-            :key="trigger.ID"
-            :title="trigger.description"
-          >{{ trigger.name }}</option>
-        </select>
-      </template>
-      <template v-slot:bottom>
-        <button
-          class="btn btn-sm"
-          :class="{ 
-                    'btn-outline-primary': !$store.getters['newTask/triggerSelected'].length > 0,
-                    'btn-outline-success': $store.getters['newTask/triggerSelected'].length > 0
-                  }"
-          @click="addTriggerBtn"
-        >{{ triggerBtnTxt }}</button>
-      </template>
-    </app-form-group-container>
-    <p v-else class="text-center font-weight-bolder text-danger mt-2">Can't get the info of Triggers</p>
+          <template v-slot:top>
+            <input
+              type="text"
+              class="form-control"
+              aria-describedby="task-name-description"
+              placeholder="Enter a task name"
+              id="task-name"
+              v-model="taskName"
+            />
+          </template>
+        </app-form-group-container>
+      </div>
+    </div>
 
-    <app-form-group-container
-      v-if="actions.length > 0"
-      containerTitle="Actions"
-      containerDescription="Select one or more actions."
-      topElementID="actions-selector"
-      :withFooter="true"
-    >
-      <template v-slot:top>
-        <select
-          id="actions-selector"
-          class="form-control"
-          aria-describedby="actions-selector-description"
-          v-model="newAction"
+    <div class="row">
+      <div class="col">
+        <app-form-group-container
+          containerTitle="Default state"
+          containerDescription="If the task will be executed (active) or not (inactive)."
+          topElementID="default-state"
+          :withFooter="true"
         >
-          <option
-            v-for="action in actions"
-            :key="action.ID"
-            :title="action.description"
-          >{{ action.name }}</option>
-        </select>
-      </template>
-      <template v-slot:bottom>
-        <button
-          class="btn btn-sm"
-          :class="{ 
-                    'btn-outline-primary': !$store.getters['newTask/actionsSelected'].length > 0,
-                    'btn-outline-success': $store.getters['newTask/actionsSelected'].length > 0
-                  }"
-          @click="addActionBtn"
-        >Add</button>
-      </template>
-    </app-form-group-container>
-    <p v-else class="text-center font-weight-bolder text-danger mt-2">Can't get the info of Actions</p>
+          <template v-slot:top>
+            <select id="default-state" class="form-control" v-model="stateSelected">
+              <option>Active</option>
+              <option>Inactive</option>
+            </select>
+          </template>
+          <template v-slot:bottom>
+            <button
+              class="btn btn-sm"
+              :class="{ 
+                        'btn-outline-primary': $store.getters['newTask/taskState'] == '',
+                        'btn-outline-success': !$store.getters['newTask/taskState'] == ''
+                      }"
+              @click="setStateBtn"
+            >{{ stateBtnTxt }}</button>
+          </template>
+        </app-form-group-container>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col-md-6">
+        <app-form-group-container
+          v-if="triggers.length > 0"
+          containerTitle="Trigger"
+          containerDescription="Select one trigger."
+          topElementID="trigger-selector"
+          :withFooter="true"
+        >
+          <template v-slot:top>
+            <select
+              id="trigger-selector"
+              class="form-control"
+              aria-describedby="trigger-selector-description"
+              v-model="newTrigger"
+            >
+              <option
+                v-for="trigger in triggers"
+                :key="trigger.ID"
+                :title="trigger.description"
+              >{{ trigger.name }}</option>
+            </select>
+          </template>
+          <template v-slot:bottom>
+            <button
+              class="btn btn-sm"
+              :class="{ 
+                        'btn-outline-primary': !$store.getters['newTask/triggerSelected'].length > 0,
+                        'btn-outline-success': $store.getters['newTask/triggerSelected'].length > 0
+                      }"
+              @click="addTriggerBtn"
+            >{{ triggerBtnTxt }}</button>
+          </template>
+        </app-form-group-container>
+        <p v-else class="text-center font-weight-bolder text-danger mt-2">Can't get the info of Triggers</p>
+      </div>
+
+      <div class="col-md-6">
+        <app-form-group-container
+          v-if="actions.length > 0"
+          containerTitle="Actions"
+          containerDescription="Select one or more actions."
+          topElementID="actions-selector"
+          :withFooter="true"
+        >
+          <template v-slot:top>
+            <select
+              id="actions-selector"
+              class="form-control"
+              aria-describedby="actions-selector-description"
+              v-model="newAction"
+            >
+              <option
+                v-for="action in actions"
+                :key="action.ID"
+                :title="action.description"
+              >{{ action.name }}</option>
+            </select>
+          </template>
+          <template v-slot:bottom>
+            <button
+              class="btn btn-sm"
+              :class="{ 
+                        'btn-outline-primary': !$store.getters['newTask/actionsSelected'].length > 0,
+                        'btn-outline-success': $store.getters['newTask/actionsSelected'].length > 0
+                      }"
+              @click="addActionBtn"
+            >Add</button>
+          </template>
+        </app-form-group-container>
+        <p v-else class="text-center font-weight-bolder text-danger mt-2">Can't get the info of Actions</p>
+      </div>
+    </div>
   </div>
 
-  <app-summary />
+  <div class="row">
+    <div class="col">
+      <app-summary/>
+    </div>
+  </div>
 
   <button type="button" class="btn btn-primary" :disabled="isAllSelected" @click="submitTask">Save</button>
 </div>
