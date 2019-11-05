@@ -36,8 +36,19 @@
           v-for="(userTrigger, index) in triggers" 
           :key="userTrigger.ID + '_' + $uuid.v1()" 
           :title="userTrigger.description"
-          class="list-group-item text-break text-bolder text-dark">
-          {{ userTrigger.name }}
+          class="list-group-item">
+          <div class="d-flex">
+            <div class="flex-grow-1 text-break text-bolder text-dark">
+              {{ userTrigger.name }}
+              <!-- TODO Show info -->
+              <router-link
+                tag="span"
+                class="icon-info mx-1"
+                to=""
+              />
+            </div>
+            <!-- Switch -->
+          </div>
           <button 
             type="button" 
             class="close" 
