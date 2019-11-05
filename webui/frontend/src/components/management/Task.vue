@@ -30,7 +30,7 @@
                 :key="trigger.ID + $uuid.v1()"
                 :editable="false"
                 :itemName="getTriggerName(trigger.ID)"
-                :args="setTriggerArgsNames(trigger.ID, trigger.Args)"
+                :args="setTriggerArgsNames(trigger.ID, trigger.args)"
               />
             </ul>
           </div>
@@ -47,7 +47,7 @@
                 :key="action.ID + $uuid.v1()"
                 :editable="false"
                 :itemName="getActionName(action.ID)"
-                :args="setActionArgsNames(action.ID, action.Args)"
+                :args="setActionArgsNames(action.ID, action.args)"
               />
             </ul>
           </div>
@@ -133,12 +133,12 @@ export default {
   methods: {
     getTriggerName (id) {
       this.$store.getters['elementsInfo/triggers'].find((trigger) => {
-        if (trigger.ID == id) return trigger.Name 
+        if (trigger.ID == id) return trigger.name 
       })
     },
     getActionName (id) {
       this.$store.getters['elementsInfo/actions'].find((action) => {
-        if (action.ID == id) return action.Name 
+        if (action.ID == id) return action.name 
       })
     },
     setTriggerArgsNames (userTriggerID, userTriggerArgs) {
@@ -148,7 +148,7 @@ export default {
             userTriggerArgs.find((userArg) => {
               if (arg.ID == userArg.ID) {
                 // Set the name to the user arg.
-                userArg.Name = arg.Name
+                userArg.name = arg.name
               }
             })
           }
@@ -160,11 +160,11 @@ export default {
     setActionArgsNames (userActionID, userActionArgs) {
       this.$store.getters['elementsInfo/actions'].find((action) => {
         if (action.ID == userActionID) {
-          for (arg in action.Args) {
+          for (const arg in action.args) {
             userActionArgs.find((userArg) => {
               if (arg.ID == userArg.ID) {
                 // Set the name to the user arg.
-                userArg.Name = arg.Name
+                userArg.name = arg.name
               }
             })
           }
