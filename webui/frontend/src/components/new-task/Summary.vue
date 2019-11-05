@@ -48,14 +48,14 @@
               />
             </div>
             <!-- Switch -->
+            <button 
+              type="button" 
+              class="close" 
+              aria-label="Remove trigger"
+              @click="removeTrigger(index)">
+              <span aria-hidden="true">&times;</span>
+            </button>
           </div>
-          <button 
-            type="button" 
-            class="close" 
-            aria-label="Remove trigger"
-            @click="removeTrigger(index)">
-            <span aria-hidden="true">&times;</span>
-          </button>
           <div class="border rounded m-2 p-1 row">
             
             <div 
@@ -107,14 +107,14 @@
               />
             </div>
             <!-- Switch -->
+            <button 
+              type="button" 
+              class="close" 
+              aria-label="Remove action"
+              @click="removeAction(index)">
+              <span aria-hidden="true">&times;</span>
+            </button>
           </div>
-          <button 
-            type="button" 
-            class="close" 
-            aria-label="Remove action"
-            @click="removeAction(index)">
-            <span aria-hidden="true">&times;</span>
-          </button>
           <div class="border rounded m-2 p-1 row">
             
             <div 
