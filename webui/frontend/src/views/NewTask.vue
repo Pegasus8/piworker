@@ -133,8 +133,12 @@
       </div>
     </div>
   </div>
-
-  <button type="button" class="btn btn-primary" :disabled="isAllSelected" @click="submitTask">Save</button>
+  <button type="button" class="btn btn-primary" :disabled="isAllSelected" @click="if (!submitted) submitTask()">
+    <span v-if="!submitted">Save</span>
+    <div v-else class="spinner-border text-dark" role="status">
+      <span class="sr-only">Loading...</span>
+    </div>
+  </button>
 </div>
 </template>
 
@@ -143,13 +147,15 @@ import Summary from '../components/new-task/Summary.vue'
 import FormGroupContainer from '../components/new-task/FormGroupContainer.vue'
 import SummaryCard from '../components/new-task/SummaryCard.vue'
 import { mapMutations, mapGetters } from 'vuex'
+import axios from 'axios'
 
 export default {
   data () {
     return {
       newTrigger: '',
       newAction: '',
-      stateSelected: ''
+      stateSelected: '',
+      submitted: false
     }
   },
   computed: {
@@ -224,8 +230,37 @@ export default {
       this.setTaskState(this.stateSelected)
     },
     submitTask () {
+      this.submitted = true
       console.info('Submitting a new task to the API...')
-      this.$store.dispatch('newTask/submitData')
+      const newTaskData = {
+        'task': {
+          'name': this.$store.getters["newTask/taskname"],
+          'state': this.$store.getters["newTask/taskState"],
+          // Only send one trigger. This is because, for now, multi-triggers are not supported.
+          'trigger': this.$store.getters["newTask/triggerSelected"][0],
+          'actions': this.$store.getters["newTask/actionsSelected"]
+        }
+      }
+
+      // TODO Check the integrity of the data
+
+      console.info("Sending the data to the new tasks's API")
+      axios.post('/api/tasks/new', newTaskData)
+        .then((response) => {
+          if (response.data.successful) {
+            // Show a success alert
+          } else {
+            // Show an error alert, showing the message received (response.data.error)
+          }
+          console.info('Data submitted correctly, response:', response)
+          // Change the submitted variable only when the response is received
+          this.submitted = false
+        })
+        .catch((err) => {
+          console.error(err)
+          // Change the submitted variable only when the response is received
+          this.submitted = false
+        })
     }
   },
   beforeCreate () {
