@@ -40,7 +40,7 @@
             <div class="flex-grow-1 text-break text-bolder text-dark">
               {{ userTrigger.name }}
               <router-link
-                v-b-popover.hover.top="userTrigger.description" 
+                v-b-popover.hover.top="userTrigger.description"
                 title="Trigger Description"
                 tag="span"
                 class="icon-info mx-1"
@@ -94,9 +94,20 @@
         <div 
           v-for="(userAction, index) in actions" 
           :key="userAction.ID + '_' + $uuid.v1()" 
-          :title="userAction.description"
-          class="list-group-item text-break text-bolder text-dark">
-          {{ userAction.name }}
+          class="list-group-item">
+          <div class="d-flex">
+            <div class="flex-grow-1 text-break text-bolder text-dark">
+              {{ userAction.name }}
+              <router-link
+                v-b-popover.hover.top="userAction.description"
+                title="Action Description"
+                tag="span"
+                class="icon-info mx-1"
+                to=""
+              />
+            </div>
+            <!-- Switch -->
+          </div>
           <button 
             type="button" 
             class="close" 
