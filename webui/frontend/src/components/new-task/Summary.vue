@@ -34,14 +34,14 @@
         in this way for a future implementation of multiple triggers. -->
         <div
           v-for="(userTrigger, index) in triggers" 
-          :key="userTrigger.ID + '_' + $uuid.v1()" 
-          :title="userTrigger.description"
+          :key="userTrigger.ID + '_' + $uuid.v1()"
           class="list-group-item">
           <div class="d-flex">
             <div class="flex-grow-1 text-break text-bolder text-dark">
               {{ userTrigger.name }}
-              <!-- TODO Show info -->
               <router-link
+                v-b-popover.hover.top="userTrigger.description" 
+                title="Trigger Description"
                 tag="span"
                 class="icon-info mx-1"
                 to=""
