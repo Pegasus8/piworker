@@ -1,32 +1,31 @@
 <template>
-  <div class="row m-3">
-    <div class="col bg-light border border-light card">
-      <div class="card-body text-center">
-        <span class="card-title h5">{{ title }}</span>
-      </div>
-      <div class="collapse" :id="'collapsePanel' + panelID">
-        <div class="card card-body px-sm-5 text-truncate">
-          <ul>
-            <li v-for="item in items" :key="item.title">
-              <span class="text-secondary">
-                {{ item.title }}: <span class="text-info font-weight-bold">{{ item.value }}</span>
-              </span>
-            </li>
-          </ul>
-        </div>
-      </div>
-      <div class="text-center">
-        <button
-          class="btn btn-outline-dark m-2 btn-sm"
-          data-toggle="collapse"
-          :data-target="'#collapsePanel' + panelID"
-          type="button"
-          aria-expanded="true"
+  <b-row class="m-3">
+    <b-col class="">
+      <b-card bg-variant="light" border-variant="light">
+        <b-card-body class="text-center">
+          <span class="card-title h5">{{ title }}</span>
+        </b-card-body>
+        <b-collapse :id="'collapsePanel' + panelID">
+          <b-card class="px-sm-5 text-truncate">
+            <ul>
+              <li v-for="item in items" :key="item.title">
+                <span class="text-secondary">
+                  {{ item.title }}: <span class="text-info font-weight-bold">{{ item.value }}</span>
+                </span>
+              </li>
+            </ul>
+          </b-card>
+        </b-collapse>
+        <b-button
+          variant="outline-dark"
+          size="sm"
+          class="m-2"
+          v-b-toggle="'collapsePanel' + panelID"
           @click="btnText == 'Show' ? btnText = 'Hide' : btnText = 'Show'"
-        >{{ btnText }}</button>
-      </div>
-    </div>
-  </div>
+        >{{ btnText }}</b-button>
+      </b-card>
+    </b-col>
+  </b-row>
 </template>
 
 <script>
