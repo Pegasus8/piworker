@@ -68,40 +68,48 @@ const actions = {
     console.info("Default axios header setted")
   },
   login: ({ commit, dispatch }, authData) => {
-    axios.post('/api/login', {
-      username: authData.user,
-      password: authData.password
-    })
-      .then((response) => {
-        if (!response.data.successful) {
-          console.warn('Server rejected username or password')
-          return
-        }
-        
-        console.info('User logged, saving the info...')
-        const expirationDate = new Date(response.data.expiresAt * 1000) // Seconds to milliseconds
-
-        console.info("Saving auth info on local storage")
-        localStorage.setItem('token', response.data.token)
-        localStorage.setItem('userID', authData.user)
-        localStorage.setItem('expirationTime', expirationDate)
-        console.info("Auth info saved on local storage")
-
-        console.info("Commiting auth info on vuex")
-        commit('authUser', {
-          tokenID: response.data.token,
-          userID: authData.user
-        })
-        console.info("Auth info commited, setting a logout timer...")
-        dispatch('setLogoutTimer', response.data.expiresAt)
-        console.info("Logout timer setted");
-
-        console.info("Setting token header on axios")
-        axios.defaults.headers.common['Token'] = response.data.token
-        console.info("Default axios header setted")
-        router.replace({ name: 'statistics'} )
+    return new Promise((resolve, reject) => {
+      axios.post('/api/login', {
+        username: authData.user,
+        password: authData.password
       })
-      .catch((err) => console.error(err))
+        .then((response) => {
+          if (!response.data.successful) {
+            console.warn('Server rejected username or password')
+            resolve({successful: false})
+            return
+          }
+          
+          console.info('User logged, saving the info...')
+          const expirationDate = new Date(response.data.expiresAt * 1000) // Seconds to milliseconds
+  
+          console.info("Saving auth info on local storage")
+          localStorage.setItem('token', response.data.token)
+          localStorage.setItem('userID', authData.user)
+          localStorage.setItem('expirationTime', expirationDate)
+          console.info("Auth info saved on local storage")
+  
+          console.info("Commiting auth info on vuex")
+          commit('authUser', {
+            tokenID: response.data.token,
+            userID: authData.user
+          })
+          console.info("Auth info commited, setting a logout timer...")
+          dispatch('setLogoutTimer', response.data.expiresAt)
+          console.info("Logout timer setted");
+  
+          console.info("Setting token header on axios")
+          axios.defaults.headers.common['Token'] = response.data.token
+          console.info("Default axios header setted")
+          router.replace({ name: 'statistics'} )
+          resolve({successful: true})
+        })
+        .catch((err) => {
+          console.error(err)
+          reject(err)
+        })
+    })
+    
   }
 }
 

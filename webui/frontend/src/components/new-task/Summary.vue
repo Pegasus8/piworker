@@ -1,10 +1,10 @@
 <template>
-<div class="card bg-dark text-white" id="summary-card">
-  <div class="card-header font-weight-bold">
+<b-card class="card bg-dark text-white" id="summary-card">
+  <b-card-header class="font-weight-bold">
     Summary
-  </div>
+  </b-card-header>
 
-  <div class="card-body p-3">
+  <b-card-body class="p-3">
 
     <app-summary-card 
       cardTitle="Name of the task"
@@ -34,49 +34,52 @@
         in this way for a future implementation of multiple triggers. -->
         <div
           v-for="(userTrigger, index) in triggers" 
-          :key="userTrigger.ID + '_' + $uuid.v1()" 
-          :title="userTrigger.description"
+          :key="userTrigger.ID + '_' + $uuid.v1()"
           class="list-group-item">
           <div class="d-flex">
             <div class="flex-grow-1 text-break text-bolder text-dark">
               {{ userTrigger.name }}
-              <!-- TODO Show info -->
               <router-link
+                v-b-popover.hover.top="userTrigger.description"
+                title="Trigger Description"
                 tag="span"
                 class="icon-info mx-1"
                 to=""
               />
             </div>
             <!-- Switch -->
+            <button 
+              type="button" 
+              class="close" 
+              aria-label="Remove trigger"
+              @click="removeTrigger(index)">
+              <span aria-hidden="true">&times;</span>
+            </button>
           </div>
-          <button 
-            type="button" 
-            class="close" 
-            aria-label="Remove trigger"
-            @click="removeTrigger(index)">
-            <span aria-hidden="true">&times;</span>
-          </button>
-          <div class="border rounded m-2 p-1 row">
+          <b-row class="border rounded m-2 p-1">
             
-            <div 
-              class="col-10 col-md-6 mx-auto my-2"
+            <b-col
+              cols="10"
+              md="6"
+              class="mx-auto my-2"
               v-for="arg in userTrigger.args" :key="arg.ID + '_' + $uuid.v1()">
-              <div class="card bg-light" :title="arg.description">
-                <div class="h5 p-1 card-header text-wrap text-dark">
+              <b-card no-body bg-variant="light" :title="arg.description">
+                <b-card-header class="h5 p-1 text-wrap text-dark">
                   {{ arg.name }}
-                </div>
-                <div class="card-body text-wrap">
+                </b-card-header>
+                <b-card-body class="text-wrap">
+                  <!-- Don't use the b-form-input -->
                   <input 
-                    type="text" 
-                    class="form-control" 
+                    :type="arg.contentType"
+                    class="form-control"
                     placeholder="Content" 
                     aria-label="Argument content" 
                     v-model.lazy="arg.content">
-                </div>
-              </div>
-            </div>
+                </b-card-body>
+              </b-card>
+            </b-col>
             
-          </div>
+          </b-row>
         </div>
       </draggable>
     </app-summary-card>
@@ -94,45 +97,60 @@
         <div 
           v-for="(userAction, index) in actions" 
           :key="userAction.ID + '_' + $uuid.v1()" 
-          :title="userAction.description"
-          class="list-group-item text-break text-bolder text-dark">
-          {{ userAction.name }}
-          <button 
-            type="button" 
-            class="close" 
-            aria-label="Remove action"
-            @click="removeAction(index)">
-            <span aria-hidden="true">&times;</span>
-          </button>
-          <div class="border rounded m-2 p-1 row">
+          class="list-group-item">
+          <div class="d-flex">
+            <div class="flex-grow-1 text-break text-bolder text-dark">
+              {{ userAction.name }}
+              <router-link
+                v-b-popover.hover.top="userAction.description"
+                title="Action Description"
+                tag="span"
+                class="icon-info mx-1"
+                to=""
+              />
+            </div>
+            <!-- Switch -->
+            <button 
+              type="button" 
+              class="close" 
+              aria-label="Remove action"
+              @click="removeAction(index)">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <b-row class="border rounded m-2 p-1 row">
             
-            <div 
-              class="col-10 col-md-6 mx-auto my-2"
-              v-for="arg in userAction.args" :key="arg.ID + '_' + $uuid.v1()">
-              <div class="card bg-light" :title="arg.description">
-                <div class="h5 p-1 card-header text-wrap text-dark">
+            <b-col
+              cols="10"
+              md="6"
+              class="mx-auto my-2"
+              v-for="arg in userAction.args" :key="arg.ID + '_' + $uuid.v1()"
+            >
+              <b-card no-body bg-variant="light" :title="arg.description">
+                <b-card-header class="h5 p-1 text-wrap text-dark">
                   {{ arg.name }}
-                </div>
-                <div class="card-body text-wrap">
+                </b-card-header>
+                <b-card-body class="text-wrap">
+                  <!-- Don't use b-form-input -->
                   <input 
-                    type="text" 
-                    class="form-control" 
+                    :type="arg.contentType"
+                    class="form-control"
                     placeholder="Content" 
                     aria-label="Argument content"
                     v-model.lazy="arg.content">
-                </div>
-              </div>
-            </div>
+                </b-card-body>
+              </b-card>
+            </b-col>
             
-          </div>
+          </b-row>
         </div>
       </draggable>
       <small class="text-muted">Tip: drag and drop for order the actions</small>
     </app-summary-card>
     
-  </div>
+  </b-card-body>
 
-</div>
+</b-card>
 
 
 </template>

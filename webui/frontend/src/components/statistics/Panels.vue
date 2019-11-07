@@ -1,5 +1,5 @@
 <template>
-  <div class="container my-5">
+  <b-container class="my-5">
     <app-panel
       title="More statistics about my tasks"
       :items="[
@@ -18,7 +18,7 @@
         { title: 'RAM usage', value: raspberryStats.ramUsage }
       ]"
     />
-  </div>
+  </b-container>
 </template>
 
 <script>

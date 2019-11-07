@@ -30,7 +30,7 @@ var ByDate = triggers.Trigger {
 			Description: "The date to launch the trigger. The format used is dd/MM/YYYY." + 
 				" Example: 15/11/2019",
 			// Content: "",
-			ContentType: "string",
+			ContentType: "date",
 		},
 	},
 }

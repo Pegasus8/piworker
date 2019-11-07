@@ -36,7 +36,7 @@ var ExecuteCommand = actions.Action{
 			Name:        "Command",
 			Description: "The command to execute.",
 			// Content:     "",
-			ContentType: "string",
+			ContentType: "text",
 		},
 		actions.Arg{
 			ID:   argumentsExecuteCommandID,
@@ -44,7 +44,7 @@ var ExecuteCommand = actions.Action{
 			Description: "The arguments of the command provided, separated" +
 				" by a comma.",
 			// Content:     "",
-			ContentType: "string",
+			ContentType: "text",
 		},
 	},
 	ReturnedChainResultDescription: "The command to execute.",

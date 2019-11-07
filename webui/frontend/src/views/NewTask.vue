@@ -1,8 +1,8 @@
 <template>
-<div class="container">
+<b-container>
   <div class="form m-1">
-    <div class="row">
-      <div class="col">
+    <b-row>
+      <b-col>
         <app-form-group-container
           containerTitle="Name"
           containerDescription="The name for your new task."
@@ -20,11 +20,11 @@
             />
           </template>
         </app-form-group-container>
-      </div>
-    </div>
+      </b-col>
+    </b-row>
 
-    <div class="row">
-      <div class="col">
+    <b-row>
+      <b-col>
         <app-form-group-container
           containerTitle="Default state"
           containerDescription="If the task will be executed (active) or not (inactive)."
@@ -38,21 +38,18 @@
             </select>
           </template>
           <template v-slot:bottom>
-            <button
-              class="btn btn-sm"
-              :class="{ 
-                        'btn-outline-primary': $store.getters['newTask/taskState'] == '',
-                        'btn-outline-success': !$store.getters['newTask/taskState'] == ''
-                      }"
+            <b-button
+              size="sm"
+              :variant="setTaskstateBtnStyle"
               @click="setStateBtn"
-            >{{ stateBtnTxt }}</button>
+            >{{ stateBtnTxt }}</b-button>
           </template>
         </app-form-group-container>
-      </div>
-    </div>
+      </b-col>
+    </b-row>
 
-    <div class="row">
-      <div class="col-md-6">
+    <b-row>
+      <b-col md="6">
         <app-form-group-container
           v-if="triggers.length > 0"
           containerTitle="Trigger"
@@ -75,20 +72,17 @@
             </select>
           </template>
           <template v-slot:bottom>
-            <button
-              class="btn btn-sm"
-              :class="{ 
-                        'btn-outline-primary': !$store.getters['newTask/triggerSelected'].length > 0,
-                        'btn-outline-success': $store.getters['newTask/triggerSelected'].length > 0
-                      }"
+            <b-button
+              size="sm"
+              :variant="setTriggerBtnStyle"
               @click="addTriggerBtn"
-            >{{ triggerBtnTxt }}</button>
+            >{{ triggerBtnTxt }}</b-button>
           </template>
         </app-form-group-container>
         <p v-else class="text-center font-weight-bolder text-danger mt-2">Can't get the info of Triggers</p>
-      </div>
+      </b-col>
 
-      <div class="col-md-6">
+      <b-col md="6">
         <app-form-group-container
           v-if="actions.length > 0"
           containerTitle="Actions"
@@ -111,35 +105,30 @@
             </select>
           </template>
           <template v-slot:bottom>
-            <button
-              class="btn btn-sm"
-              :class="{ 
-                        'btn-outline-primary': !$store.getters['newTask/actionsSelected'].length > 0,
-                        'btn-outline-success': $store.getters['newTask/actionsSelected'].length > 0
-                      }"
+            <b-button
+              size="sm"
+              :variant="addActionBtnStyle"
               @click="addActionBtn"
-            >Add</button>
+            >Add</b-button>
           </template>
         </app-form-group-container>
         <p v-else class="text-center font-weight-bolder text-danger mt-2">Can't get the info of Actions</p>
-      </div>
-    </div>
+      </b-col>
+    </b-row>
   </div>
 
   <div class="m-1">
-    <div class="row">
-      <div class="col">
+    <b-row>
+      <b-col>
         <app-summary/>
-      </div>
-    </div>
+      </b-col>
+    </b-row>
   </div>
-  <button type="button" class="btn btn-primary" :disabled="isAllSelected" @click="if (!submitted) submitTask()">
+  <b-button block variant="primary" class="m-1" :disabled="isAllSelected" @click="submitTask()">
     <span v-if="!submitted">Save</span>
-    <div v-else class="spinner-border text-dark" role="status">
-      <span class="sr-only">Loading...</span>
-    </div>
-  </button>
-</div>
+    <b-spinner v-else variant="dark" class="" label="Loading"/>
+  </b-button>
+</b-container>
 </template>
 
 <script>
@@ -193,6 +182,27 @@ export default {
       } else {
         return 'Select'
       }
+    },
+    addActionBtnStyle () {
+      if (!this.$store.getters['newTask/actionsSelected'].length > 0){
+        return 'outline-primary'
+      } else {
+        return 'outline-success'
+      }
+    },
+    setTriggerBtnStyle () {
+      if (!this.$store.getters['newTask/triggerSelected'].length > 0){
+        return 'outline-primary'
+      } else {
+        return 'outline-success'
+      }
+    },
+    setTaskstateBtnStyle () {
+      if (this.$store.getters['newTask/taskState'] == ''){
+        return 'outline-primary'
+      } else {
+        return 'outline-success'
+      }
     }
   },
   methods: {
@@ -230,6 +240,8 @@ export default {
       this.setTaskState(this.stateSelected)
     },
     submitTask () {
+      if (this.submitted) return
+      
       this.submitted = true
       console.info('Submitting a new task to the API...')
       const newTaskData = {
