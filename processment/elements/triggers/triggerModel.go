@@ -20,5 +20,5 @@ type Arg struct {
 	Description string `json:"description"`
 	// Content interface{} `json:"content"`
 	// Must be one type from here: https://bootstrap-vue.js.org/docs/components/form-input/#input-type
-	ContentType string `json:"content-type"`
+	ContentType string `json:"contentType"`
 }

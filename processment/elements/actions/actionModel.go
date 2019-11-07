@@ -25,7 +25,7 @@ type Arg struct {
 	Description string `json:"description"`
 	// Content interface{} `json:"content"`
 	// Must be one type from here: https://bootstrap-vue.js.org/docs/components/form-input/#input-type
-	ContentType string `json:"content-type"`
+	ContentType string `json:"contentType"`
 }
 
 // ChainedResult is the struct used to communicate each consecutive action.
