@@ -14,8 +14,8 @@
           >
             <b-form-input
               id="username"
-                aria-describedby="usernamelHelp"
-                placeholder="Enter your username"
+              type="text"
+              placeholder="Enter your username"
               v-model="form.username"
               aria-describedby="usernamelHelp"
               required
@@ -72,23 +72,69 @@
 export default {
   data() {
     return {
-      username: '',
-      password: ''
+      form: {
+        username: '',
+        password: ''
+      },
+      waintingResponse: false,
+      showAlert: false,
+      errorOnLogin: false,
+      error: ''
     }
   },
   methods: {
-    login() {
-      if (!this.username || !this.password){
+    login(event) {
+      if (this.waintingResponse){
+        return // Prevent multiple requests
+      }
+      if (!this.form.username || !this.form.password){
         return
       }
+      event.preventDefault()
+      this.waintingResponse = true
       this.$store.dispatch('auth/login', {
-        user: this.username,
-        password: this.password
+        user: this.form.username,
+        password: this.form.password
       })
+        .then((response) => {
+          this.waintingResponse = false
+          if (!response.successful) {
+            this.showAlert = true
+            setTimeout(() => this.showAlert = false, 3000)
+          }
+        })
+        .catch((err) => {
+          this.waintingResponse = false
+          this.errorOnLogin = true
+          this.error = err.message
+          console.error('Error when trying to login:', err)
+          setTimeout(() => {
+            this.errorOnLogin = false
+            this.error = ''
+          }, 15000)
+        })
     }
   }
 }
 </script>
 
 <style lang="scss" scoped>
+
+.fade-enter {
+  opacity: 0;
+}
+
+.fade-enter-active {
+  transition: opacity 1s;
+  // opacity: 1; // Opacity is 1 by default
+}
+
+// .fade-leave {
+//   // opacity: 1; // Opacity is 1 by default
+// }
+
+.fade-leave-active {
+  transition: opacity 1s;
+  opacity: 0;
+}
 </style>
