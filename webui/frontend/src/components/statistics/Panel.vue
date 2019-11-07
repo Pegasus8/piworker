@@ -1,7 +1,7 @@
 <template>
   <b-row class="m-3">
     <b-col class="">
-      <b-card bg-variant="light" border-variant="light">
+      <b-card no-body bg-variant="light" border-variant="light">
         <b-card-body class="text-center">
           <span class="card-title h5">{{ title }}</span>
         </b-card-body>
@@ -16,13 +16,15 @@
             </ul>
           </b-card>
         </b-collapse>
-        <b-button
-          variant="outline-dark"
-          size="sm"
-          class="m-2"
-          v-b-toggle="'collapsePanel' + panelID"
-          @click="btnText == 'Show' ? btnText = 'Hide' : btnText = 'Show'"
-        >{{ btnText }}</b-button>
+        <div class="text-center">
+          <b-button
+            variant="outline-dark"
+            size="sm"
+            class="m-2"
+            v-b-toggle="'collapsePanel' + panelID"
+            @click="btnText == 'Show' ? btnText = 'Hide' : btnText = 'Show'"
+          >{{ btnText }}</b-button>
+        </div>
       </b-card>
     </b-col>
   </b-row>
