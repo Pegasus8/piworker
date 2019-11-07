@@ -36,14 +36,14 @@ var WriteTextFile = actions.Action{
 			Name:        "Content",
 			Description: "Content to write into the text file.",
 			// Content:     "",
-			ContentType: "string",
+			ContentType: "text",
 		},
 		actions.Arg{
 			ID:          filenameWriteTextFileArgID,
 			Name:        "File Name",
 			Description: "Name of the file that will be written, without the extension.",
 			// Content:     "",
-			ContentType: "string",
+			ContentType: "text",
 		},
 		actions.Arg{
 			ID:   modeWriteTextFileArgID,
@@ -53,14 +53,14 @@ var WriteTextFile = actions.Action{
 				"already exists and the write mode overwrite the file if already exists." +
 				"\nNote: just write the letter, not the quotation marks.",
 			// Content:     "",
-			ContentType: "string",
+			ContentType: "text",
 		},
 		actions.Arg{
 			ID:   pathWriteTextFileArgID,
 			Name: "Path",
 			Description: "Path where the file will be saved. Example: /home/pegasus8/Desktop/",
 			// Content:     "",
-			ContentType: "string",
+			ContentType: "text",
 		},
 	},
 	ReturnedChainResultDescription: "The path where will be writed the file.",

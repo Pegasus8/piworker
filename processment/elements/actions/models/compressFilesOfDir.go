@@ -46,7 +46,7 @@ var CompressFilesOfDir = actions.Action{
 			Description: "Directory where save the compressed file, if not exists " +
 				"it will be created. Example: '/home/'",
 			// Content: "",
-			ContentType: "string",
+			ContentType: "text",
 		},
 	},
 	ReturnedChainResultDescription: "The path of the compressed file.",
