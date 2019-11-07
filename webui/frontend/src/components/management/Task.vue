@@ -15,7 +15,7 @@
     </b-card-header>
     <b-card-body>
 
-      <b-card bg-variant="dark" text-variant="light" class="mb-3">
+      <b-card bg-variant="dark" text-variant="light" class="mb-3" no-body>
         <b-card-header>
           Triggers
         </b-card-header>
@@ -34,7 +34,7 @@
         </b-card-body>
       </b-card>
 
-     <b-card bg-variant="dark" text-variant="light">
+     <b-card bg-variant="dark" text-variant="light" no-body>
         <b-card-header>Actions</b-card-header>
         <b-card-body>
           <b-container>
