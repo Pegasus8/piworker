@@ -124,7 +124,7 @@
       </b-col>
     </b-row>
   </div>
-  <b-button block variant="primary" class="m-1" :disabled="isAllSelected" @click="if (!submitted) submitTask()">
+  <b-button block variant="primary" class="m-1" :disabled="isAllSelected" @click="submitTask()">
     <span v-if="!submitted">Save</span>
     <b-spinner v-else variant="dark" class="" label="Loading"/>
   </b-button>
@@ -240,6 +240,8 @@ export default {
       this.setTaskState(this.stateSelected)
     },
     submitTask () {
+      if (this.submitted) return
+      
       this.submitted = true
       console.info('Submitting a new task to the API...')
       const newTaskData = {
