@@ -1,23 +1,23 @@
 <template>
-  <li
-    class="list-group-item bg-dark text-center"
+  <b-list-group-item
+    class="bg-dark text-center"
     >
     <div>
       <div v-if="!editable" class="" id="nameOfItem">
         {{ itemName }}
       </div>
-      <div class="row mt-1">
+      <b-row class="mt-1">
         <div class="text-right text-wrap col-10 text-center m-auto" style="font-size: 0.8em; max-width: 60%;">
           Args:
-          <div class="list-group mt-1">
-            <div class="list-group-item bg-dark text-muted text-left p-2" v-for="arg in args" :key="arg.ID + $uuid.v1()">
+          <b-list-group variant="primary" class="mt-1">
+            <b-list-group-item class="text-muted text-left p-2" v-for="arg in args" :key="arg.ID + $uuid.v1()">
               <span class="h6" style="font-size: 1.2em;">{{ arg.Name }}: </span><span class="font-weight-bolder">{{ arg.Content }}</span>
-            </div>
-          </div>
+            </b-list-group-item>
+          </b-list-group>
         </div>
-      </div>
+      </b-row>
     </div>
-  </li>
+  </b-list-group-item>
 </template>
 
 <script>
