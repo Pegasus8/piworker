@@ -2,7 +2,7 @@
   <b-navbar toggleable="lg" variant="dark" type="dark" class="text-light">
     <b-navbar-brand class="mb-0 h1 font-weight-bold" href="#">
       PiWorker
-      <span class="badge badge-secondary badge-light badge-pill" id="version">Alpha-v0.1.0</span>
+      <b-badge variant="light" class="" id="version" pill>v0.1.0-alpha</b-badge>
     </b-navbar-brand>
     <b-navbar-toggle
       target="navbarSupportedContent"
