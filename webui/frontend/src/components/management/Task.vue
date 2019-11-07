@@ -1,30 +1,27 @@
 <template>
-  <div class="card bg-dark border border-secondary text-white">
-    <div class="card-header text-left">
+  <b-card bg-variant="dark" border-variant="secondary" text-variant="light" no-body>
+    
+    <b-card-header class="text-left">
       <div class="d-flex">
         <div class="flex-grow-1 font-weight-bold">{{ taskName }}</div>
         <!-- TODO Add functionality of task edition -->
         <router-link class="icon-pencil mx-3" to=""/>
-        <div class="custom-control custom-switch">
-          <input
-            type="checkbox"
-            class="custom-control-input"
-            :id="'customSwitch' + _uid"
-            v-model="state"
-          />
-          <label class="custom-control-label" :for="'customSwitch' + _uid"></label>
-        </div>
+        <b-form-checkbox
+          :id="'customSwitch' + _uid"
+          v-model="state"
+          switch
+        ><!-- Checkbox description here --></b-form-checkbox>
       </div>
-    </div>
-    <div class="card-body">
+    </b-card-header>
+    <b-card-body>
 
-      <div class="card bg-dark text-white mb-3">
-        <div class="card-header">
+      <b-card bg-variant="dark" text-variant="light" class="mb-3">
+        <b-card-header>
           Triggers
-        </div>
-        <div class="card-body">
-          <div class="container">
-            <ul class="list-group bg-dark" v-if="triggers.length > 0">
+        </b-card-header>
+        <b-card-body>
+          <b-container>
+            <b-list-group variant="dark" v-if="triggers.length > 0">
               <app-list-group-item
                 v-for="trigger in triggers"
                 :key="trigger.ID + $uuid.v1()"
@@ -32,16 +29,16 @@
                 :itemName="getTriggerName(trigger.ID)"
                 :args="setTriggerArgsNames(trigger.ID, trigger.args)"
               />
-            </ul>
-          </div>
-        </div>
-      </div>
+            </b-list-group>
+          </b-container>
+        </b-card-body>
+      </b-card>
 
-      <div class="card bg-dark text-white">
-        <div class="card-header">Actions</div>
-        <div class="card-body">
-          <div class="container">
-            <ul class="list-group bg-dark" v-if="actions.length > 0">
+     <b-card bg-variant="dark" text-variant="light">
+        <b-card-header>Actions</b-card-header>
+        <b-card-body>
+          <b-container>
+            <b-list-group variant="dark" v-if="actions.length > 0">
               <app-list-group-item
                 v-for="action in actions" 
                 :key="action.ID + $uuid.v1()"
@@ -49,37 +46,34 @@
                 :itemName="getActionName(action.ID)"
                 :args="setActionArgsNames(action.ID, action.args)"
               />
-            </ul>
-          </div>
-        </div>
-      </div>
+            </b-list-group>
+          </b-container>
+        </b-card-body>
+      </b-card>
 
-    </div>
-    <div class="card-footer" >
+    </b-card-body>
+    <b-card-footer>
 
-      <div class="accordion" :id="divFooterAccordionID">
+      <div :id="divFooterAccordionID">
         <div :id="logsHeadingID">
-          <button 
-            class="btn btn-link" 
-            type="button" 
-            data-toggle="collapse" 
-            :data-target="'#' + divLogsCollapseID" 
-            aria-expanded="true" 
-            :aria-controls="divLogsCollapseID">
+          <b-button 
+            v-b-toggle="divLogsCollapseID"
+            variant="link"
+          >
             Logs
-          </button>
+          </b-button>
         </div>
-        <div 
+        <b-collapse 
+          accordion="logs-accordion"
           :id="divLogsCollapseID" 
-          class="collapse p-2 text-wrap text-monospace text-left small" 
-          :aria-labelledby="logsHeadingID" 
-          :data-parent="'#' + divFooterAccordionID">
+          class="p-2 text-wrap text-monospace text-left small"
+        >
           {{ logs }}
-        </div>
+        </b-collapse>
       </div>
       
-    </div>
-  </div>
+    </b-card-footer>
+  </b-card>
 </template>
 
 <script>
