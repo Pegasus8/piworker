@@ -5,7 +5,7 @@
         <b-card-body class="text-center">
           <span class="card-title h5">{{ title }}</span>
         </b-card-body>
-        <b-collapse :id="'collapsePanel' + panelID">
+        <b-collapse :id="'collapsePanel' + panelID" class="p-2">
           <b-card class="px-sm-5 text-truncate">
             <ul>
               <li v-for="item in items" :key="item.title">
@@ -17,13 +17,20 @@
           </b-card>
         </b-collapse>
         <div class="text-center">
-          <b-button
-            variant="outline-dark"
-            size="sm"
-            class="m-2"
-            v-b-toggle="'collapsePanel' + panelID"
-            @click="btnText == 'Show' ? btnText = 'Hide' : btnText = 'Show'"
-          >{{ btnText }}</b-button>
+          <transition name="rotate" mode="out-in">
+            <div
+              v-if="!showDetails"
+              class="icon-circle-down text-muted"
+              v-b-toggle="'collapsePanel' + panelID"
+              @click="showDetails = true"
+            ></div>
+            <div
+              v-else
+              class="icon-circle-up text-muted"
+              v-b-toggle="'collapsePanel' + panelID"
+              @click="showDetails = false"
+            ></div>
+          </transition>
         </div>
       </b-card>
     </b-col>
@@ -45,7 +52,7 @@ export default {
   data() {
     return {
       panelID: null,
-      btnText: "Show"
+      showDetails: false
     }
   },
   mounted() {
@@ -57,5 +64,34 @@ export default {
 <style lang="scss" scoped>
 li {
   list-style: none;
+}
+
+.rotate-enter{
+}
+
+.rotate-enter-active{
+  -webkit-transition-duration: 1s;
+  -moz-transition-duration: 1s;
+  -o-transition-duration: 1s;
+  transition-duration: 1s;
+  -webkit-transition-property: -webkit-transform;
+  -moz-transition-property: -moz-transform;
+  -o-transition-property: -o-transform;
+  transition-property: transform;
+  transform: rotate(180deg) !important;
+}
+
+.rotate-leave{
+}
+
+.rotate-leave-active{
+  -webkit-transition-duration: 1s;
+  -moz-transition-duration: 1s;
+  -o-transition-duration: 1s;
+  transition-duration: 1s;
+  -webkit-transition-property: -webkit-transform;
+  -moz-transition-property: -moz-transform;
+  -o-transition-property: -o-transform;
+  transition-property: transform;
 }
 </style>
