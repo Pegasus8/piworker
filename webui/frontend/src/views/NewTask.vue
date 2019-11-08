@@ -125,7 +125,7 @@
     </b-row>
   </div>
   <b-button block variant="primary" class="m-1" :disabled="isAllSelected" @click="submitTask()">
-    <span v-if="!submitted">Save</span>
+    <span v-if="!submitted"><span class="icon-checkmark"></span> Save</span>
     <b-spinner v-else variant="dark" class="" label="Loading"/>
   </b-button>
 </b-container>
