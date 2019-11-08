@@ -39,17 +39,15 @@
         >
           <a class="nav-link">Settings</a>
         </router-link>
-        <li v-if="$store.getters['auth/isAuthenticated']" class="nav-item ml-lg-3">
-          <router-link
-            type="button"
-            class="btn btn-primary my-2 my-lg-0"
-            id="newTaskBtn"
-            tag="button"
-            :to="{name: 'new-task'}"
-          >
-            New
-          </router-link>
-        </li>
+        <router-link
+          v-if="$store.getters['auth/isAuthenticated']"
+          :to="{name: 'new-task'}"
+          class="nav-item"
+          active-class="active"
+          tag="li"
+        >
+          <a class="nav-link font-weight-bold">New Task</a>
+        </router-link>
       </b-navbar-nav>
       <div v-if="$store.getters['auth/isAuthenticated']" class="nav-item">
         <b-button 
