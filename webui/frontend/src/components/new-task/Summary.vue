@@ -143,6 +143,19 @@
             </b-col>
             
           </b-row>
+          <b-form-checkbox class="text-dark" switch>
+            <span class="small">Chained
+              <router-link
+                v-b-popover.hover.right="'A chained action is one that uses the result returned by the previous action. ' +
+                                          'On: uses the result of the previous action, overwriting any of the arguments entered manually by the user. ' +
+                                          'Off: use only the arguments provided by the user.'"
+                title="Chained Actions"
+                tag="span"
+                class="icon-info mx-1 small"
+                to=""
+              />
+            </span>
+          </b-form-checkbox>
         </div>
       </draggable>
       <small class="text-muted">Tip: drag and drop for order the actions</small>
