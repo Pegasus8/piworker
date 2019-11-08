@@ -98,6 +98,9 @@
           v-for="(userAction, index) in actions" 
           :key="userAction.ID + '_' + $uuid.v1()" 
           class="list-group-item">
+          <div v-if="userAction.chained">
+            <div style="opacity: 0.7;" class="icon-box-add bg-primary rounded mb-2"></div>
+          </div>
           <div class="d-flex">
             <div class="flex-grow-1 text-break text-bolder text-dark">
               {{ userAction.name }}
@@ -143,7 +146,7 @@
             </b-col>
             
           </b-row>
-          <b-form-checkbox class="text-dark" switch>
+          <b-form-checkbox class="text-dark" v-model="userAction.chained" switch>
             <span class="small">Chained
               <router-link
                 :id="'chained-action-info' + _uid"
