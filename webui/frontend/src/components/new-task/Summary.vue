@@ -146,14 +146,19 @@
           <b-form-checkbox class="text-dark" switch>
             <span class="small">Chained
               <router-link
-                v-b-popover.hover.right="'A chained action is one that uses the result returned by the previous action. ' +
-                                          'On: uses the result of the previous action, overwriting any of the arguments entered manually by the user. ' +
-                                          'Off: use only the arguments provided by the user.'"
-                title="Chained Actions"
+                :id="'chained-action-info' + _uid"
                 tag="span"
                 class="icon-info mx-1 small"
                 to=""
               />
+              <b-popover :target="'chained-action-info' + _uid" triggers="hover" placement="righttop">
+                <template v-slot:title>
+                  Chained Actions
+                </template>
+                <p>A chained action is one that uses the result returned by the previous action.</p>
+                <p><b>ON</b>: uses the result of the previous action, overwriting any of the arguments entered manually by the user.</p>
+                <p><b>OFF</b>: use only the arguments provided by the user.</p>
+              </b-popover>
             </span>
           </b-form-checkbox>
         </div>
