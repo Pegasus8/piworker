@@ -147,12 +147,12 @@
           <b-form-checkbox class="text-dark" v-model="userAction.chained" switch>
             <span class="small">Chained
               <router-link
-                :id="'chained-action-info' + _uid"
+                :id="'chained-action-info' + index"
                 tag="span"
                 class="icon-info mx-1 small"
                 to=""
               />
-              <b-popover :target="'chained-action-info' + _uid" triggers="hover" placement="righttop">
+              <b-popover :target="'chained-action-info' + index" triggers="hover" placement="righttop">
                 <template v-slot:title>
                   Chained Actions
                 </template>
