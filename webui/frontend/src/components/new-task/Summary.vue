@@ -47,7 +47,6 @@
                 to=""
               />
             </div>
-            <!-- Switch -->
             <button 
               type="button" 
               class="close" 
@@ -112,7 +111,6 @@
                 to=""
               />
             </div>
-            <!-- Switch -->
             <button 
               type="button" 
               class="close" 
