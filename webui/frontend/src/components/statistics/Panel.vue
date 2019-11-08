@@ -5,7 +5,7 @@
         <b-card-body class="text-center">
           <span class="card-title h5">{{ title }}</span>
         </b-card-body>
-        <b-collapse :id="'collapsePanel' + panelID" class="p-2">
+        <b-collapse :id="'collapsePanel' + panelID">
           <b-card class="px-sm-5 text-truncate">
             <ul>
               <li v-for="item in items" :key="item.title">
@@ -18,18 +18,18 @@
         </b-collapse>
         <div class="text-center">
           <transition name="rotate" mode="out-in">
-            <div
+            <span
               v-if="!showDetails"
               class="icon-circle-down text-muted"
               v-b-toggle="'collapsePanel' + panelID"
               @click="showDetails = true"
-            ></div>
-            <div
+            ></span>
+            <span
               v-else
               class="icon-circle-up text-muted"
               v-b-toggle="'collapsePanel' + panelID"
               @click="showDetails = false"
-            ></div>
+            ></span>
           </transition>
         </div>
       </b-card>
