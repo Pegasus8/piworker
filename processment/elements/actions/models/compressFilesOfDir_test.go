@@ -1,15 +1,16 @@
-package models 
+package models
 
 import (
-	"testing"
+	"fmt"
+	"io"
+	"log"
+	"math/rand"
 	"os"
 	"path/filepath"
-	"math/rand"
-	"io"
-	"fmt"
-	"log"
+	"testing"
 
 	"github.com/Pegasus8/piworker/processment/data"
+	"github.com/Pegasus8/piworker/processment/elements/actions"
 )
 
 func TestCompressFilesOfDir(t *testing.T) {
@@ -20,43 +21,60 @@ func TestCompressFilesOfDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	
+
 	baseDir := filepath.Join(dir, "/test/")
 	filesDir := filepath.Join(baseDir, "/targetFiles/")
 	outputDir := filepath.Join(baseDir, "/output/")
-	
+
 	defer os.RemoveAll(baseDir)
 	defer os.RemoveAll(filepath.Join(dir, "/data/"))
 
 	var testInfo = []struct {
-		files []string
-		fakeData []data.UserArg
-	} {
+		files    []string
+		fakeData data.UserAction
+	}{
 
-		{[]string{"afile.txt", "other_file.odt", "fake_image.png", "test.svg"}, 
-		[]data.UserArg {
-			data.UserArg {
-				ID: "A2-1",
-				Content: filesDir,
+		{
+			files: []string{"afile.txt", "other_file.odt", "fake_image.png", "test.svg"},
+			fakeData: data.UserAction{
+				ID: "A1",
+				Args: []data.UserArg{
+					data.UserArg{
+						ID:      "A2-1",
+						Content: filesDir,
+					},
+					data.UserArg{
+						ID:      "A2-2",
+						Content: outputDir,
+					},
+				},
+				Timestamp: "",
+				Chained:   false,
+				Order:     0,
 			},
-			data.UserArg {
-				ID: "A2-2",
-				Content: outputDir,
-			},
-		}},
+		},
 
-		{[]string{"afile.exe", "other_file.jpg", "file.iso", "test.o"},
-		[]data.UserArg {
-			data.UserArg {
-				ID: "A2-1",
-				Content: filesDir,
+		{
+			files: []string{"afile.exe", "other_file.jpg", "file.iso", "test.o"},
+			fakeData: data.UserAction{
+				ID: "A1",
+				Args: []data.UserArg{
+					data.UserArg{
+						ID:      "A2-1",
+						Content: filesDir,
+					},
+					data.UserArg{
+						ID:      "A2-2",
+						Content: outputDir,
+					},
+				},
+				Timestamp: "",
+				Chained:   false,
+				Order:     0,
 			},
-			data.UserArg {
-				ID: "A2-2",
-				Content: outputDir,
-			},
-		}},
+		},
 	}
+
 	fmt.Println("Making dirs for testing...")
 	// Create dirs
 	err = os.Mkdir(baseDir, 0700)
@@ -97,12 +115,12 @@ func TestCompressFilesOfDir(t *testing.T) {
 		}
 
 		fmt.Println("Running CompressFilesOfDir.Run...")
-		result, err := CompressFilesOfDir.Run(&info.fakeData)
+		result, _, err := CompressFilesOfDir.Run(&actions.ChainedResult{}, &info.fakeData)
 		if err != nil {
 			t.Error(err)
 			continue
 		}
-		
+
 		if !result {
 			t.Error("Result false, action no executed")
 			continue

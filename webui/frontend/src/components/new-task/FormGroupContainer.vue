@@ -1,7 +1,7 @@
 <template>
-  <div class="form-group card p-0">
+  <div class="form-group card p-0 bg-dark">
     <div class="card-body">
-      <label :for="topElementID" class="card-title">{{ containerTitle }}</label>
+      <label :for="topElementID" class="card-title text-light">{{ containerTitle }}</label>
       <slot name="top"/>
       <small :id='topElementID + "-description"' class="form-text text-muted text-left">{{ containerDescription }}</small>
     </div>

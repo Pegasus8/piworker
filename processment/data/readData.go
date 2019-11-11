@@ -11,6 +11,10 @@ import (
 // ReadData is a func that returns the user data into structs
 func ReadData() (*UserData, error){
 	fullpath := filepath.Join(DataPath, Filename)
+	if err := checkFile(fullpath); err != nil {
+		return nil, err
+	}
+	
 	mutex.Lock()
 	defer mutex.Unlock()
 	log.Println("Reading user data...")

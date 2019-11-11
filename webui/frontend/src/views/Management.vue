@@ -1,22 +1,22 @@
 <template>
-  <div class="container p-4 text-center justify-content-center">
+  <b-container class="p-4 text-center justify-content-center">
     <h4 class="text-light">My Tasks</h4>
-    <div v-if="userTasks.length > 0" class="container-fluid">
+    <b-container v-if="userTasks.length > 0" fluid>
       <app-task
-        v-for="task in userTasks" :key="(task.Name).replace(/\s/g, '_')"
-        :taskName="task.Name"
-        :taskState="task.State"
-        :triggers="[task.Trigger]"
-        :actions="task.Actions"
+        v-for="globalTaskInfo in userTasks" :key="(globalTaskInfo.task.name).replace(/\s/g, '_')"
+        :taskName="globalTaskInfo.task.name"
+        :taskState="globalTaskInfo.task.state"
+        :triggers="[globalTaskInfo.task.trigger]"
+        :actions="globalTaskInfo.task.actions"
         logs="" 
       />
       <!-- TODO Logs integration -->
-    </div>
-    <div v-else class="alert alert-warning m-4" role="alert">
+    </b-container>
+    <b-alert v-else variant="warning" class="m-4">
       Oops... It seems that you have not created any task yet.
       Let's click on the "New" button to create a new one!
-    </div>
-  </div>
+    </b-alert>
+  </b-container>
 </template>
 
 <script>

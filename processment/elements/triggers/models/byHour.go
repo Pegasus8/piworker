@@ -30,7 +30,7 @@ var ByHour = triggers.Trigger {
 			Description: "The hour to launch the  trigger. The format used is HH:mm." + 
 				" Example: 13:45",
 			// Content: "",
-			ContentType: "string",
+			ContentType: "time",
 		},
 	},
 }

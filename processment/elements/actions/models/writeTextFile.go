@@ -4,9 +4,12 @@ import (
 	"path/filepath"
 	"os"
 	"log"
+	"reflect"
+	"errors"
 
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/elements/actions"
+	"github.com/Pegasus8/piworker/utilities/typeconversion"
 )
 
 // ID's
@@ -33,14 +36,14 @@ var WriteTextFile = actions.Action{
 			Name:        "Content",
 			Description: "Content to write into the text file.",
 			// Content:     "",
-			ContentType: "string",
+			ContentType: "text",
 		},
 		actions.Arg{
 			ID:          filenameWriteTextFileArgID,
 			Name:        "File Name",
 			Description: "Name of the file that will be written, without the extension.",
 			// Content:     "",
-			ContentType: "string",
+			ContentType: "text",
 		},
 		actions.Arg{
 			ID:   modeWriteTextFileArgID,
@@ -50,19 +53,24 @@ var WriteTextFile = actions.Action{
 				"already exists and the write mode overwrite the file if already exists." +
 				"\nNote: just write the letter, not the quotation marks.",
 			// Content:     "",
-			ContentType: "string",
+			ContentType: "text",
 		},
 		actions.Arg{
 			ID:   pathWriteTextFileArgID,
 			Name: "Path",
 			Description: "Path where the file will be saved. Example: /home/pegasus8/Desktop/",
 			// Content:     "",
-			ContentType: "string",
+			ContentType: "text",
 		},
 	},
+	ReturnedChainResultDescription: "The path where will be writed the file.",
+	ReturnedChainResultType: reflect.String,
+	AcceptedChainResultDescription: "The path of the written file.",
+	AcceptedChainResultType: reflect.String,
 }
 
-func writeTextFileAction(args *[]data.UserArg) (result bool, err error) {
+func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *data.UserAction) (result bool, chainedResult *actions.ChainedResult, err error) {
+	var args *[]data.UserArg
 
 	// Content of the file
 	var content string
@@ -72,6 +80,8 @@ func writeTextFileAction(args *[]data.UserArg) (result bool, err error) {
 	var writingMode string
 	// Path 
 	var path string
+
+	args = &parentAction.Args
 
 	for _, arg := range *args {
 
@@ -88,7 +98,7 @@ func writeTextFileAction(args *[]data.UserArg) (result bool, err error) {
 				case "w":
 					writingMode = arg.Content
 				default:
-					return false, ErrUnrecognizedWritingMode
+					return false, &actions.ChainedResult{}, ErrUnrecognizedWritingMode
 				}
 			}
 		case pathWriteTextFileArgID:
@@ -97,10 +107,27 @@ func writeTextFileAction(args *[]data.UserArg) (result bool, err error) {
 			{
 				log.Println("Unrecongnized argument with the ID '%s' on the " + 
 					"action WriteTextFile\n", arg.ID)
-				return false, ErrUnrecognizedArgID
+				return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
 			}
 		}
 
+	}
+
+	if parentAction.Chained {
+		if reflect.ValueOf(previousResult.Result).IsNil() {
+			log.Println(ErrEmptyChainedResult.Error())
+		} else {
+			if previousResult.ResultType == reflect.String {
+				// Overwrite path
+				path = typeconversion.ConvertToString(previousResult.Result)
+			} else {
+				log.Printf("Type of previous ChainedResult (%s) differs with the required type (%s).\n", previousResult.ResultType.String(), reflect.String.String())
+			}
+		}
+	}
+
+	if path == "" || filename == "" || writingMode == "" {
+		return false, &actions.ChainedResult{}, errors.New("Error: path, filename or writingMode empty")
 	}
 
 	fullpath := filepath.Join(path, filename)
@@ -115,16 +142,16 @@ func writeTextFileAction(args *[]data.UserArg) (result bool, err error) {
 
 	file, err := os.OpenFile(fullpath, flags, 0666)
 	if err != nil {
-		return false, err
+		return false, &actions.ChainedResult{}, err
 	}
 	defer file.Close()
 
 	bytesWrited, err := file.WriteString(content)
 	if err != nil {
-		return false, err
+		return false, &actions.ChainedResult{}, err
 	}
 
 	log.Println("File written by the action WriteTextFile. Bytes written:", bytesWrited)
 
-	return true, nil
+	return true, &actions.ChainedResult{Result: fullpath, ResultType: reflect.String}, nil
 }

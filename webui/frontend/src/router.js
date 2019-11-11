@@ -5,6 +5,7 @@ import StatisticsView from './views/Statistics.vue'
 import ManagementView from './views/Management.vue'
 import SettingsView from './views/Settings.vue'
 import LoginView from './views/Login.vue'
+import NewTaskView from './views/NewTask.vue'
 
 Vue.use(Router)
 
@@ -78,6 +79,19 @@ export default new Router({
       path: '/settings',
       component: SettingsView,
       name: 'settings',
+      beforeEnter: (to, from, next) => {
+        if (!store.getters['auth/isAuthenticated']) {
+          // If not authenticated, redirect to login view.
+          next({ name: 'login' })
+        } else {
+          next()
+        }
+      }
+    },
+    {
+      path: '/new-task',
+      component: NewTaskView,
+      name: 'new-task',
       beforeEnter: (to, from, next) => {
         if (!store.getters['auth/isAuthenticated']) {
           // If not authenticated, redirect to login view.

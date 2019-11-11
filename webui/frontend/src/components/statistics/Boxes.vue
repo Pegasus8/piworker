@@ -1,43 +1,64 @@
 <template>
-  <div class="container-fluid my-4">
-    <div class="row justify-content-center mx-5 p-4">
-      <div
-        class="box col-10 col-sm-6 col-md-5 col-lg-3 col-xl-2 border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark"
+  <b-container class="my-4" fluid>
+    <b-row class="justify-content-center mx-5 p-4">
+      <b-col
+        cols="10"
+        sm="6"
+        md="5"
+        lg="3"
+        xl="2"
+        class="box border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark"
       >
-        <div class="card-body text-center">
-          <p class="card-title text-muted h4">Active</p>
-          <h3
-            class="card-subtitle mb-2 text-light display-4"
-            id="active-tasks-number"
-          >{{ activeTasksCounter }}</h3>
-        </div>
-      </div>
+        <b-card-body class="text-center">
+          <b-card-title class="text-muted h4">Active</b-card-title>
+          <b-card-sub-title>
+            <h3
+              class="mb-2 text-light display-4"
+              id="active-tasks-number"
+            >{{ activeTasksCounter }}</h3>
+          </b-card-sub-title>
+        </b-card-body>
+      </b-col>
 
-      <div
-        class="box col-10 col-sm-6 col-md-5 col-lg-3 col-xl-2 border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark"
+      <b-col
+        cols="10"
+        sm="6"
+        md="5"
+        lg="3"
+        xl="2"
+        class="box border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark"
       >
-        <div class="card-body text-center">
-          <p class="card-title text-muted h4">On Execution</p>
-          <h3
-            class="card-subtitle mb-2 text-light display-4"
-            id="onexecution-tasks-number"
-          >{{ onExecutionTasksCounter }}</h3>
-        </div>
-      </div>
+        <b-card-body class="text-center">
+          <b-card-title class="text-muted h4">On Execution</b-card-title>
+          <b-card-sub-title>
+            <h3
+              class="mb-2 text-light display-4"
+              id="onexecution-tasks-number"
+            >{{ onExecutionTasksCounter }}</h3>
+          </b-card-sub-title>
+        </b-card-body>
+      </b-col>
 
-      <div
-        class="box col-10 col-sm-6 col-md-5 col-lg-3 col-xl-2 border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark"
+      <b-col
+        cols="10"
+        sm="6"
+        md="5"
+        lg="3"
+        xl="2"
+        class="box border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark"
       >
-        <div class="card-body text-center">
-          <p class="card-title text-muted h4">Inactive</p>
-          <h3
-            class="card-subtitle mb-2 text-light display-4"
-            id="inactive-tasks-number"
-          >{{ inactiveTasksCounter }}</h3>
-        </div>
-      </div>
-    </div>
-  </div>
+        <b-card-body class="text-center">
+          <b-card-title class="text-muted h4">Inactive</b-card-title>
+          <b-card-sub-title>
+            <h3
+              class="mb-2 text-light display-4"
+              id="inactive-tasks-number"
+            >{{ inactiveTasksCounter }}</h3>
+          </b-card-sub-title>
+        </b-card-body>
+      </b-col>
+    </b-row>
+  </b-container>
 </template>
 
 <script>

@@ -1,32 +1,40 @@
 <template>
-  <div class="row m-3">
-    <div class="col bg-light border border-light card">
-      <div class="card-body text-center">
-        <span class="card-title h5">{{ title }}</span>
-      </div>
-      <div class="collapse" :id="'collapsePanel' + panelID">
-        <div class="card card-body px-sm-5 text-truncate">
-          <ul>
-            <li v-for="item in items" :key="item.title">
-              <span class="text-secondary">
-                {{ item.title }}: <span class="text-info font-weight-bold">{{ item.value }}</span>
-              </span>
-            </li>
-          </ul>
+  <b-row class="m-3">
+    <b-col class="">
+      <b-card no-body bg-variant="light" border-variant="light">
+        <b-card-body class="text-center">
+          <span class="card-title h5">{{ title }}</span>
+        </b-card-body>
+        <b-collapse :id="'collapsePanel' + panelID">
+          <b-card class="px-sm-5 text-truncate">
+            <ul>
+              <li v-for="item in items" :key="item.title">
+                <span class="text-secondary">
+                  {{ item.title }}: <span class="text-info font-weight-bold">{{ item.value }}</span>
+                </span>
+              </li>
+            </ul>
+          </b-card>
+        </b-collapse>
+        <div class="text-center">
+          <transition name="rotate" mode="out-in">
+            <span
+              v-if="!showDetails"
+              class="icon-circle-down text-muted"
+              v-b-toggle="'collapsePanel' + panelID"
+              @click="showDetails = true"
+            ></span>
+            <span
+              v-else
+              class="icon-circle-up text-muted"
+              v-b-toggle="'collapsePanel' + panelID"
+              @click="showDetails = false"
+            ></span>
+          </transition>
         </div>
-      </div>
-      <div class="text-center">
-        <button
-          class="btn btn-outline-dark m-2 btn-sm"
-          data-toggle="collapse"
-          :data-target="'#collapsePanel' + panelID"
-          type="button"
-          aria-expanded="true"
-          @click="btnText == 'Show' ? btnText = 'Hide' : btnText = 'Show'"
-        >{{ btnText }}</button>
-      </div>
-    </div>
-  </div>
+      </b-card>
+    </b-col>
+  </b-row>
 </template>
 
 <script>
@@ -44,7 +52,7 @@ export default {
   data() {
     return {
       panelID: null,
-      btnText: "Show"
+      showDetails: false
     }
   },
   mounted() {
@@ -56,5 +64,34 @@ export default {
 <style lang="scss" scoped>
 li {
   list-style: none;
+}
+
+.rotate-enter{
+}
+
+.rotate-enter-active{
+  -webkit-transition-duration: 1s;
+  -moz-transition-duration: 1s;
+  -o-transition-duration: 1s;
+  transition-duration: 1s;
+  -webkit-transition-property: -webkit-transform;
+  -moz-transition-property: -moz-transform;
+  -o-transition-property: -o-transform;
+  transition-property: transform;
+  transform: rotate(180deg) !important;
+}
+
+.rotate-leave{
+}
+
+.rotate-leave-active{
+  -webkit-transition-duration: 1s;
+  -moz-transition-duration: 1s;
+  -o-transition-duration: 1s;
+  transition-duration: 1s;
+  -webkit-transition-property: -webkit-transform;
+  -moz-transition-property: -moz-transform;
+  -o-transition-property: -o-transform;
+  transition-property: transform;
 }
 </style>
