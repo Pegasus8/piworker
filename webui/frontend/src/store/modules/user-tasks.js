@@ -14,10 +14,10 @@ const actions = {
   getUserTasks: ({
     commit
   }) => {
-    console.info('Sending request to get-all tasks API...');
+    console.info('Sending request to get-all tasks API...')
     axios.get('/api/tasks/get-all')
       .then((response) => {
-        console.info('Response successful, parsing tasks...');
+        console.info('Response successful, parsing tasks...')
         commit('updateTasks', response.data)
         console.info('Tasks parsed!')
       })
