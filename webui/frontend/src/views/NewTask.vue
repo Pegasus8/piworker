@@ -134,7 +134,6 @@
 <script>
 import Summary from '../components/new-task/Summary.vue'
 import FormGroupContainer from '../components/new-task/FormGroupContainer.vue'
-import SummaryCard from '../components/new-task/SummaryCard.vue'
 import { mapMutations, mapGetters } from 'vuex'
 import axios from 'axios'
 
