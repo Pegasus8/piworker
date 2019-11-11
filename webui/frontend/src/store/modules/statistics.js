@@ -10,9 +10,9 @@ const state = {
 
   raspberryStats: {
     temperature: 0.0,
-    cpuLoad: "",
-    freeStorage: "",
-    ramUsage: "",
+    cpuLoad: '',
+    freeStorage: '',
+    ramUsage: '',
     timestamp: null
   }
 }

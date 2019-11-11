@@ -20,17 +20,17 @@ export default {
     containerTitle: {
       type: String,
       required: true,
-      default: ""
+      default: ''
     },
     containerDescription: {
       type: String,
       required: true,
-      default: ""
+      default: ''
     },
     topElementID: {
       type: String,
       required: true,
-      default: ""
+      default: ''
     },
     withFooter: {
       type: Boolean,
@@ -38,10 +38,10 @@ export default {
       default: false
     }
   },
-  data() {
+  data () {
     return {
       hasBottomSlot: false
-    };
+    }
   }
-};
+}
 </script>

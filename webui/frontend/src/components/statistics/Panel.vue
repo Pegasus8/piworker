@@ -1,6 +1,6 @@
 <template>
   <b-row class="m-3">
-    <b-col class="">
+    <b-col class>
       <b-card no-body bg-variant="light" border-variant="light">
         <b-card-body class="text-center">
           <span class="card-title h5">{{ title }}</span>
@@ -10,7 +10,8 @@
             <ul>
               <li v-for="item in items" :key="item.title">
                 <span class="text-secondary">
-                  {{ item.title }}: <span class="text-info font-weight-bold">{{ item.value }}</span>
+                  {{ item.title }}:
+                  <span class="text-info font-weight-bold">{{ item.value }}</span>
                 </span>
               </li>
             </ul>
@@ -49,16 +50,16 @@ export default {
       required: true
     }
   },
-  data() {
+  data () {
     return {
       panelID: null,
       showDetails: false
     }
   },
-  mounted() {
-    this.panelID = this._uid;
+  mounted () {
+    this.panelID = this._uid
   }
-};
+}
 </script>
 
 <style lang="scss" scoped>
@@ -66,10 +67,10 @@ li {
   list-style: none;
 }
 
-.rotate-enter{
-}
+// .rotate-enter {
+// }
 
-.rotate-enter-active{
+.rotate-enter-active {
   -webkit-transition-duration: 1s;
   -moz-transition-duration: 1s;
   -o-transition-duration: 1s;
@@ -81,10 +82,10 @@ li {
   transform: rotate(180deg) !important;
 }
 
-.rotate-leave{
-}
+// .rotate-leave {
+// }
 
-.rotate-leave-active{
+.rotate-leave-active {
   -webkit-transition-duration: 1s;
   -moz-transition-duration: 1s;
   -o-transition-duration: 1s;
