@@ -42,7 +42,7 @@ export default {
   },
   computed: {
     hasContent () {
-      if (typeof this.contentToEvaluate == 'string') {
+      if (typeof this.contentToEvaluate === 'string') {
         if (this.contentToEvaluate) return true
         else return false
       } else {
@@ -52,7 +52,7 @@ export default {
       }
     },
     isList () {
-      if (typeof this.contentToEvaluate == 'string') return false
+      if (typeof this.contentToEvaluate === 'string') return false
       else return true
     }
   },
