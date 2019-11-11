@@ -2,10 +2,15 @@ import Vue from 'vue'
 import Router from 'vue-router'
 import store from './store/store.js'
 import StatisticsView from './views/Statistics.vue'
-import ManagementView from './views/Management.vue'
-import SettingsView from './views/Settings.vue'
-import LoginView from './views/Login.vue'
-import NewTaskView from './views/NewTask.vue'
+// import ManagementView from './views/Management.vue'
+// import SettingsView from './views/Settings.vue'
+// import LoginView from './views/Login.vue'
+// import NewTaskView from './views/NewTask.vue'
+
+const ManagementView = () => import(/* webpackChunkName: "group-foo" */ './views/Management.vue')
+const SettingsView = () => import(/* webpackChunkName: "group-foo" */ './views/Settings.vue')
+const LoginView = () => import(/* webpackChunkName: "group-foo" */ './views/Login.vue')
+const NewTaskView = () => import(/* webpackChunkName: "group-foo" */ './views/NewTask.vue')
 
 Vue.use(Router)
 
