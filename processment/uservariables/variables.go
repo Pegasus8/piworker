@@ -1,6 +1,7 @@
 package uservariables
 
 import (
+	"regexp"
 	"github.com/Pegasus8/piworker/processment/data"
 )
 
