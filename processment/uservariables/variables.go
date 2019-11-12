@@ -23,3 +23,7 @@ var LocalVariablesSlice []LocalVariable
 
 // GlobalVariablesSlice is the global variable where the global variables defined by the user are saved.
 var GlobalVariablesSlice []GlobalVariable
+
+var globalVariableRgx = regexp.MustCompile(`(?m)^(:?\$)([A-Z_?]+)$`)
+
+var localVariableRgx = regexp.MustCompile(`(?m)^(:?\$)([a-z_?]+)$`)
