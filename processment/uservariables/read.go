@@ -94,6 +94,20 @@ func ContainGlobalVariable(argument string) bool {
 	return globalVariableRgx.MatchString(argument)
 }
 
+// GetLocalVariableName returns the name of the variable used on an argument.
+func GetLocalVariableName(argument string) string {
+	if !ContainLocalVariable(argument) {
+		return ""
+	}
+	match := localVariableRgx.FindStringSubmatch(argument)
+	var variableName string
+	if match != nil {
+		variableName = match[1]
+	}
+
+	return variableName
+}
+
 func getFiles() ([]os.FileInfo, error) {
 	files, err := ioutil.ReadDir(UserVariablesPath)
 	if err != nil {
