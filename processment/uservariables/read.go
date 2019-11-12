@@ -84,6 +84,16 @@ func ReadGlobalVariablesFromFiles() (*[]GlobalVariable, error) {
 	return &globalVariables, nil
 }
 
+// ContainLocalVariable is a function used to identify if an argument contains a LocalVariable reference.
+func ContainLocalVariable(argument string) bool {
+	return localVariableRgx.MatchString(argument)
+}
+
+// ContainGlobalVariable is a function used to identify if an argument contains a GlobalVariable reference.
+func ContainGlobalVariable(argument string) bool {
+	return globalVariableRgx.MatchString(argument)
+}
+
 func getFiles() ([]os.FileInfo, error) {
 	files, err := ioutil.ReadDir(UserVariablesPath)
 	if err != nil {
