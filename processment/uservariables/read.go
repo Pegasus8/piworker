@@ -87,18 +87,18 @@ func ReadGlobalVariablesFromFiles() (*[]GlobalVariable, error) {
 }
 
 // ContainLocalVariable is a function used to identify if an argument contains a LocalVariable reference.
-func ContainLocalVariable(argument string) bool {
-	return localVariableRgx.MatchString(argument)
+func ContainLocalVariable(argument *string) bool {
+	return localVariableRgx.MatchString(*argument)
 }
 
 // ContainGlobalVariable is a function used to identify if an argument contains a GlobalVariable reference.
-func ContainGlobalVariable(argument string) bool {
-	return globalVariableRgx.MatchString(argument)
+func ContainGlobalVariable(argument *string) bool {
+	return globalVariableRgx.MatchString(*argument)
 }
 
 // GetLocalVariableName returns the name of the variable used on an argument.
 func GetLocalVariableName(argument string) string {
-	if !ContainLocalVariable(argument) {
+	if !ContainLocalVariable(&argument) {
 		return ""
 	}
 	match := localVariableRgx.FindStringSubmatch(argument)
@@ -112,7 +112,7 @@ func GetLocalVariableName(argument string) string {
 
 // GetGlobalVariableName returns the name of the variable used on an argument.
 func GetGlobalVariableName(argument string) string {
-	if !ContainGlobalVariable(argument) {
+	if !ContainGlobalVariable(&argument) {
 		return ""
 	}
 	match := globalVariableRgx.FindStringSubmatch(argument)
@@ -129,6 +129,10 @@ func GetLocalVariable(name, parentTaskName string) (*LocalVariable, error) {
 	for _, localVariable := range *LocalVariablesSlice {
 		if localVariable.Name == name && localVariable.ParentTaskName == parentTaskName {
 			return &localVariable, nil
+		// Check if the problem is that the user is using a local variable of 
+		// other task.
+		} else if localVariable.Name == name && localVariable.ParentTaskName != parentTaskName {
+			return &LocalVariable{}, ErrInvalidParent
 		}
 	}
 
