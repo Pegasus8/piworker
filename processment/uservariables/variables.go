@@ -1,8 +1,8 @@
 package uservariables
 
 import (
-	"regexp"
 	"github.com/Pegasus8/piworker/processment/data"
+	"regexp"
 )
 
 // UserVariablesPath is the directory where the files of the variables are saved.
@@ -20,10 +20,10 @@ const (
 )
 
 // LocalVariablesSlice is the global variable where the local variables defined by the user are saved.
-var LocalVariablesSlice []LocalVariable
+var LocalVariablesSlice *[]LocalVariable
 
 // GlobalVariablesSlice is the global variable where the global variables defined by the user are saved.
-var GlobalVariablesSlice []GlobalVariable
+var GlobalVariablesSlice *[]GlobalVariable
 
 var globalVariableRgx = regexp.MustCompile(`^(:?\$)([A-Z_?]+)$`)
 
