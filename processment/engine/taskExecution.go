@@ -10,6 +10,7 @@ import (
 	"log"
 
 	"github.com/Pegasus8/piworker/processment/data"
+	"github.com/Pegasus8/piworker/processment/uservariables"
 	actionsModel "github.com/Pegasus8/piworker/processment/elements/actions"
 	actionsList "github.com/Pegasus8/piworker/processment/elements/actions/models"
 	triggersList "github.com/Pegasus8/piworker/processment/elements/triggers/models"
@@ -22,7 +23,7 @@ func runTaskLoop(taskname string, taskChannel chan data.UserTask) {
 		// just keep waiting for it.
 		taskReceived := <-taskChannel
 
-		triggered, err := runTrigger(taskReceived.TaskInfo.Trigger)
+		triggered, err := runTrigger(taskReceived.TaskInfo.Trigger, taskReceived.TaskInfo.Name)
 		if err != nil {
 			log.Fatalf("[%s] Error while trying to run the trigger of the task, stopping the task execution...\n",
 				taskReceived.TaskInfo.Name)
@@ -57,9 +58,32 @@ func runTaskLoop(taskname string, taskChannel chan data.UserTask) {
 	}
 }
 
-func runTrigger(trigger data.UserTrigger) (bool, error) {
+func runTrigger(trigger data.UserTrigger, parentTaskName string) (bool, error) {
 	for _, pwTrigger := range triggersList.TRIGGERS {
 		if trigger.ID == pwTrigger.ID {
+			for _, arg := range trigger.Args {
+				if uservariables.ContainGlobalVariable(&arg.Content) {
+					varName := uservariables.GetGlobalVariableName(arg.Content)
+					globalVar, err := uservariables.GetGlobalVariable(varName)
+					if err != nil {
+						log.Printf("[%s] Error when trying to read the user global variable '%s': %s\n", parentTaskName, varName, err.Error())
+						return false, err
+					}
+					globalVar.RLock()
+					arg.Content = globalVar.Content
+					globalVar.RUnlock()
+				} else if uservariables.ContainLocalVariable(&arg.Content) {
+					varName := uservariables.GetLocalVariableName(arg.Content)
+					localVariable, err := uservariables.GetLocalVariable(varName, parentTaskName)
+					if err != nil {
+						log.Printf("[%s] Error when trying to read the user local variable '%s': %s\n", parentTaskName, varName, err.Error())
+						return false, err
+					}
+					localVariable.RLock()
+					arg.Content = localVariable.Content
+					localVariable.RUnlock()
+				}
+			}
 			result, err := pwTrigger.Run(&trigger.Args)
 			if err != nil {
 				return false, err
