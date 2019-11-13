@@ -98,9 +98,8 @@ func ContainGlobalVariable(argument *string) bool {
 
 // GetLocalVariableName returns the name of the variable used on an argument.
 func GetLocalVariableName(argument string) string {
-	if !ContainLocalVariable(&argument) {
-		return ""
-	}
+	// No needed usage of a pointer because we already know that there
+	// is a variable name, wich is a few bytes on memory.
 	match := localVariableRgx.FindStringSubmatch(argument)
 	var variableName string
 	if match != nil {
@@ -112,9 +111,8 @@ func GetLocalVariableName(argument string) string {
 
 // GetGlobalVariableName returns the name of the variable used on an argument.
 func GetGlobalVariableName(argument string) string {
-	if !ContainGlobalVariable(&argument) {
-		return ""
-	}
+	// No needed usage of a pointer because we already know that there
+	// is a variable name, wich is a few bytes on memory.
 	match := globalVariableRgx.FindStringSubmatch(argument)
 	var variableName string
 	if match != nil {
