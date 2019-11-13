@@ -124,6 +124,28 @@ func GetGlobalVariableName(argument string) string {
 	return variableName
 }
 
+// GetLocalVariable returns a specific LocalVariable from the LocalVariablesSlice.
+func GetLocalVariable(name, parentTaskName string) (*LocalVariable, error) {
+	for _, localVariable := range *LocalVariablesSlice {
+		if localVariable.Name == name && localVariable.ParentTaskName == parentTaskName {
+			return &localVariable, nil
+		}
+	}
+
+	return &LocalVariable{}, ErrInvalidVariable
+}
+
+// GetGlobalVariable returns a specific GlobalVariable from the GlobalVariablesSlice.
+func GetGlobalVariable(name string) (*GlobalVariable, error) {
+	for _, globalVariable := range *GlobalVariablesSlice {
+		if globalVariable.Name == name {
+			return &globalVariable, nil
+		}
+	}
+
+	return &GlobalVariable{}, ErrInvalidVariable
+}
+
 func getFiles() ([]os.FileInfo, error) {
 	files, err := ioutil.ReadDir(UserVariablesPath)
 	if err != nil {
