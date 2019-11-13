@@ -5,7 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"strings"
+	"regexp"
 )
 
 // ReadLocalVariablesFromFiles reads the local variables stored on the files. Useful to restore the contents of the variables
@@ -140,10 +140,10 @@ func getFiles() ([]os.FileInfo, error) {
 }
 
 func getLocalVariablesFiles(files *[]os.FileInfo) []os.FileInfo {
+	var rgx = regexp.MustCompile(`^([a-z_?]+)\-([a-zA-Z0-9_?]*)$`)
 	var lvfiles []os.FileInfo
 	for _, file := range *files {
-		// Filename with all letters on lowercase = local variable file
-		if file.Name() == strings.ToLower(file.Name()) {
+		if rgx.MatchString(file.Name()) {
 			// Add it to the returned list of files
 			lvfiles = append(lvfiles, file)
 		}
@@ -153,10 +153,10 @@ func getLocalVariablesFiles(files *[]os.FileInfo) []os.FileInfo {
 }
 
 func getGlobalVariablesFiles(files *[]os.FileInfo) []os.FileInfo {
+	var rgx = regexp.MustCompile(`^([A-Z_?]+)$`)
 	var gvfiles []os.FileInfo
 	for _, file := range *files {
-		// Filename with all letters on uppercase = global variable file
-		if file.Name() == strings.ToUpper(file.Name()) {
+		if rgx.MatchString(file.Name()) {
 			// Add it to the returned list of files
 			gvfiles = append(gvfiles, file)
 		}
