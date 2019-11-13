@@ -62,24 +62,34 @@ func runTrigger(trigger data.UserTrigger, parentTaskName string) (bool, error) {
 	for _, pwTrigger := range triggersList.TRIGGERS {
 		if trigger.ID == pwTrigger.ID {
 			for _, arg := range trigger.Args {
+				// Check if the arg contains a user global variable
 				if uservariables.ContainGlobalVariable(&arg.Content) {
+					// If yes, then get the name of the variable by using regex
 					varName := uservariables.GetGlobalVariableName(arg.Content)
+					// Get the variable from the name
 					globalVar, err := uservariables.GetGlobalVariable(varName)
 					if err != nil {
 						log.Printf("[%s] Error when trying to read the user global variable '%s': %s\n", parentTaskName, varName, err.Error())
 						return false, err
 					}
 					globalVar.RLock()
+					// If all it's ok, replace the content of the argument (wich is the variable name basically)
+					// with the content of the desired user global variable.
 					arg.Content = globalVar.Content
 					globalVar.RUnlock()
+				// If the arg not contains a user global variable, then check if contains a user local variable instead.
 				} else if uservariables.ContainLocalVariable(&arg.Content) {
+					// If yes, then get the name of the variable by using regex
 					varName := uservariables.GetLocalVariableName(arg.Content)
+					// Get the variable from the name
 					localVariable, err := uservariables.GetLocalVariable(varName, parentTaskName)
 					if err != nil {
 						log.Printf("[%s] Error when trying to read the user local variable '%s': %s\n", parentTaskName, varName, err.Error())
 						return false, err
 					}
 					localVariable.RLock()
+					// If all it's ok, replace the content of the argument (wich is the variable name basically)
+					// with the content of the desired user local variable.
 					arg.Content = localVariable.Content
 					localVariable.RUnlock()
 				}
