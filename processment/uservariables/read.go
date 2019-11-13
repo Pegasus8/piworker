@@ -22,13 +22,14 @@ func ReadLocalVariablesFromFiles() (*[]LocalVariable, error) {
 		var lv LocalVariable
 		fullpath := filepath.Join(UserVariablesPath, lvf.Name())
 		globalMutex.Lock()
-		defer globalMutex.Unlock()
 
 		jsonData, err := os.Open(fullpath)
 		if err != nil {
-			return nil, err
+			globalMutex.Unlock()
+			return &localVariables, err
 		}
 		defer jsonData.Close()
+		globalMutex.Unlock()
 
 		byteContent, err := ioutil.ReadAll(jsonData)
 		if err != nil {
@@ -60,13 +61,14 @@ func ReadGlobalVariablesFromFiles() (*[]GlobalVariable, error) {
 		var gv GlobalVariable
 		fullpath := filepath.Join(UserVariablesPath, gvf.Name())
 		globalMutex.Lock()
-		defer globalMutex.Unlock()
 
 		jsonData, err := os.Open(fullpath)
 		if err != nil {
+			globalMutex.Unlock()
 			return &globalVariables, err
 		}
 		defer jsonData.Close()
+		globalMutex.Unlock()
 
 		byteContent, err := ioutil.ReadAll(jsonData)
 		if err != nil {
