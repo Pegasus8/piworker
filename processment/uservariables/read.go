@@ -33,12 +33,12 @@ func ReadLocalVariablesFromFiles() (*[]LocalVariable, error) {
 
 		byteContent, err := ioutil.ReadAll(jsonData)
 		if err != nil {
-			return nil, err
+			return &localVariables, err
 		}
 
 		err = json.Unmarshal(byteContent, &lv)
 		if err != nil {
-			return nil, err
+			return &localVariables, err
 		}
 
 		localVariables = append(localVariables, lv)
