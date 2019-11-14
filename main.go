@@ -9,6 +9,7 @@ import (
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/engine" 
 	// "github.com/Pegasus8/piworker/processment/configs"
+	"github.com/Pegasus8/piworker/processment/uservariables"
 )
 
 func main() {
@@ -27,6 +28,25 @@ func start() {
 	log.Println("Running PiWorker...")
 	// Set user data filename
 	data.Filename = "user_data.json" //TODO: assign the name dinamically
+
+	log.Println("Getting user variables from files...")
+	log.Println("Reading user global variables...")
+	globalVariables, err := uservariables.ReadGlobalVariablesFromFiles()
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("Global variables read correctly!, saving on the global variable...")
+	uservariables.GlobalVariablesSlice = globalVariables
+	log.Println("Global variables saved!")
+
+	log.Println("Reading user local variables...")
+	localVariables, err := uservariables.ReadLocalVariablesFromFiles()
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("Local variables read correctly!, saving on the global variable...")
+	uservariables.LocalVariablesSlice = localVariables
+	log.Println("Local variables saved!")
 
 	// Start the Dynamic Engine
 	engine.StartEngine()
