@@ -17,6 +17,8 @@ const (
 	TypeFloat = 997
 	// TypePath is the constant used to represent a user variable of type path (a string with the format 'some/random/path').
 	TypePath = 996
+	// TypeBool is the constant used to represent a user variable of type boolean.
+	TypeBool = 995
 )
 
 // LocalVariablesSlice is the global variable where the local variables defined by the user are saved.
