@@ -1,16 +1,16 @@
 package models
 
 import (
+	"errors"
+	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/elements/actions"
 	"github.com/Pegasus8/piworker/processment/uservariables"
+	"github.com/Pegasus8/piworker/utilities/typeconversion"
 	"log"
 	"reflect"
-	"strings"
-	"github.com/Pegasus8/piworker/utilities/typeconversion"
-	"errors"
-	"strconv"
-	"github.com/Pegasus8/piworker/processment/data"
 	"regexp"
+	"strconv"
+	"strings"
 )
 
 const (
@@ -45,9 +45,9 @@ var SetGlobalVariable = actions.Action{
 		},
 	},
 	ReturnedChainResultDescription: "The content setted to the variable.",
-	ReturnedChainResultType: reflect.String, // REVIEW This maybe is incorrect
+	ReturnedChainResultType:        reflect.String, // REVIEW This maybe is incorrect
 	AcceptedChainResultDescription: "Any content.",
-	AcceptedChainResultType: reflect.String, // REVIEW This maybe is incorrect
+	AcceptedChainResultType:        reflect.String, // REVIEW This maybe is incorrect
 }
 
 func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction) (result bool, chainedResult *actions.ChainedResult, err error) {
@@ -62,16 +62,18 @@ func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 
 	for _, arg := range *args {
 		switch arg.ID {
-		case variableNameSetGlobalVariableID: {
-			variableName = strings.TrimSpace(arg.Content)
-		}
+		case variableNameSetGlobalVariableID:
+			{
+				variableName = strings.TrimSpace(arg.Content)
+			}
 		case variableContentSetGlobalVariableID:
 			variableContent = arg.Content
-		default: {
-			log.Println("Unrecongnized argument with the ID '%s' on the " + 
+		default:
+			{
+				log.Println("Unrecongnized argument with the ID '%s' on the "+
 					"action SetGlobalVariable\n", arg.ID)
-			return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
-		}
+				return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
+			}
 		}
 	}
 
@@ -122,15 +124,15 @@ func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 	// If none of the other types match, then is a string.
 	variableType = uservariables.TypeString
 
-	gvDefinition:
+gvDefinition:
 
-	// We can't append directly to the GVS because the function append doesn't returns a pointer. 
+	// We can't append directly to the GVS because the function append doesn't returns a pointer.
 	newGVS := append(*uservariables.GlobalVariablesSlice, uservariables.GlobalVariable{
-		Name: variableName,
+		Name:    variableName,
 		Content: variableContent,
-		Type: variableType,
+		Type:    variableType,
 	})
 	uservariables.GlobalVariablesSlice = &newGVS
-	
+
 	return true, &actions.ChainedResult{Result: variableContent, ResultType: reflect.String}, nil
 }
