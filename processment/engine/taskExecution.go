@@ -126,16 +126,18 @@ func runActions(task *data.UserTask) {
 						chainedResult = chr
 						if err != nil {
 							log.Printf("[%s] %s\n", task.TaskInfo.Name, err.Error())
+							return
 						}
 						if result {
 							log.Printf("[%s] Action in order %d finished correctly\n",
 								task.TaskInfo.Name, userAction.Order)
 						} else {
-							log.Printf("[%s] Action in order %d wasn't executed correctly\n",
+							log.Printf("[%s] Action in order %d wasn't executed correctly. Aborting task for prevention of future errors...\n",
 								task.TaskInfo.Name, userAction.Order)
+							return
 						}
 
-						// It's not necessary to continue iterating
+						// No need to keep iterating
 						break
 					}
 				}
