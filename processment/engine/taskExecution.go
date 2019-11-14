@@ -1,19 +1,19 @@
 package engine
 
 import (
+	"errors"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-	"errors"
-	"log"
 
 	"github.com/Pegasus8/piworker/processment/data"
-	"github.com/Pegasus8/piworker/processment/uservariables"
 	actionsModel "github.com/Pegasus8/piworker/processment/elements/actions"
 	actionsList "github.com/Pegasus8/piworker/processment/elements/actions/models"
 	triggersList "github.com/Pegasus8/piworker/processment/elements/triggers/models"
+	"github.com/Pegasus8/piworker/processment/uservariables"
 )
 
 func runTaskLoop(taskname string, taskChannel chan data.UserTask) {
@@ -44,9 +44,9 @@ func runTaskLoop(taskname string, taskChannel chan data.UserTask) {
 				log.Printf("[%s] %s\n", taskReceived.TaskInfo.Name, err.Error())
 			}
 
-			skipTaskExecution:
-				// Skip the execution of the task but not skip the entire iteration
-				// in case of have to do something else with the task.
+		skipTaskExecution:
+			// Skip the execution of the task but not skip the entire iteration
+			// in case of have to do something else with the task.
 		} else {
 			if wasRecentlyExecuted(taskReceived.TaskInfo.Name) {
 				err = setAsReadyToExecuteAgain(taskReceived.TaskInfo.Name)
@@ -63,35 +63,9 @@ func runTrigger(trigger data.UserTrigger, parentTaskName string) (bool, error) {
 		if trigger.ID == pwTrigger.ID {
 			for _, arg := range trigger.Args {
 				// Check if the arg contains a user global variable
-				if uservariables.ContainGlobalVariable(&arg.Content) {
-					// If yes, then get the name of the variable by using regex
-					varName := uservariables.GetGlobalVariableName(arg.Content)
-					// Get the variable from the name
-					globalVar, err := uservariables.GetGlobalVariable(varName)
-					if err != nil {
-						log.Printf("[%s] Error when trying to read the user global variable '%s': %s\n", parentTaskName, varName, err.Error())
-						return false, err
-					}
-					globalVar.RLock()
-					// If all it's ok, replace the content of the argument (wich is the variable name basically)
-					// with the content of the desired user global variable.
-					arg.Content = globalVar.Content
-					globalVar.RUnlock()
-				// If the arg not contains a user global variable, then check if contains a user local variable instead.
-				} else if uservariables.ContainLocalVariable(&arg.Content) {
-					// If yes, then get the name of the variable by using regex
-					varName := uservariables.GetLocalVariableName(arg.Content)
-					// Get the variable from the name
-					localVariable, err := uservariables.GetLocalVariable(varName, parentTaskName)
-					if err != nil {
-						log.Printf("[%s] Error when trying to read the user local variable '%s': %s\n", parentTaskName, varName, err.Error())
-						return false, err
-					}
-					localVariable.RLock()
-					// If all it's ok, replace the content of the argument (wich is the variable name basically)
-					// with the content of the desired user local variable.
-					arg.Content = localVariable.Content
-					localVariable.RUnlock()
+				err := searchAndReplaceVariable(&arg, parentTaskName)
+				if err != nil {
+					return false, err
 				}
 			}
 			result, err := pwTrigger.Run(&trigger.Args)
@@ -237,7 +211,7 @@ func wasRecentlyExecuted(taskName string) bool {
 		} else if os.IsExist(err) {
 			return true
 		}
-		log.Printf("[%s] %s\n",taskName, err.Error())
+		log.Printf("[%s] %s\n", taskName, err.Error())
 		return false
 	}
 
@@ -250,6 +224,42 @@ func setAsReadyToExecuteAgain(taskName string) error {
 	err := os.Remove(path)
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func searchAndReplaceVariable(arg *data.UserArg, parentTaskName string) error {
+	// Check if the arg contains a user global variable
+	if uservariables.ContainGlobalVariable(&arg.Content) {
+		// If yes, then get the name of the variable by using regex
+		varName := uservariables.GetGlobalVariableName(arg.Content)
+		// Get the variable from the name
+		globalVar, err := uservariables.GetGlobalVariable(varName)
+		if err != nil {
+			log.Printf("[%s] Error when trying to read the user global variable '%s': %s\n", parentTaskName, varName, err.Error())
+			return err
+		}
+		globalVar.RLock()
+		// If all it's ok, replace the content of the argument (wich is the variable name basically)
+		// with the content of the desired user global variable.
+		arg.Content = globalVar.Content
+		globalVar.RUnlock()
+		// If the arg not contains a user global variable, then check if contains a user local variable instead.
+	} else if uservariables.ContainLocalVariable(&arg.Content) {
+		// If yes, then get the name of the variable by using regex
+		varName := uservariables.GetLocalVariableName(arg.Content)
+		// Get the variable from the name
+		localVariable, err := uservariables.GetLocalVariable(varName, parentTaskName)
+		if err != nil {
+			log.Printf("[%s] Error when trying to read the user local variable '%s': %s\n", parentTaskName, varName, err.Error())
+			return err
+		}
+		localVariable.RLock()
+		// If all it's ok, replace the content of the argument (wich is the variable name basically)
+		// with the content of the desired user local variable.
+		arg.Content = localVariable.Content
+		localVariable.RUnlock()
 	}
 
 	return nil
