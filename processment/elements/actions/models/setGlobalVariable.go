@@ -124,14 +124,20 @@ func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 	// If none of the other types match, then is a string.
 	variableType = uservariables.TypeString
 
-gvDefinition:
+	gvDefinition:
 
-	// We can't append directly to the GVS because the function append doesn't returns a pointer.
-	newGVS := append(*uservariables.GlobalVariablesSlice, uservariables.GlobalVariable{
+	gv := &uservariables.GlobalVariable{
 		Name:    variableName,
 		Content: variableContent,
 		Type:    variableType,
-	})
+	}
+	err = gv.WriteToFile()
+	if err != nil {
+		return false, &actions.ChainedResult{}, err
+	}
+
+	// We can't append directly to the GVS because the function append doesn't returns a pointer.
+	newGVS := append(*uservariables.GlobalVariablesSlice, *gv)
 	uservariables.GlobalVariablesSlice = &newGVS
 
 	return true, &actions.ChainedResult{Result: variableContent, ResultType: reflect.String}, nil

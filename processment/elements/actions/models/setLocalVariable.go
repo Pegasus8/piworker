@@ -128,13 +128,19 @@ func setLocalVariableAction(previousResult *actions.ChainedResult, parentAction 
 
 	gvDefinition:
 
-	// We can't append directly to the LVS because the function append doesn't returns a pointer.
-	newLVS := append(*uservariables.LocalVariablesSlice, uservariables.LocalVariable{
+	lv := &uservariables.LocalVariable{
 		Name:    variableName,
 		Content: variableContent,
 		Type:    variableType,
 		ParentTaskName: parentTaskName,
-	})
+	}
+	err = lv.WriteToFile()
+	if err != nil {
+		return false, &actions.ChainedResult{}, err
+	}
+
+	// We can't append directly to the LVS because the function append doesn't returns a pointer.
+	newLVS := append(*uservariables.LocalVariablesSlice, *lv)
 	uservariables.LocalVariablesSlice = &newLVS
 
 	return true, &actions.ChainedResult{Result: variableContent, ResultType: reflect.String}, nil
