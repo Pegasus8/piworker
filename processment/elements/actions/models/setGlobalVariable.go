@@ -25,7 +25,7 @@ const (
 // SetGlobalVariable - Action
 var SetGlobalVariable = actions.Action{
 	ID:          setGlobalVariableID,
-	Name:        "Set Variable",
+	Name:        "Set Global Variable",
 	Description: "Sets the content of a global variable. If the variable does not exist, it will be created.",
 	Run:         setGlobalVariableAction,
 	Args: []actions.Arg{
