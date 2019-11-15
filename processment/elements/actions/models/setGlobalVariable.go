@@ -33,7 +33,7 @@ var SetGlobalVariable = actions.Action{
 			ID:   variableNameSetGlobalVariableID,
 			Name: "Name",
 			Description: "The name of the variable. Must be uppercase, without spaces or special characters. " +
-				"The unique special character allowed is the underscore ('_').",
+				"The unique special character allowed is the underscore ('_'). Example: THIS_IS_AN_EXAMPLE",
 			ContentType: "text",
 		},
 		actions.Arg{
