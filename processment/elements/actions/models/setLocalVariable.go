@@ -139,9 +139,24 @@ func setLocalVariableAction(previousResult *actions.ChainedResult, parentAction 
 		return false, &actions.ChainedResult{}, err
 	}
 
-	// We can't append directly to the LVS because the function append doesn't returns a pointer.
-	newLVS := append(*uservariables.LocalVariablesSlice, *lv)
-	uservariables.LocalVariablesSlice = &newLVS
+	var varExists bool
+	var index int
+	for i, variable := range *uservariables.LocalVariablesSlice {
+		if variable.Name == variableName {
+			varExists = true
+			index = i
+		}
+	}
+	if varExists {
+		// If the variable already exists, replace it.
+		(*uservariables.LocalVariablesSlice)[index] = *lv
+	} else {
+		// If the variable does not exists, add it.
+		// We can't append directly to the LVS because the function append doesn't returns a pointer.
+		newLVS := append(*uservariables.LocalVariablesSlice, *lv)
+		uservariables.LocalVariablesSlice = &newLVS
+	}
+
 
 	return true, &actions.ChainedResult{Result: variableContent, ResultType: reflect.String}, nil
 }

@@ -136,9 +136,24 @@ func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 		return false, &actions.ChainedResult{}, err
 	}
 
-	// We can't append directly to the GVS because the function append doesn't returns a pointer.
-	newGVS := append(*uservariables.GlobalVariablesSlice, *gv)
-	uservariables.GlobalVariablesSlice = &newGVS
+	var varExists bool
+	var index int
+	for i, variable := range *uservariables.GlobalVariablesSlice {
+		if variable.Name == variableName {
+			varExists = true
+			index = i
+		}
+	}
+	if varExists {
+		// If the variable already exists, replace it.
+		(*uservariables.GlobalVariablesSlice)[index] = *gv
+	} else {
+		// If the variable does not exists, add it.
+		// We can't append directly to the GVS because the function append doesn't returns a pointer.
+		newGVS := append(*uservariables.GlobalVariablesSlice, *gv)
+		uservariables.GlobalVariablesSlice = &newGVS
+	}
+
 
 	return true, &actions.ChainedResult{Result: variableContent, ResultType: reflect.String}, nil
 }
