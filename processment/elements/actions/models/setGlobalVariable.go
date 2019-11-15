@@ -82,7 +82,7 @@ func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 			log.Println(ErrEmptyChainedResult.Error())
 		} else {
 			if previousResult.ResultType == reflect.String {
-				// Overwrite path
+				// Overwrite content of the variable
 				variableContent = typeconversion.ConvertToString(previousResult.Result)
 			} else {
 				log.Printf("[%s] Type of previous ChainedResult (%s) differs with the required type (%s).\n", parentTaskName, previousResult.ResultType.String(), reflect.String.String())
