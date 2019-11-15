@@ -12,4 +12,5 @@ var ACTIONS = []actions.Action{
 	SetGlobalVariable,
 	SetLocalVariable,
 	GetGlobalVariable,
+	GetLocalVariable,
 }
