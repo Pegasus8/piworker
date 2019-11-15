@@ -38,7 +38,7 @@ var RaspberryTemperature = triggers.Trigger {
 	},
 }
 
-func raspberryTempTrigger(args *[]data.UserArg) (result bool, err error) {
+func raspberryTempTrigger(args *[]data.UserArg, parentTaskName string) (result bool, err error) {
 
 	// Expected temperature received
 	var expectedTemp float64
@@ -54,8 +54,8 @@ func raspberryTempTrigger(args *[]data.UserArg) (result bool, err error) {
 			}
 
 			default: {
-				log.Printf("Unrecognized argument with the ID '%s' on the " + 
-				"trigger RaspberryTemperature\n", arg.ID)
+				log.Printf("[%s] Unrecognized argument with the ID '%s' on the " + 
+				"trigger RaspberryTemperature\n", parentTaskName, arg.ID)
 				return false, ErrUnrecognizedArgID
 			}
 		}

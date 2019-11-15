@@ -69,7 +69,7 @@ var WriteTextFile = actions.Action{
 	AcceptedChainResultType: reflect.String,
 }
 
-func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *data.UserAction) (result bool, chainedResult *actions.ChainedResult, err error) {
+func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
 	var args *[]data.UserArg
 
 	// Content of the file
@@ -105,8 +105,8 @@ func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *da
 			path = filepath.Clean(arg.Content)
 		default: 
 			{
-				log.Println("Unrecongnized argument with the ID '%s' on the " + 
-					"action WriteTextFile\n", arg.ID)
+				log.Println("[%s] Unrecongnized argument with the ID '%s' on the " + 
+					"action WriteTextFile\n", parentTaskName, arg.ID)
 				return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
 			}
 		}
@@ -121,7 +121,7 @@ func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *da
 				// Overwrite path
 				path = typeconversion.ConvertToString(previousResult.Result)
 			} else {
-				log.Printf("Type of previous ChainedResult (%s) differs with the required type (%s).\n", previousResult.ResultType.String(), reflect.String.String())
+				log.Printf("[%s] Type of previous ChainedResult (%s) differs with the required type (%s).\n", parentTaskName, previousResult.ResultType.String(), reflect.String.String())
 			}
 		}
 	}
@@ -151,7 +151,7 @@ func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *da
 		return false, &actions.ChainedResult{}, err
 	}
 
-	log.Println("File written by the action WriteTextFile. Bytes written:", bytesWrited)
+	log.Printf("[%s] File written by the action WriteTextFile. Bytes written: %d\n", parentTaskName, bytesWrited)
 
 	return true, &actions.ChainedResult{Result: fullpath, ResultType: reflect.String}, nil
 }

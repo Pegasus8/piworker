@@ -50,7 +50,7 @@ var SetGlobalVariable = actions.Action{
 	AcceptedChainResultType:        reflect.String, // REVIEW This maybe is incorrect
 }
 
-func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction) (result bool, chainedResult *actions.ChainedResult, err error) {
+func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
 	var args *[]data.UserArg
 
 	// The name of the variable
@@ -70,8 +70,8 @@ func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 			variableContent = arg.Content
 		default:
 			{
-				log.Println("Unrecongnized argument with the ID '%s' on the "+
-					"action SetGlobalVariable\n", arg.ID)
+				log.Println("[%s] Unrecongnized argument with the ID '%s' on the "+
+					"action SetGlobalVariable\n", parentTaskName, arg.ID)
 				return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
 			}
 		}
@@ -85,7 +85,7 @@ func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 				// Overwrite path
 				variableContent = typeconversion.ConvertToString(previousResult.Result)
 			} else {
-				log.Printf("Type of previous ChainedResult (%s) differs with the required type (%s).\n", previousResult.ResultType.String(), reflect.String.String())
+				log.Printf("[%s] Type of previous ChainedResult (%s) differs with the required type (%s).\n", parentTaskName, previousResult.ResultType.String(), reflect.String.String())
 			}
 		}
 	}

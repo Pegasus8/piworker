@@ -115,7 +115,7 @@ func TestCompressFilesOfDir(t *testing.T) {
 		}
 
 		fmt.Println("Running CompressFilesOfDir.Run...")
-		result, _, err := CompressFilesOfDir.Run(&actions.ChainedResult{}, &info.fakeData)
+		result, _, err := CompressFilesOfDir.Run(&actions.ChainedResult{}, &info.fakeData, "TEST")
 		if err != nil {
 			t.Error(err)
 			continue
