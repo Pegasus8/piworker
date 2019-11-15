@@ -10,4 +10,5 @@ var ACTIONS = []actions.Action{
 	CompressFilesOfDir,
 	ExecuteCommand,
 	SetGlobalVariable,
+	SetLocalVariable,
 }
