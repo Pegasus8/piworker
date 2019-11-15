@@ -68,7 +68,7 @@ func runTrigger(trigger data.UserTrigger, parentTaskName string) (bool, error) {
 					return false, err
 				}
 			}
-			result, err := pwTrigger.Run(&trigger.Args)
+			result, err := pwTrigger.Run(&trigger.Args, parentTaskName)
 			if err != nil {
 				return false, err
 			}
@@ -79,7 +79,7 @@ func runTrigger(trigger data.UserTrigger, parentTaskName string) (bool, error) {
 		}
 	}
 
-	log.Printf("The trigger with the ID '%s' cannot be found\n", trigger.ID)
+	log.Printf("[%s] The trigger with the ID '%s' cannot be found\n", parentTaskName, trigger.ID)
 	return false, errors.New("Trigger not found")
 }
 
@@ -120,7 +120,7 @@ func runActions(task *data.UserTask) {
 								return
 							}
 						}
-						result, chr, err := action.Run(chainedResult, &userAction)
+						result, chr, err := action.Run(chainedResult, &userAction, task.TaskInfo.Name)
 						// Set the returned chr (chained result) to our main instance of the ChainedResult struct (`chainedResult`).
 						// This will be given to the next action (if exists).
 						chainedResult = chr
