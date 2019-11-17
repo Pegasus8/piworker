@@ -44,9 +44,9 @@ func runTaskLoop(taskname string, taskChannel chan data.UserTask) {
 				log.Printf("[%s] %s\n", taskReceived.TaskInfo.Name, err.Error())
 			}
 
-		skipTaskExecution:
-			// Skip the execution of the task but not skip the entire iteration
-			// in case of have to do something else with the task.
+			skipTaskExecution:
+				// Skip the execution of the task but not skip the entire iteration
+				// in case of have to do something else with the task.
 		} else {
 			if wasRecentlyExecuted(taskReceived.TaskInfo.Name) {
 				err = setAsReadyToExecuteAgain(taskReceived.TaskInfo.Name)
