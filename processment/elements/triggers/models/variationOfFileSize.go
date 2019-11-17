@@ -37,7 +37,7 @@ var VariationOfFileSize = triggers.Trigger{
 
 var previousFileSize int64
 
-func variationOfFileSize(args *[]data.UserArg) (result bool, err error) {
+func variationOfFileSize(args *[]data.UserArg, parentTaskName string) (result bool, err error) {
 
 	// Filepath
 	var filePath string
@@ -48,8 +48,8 @@ func variationOfFileSize(args *[]data.UserArg) (result bool, err error) {
 			filePath = filepath.Clean(arg.Content)
 		default:
 			{
-				log.Printf("Unrecognized argument with the ID '%s' on the "+
-					"trigger VariationOfFileSize\n", arg.ID)
+				log.Printf("[%s] Unrecognized argument with the ID '%s' on the "+
+					"trigger VariationOfFileSize\n", parentTaskName, arg.ID)
 				return false, ErrUnrecognizedArgID
 			}
 		}

@@ -9,7 +9,7 @@ type Trigger struct {
 	ID string `json:"ID"`
 	Name string `json:"name"`
 	Description string `json:"description"`
-	Run func(*[]data.UserArg) (bool, error) `json:"-"`
+	Run func(args *[]data.UserArg, parentTaskName string) (bool, error) `json:"-"`
 	Args []Arg `json:"args"`
 }
 

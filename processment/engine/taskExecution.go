@@ -1,18 +1,19 @@
 package engine
 
 import (
+	"errors"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-	"errors"
-	"log"
 
 	"github.com/Pegasus8/piworker/processment/data"
 	actionsModel "github.com/Pegasus8/piworker/processment/elements/actions"
 	actionsList "github.com/Pegasus8/piworker/processment/elements/actions/models"
 	triggersList "github.com/Pegasus8/piworker/processment/elements/triggers/models"
+	"github.com/Pegasus8/piworker/processment/uservariables"
 )
 
 func runTaskLoop(taskname string, taskChannel chan data.UserTask) {
@@ -22,7 +23,7 @@ func runTaskLoop(taskname string, taskChannel chan data.UserTask) {
 		// just keep waiting for it.
 		taskReceived := <-taskChannel
 
-		triggered, err := runTrigger(taskReceived.TaskInfo.Trigger)
+		triggered, err := runTrigger(taskReceived.TaskInfo.Trigger, taskReceived.TaskInfo.Name)
 		if err != nil {
 			log.Fatalf("[%s] Error while trying to run the trigger of the task, stopping the task execution...\n",
 				taskReceived.TaskInfo.Name)
@@ -57,10 +58,17 @@ func runTaskLoop(taskname string, taskChannel chan data.UserTask) {
 	}
 }
 
-func runTrigger(trigger data.UserTrigger) (bool, error) {
+func runTrigger(trigger data.UserTrigger, parentTaskName string) (bool, error) {
 	for _, pwTrigger := range triggersList.TRIGGERS {
 		if trigger.ID == pwTrigger.ID {
-			result, err := pwTrigger.Run(&trigger.Args)
+			for _, arg := range trigger.Args {
+				// Check if the arg contains a user global variable
+				err := searchAndReplaceVariable(&arg, parentTaskName)
+				if err != nil {
+					return false, err
+				}
+			}
+			result, err := pwTrigger.Run(&trigger.Args, parentTaskName)
 			if err != nil {
 				return false, err
 			}
@@ -71,7 +79,7 @@ func runTrigger(trigger data.UserTrigger) (bool, error) {
 		}
 	}
 
-	log.Printf("The trigger with the ID '%s' cannot be found\n", trigger.ID)
+	log.Printf("[%s] The trigger with the ID '%s' cannot be found\n", parentTaskName, trigger.ID)
 	return false, errors.New("Trigger not found")
 }
 
@@ -105,22 +113,31 @@ func runActions(task *data.UserTask) {
 							// Overwrite previous result to prevent being used.
 							chainedResult = &actionsModel.ChainedResult{}
 						}
-						result, chr, err := action.Run(chainedResult, &userAction)
+						for _, arg := range userAction.Args {
+							err := searchAndReplaceVariable(&arg, task.TaskInfo.Name)
+							if err != nil {
+								log.Printf("[%s] %s\n", task.TaskInfo.Name, err.Error())
+								return
+							}
+						}
+						result, chr, err := action.Run(chainedResult, &userAction, task.TaskInfo.Name)
 						// Set the returned chr (chained result) to our main instance of the ChainedResult struct (`chainedResult`).
 						// This will be given to the next action (if exists).
 						chainedResult = chr
 						if err != nil {
 							log.Printf("[%s] %s\n", task.TaskInfo.Name, err.Error())
+							return
 						}
 						if result {
 							log.Printf("[%s] Action in order %d finished correctly\n",
 								task.TaskInfo.Name, userAction.Order)
 						} else {
-							log.Printf("[%s] Action in order %d wasn't executed correctly\n",
+							log.Printf("[%s] Action in order %d wasn't executed correctly. Aborting task for prevention of future errors...\n",
 								task.TaskInfo.Name, userAction.Order)
+							return
 						}
 
-						// It's not necessary to continue iterating
+						// No need to keep iterating
 						break
 					}
 				}
@@ -203,7 +220,7 @@ func wasRecentlyExecuted(taskName string) bool {
 		} else if os.IsExist(err) {
 			return true
 		}
-		log.Printf("[%s] %s\n",taskName, err.Error())
+		log.Printf("[%s] %s\n", taskName, err.Error())
 		return false
 	}
 
@@ -216,6 +233,42 @@ func setAsReadyToExecuteAgain(taskName string) error {
 	err := os.Remove(path)
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func searchAndReplaceVariable(arg *data.UserArg, parentTaskName string) error {
+	// Check if the arg contains a user global variable
+	if uservariables.ContainGlobalVariable(&arg.Content) {
+		// If yes, then get the name of the variable by using regex
+		varName := uservariables.GetGlobalVariableName(arg.Content)
+		// Get the variable from the name
+		globalVar, err := uservariables.GetGlobalVariable(varName)
+		if err != nil {
+			log.Printf("[%s] Error when trying to read the user global variable '%s': %s\n", parentTaskName, varName, err.Error())
+			return err
+		}
+		globalVar.RLock()
+		// If all it's ok, replace the content of the argument (wich is the variable name basically)
+		// with the content of the desired user global variable.
+		arg.Content = globalVar.Content
+		globalVar.RUnlock()
+		// If the arg not contains a user global variable, then check if contains a user local variable instead.
+	} else if uservariables.ContainLocalVariable(&arg.Content) {
+		// If yes, then get the name of the variable by using regex
+		varName := uservariables.GetLocalVariableName(arg.Content)
+		// Get the variable from the name
+		localVariable, err := uservariables.GetLocalVariable(varName, parentTaskName)
+		if err != nil {
+			log.Printf("[%s] Error when trying to read the user local variable '%s': %s\n", parentTaskName, varName, err.Error())
+			return err
+		}
+		localVariable.RLock()
+		// If all it's ok, replace the content of the argument (wich is the variable name basically)
+		// with the content of the desired user local variable.
+		arg.Content = localVariable.Content
+		localVariable.RUnlock()
 	}
 
 	return nil

@@ -10,3 +10,4 @@ tokens.db
 piworker
 server.crt
 server.key
+.variables/

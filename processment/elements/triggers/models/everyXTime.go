@@ -37,7 +37,7 @@ var _EveryXTime = triggers.Trigger{
 
 var nextExecution time.Time
 
-func everyXTimeTrigger(args *[]data.UserArg) (result bool, err error) {
+func everyXTimeTrigger(args *[]data.UserArg, parentTaskName string) (result bool, err error) {
 	// Time
 	var timeToWait time.Duration
 
@@ -50,8 +50,8 @@ func everyXTimeTrigger(args *[]data.UserArg) (result bool, err error) {
 			}
 		default:
 			{
-				log.Printf("Unrecognized argument with the ID '%s' on the "+
-					"trigger EveryXTime\n", arg.ID)
+				log.Printf("[%s] Unrecognized argument with the ID '%s' on the "+
+					"trigger EveryXTime\n", parentTaskName, arg.ID)
 				return false, ErrUnrecognizedArgID
 			}
 		}

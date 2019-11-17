@@ -35,7 +35,7 @@ var ByHour = triggers.Trigger {
 	},
 }
 
-func byHourTrigger(args *[]data.UserArg) (result bool, err error) {
+func byHourTrigger(args *[]data.UserArg, parentTaskName string) (result bool, err error) {
 
 	// Received hour in format 15:04
 	var hour time.Time
@@ -51,15 +51,15 @@ func byHourTrigger(args *[]data.UserArg) (result bool, err error) {
 			}
 
 			default: {
-				log.Printf("Unrecongnized argument with the ID '%s' on the " + 
-					"trigger ByHour\n", arg.ID)
+				log.Printf("[%s] Unrecongnized argument with the ID '%s' on the " + 
+					"trigger ByHour\n", parentTaskName, arg.ID)
 				return false, ErrUnrecognizedArgID
 			}
 		}
 	}
 
 	if time.Now().Format("15:04") == hour.Format("15:04") {
-		log.Println("Hour matched, trigger launched")
+		log.Printf("[%s] Hour matched, trigger launched\n", parentTaskName)
 		return true, nil
 	}
 	

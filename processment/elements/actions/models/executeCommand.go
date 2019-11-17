@@ -53,7 +53,7 @@ var ExecuteCommand = actions.Action{
 	AcceptedChainResultType: reflect.String,
 }
 
-func executeCommand(previousResult *actions.ChainedResult, parentAction *data.UserAction) (result bool, chainedResult *actions.ChainedResult, err error) {
+func executeCommand(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
 	var args *[]data.UserArg
 
 	// Command
@@ -82,7 +82,7 @@ func executeCommand(previousResult *actions.ChainedResult, parentAction *data.Us
 				// Overwrite command
 				command = typeconversion.ConvertToString(previousResult.Result)
 			} else {
-				log.Printf("Type of previous ChainedResult (%s) differs with the required type (%s).\n", previousResult.ResultType.String(), reflect.String.String())
+				log.Printf("[%s] Type of previous ChainedResult (%s) differs with the required type (%s).\n", parentTaskName, previousResult.ResultType.String(), reflect.String.String())
 			}
 		}
 	}
