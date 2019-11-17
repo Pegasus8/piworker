@@ -210,7 +210,8 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	w.Header().Set("Content-Type", "application/json")
 	var response postResponse
-	var task data.UserTask 
+	var task data.UserTask
+	var tasksOnDB *data.UserData
 
 	// Uncomment to enable CORS support.
 	// setCORSHeaders(&w, request)
@@ -229,7 +230,29 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 		response.Successful = false
 		response.Error = err.Error()
 		goto response1
-	} 
+	}
+
+	// Read the data to see if the taskname already exists
+	tasksOnDB, err = data.ReadData()
+	if err != nil {
+		response.Successful = false
+		response.Error = err.Error()
+		goto response1
+	}
+	if _, _, err = tasksOnDB.GetTaskByName(task.TaskInfo.Name); err != nil {
+		if err != data.ErrBadTaskName {
+			response.Successful = false
+			response.Error = err.Error()
+			goto response1
+		}
+		// If the error is data.ErrBadTaskName means that the task doesn't
+		// exists.
+	} else {
+		// If there is no error the name already exists.
+		response.Successful = false
+		response.Error = "The name of the task already exists"
+		goto response1
+	}
 
 	err = data.NewTask(&task)
 	if err != nil {
