@@ -3,9 +3,19 @@ package uservariables
 import (
 	"encoding/json"
 	"strings"
+	"os"
+	"log"
 
 	"github.com/Pegasus8/piworker/utilities/files"
 )
+
+func init() {
+	// Create data path if not exists
+	err := os.MkdirAll(UserVariablesPath, os.ModePerm)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
 
 // WriteToFile writes the current content of the LocalVariable to the corresponding file.
 func (localVar *LocalVariable) WriteToFile() error {
