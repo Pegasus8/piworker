@@ -67,3 +67,17 @@ func IsPath(value string) (bool, string) {
 	}
 	return true, value
 }
+
+func GetType(value string) uint {
+	if isInt, _ := IsInt(value); isInt {
+		return TypeInt
+	} else if isFloat, _ := IsFloat(value); isFloat {
+		return TypeFloat
+	} else if isBool, _ := IsBool(value); isBool {
+		return TypeBool
+	} else if isPath, _ := IsPath(value); isPath {
+		return TypePath
+	} else {
+		return TypeString
+	}
+}
