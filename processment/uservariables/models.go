@@ -17,7 +17,7 @@ import (
 type LocalVariable struct {
 	Name           string `json:"name"`
 	Content        string `json:"content"`
-	Type           int    `json:"type"`
+	Type           uint    `json:"type"`
 	ParentTaskName string `json:"parentTaskName"`
 	*sync.RWMutex
 }
@@ -26,7 +26,7 @@ type LocalVariable struct {
 type GlobalVariable struct {
 	Name    string `json:"name"`
 	Content string `json:"content"`
-	Type    int    `json:"type"`
+	Type    uint    `json:"type"`
 	*sync.RWMutex
 }
 
