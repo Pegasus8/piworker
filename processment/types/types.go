@@ -11,6 +11,9 @@ import (
 )
 
 const (
+	// TypeAny is the constant used to represent any type. Generally used on actions that doesn't 
+	// require a special type to work. For example user variables related actions.
+	TypeAny = 1000
 	// TypeString is the constant used to represent the content of type string (plain text).
 	TypeString = 999
 	// TypeInt is the constant used to represent the content of type integer.
