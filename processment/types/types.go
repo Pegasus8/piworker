@@ -5,6 +5,11 @@ This package defines the standard types used by PiWorker.
 The objective of this is basically have a centralized way of represent different types used on different places (like ChainedResult struct, user variables, etc).
 */
 
+import (
+	"strconv"
+	"regexp"
+)
+
 const (
 	// TypeString is the constant used to represent the content of type string (plain text).
 	TypeString = 999
@@ -20,6 +25,42 @@ const (
 	TypeJSON = 994
 )
 
+// IsInt is a function used to check if a string value can be converted to integer or not.
+// Aditionally makes a conversion on the case of positive result.
+func IsInt(value string) (bool, int64) {
+	v, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return false, 0
+	}
+	return true, v
+}
 
+// IsFloat is a function used to check if a string value can be converted to float or not.
+// Aditionally makes a conversion on the case of positive result.
+func IsFloat(value string) (bool, float64) {
+	v, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return false, 0
+	}
+	return true, v
+}
 
+// IsBool is a function used to check if a string value can be converted to boolean or not.
+// Aditionally makes a conversion on the case of positive result.
+func IsBool(value string) (isBool bool, convertedValue bool) {
+	v, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, false
+	}
+	return true, v
+}
 
+// IsPath is a function used to check if a string value haves the format of a path or not.
+// On case of positive result, returns the same value.
+func IsPath(value string) (bool, string) {
+	pathRgx := regexp.MustCompile(`^(:?\/)[\/+\w-?]+(\.[a-z]+)?$`)
+	if pathRgx.MatchString(value) {
+		return false, ""
+	}
+	return true, value
+}
