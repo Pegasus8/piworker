@@ -13,3 +13,11 @@ jobs:
         # uses: docker://reviewdog/action-golangci-lint:v1 # pre-build docker image
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+  eslint:
+    name: eslint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code into directory
+        uses: actions/checkout@v1
+      - name: ESLint check
+        uses: gimenete/eslint-action@1.0
