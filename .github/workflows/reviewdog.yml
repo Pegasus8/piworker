@@ -19,5 +19,6 @@ jobs:
     steps:
       - name: Check out code into directory
         uses: actions/checkout@v1
+        run: cd ~/webui/frontend
       - name: ESLint check
         uses: gimenete/eslint-action@1.0
