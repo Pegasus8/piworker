@@ -20,6 +20,8 @@ jobs:
       - name: Check out code into directory
         uses: actions/checkout@v1
       - name: cd to frontend path
-        run: cd ~/webui/frontend
+        run: cd $GITHUB_WORKSPACE/webui/frontend
+      - name: Temporal command
+      - run: ls
       - name: ESLint check
         uses: gimenete/eslint-action@1.0
