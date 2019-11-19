@@ -2,12 +2,11 @@ package models
 
 import (
 	"errors"
+	"github.com/Pegasus8/piworker/processment/types"
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/elements/actions"
 	"github.com/Pegasus8/piworker/processment/uservariables"
-	"github.com/Pegasus8/piworker/utilities/typeconversion"
 	"log"
-	"reflect"
 	"strings"
 )
 
@@ -35,9 +34,9 @@ var GetGlobalVariable = actions.Action{
 		},
 	},
 	ReturnedChainResultDescription: "The content of the obtained variable.",
-	ReturnedChainResultType:        reflect.String, // Any type, but represented as string
+	ReturnedChainResultType:        types.TypeAny,
 	AcceptedChainResultDescription: "Name of the variable",
-	AcceptedChainResultType:        reflect.String, 
+	AcceptedChainResultType:        types.TypeString, 
 }
 
 func getGlobalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
@@ -64,14 +63,14 @@ func getGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 	}
 
 	if parentAction.Chained {
-		if reflect.ValueOf(previousResult.Result).IsNil() {
+		if previousResult.Result == "" {
 			log.Println(ErrEmptyChainedResult.Error())
 		} else {
-			if previousResult.ResultType == reflect.String {
+			if previousResult.ResultType == types.TypeString {
 				// Overwrite name of the variable
-				variableName = typeconversion.ConvertToString(previousResult.Result)
+				variableName = previousResult.Result
 			} else {
-				log.Printf("[%s] Type of previous ChainedResult (%s) differs with the required type (%s).\n", parentTaskName, previousResult.ResultType.String(), reflect.String.String())
+				log.Printf("[%s] Type of previous ChainedResult (%d) differs with the required type (%d).\n", parentTaskName, previousResult.ResultType, types.TypeString)
 			}
 		}
 	}
@@ -85,5 +84,5 @@ func getGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 		return false, &actions.ChainedResult{}, err
 	}
 
-	return true, &actions.ChainedResult{Result: globalVariable.Content, ResultType: reflect.String}, nil
+	return true, &actions.ChainedResult{Result: globalVariable.Content, ResultType: types.TypeAny}, nil
 }
