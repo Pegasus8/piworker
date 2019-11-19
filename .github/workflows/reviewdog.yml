@@ -13,15 +13,13 @@ jobs:
         # uses: docker://reviewdog/action-golangci-lint:v1 # pre-build docker image
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-  eslint:
-    name: eslint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out code into directory
-        uses: actions/checkout@v1
-      - name: cd to frontend path
-        run: cd $GITHUB_WORKSPACE/webui/frontend
-      - name: Temporal command
-        run: ls
-      - name: ESLint check
-        uses: gimenete/eslint-action@1.0
+  # eslint:
+  #   name: eslint
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Check out code into directory
+  #       uses: actions/checkout@v1
+  #     - name: cd to frontend path
+  #       run: cd $GITHUB_WORKSPACE/webui/frontend
+  #     - name: ESLint check
+  #       uses: gimenete/eslint-action@1.0
