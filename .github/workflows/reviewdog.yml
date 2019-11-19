@@ -22,6 +22,6 @@ jobs:
       - name: cd to frontend path
         run: cd $GITHUB_WORKSPACE/webui/frontend
       - name: Temporal command
-      - run: ls
+        run: ls
       - name: ESLint check
         uses: gimenete/eslint-action@1.0
