@@ -2,14 +2,11 @@ package models
 
 import (
 	"errors"
+	"github.com/Pegasus8/piworker/processment/types"
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/elements/actions"
 	"github.com/Pegasus8/piworker/processment/uservariables"
-	"github.com/Pegasus8/piworker/utilities/typeconversion"
 	"log"
-	"reflect"
-	"regexp"
-	"strconv"
 	"strings"
 )
 
@@ -47,9 +44,9 @@ var SetLocalVariable = actions.Action{
 		},
 	},
 	ReturnedChainResultDescription: "The content setted to the variable.",
-	ReturnedChainResultType:        reflect.String, // REVIEW This maybe is incorrect
-	AcceptedChainResultDescription: "Any content.",
-	AcceptedChainResultType:        reflect.String, // REVIEW This maybe is incorrect
+	ReturnedChainResultType:        types.TypeAny,
+	AcceptedChainResultDescription: "Any content. The content received.",
+	AcceptedChainResultType:        types.TypeAny,
 }
 
 func setLocalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
@@ -80,15 +77,10 @@ func setLocalVariableAction(previousResult *actions.ChainedResult, parentAction 
 	}
 
 	if parentAction.Chained {
-		if reflect.ValueOf(previousResult.Result).IsNil() {
+		if previousResult.Result == "" {
 			log.Println(ErrEmptyChainedResult.Error())
 		} else {
-			if previousResult.ResultType == reflect.String {
-				// Overwrite content of the variable
-				variableContent = typeconversion.ConvertToString(previousResult.Result)
-			} else {
-				log.Printf("[%s] Type of previous ChainedResult (%s) differs with the required type (%s).\n", parentTaskName, previousResult.ResultType.String(), reflect.String.String())
-			}
+			// No needed check the type
 		}
 	}
 
@@ -96,37 +88,7 @@ func setLocalVariableAction(previousResult *actions.ChainedResult, parentAction 
 		return false, &actions.ChainedResult{}, errors.New("Error: variableName or variableContent empty")
 	}
 
-	// Try conversion of the variable
-	var variableType int
-	var pathRgx *regexp.Regexp
-	_, err = strconv.ParseInt(variableContent, 10, 64)
-	if err == nil {
-		// If there is no error the type of the content is integer
-		variableType = uservariables.TypeInt
-		goto gvDefinition
-	}
-	_, err = strconv.ParseFloat(variableContent, 64)
-	if err == nil {
-		// If there is no error the type of the content is float
-		variableType = uservariables.TypeFloat
-		goto gvDefinition
-	}
-	_, err = strconv.ParseBool(variableContent)
-	if err == nil {
-		// If there is no error the type of the content is boolean
-		variableType = uservariables.TypeBool
-		goto gvDefinition
-	}
-	pathRgx = regexp.MustCompile(`^(:?\/)[\/+\w-?]+(\.[a-z]+)?$`)
-	if pathRgx.MatchString(variableContent) {
-		// If regex match the type of the content is a path.
-		variableType = uservariables.TypePath
-		goto gvDefinition
-	}
-	// If none of the other types match, then is a string.
-	variableType = uservariables.TypeString
-
-	gvDefinition:
+	variableType := types.GetType(variableContent)
 
 	lv := &uservariables.LocalVariable{
 		Name:    variableName,
@@ -158,5 +120,5 @@ func setLocalVariableAction(previousResult *actions.ChainedResult, parentAction 
 	}
 
 
-	return true, &actions.ChainedResult{Result: variableContent, ResultType: reflect.String}, nil
+	return true, &actions.ChainedResult{Result: variableContent, ResultType: variableType}, nil
 }

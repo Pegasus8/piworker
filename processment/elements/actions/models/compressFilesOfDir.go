@@ -7,11 +7,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"reflect"
 
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/elements/actions"
-	"github.com/Pegasus8/piworker/utilities/typeconversion"
+	"github.com/Pegasus8/piworker/processment/types"
 )
 
 // ID's
@@ -50,9 +49,9 @@ var CompressFilesOfDir = actions.Action{
 		},
 	},
 	ReturnedChainResultDescription: "The path of the compressed file.",
-	ReturnedChainResultType:        reflect.String,
+	ReturnedChainResultType:        types.TypePath,
 	AcceptedChainResultDescription: "The directory where the files compressed are located.",
-	AcceptedChainResultType:        reflect.String,
+	AcceptedChainResultType:        types.TypePath,
 }
 
 func compressFilesOfDir(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
@@ -78,14 +77,14 @@ func compressFilesOfDir(previousResult *actions.ChainedResult, parentAction *dat
 	}
 
 	if parentAction.Chained {
-		if reflect.ValueOf(previousResult.Result).IsNil() {
+		if previousResult.Result == "" {
 			log.Println(ErrEmptyChainedResult.Error())
 		} else {
-			if previousResult.ResultType == reflect.String {
+			if previousResult.ResultType == types.TypePath {
 				// Overwrite targetDir
-				targetDir = typeconversion.ConvertToString(previousResult.Result)
+				targetDir = previousResult.Result
 			} else {
-				log.Printf("[%s] Type of previous ChainedResult (%s) differs with the required type (%s).\n", parentTaskName, previousResult.ResultType.String(), reflect.String.String())
+				log.Printf("[%s] Type of previous ChainedResult (%d) differs with the required type (%d).\n", parentTaskName, previousResult.ResultType, types.TypePath)
 			}
 		}
 	}
@@ -149,5 +148,5 @@ func compressFilesOfDir(previousResult *actions.ChainedResult, parentAction *dat
 
 	log.Printf("[%s] Files compression finished into directory '%s'\n", parentTaskName, outputDir)
 
-	return true, &actions.ChainedResult{Result: outputDir, ResultType: reflect.String}, nil
+	return true, &actions.ChainedResult{Result: outputDir, ResultType: types.TypePath}, nil
 }

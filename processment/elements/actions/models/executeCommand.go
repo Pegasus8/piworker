@@ -1,17 +1,16 @@
 package models
 
 import (
+	"errors"
+	"log"
 	"os/exec"
 	"strings"
 	"time"
-	"reflect"
-	"log"
-	"errors"
 
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/elements/actions"
+	"github.com/Pegasus8/piworker/processment/types"
 	"github.com/Pegasus8/piworker/utilities/files"
-	"github.com/Pegasus8/piworker/utilities/typeconversion"
 )
 
 // ID's
@@ -48,9 +47,9 @@ var ExecuteCommand = actions.Action{
 		},
 	},
 	ReturnedChainResultDescription: "The command to execute.",
-	ReturnedChainResultType: reflect.String,
+	ReturnedChainResultType:        types.TypeString,
 	AcceptedChainResultDescription: "The output of the command executed.",
-	AcceptedChainResultType: reflect.String,
+	AcceptedChainResultType:        types.TypeString,
 }
 
 func executeCommand(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
@@ -66,23 +65,23 @@ func executeCommand(previousResult *actions.ChainedResult, parentAction *data.Us
 	for _, arg := range *args {
 		switch arg.ID {
 		case commandExecuteCommandID:
-				command = strings.TrimSpace(arg.Content)
+			command = strings.TrimSpace(arg.Content)
 		case argumentsExecuteCommandID:
-				commandArgs = strings.Split(arg.Content, ",")
+			commandArgs = strings.Split(arg.Content, ",")
 		default:
 			return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
 		}
 	}
 
 	if parentAction.Chained {
-		if reflect.ValueOf(previousResult.Result).IsNil() {
+		if previousResult.Result == "" {
 			log.Println(ErrEmptyChainedResult.Error())
 		} else {
-			if previousResult.ResultType == reflect.String {
+			if previousResult.ResultType == types.TypeString {
 				// Overwrite command
-				command = typeconversion.ConvertToString(previousResult.Result)
+				command = previousResult.Result
 			} else {
-				log.Printf("[%s] Type of previous ChainedResult (%s) differs with the required type (%s).\n", parentTaskName, previousResult.ResultType.String(), reflect.String.String())
+				log.Printf("[%s] Type of previous ChainedResult (%d) differs with the required type (%d).\n", parentTaskName, previousResult.ResultType, types.TypeString)
 			}
 		}
 	}
@@ -100,10 +99,10 @@ func executeCommand(previousResult *actions.ChainedResult, parentAction *data.Us
 	now := time.Now().String()
 	now = strings.ReplaceAll(now, " ", "_")
 
-	_, err = files.WriteFile(".", "cmd_" + now + ".txt", output)
+	_, err = files.WriteFile(".", "cmd_"+now+".txt", output)
 	if err != nil {
 		return false, &actions.ChainedResult{}, err
 	}
 
-	return true, &actions.ChainedResult{Result: string(output), ResultType: reflect.String}, nil
+	return true, &actions.ChainedResult{Result: string(output), ResultType: types.TypeString}, nil
 }

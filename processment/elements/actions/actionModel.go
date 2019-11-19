@@ -2,7 +2,6 @@ package actions
 
 import (
 	"github.com/Pegasus8/piworker/processment/data"
-	"reflect"
 )
 
 // Action is a struct used in every Action
@@ -12,9 +11,9 @@ type Action struct {
 	Description string `json:"description"`
 	Run func(previousResult *ChainedResult, parentAction *data.UserAction, parentTaskName string) (bool, *ChainedResult, error)  `json:"-"`
 	ReturnedChainResultDescription string `json:"returnedChainResultDescription"`
-	ReturnedChainResultType reflect.Kind `json:"returnedChainResultType"`
+	ReturnedChainResultType uint `json:"returnedChainResultType"`
 	AcceptedChainResultDescription string `json:"acceptedChainResultDescription"`
-	AcceptedChainResultType reflect.Kind `json:"acceptedChainResultType"`
+	AcceptedChainResultType uint `json:"acceptedChainResultType"`
 	Args []Arg `json:"args"`
 }
 
@@ -23,13 +22,12 @@ type Arg struct {
 	ID string `json:"ID"`
 	Name string `json:"name"`
 	Description string `json:"description"`
-	// Content interface{} `json:"content"`
 	// Must be one type from here: https://bootstrap-vue.js.org/docs/components/form-input/#input-type
 	ContentType string `json:"contentType"`
 }
 
 // ChainedResult is the struct used to communicate each consecutive action.
 type ChainedResult struct {
-	Result interface{}
-	ResultType reflect.Kind
+	Result string
+	ResultType uint
 }
