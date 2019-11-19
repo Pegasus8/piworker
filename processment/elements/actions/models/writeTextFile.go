@@ -1,15 +1,14 @@
 package models
 
 import (
-	"path/filepath"
-	"os"
-	"log"
-	"reflect"
 	"errors"
+	"log"
+	"os"
+	"path/filepath"
 
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/elements/actions"
-	"github.com/Pegasus8/piworker/utilities/typeconversion"
+	"github.com/Pegasus8/piworker/processment/types"
 )
 
 // ID's
@@ -21,7 +20,7 @@ const (
 	contentWriteTextFileArgID  = "A1-1"
 	filenameWriteTextFileArgID = "A1-2"
 	modeWriteTextFileArgID     = "A1-3"
-	pathWriteTextFileArgID = "A1-4"
+	pathWriteTextFileArgID     = "A1-4"
 )
 
 // WriteTextFile - Action
@@ -56,17 +55,17 @@ var WriteTextFile = actions.Action{
 			ContentType: "text",
 		},
 		actions.Arg{
-			ID:   pathWriteTextFileArgID,
-			Name: "Path",
+			ID:          pathWriteTextFileArgID,
+			Name:        "Path",
 			Description: "Path where the file will be saved. Example: /home/pegasus8/Desktop/",
 			// Content:     "",
 			ContentType: "text",
 		},
 	},
 	ReturnedChainResultDescription: "The path where will be writed the file.",
-	ReturnedChainResultType: reflect.String,
+	ReturnedChainResultType:        types.TypePath,
 	AcceptedChainResultDescription: "The path of the written file.",
-	AcceptedChainResultType: reflect.String,
+	AcceptedChainResultType:        types.TypePath,
 }
 
 func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
@@ -78,7 +77,7 @@ func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *da
 	var filename string
 	// Writing mode
 	var writingMode string
-	// Path 
+	// Path
 	var path string
 
 	args = &parentAction.Args
@@ -103,9 +102,9 @@ func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *da
 			}
 		case pathWriteTextFileArgID:
 			path = filepath.Clean(arg.Content)
-		default: 
+		default:
 			{
-				log.Println("[%s] Unrecongnized argument with the ID '%s' on the " + 
+				log.Println("[%s] Unrecongnized argument with the ID '%s' on the "+
 					"action WriteTextFile\n", parentTaskName, arg.ID)
 				return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
 			}
@@ -114,14 +113,14 @@ func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *da
 	}
 
 	if parentAction.Chained {
-		if reflect.ValueOf(previousResult.Result).IsNil() {
+		if previousResult.Result == "" {
 			log.Println(ErrEmptyChainedResult.Error())
 		} else {
-			if previousResult.ResultType == reflect.String {
+			if previousResult.ResultType == types.TypePath {
 				// Overwrite path
-				path = typeconversion.ConvertToString(previousResult.Result)
+				path = previousResult.Result
 			} else {
-				log.Printf("[%s] Type of previous ChainedResult (%s) differs with the required type (%s).\n", parentTaskName, previousResult.ResultType.String(), reflect.String.String())
+				log.Printf("[%s] Type of previous ChainedResult (%d) differs with the required type (%d).\n", parentTaskName, previousResult.ResultType, types.TypePath)
 			}
 		}
 	}
@@ -153,5 +152,5 @@ func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *da
 
 	log.Printf("[%s] File written by the action WriteTextFile. Bytes written: %d\n", parentTaskName, bytesWrited)
 
-	return true, &actions.ChainedResult{Result: fullpath, ResultType: reflect.String}, nil
+	return true, &actions.ChainedResult{Result: fullpath, ResultType: types.TypePath}, nil
 }
