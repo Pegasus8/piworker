@@ -70,7 +70,7 @@ func getLocalVariableAction(previousResult *actions.ChainedResult, parentAction 
 				// Overwrite name of the variable
 				variableName = previousResult.Result
 			} else {
-				log.Printf("[%s] Type of previous ChainedResult (%d) differs with the required type (%s).\n", parentTaskName, previousResult.ResultType, types.TypeString)
+				log.Printf("[%s] Type of previous ChainedResult (%d) differs with the required type (%d).\n", parentTaskName, previousResult.ResultType, types.TypeString)
 			}
 		}
 	}
