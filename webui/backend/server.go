@@ -362,6 +362,39 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 	json.NewEncoder(w).Encode(userData.Tasks)
 }
 
+func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
+	w.Header().Set("Content-Type", "application/json")
+	var response = struct {
+		Successful bool `json:"successful"`
+		Error string `json:"error"`
+		Logs []string `json:"logs"`
+	}{}
+	var reqData = struct {
+		Taskname string `json:"taskname"`
+		Date time.Time `json:"date"`
+	}{}
+
+	body, err := ioutil.ReadAll(request.Body)
+	if err != nil {
+		response.Error = err.Error()
+		goto resp
+	}
+
+	err = json.Unmarshal(body, &reqData)
+	if err != nil {
+		response.Error = err.Error()
+		goto resp
+	}
+
+	// TODO Get logs of the specified date
+
+	response.Successful = true
+
+	resp:
+
+	json.NewEncoder(w).Encode(response)
+}
+
 func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 }
 
