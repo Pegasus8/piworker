@@ -1,15 +1,15 @@
 package main
 
 import (
-	"path/filepath"
-	"time"
-	"os"
 	"log"
+	"os"
+	"path/filepath"
 
 	"github.com/Pegasus8/piworker/processment/data"
-	"github.com/Pegasus8/piworker/processment/engine" 
+	"github.com/Pegasus8/piworker/processment/engine"
 	// "github.com/Pegasus8/piworker/processment/configs"
 	"github.com/Pegasus8/piworker/processment/uservariables"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 func main() {
@@ -22,8 +22,7 @@ func main() {
 
 func start() {
 	// Logs settings
-	logFile := setLogSettings()
-	defer logFile.Close()
+	setLogSettings()
 
 	log.Println("Running PiWorker...")
 	// Set user data filename
@@ -50,8 +49,7 @@ func start() {
 
 	// Start the Dynamic Engine
 	engine.StartEngine()
-} 
-
+}
 
 func prepareLogsDirectory(dir string) error {
 	// Create dir if not exists
@@ -62,27 +60,22 @@ func prepareLogsDirectory(dir string) error {
 	return nil
 }
 
-func setLogSettings() (logFile *os.File){
+func setLogSettings() {
 	var (
-		loggingDir = "./logs/"
-		logFilename = setLogNameByDate("log")
+		loggingDir  = "./logs/"
+		logFilename = "last.log"
 		logFullpath = filepath.Join(loggingDir, logFilename)
 	)
 
-	if err := prepareLogsDirectory(loggingDir); err != nil { log.Panicln(err) }
-	f, err := os.OpenFile(
-		logFullpath, os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666,
-	)
-	if err != nil { log.Panicln(err) }
+	if err := prepareLogsDirectory(loggingDir); err != nil {
+		log.Panicln(err)
+	}
 
-	log.SetOutput(f)
+	log.SetOutput(&lumberjack.Logger{
+		Filename:  logFullpath,
+		MaxSize:   25,
+		MaxAge:    7,
+		LocalTime: true,
+	})
 	log.SetFlags(log.Ldate | log.Lmicroseconds | log.Lshortfile)
-
-	return f
-}
-
-func setLogNameByDate(name string) (formattedName string) {
-	now := time.Now().Format("02-01-2006")
-
-	return name + "_" + now + ".log"
 }
