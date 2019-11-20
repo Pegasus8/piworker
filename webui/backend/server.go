@@ -61,6 +61,9 @@ func setupRoutes() {
 	if apiConfigs.GetAllTasksAPI {
 		router.Handle("/api/tasks/get-all", auth.IsAuthorized(getTasksAPI)).Methods("GET")
 	}
+	if apiConfigs.LogsAPI {
+		router.Handle("/api/tasks/logs", auth.IsAuthorized(logsAPI)).Methods("GET")
+	}
 	if apiConfigs.StatisticsAPI {
 		router.Handle("/api/info/statistics", auth.IsAuthorized(statisticsAPI)).Methods("GET")
 	}
