@@ -58,7 +58,7 @@ func setupRoutes() {
 		router.Handle("/api/tasks/modify", auth.IsAuthorized(modifyTaskAPI)).Methods("POST")
 	}
 	if apiConfigs.DeleteTaskAPI {
-		router.Handle("/api/tasks/delete", auth.IsAuthorized(deleteTaskAPI)).Methods("POST")
+		router.Handle("/api/tasks/delete", auth.IsAuthorized(deleteTaskAPI)).Methods("DELETE")
 	}
 	if apiConfigs.GetAllTasksAPI {
 		router.Handle("/api/tasks/get-all", auth.IsAuthorized(getTasksAPI)).Methods("GET")
@@ -311,7 +311,7 @@ func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PO
 	json.NewEncoder(w).Encode(response)
 }
 
-func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
+func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: DELETE
 	w.Header().Set("Content-Type", "application/json")
 	var response postResponse
 	var toDelete = struct {
