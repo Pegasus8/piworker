@@ -6,30 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-
-	"github.com/Pegasus8/piworker/utilities/files"
 )
-
-func init() {
-	configsPath := filepath.Join(ConfigsPath, Filename)
-	exists, err := files.Exists(configsPath)
-	if err != nil {
-		log.Fatal(err.Error())
-	}
-	if !exists {
-		CurrentConfigs = &DefaultConfigs
-		err = WriteToFile()
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-	} else {
-		log.Println("Configs file found")
-		err = ReadFromFile()
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-	}
-}
 
 // ReadFromFile is a method used to read the configs file and parse the content into
 // the `Configs` struct.

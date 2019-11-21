@@ -7,8 +7,10 @@ import (
 
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/engine"
-	// "github.com/Pegasus8/piworker/processment/configs"
+	"github.com/Pegasus8/piworker/processment/configs"
 	"github.com/Pegasus8/piworker/processment/uservariables"
+	"github.com/Pegasus8/piworker/processment/logs"
+	"github.com/Pegasus8/piworker/utilities/files"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -27,6 +29,8 @@ func start() {
 	log.Println("Running PiWorker...")
 	// Set user data filename
 	data.Filename = "user_data.json" //TODO: assign the name dinamically
+
+	initConfigs()
 
 	log.Println("Getting user variables from files...")
 	log.Println("Reading user global variables...")
@@ -61,13 +65,9 @@ func prepareLogsDirectory(dir string) error {
 }
 
 func setLogSettings() {
-	var (
-		loggingDir  = "./logs/"
-		logFilename = "last.log"
-		logFullpath = filepath.Join(loggingDir, logFilename)
-	)
+	logFullpath := filepath.Join(logs.LogsPath, logs.Filename)
 
-	if err := prepareLogsDirectory(loggingDir); err != nil {
+	if err := prepareLogsDirectory(logs.LogsPath); err != nil {
 		log.Panicln(err)
 	}
 
@@ -78,4 +78,25 @@ func setLogSettings() {
 		LocalTime: true,
 	})
 	log.SetFlags(log.Ldate | log.Lmicroseconds | log.Lshortfile)
+}
+
+func initConfigs() {
+	configsPath := filepath.Join(configs.ConfigsPath, configs.Filename)
+	exists, err := files.Exists(configsPath)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	if !exists {
+		configs.CurrentConfigs = &configs.DefaultConfigs
+		err = configs.WriteToFile()
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+	} else {
+		log.Println("Configs file found")
+		err = configs.ReadFromFile()
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+	}
 }
