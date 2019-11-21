@@ -389,7 +389,7 @@ func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 		goto resp
 	}
 
-	err = json.Unmarshall(body, &reqData)
+	err = json.Unmarshal(body, &reqData)
 	if err != nil {
 		response.Error = err.Error()
 		goto resp
