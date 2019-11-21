@@ -43,6 +43,8 @@ func setupRoutes() {
 
 	box := packr.New("WebUI", "../frontend/dist")
 
+	auth.CheckSigningKey()
+
 	router := mux.NewRouter()
 	router.Use(loggingMiddleware)
 

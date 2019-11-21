@@ -16,15 +16,6 @@ import (
 
 var signingKey []byte
 
-func init() {
-	// Not needed to use CurrentConfigs.RLock() because this happens only one time: when the package 
-	// is imported for first time.
-	if configs.CurrentConfigs.APIConfigs.SigningKey == "" {
-		generateSigningKey()
-	}
-	signingKey = []byte(configs.CurrentConfigs.APIConfigs.SigningKey)
-}
-
 // NewJWT is a function to generate a new JWT tokken
 func NewJWT(claim CustomClaims) (jwtToken string, err error) {
 	token := jwt.New(jwt.SigningMethodHS256)
@@ -113,6 +104,17 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
             fmt.Fprintf(w, "Not authorized.")
         }
     })
+}
+
+// CheckSigningKey checks if the SigningKey on the configs already exists. If not, it will be
+// generated and saved on the configs file.
+func CheckSigningKey() {
+	// Not needed to use CurrentConfigs.RLock() because this happens only one time: when the package 
+	// is imported for first time.
+	if configs.CurrentConfigs.APIConfigs.SigningKey == "" {
+		generateSigningKey()
+	}
+	signingKey = []byte(configs.CurrentConfigs.APIConfigs.SigningKey)
 }
 
 func generateSigningKey() {
