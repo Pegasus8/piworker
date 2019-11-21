@@ -31,11 +31,18 @@ Some of these APIs need authentication, so each petition needs have a header (`T
       Retreived data: **[[UserData.Tasks](https://github.com/Pegasus8/PiWorker/blob/6b6f13a04a2d23b782be2c6918a52490e71129a8/processment/data/dataModel.go#L4)]**. 
       **Token required**
 
+### Logs
+- [ ] Path: **`/api/tasks/logs`**.
+      Method: **GET**.
+      Body: **`{"taskname": "", "from": "dd/mm/yyyy", "to": "dd/mm/yyyy"}`**. *Leave `taskname` field empty to get all the logs.*
+      Retreived data: **`{"logs": ["one line", "another line", "..."]}`**
+
 ### Statistics (**Not implemented**)
 - [ ] Path: **`/api/info/statistics`**. 
       Method: **GET**. 
       Retreived data: **`{}`**. 
      **Token required**
+
 ______
 ## WebSocket
 - [x] Path: **`/ws`**. 

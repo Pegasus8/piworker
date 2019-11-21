@@ -8,6 +8,7 @@ import (
 	"time"
 	"io/ioutil"
 	"os"
+	"strings"
 
 	"github.com/Pegasus8/piworker/processment/stats"
 	"github.com/Pegasus8/piworker/webui/backend/auth"
@@ -16,6 +17,7 @@ import (
 	"github.com/Pegasus8/piworker/processment/configs"
 	triggersList"github.com/Pegasus8/piworker/processment/elements/triggers/models"
 	actionsList "github.com/Pegasus8/piworker/processment/elements/actions/models"
+	pwLogs "github.com/Pegasus8/piworker/processment/logs"
 
 	"github.com/gorilla/mux"
 	jwt "github.com/dgrijalva/jwt-go"
@@ -60,6 +62,9 @@ func setupRoutes() {
 	}
 	if apiConfigs.GetAllTasksAPI {
 		router.Handle("/api/tasks/get-all", auth.IsAuthorized(getTasksAPI)).Methods("GET")
+	}
+	if apiConfigs.LogsAPI {
+		router.Handle("/api/tasks/logs", auth.IsAuthorized(logsAPI)).Methods("GET")
 	}
 	if apiConfigs.StatisticsAPI {
 		router.Handle("/api/info/statistics", auth.IsAuthorized(statisticsAPI)).Methods("GET")
@@ -357,6 +362,55 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 	}
 
 	json.NewEncoder(w).Encode(userData.Tasks)
+}
+
+func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
+	w.Header().Set("Content-Type", "application/json")
+	var response = struct {
+		Successful bool `json:"successful"`
+		Error string `json:"error"`
+		Logs []string `json:"logs"`
+	}{}
+	var reqData = struct {
+		Taskname string `json:"taskname"`
+		Date string `json:"date"`
+	}{}
+	var logsContent string
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println("Recovering from panic triggered when getting logs")
+		}
+	}()
+
+	body, err := ioutil.ReadAll(request.Body)
+	if err != nil {
+		response.Error = err.Error()
+		goto resp
+	}
+
+	err = json.Unmarshal(body, &reqData)
+	if err != nil {
+		response.Error = err.Error()
+		goto resp
+	}
+	
+	logsContent, err = pwLogs.GetLogs()
+	if err != nil {
+		log.Panicln("Cannot get the logs of PiWorker:", err.Error())
+	}
+	
+	reqData.Date = strings.TrimSpace(reqData.Date)
+	response.Logs, err = pwLogs.GetTaskLogs(&logsContent, reqData.Taskname, reqData.Date)
+	if err != nil {
+		response.Error = err.Error()
+	} else {
+		response.Successful = true
+	}
+
+	resp:
+
+	json.NewEncoder(w).Encode(response)
 }
 
 func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET

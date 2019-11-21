@@ -22,3 +22,4 @@ Installation (**Untested**):
 * [Packr](https://github.com/gobuffalo/packr/v2)
 * [Jwt-go](https://github.com/dgrijalva/jwt-go)
 * [Nanoid](https://github.com/aidarkhanov/nanoid)
+* [Lumberjack](https://github.com/natefinch/lumberjack)

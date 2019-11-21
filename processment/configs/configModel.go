@@ -45,6 +45,7 @@ type APIConfigs struct {
 	DeleteTaskAPI bool `json:"delete-task-api"`
 	GetAllTasksAPI bool `json:"get-all-tasks-api"`
 	StatisticsAPI bool `json:"statistics-api"`
+	LogsAPI bool `json:"logs-api"`
 
 	// Authentication
 	RequireToken bool `json:"require-token"`
