@@ -30,9 +30,7 @@ func GetTaskLogs(logs *string, taskname, date string) (taskLogs []string, err er
 	}
 	var rgx = regexp.MustCompile(`(?m)^(` + date + `).+:\s\[([` + taskname + `]+)\].+$`)
 
-	for _, match := range rgx.FindAllString(*logs, -1) {
-        taskLogs = append(taskLogs, match)
-	}
+    taskLogs = append(taskLogs, rgx.FindAllString(*logs, -1)...)
 
 	return taskLogs, nil
 }
