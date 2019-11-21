@@ -8,6 +8,7 @@ import (
 	"time"
 	"io/ioutil"
 	"os"
+	"strings"
 
 	"github.com/Pegasus8/piworker/processment/stats"
 	"github.com/Pegasus8/piworker/webui/backend/auth"
@@ -16,6 +17,7 @@ import (
 	"github.com/Pegasus8/piworker/processment/configs"
 	triggersList"github.com/Pegasus8/piworker/processment/elements/triggers/models"
 	actionsList "github.com/Pegasus8/piworker/processment/elements/actions/models"
+	pwLogs "github.com/Pegasus8/piworker/processment/logs"
 
 	"github.com/gorilla/mux"
 	jwt "github.com/dgrijalva/jwt-go"
@@ -371,8 +373,15 @@ func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 	}{}
 	var reqData = struct {
 		Taskname string `json:"taskname"`
-		Date time.Time `json:"date"`
+		Date string `json:"date"`
 	}{}
+	var logsContent string
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println("Recovering from panic triggered when getting logs")
+		}
+	}()
 
 	body, err := ioutil.ReadAll(request.Body)
 	if err != nil {
@@ -380,15 +389,24 @@ func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 		goto resp
 	}
 
-	err = json.Unmarshal(body, &reqData)
+	err = json.Unmarshall(body, &reqData)
 	if err != nil {
 		response.Error = err.Error()
 		goto resp
 	}
-
-	// TODO Get logs of the specified date
-
-	response.Successful = true
+	
+	logsContent, err = pwLogs.GetLogs()
+	if err != nil {
+		log.Panicln("Cannot get the logs of PiWorker:", err.Error())
+	}
+	
+	reqData.Date = strings.TrimSpace(reqData.Date)
+	response.Logs, err = pwLogs.GetTaskLogs(&logsContent, reqData.Taskname, reqData.Date)
+	if err != nil {
+		response.Error = err.Error()
+	} else {
+		response.Successful = true
+	}
 
 	resp:
 
