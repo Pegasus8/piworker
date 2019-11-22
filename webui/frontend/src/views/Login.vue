@@ -119,22 +119,4 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-
-.fade-enter {
-  opacity: 0;
-}
-
-.fade-enter-active {
-  transition: opacity 1s;
-  // opacity: 1; // Opacity is 1 by default
-}
-
-// .fade-leave {
-//   // opacity: 1; // Opacity is 1 by default
-// }
-
-.fade-leave-active {
-  transition: opacity 1s;
-  opacity: 0;
-}
 </style>
