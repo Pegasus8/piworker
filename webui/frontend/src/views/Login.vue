@@ -43,25 +43,25 @@
         </template>
       </b-card>
       <transition name="fade">
-        <b-alert
-          :show="showAlert"
-          variant="warning"
-          class="mt-3 text-left"
+        <div
+          v-if="showAlert"
+          class="alert alert-warning mt-3"
+          role="alert"
         >
           Wrong user/password
-        </b-alert>
+        </div>
       </transition>
       <transition name="fade">
-        <b-alert
-          :show="errorOnLogin"
-          variant="danger"
-          class="mt-3 text-left"
+        <div
+          v-if="errorOnLogin"
+          class="alert alert-danger mt-3"
+          role="alert"
         >
           <h4>Error when trying to login</h4>
           <p>Please, check your connection with PiWorker.</p>
           <hr>
           <p>Error: {{ error }}</p>
-        </b-alert>
+        </div>
       </transition>
     </b-col>
   </b-row>
