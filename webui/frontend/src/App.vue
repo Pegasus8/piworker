@@ -1,7 +1,12 @@
 <template>
   <div id="app">
     <app-navbar/>
-    <router-view/>
+    <transition 
+      name="fade"
+      mode="out-in"
+    >
+      <router-view style="animation-duration: 0.3s"/>
+    </transition>
   </div>
 </template>
 
