@@ -9,6 +9,7 @@ import PortalVue from 'portal-vue'
 
 import 'bootstrap'; import 'bootstrap/dist/css/bootstrap.min.css'
 import 'bootstrap-vue/dist/bootstrap-vue.css'
+require('vue2-animate/dist/vue2-animate.min.css')
 
 Vue.config.productionTip = false
 Vue.use(UUID)
