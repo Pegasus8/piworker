@@ -16,6 +16,10 @@ const mutations = {
   },
   setTrigger: (state, trigger) => {
     // state.triggerSelected.push(newTrigger)
+    if (!trigger) {
+      state.triggerSelected = []
+      return
+    }
     // JSON.stringify && JSON.parse create a deep copy of the trigger
     state.triggerSelected = [JSON.parse(JSON.stringify(trigger))]
   },
