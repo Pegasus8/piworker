@@ -128,6 +128,9 @@
     <span v-if="!submitted"><span class="icon-checkmark"></span> Save</span>
     <b-spinner v-else variant="dark" class="" label="Loading"/>
   </b-button>
+  <b-alert :show="responseContent != ''" :variant="alertVariant" class="floating-alert" @dismissed='responseContent = ""' dismissible fade>
+    {{ responseContent }}
+  </b-alert>
 </b-container>
 </template>
 
@@ -136,6 +139,7 @@ import Summary from '../components/new-task/Summary.vue'
 import FormGroupContainer from '../components/new-task/FormGroupContainer.vue'
 import { mapMutations, mapGetters } from 'vuex'
 import axios from 'axios'
+import router from '../router'
 
 export default {
   data () {
@@ -143,7 +147,9 @@ export default {
       newTrigger: '',
       newAction: '',
       stateSelected: '',
-      submitted: false
+      submitted: false,
+      alertVariant: 'success',
+      responseContent: ''
     }
   },
   computed: {
@@ -238,6 +244,15 @@ export default {
 
       this.setTaskState(this.stateSelected)
     },
+    clearFields () {
+      this.taskName = ''
+      this.stateSelected = ''
+      this.setTaskState('')
+      this.newTrigger = ''
+      this.newAction = ''
+      this.$store.commit('newTask/setActions', [])
+      this.$store.commit('newTask/setTrigger', null) // cambiar
+    },
     submitTask () {
       if (this.submitted) return
       
@@ -260,8 +275,17 @@ export default {
         .then((response) => {
           if (response.data.successful) {
             // Show a success alert
+            this.alertVariant = 'success'
+            this.responseContent = 'Data submitted correctly!'
+            this.clearFields()
+            setTimeout(() => {
+              this.responseContent = ''
+              router.replace({name: 'statistics'})
+            }, 2000)
           } else {
             // Show an error alert, showing the message received (response.data.error)
+            this.alertVariant = 'danger'
+            this.responseContent = response.data.error
           }
           console.info('Data submitted correctly, response:', response)
           // Change the submitted variable only when the response is received
