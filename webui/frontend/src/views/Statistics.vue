@@ -13,8 +13,8 @@ export default {
   components: {
     appBoxes: Boxes,
     appPanels: Panels
-  },
-  activated () {
+  }/*,
+  created () {
     const socket = new WebSocket(`ws://${location.host}/ws`)
 
     socket.onopen = () => {
@@ -45,6 +45,6 @@ export default {
     socket.onclose = (event) => {
      console.info("Websocket connection closed")
     }
-  }
+  } */
 }
 </script>
