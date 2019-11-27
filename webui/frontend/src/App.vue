@@ -30,4 +30,10 @@ export default {
   text-align: center;
 }
 
+.floating-alert {
+  position: fixed;
+  bottom: 2%;
+  right: 2%;
+}
+
 </style>
