@@ -18,20 +18,12 @@
           </b-card>
         </b-collapse>
         <div class="text-center">
-          <transition name="rotate" mode="out-in">
-            <span
-              v-if="!showDetails"
-              class="icon-circle-down text-muted"
-              v-b-toggle="'collapsePanel' + panelID"
-              @click="showDetails = true"
-            ></span>
-            <span
-              v-else
-              class="icon-circle-up text-muted"
-              v-b-toggle="'collapsePanel' + panelID"
-              @click="showDetails = false"
-            ></span>
-          </transition>
+          <div
+            class="icon-circle-down text-muted"
+            :id="showDetailsBtnID"
+            v-b-toggle="'collapsePanel' + panelID"
+            @click="showDetailsBtn"
+          ></div>
         </div>
       </b-card>
     </b-col>
@@ -39,6 +31,7 @@
 </template>
 
 <script>
+import anime from 'animejs'
 export default {
   props: {
     title: {
@@ -53,11 +46,29 @@ export default {
   data () {
     return {
       panelID: null,
-      showDetails: false
+      showDetails: false,
+      showDetailsBtnID: null
+    }
+  },
+  methods: {
+    showDetailsBtn () {
+      this.showDetails = !this.showDetails
+      
+      let rotation = 0
+      if (this.showDetails ) {
+        rotation = 180
+      }
+      anime({
+        targets: '#' + this.showDetailsBtnID,
+        rotate: rotation,
+        duration: 500,
+        easing: 'easeInOutQuad'
+      })
     }
   },
   mounted () {
     this.panelID = this._uid
+    this.showDetailsBtnID = 'showDetails' + this._uid
   }
 }
 </script>
@@ -65,34 +76,5 @@ export default {
 <style lang="scss" scoped>
 li {
   list-style: none;
-}
-
-// .rotate-enter {
-// }
-
-.rotate-enter-active {
-  -webkit-transition-duration: 1s;
-  -moz-transition-duration: 1s;
-  -o-transition-duration: 1s;
-  transition-duration: 1s;
-  -webkit-transition-property: -webkit-transform;
-  -moz-transition-property: -moz-transform;
-  -o-transition-property: -o-transform;
-  transition-property: transform;
-  transform: rotate(180deg) !important;
-}
-
-// .rotate-leave {
-// }
-
-.rotate-leave-active {
-  -webkit-transition-duration: 1s;
-  -moz-transition-duration: 1s;
-  -o-transition-duration: 1s;
-  transition-duration: 1s;
-  -webkit-transition-property: -webkit-transform;
-  -moz-transition-property: -moz-transform;
-  -o-transition-property: -o-transform;
-  transition-property: transform;
 }
 </style>
