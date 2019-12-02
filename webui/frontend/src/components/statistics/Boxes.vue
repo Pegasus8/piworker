@@ -7,7 +7,7 @@
         md="5"
         lg="3"
         xl="2"
-        class="box border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark"
+        class="border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark"
         id="atcBox"
       >
         <b-card-body class="text-center">
@@ -27,7 +27,7 @@
         md="5"
         lg="3"
         xl="2"
-        class="box border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark"
+        class="border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark"
         id="oetcBox"
       >
         <b-card-body class="text-center">
@@ -47,7 +47,7 @@
         md="5"
         lg="3"
         xl="2"
-        class="box border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark"
+        class="border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark"
         id="itcBox"
       >
         <b-card-body class="text-center">
