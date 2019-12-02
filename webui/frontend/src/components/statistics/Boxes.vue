@@ -8,6 +8,7 @@
         lg="3"
         xl="2"
         class="box border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark"
+        id="atcBox"
       >
         <b-card-body class="text-center">
           <b-card-title class="text-muted h4">Active</b-card-title>
@@ -27,6 +28,7 @@
         lg="3"
         xl="2"
         class="box border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark"
+        id="oetcBox"
       >
         <b-card-body class="text-center">
           <b-card-title class="text-muted h4">On Execution</b-card-title>
@@ -46,6 +48,7 @@
         lg="3"
         xl="2"
         class="box border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark"
+        id="itcBox"
       >
         <b-card-body class="text-center">
           <b-card-title class="text-muted h4">Inactive</b-card-title>
@@ -62,15 +65,69 @@
 </template>
 
 <script>
-import { mapGetters } from 'vuex'
+import anime from 'animejs'
 
 export default {
+  data () {
+    return {
+      atcAnimation: null,
+      oetcAnimation: null,
+      itcAnimation: null,
+      atc: 0,
+      oetc: 0,
+      itc: 0
+    }
+  },
   computed: {
-    ...mapGetters('statistics', [
-      'activeTasksCounter',
-      'onExecutionTasksCounter',
-      'inactiveTasksCounter'
-    ])
+    activeTasksCounter () {
+      if (this.atc != this.$store.getters['statistics/activeTasksCounter']) {
+        if (this.atcAnimation != null) {
+            this.atcAnimation.restart()
+        } else {
+          this.atcAnimation = this.boxAnimation('atcBox')
+        }
+        this.atc = this.$store.getters['statistics/activeTasksCounter']
+      }
+
+      return this.$store.getters['statistics/activeTasksCounter']
+    },
+    onExecutionTasksCounter () {
+      if (this.oetc != this.$store.getters['statistics/onExecutionTasksCounter']) {
+        if (this.oetcAnimation != null) {
+          this.oetcAnimation.restart()
+        } else {
+          this.oetcAnimation = this.boxAnimation('oetcBox')
+        }
+        this.oetc = this.$store.getters['statistics/onExecutionTasksCounter']
+      }
+
+      return this.$store.getters['statistics/onExecutionTasksCounter']
+    },
+    inactiveTasksCounter () {
+      if (this.itc != this.$store.getters['statistics/inactiveTasksCounter']) {
+        if (this.itcAnimation != null) {
+          this.itcAnimation.restart()
+        } else {
+          this.itcAnimation = this.boxAnimation('itcBox')
+        }
+        this.itc = this.$store.getters['statistics/inactiveTasksCounter']
+      }
+
+      return this.$store.getters['statistics/inactiveTasksCounter']
+    }
+  },
+  methods: {
+    boxAnimation (idTarget) {
+      const blue = '48, 170, 232'
+
+      let timeline = anime.timeline({ easing: 'linear', direction: 'alternate' })
+      timeline.add({
+        targets: '#' + idTarget,
+        boxShadow: '0px 0px 15px rgba(' + blue + ', 0.4)',
+      })
+
+      return timeline
+    }
   }
 }
 </script>
