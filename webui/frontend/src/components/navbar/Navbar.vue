@@ -50,7 +50,7 @@
         </router-link>
       </b-navbar-nav>
       <div v-if="$store.getters['auth/isAuthenticated']" class="nav-item">
-        <b-button 
+        <b-button
           variant="secondary"
           class="my-2 my-lg-0"
           @click="$store.dispatch('auth/logout')"

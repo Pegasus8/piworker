@@ -154,20 +154,20 @@ export default {
   },
   computed: {
     ...mapGetters('elementsInfo', [
-      'triggers', 
+      'triggers',
       'actions'
     ]),
     taskName: {
-      get() {
+      get () {
         return this.$store.getters['newTask/taskname']
       },
-      set(newValue) {
+      set (newValue) {
         return this.$store.commit('newTask/setTaskname', newValue)
       }
     },
     isAllSelected () {
-      if (this.taskName && this.stateSelected && 
-        this.$store.getters['newTask/triggerSelected'].length > 0 && 
+      if (this.taskName && this.stateSelected &&
+        this.$store.getters['newTask/triggerSelected'].length > 0 &&
         this.$store.getters['newTask/actionsSelected'].length > 0) {
         return false
       } else {
@@ -189,21 +189,21 @@ export default {
       }
     },
     addActionBtnStyle () {
-      if (!this.$store.getters['newTask/actionsSelected'].length > 0){
+      if (!this.$store.getters['newTask/actionsSelected'].length > 0) {
         return 'outline-primary'
       } else {
         return 'outline-success'
       }
     },
     setTriggerBtnStyle () {
-      if (!this.$store.getters['newTask/triggerSelected'].length > 0){
+      if (!this.$store.getters['newTask/triggerSelected'].length > 0) {
         return 'outline-primary'
       } else {
         return 'outline-success'
       }
     },
     setTaskstateBtnStyle () {
-      if (this.$store.getters['newTask/taskState'] == ''){
+      if (this.$store.getters['newTask/taskState'] == '') {
         return 'outline-primary'
       } else {
         return 'outline-success'
@@ -221,7 +221,7 @@ export default {
       if (!this.newTrigger) {
         return
       }
-      let trigger = this.triggers.filter((t) => {
+      const trigger = this.triggers.filter((t) => {
         return t.name == this.newTrigger
       })
 
@@ -231,7 +231,7 @@ export default {
       if (!this.newAction) {
         return
       }
-      let action = this.actions.filter((a) => {
+      const action = this.actions.filter((a) => {
         return a.name === this.newAction
       })
 
@@ -255,16 +255,16 @@ export default {
     },
     submitTask () {
       if (this.submitted) return
-      
+
       this.submitted = true
       console.info('Submitting a new task to the API...')
       const newTaskData = {
-        'task': {
-          'name': this.$store.getters["newTask/taskname"],
-          'state': this.$store.getters["newTask/taskState"],
+        task: {
+          name: this.$store.getters['newTask/taskname'],
+          state: this.$store.getters['newTask/taskState'],
           // Only send one trigger. This is because, for now, multi-triggers are not supported.
-          'trigger': this.$store.getters["newTask/triggerSelected"][0],
-          'actions': this.$store.getters["newTask/actionsSelected"]
+          trigger: this.$store.getters['newTask/triggerSelected'][0],
+          actions: this.$store.getters['newTask/actionsSelected']
         }
       }
 
@@ -280,7 +280,7 @@ export default {
             this.clearFields()
             setTimeout(() => {
               this.responseContent = ''
-              router.replace({name: 'statistics'})
+              router.replace({ name: 'statistics' })
             }, 2000)
           } else {
             // Show an error alert, showing the message received (response.data.error)

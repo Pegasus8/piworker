@@ -53,9 +53,9 @@ export default {
   methods: {
     showDetailsBtn () {
       this.showDetails = !this.showDetails
-      
+
       let rotation = 0
-      if (this.showDetails ) {
+      if (this.showDetails) {
         rotation = 180
       }
       anime({

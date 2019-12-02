@@ -8,7 +8,7 @@
         :taskState="globalTaskInfo.task.state"
         :triggers="[globalTaskInfo.task.trigger]"
         :actions="globalTaskInfo.task.actions"
-        logs="" 
+        logs=""
       />
       <!-- TODO Logs integration -->
     </b-container>
@@ -30,13 +30,13 @@ import axios from 'axios'
 import { mapGetters } from 'vuex'
 
 export default {
-  data() {
+  data () {
     return {
-      err: ""
+      err: ''
     }
   },
   computed: {
-    ...mapGetters ('userTasks', {
+    ...mapGetters('userTasks', {
       userTasks: 'tasks'
     })
   },

@@ -7,7 +7,7 @@
           <h5 class="font-weight-bold">Sign in</h5>
         </template>
         <b-form>
-          <b-form-group 
+          <b-form-group
             class="text-left"
             label="Username"
             label-for="username"
@@ -21,7 +21,7 @@
               required
             />
           </b-form-group>
-          <b-form-group 
+          <b-form-group
             class="text-left"
             label="Password"
             label-for="passwordInput"
@@ -70,7 +70,7 @@
 
 <script>
 export default {
-  data() {
+  data () {
     return {
       form: {
         username: '',
@@ -83,11 +83,11 @@ export default {
     }
   },
   methods: {
-    login(event) {
-      if (this.waintingResponse){
+    login (event) {
+      if (this.waintingResponse) {
         return // Prevent multiple requests
       }
-      if (!this.form.username || !this.form.password){
+      if (!this.form.username || !this.form.password) {
         return
       }
       event.preventDefault()
