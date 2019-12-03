@@ -8,6 +8,11 @@ import (
 )
 
 func handleFlags() {
+	err := initConfigs()
+	if err != nil {
+		fmt.Println("Error when reading the configs:", err)
+		os.Exit(1)
+	}
 	newUserFlag := flag.Bool("new-user", false, "create a new user")
 	username := flag.String("username", "", "the name of the new user")
 	password := flag.String("password", "", "the password of the new user")
