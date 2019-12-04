@@ -258,20 +258,7 @@ export default {
 
       this.submitted = true
       console.info('Submitting a new task to the API...')
-      const newTaskData = {
-        task: {
-          name: this.$store.getters['newTask/taskname'],
-          state: this.$store.getters['newTask/taskState'],
-          // Only send one trigger. This is because, for now, multi-triggers are not supported.
-          trigger: this.$store.getters['newTask/triggerSelected'][0],
-          actions: this.$store.getters['newTask/actionsSelected']
-        }
-      }
-
-      // TODO Check the integrity of the data
-
-      console.info("Sending the data to the new tasks's API")
-      axios.post('/api/tasks/new', newTaskData)
+      this.$store.dispatch('newTask/submitData')
         .then((response) => {
           if (response.data.successful) {
             // Show a success alert
