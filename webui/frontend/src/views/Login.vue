@@ -7,7 +7,7 @@
           <h5 class="font-weight-bold">Sign in</h5>
         </template>
         <b-form>
-          <b-form-group 
+          <b-form-group
             class="text-left"
             label="Username"
             label-for="username"
@@ -21,7 +21,7 @@
               required
             />
           </b-form-group>
-          <b-form-group 
+          <b-form-group
             class="text-left"
             label="Password"
             label-for="passwordInput"
@@ -43,25 +43,25 @@
         </template>
       </b-card>
       <transition name="fade">
-        <b-alert
-          :show="showAlert"
-          variant="warning"
-          class="mt-3 text-left"
+        <div
+          v-if="showAlert"
+          class="alert alert-warning mt-3"
+          role="alert"
         >
           Wrong user/password
-        </b-alert>
+        </div>
       </transition>
       <transition name="fade">
-        <b-alert
-          :show="errorOnLogin"
-          variant="danger"
-          class="mt-3 text-left"
+        <div
+          v-if="errorOnLogin"
+          class="alert alert-danger mt-3"
+          role="alert"
         >
           <h4>Error when trying to login</h4>
           <p>Please, check your connection with PiWorker.</p>
           <hr>
           <p>Error: {{ error }}</p>
-        </b-alert>
+        </div>
       </transition>
     </b-col>
   </b-row>
@@ -70,7 +70,7 @@
 
 <script>
 export default {
-  data() {
+  data () {
     return {
       form: {
         username: '',
@@ -83,11 +83,11 @@ export default {
     }
   },
   methods: {
-    login(event) {
-      if (this.waintingResponse){
+    login (event) {
+      if (this.waintingResponse) {
         return // Prevent multiple requests
       }
-      if (!this.form.username || !this.form.password){
+      if (!this.form.username || !this.form.password) {
         return
       }
       event.preventDefault()
@@ -119,22 +119,4 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-
-.fade-enter {
-  opacity: 0;
-}
-
-.fade-enter-active {
-  transition: opacity 1s;
-  // opacity: 1; // Opacity is 1 by default
-}
-
-// .fade-leave {
-//   // opacity: 1; // Opacity is 1 by default
-// }
-
-.fade-leave-active {
-  transition: opacity 1s;
-  opacity: 0;
-}
 </style>

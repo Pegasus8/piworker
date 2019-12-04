@@ -6,7 +6,7 @@
 
   <b-card-body class="p-3">
 
-    <app-summary-card 
+    <app-summary-card
       cardTitle="Name of the task"
       :contentToEvaluate="taskName">
       {{ taskName }}
@@ -22,18 +22,18 @@
       cardTitle="Trigger selected"
       :contentToEvaluate="triggers"
       @switchChange="canDragTriggers = $event">
-      <draggable 
+      <draggable
         v-model="triggers"
         v-if="triggers.length > 0"
         :disabled="!canDragTriggers"
-        @start="drag=true" 
+        @start="drag=true"
         @end="drag=false"
         class="list-group">
         <!-- NOTE For trigger parsing, is unnecessary do a for loop
         due to there is a only one trigger per task. This was made
         in this way for a future implementation of multiple triggers. -->
         <div
-          v-for="(userTrigger, index) in triggers" 
+          v-for="(userTrigger, index) in triggers"
           :key="userTrigger.ID + '_' + $uuid.v1()"
           class="list-group-item">
           <div class="d-flex">
@@ -47,16 +47,16 @@
                 to=""
               />
             </div>
-            <button 
-              type="button" 
-              class="close" 
+            <button
+              type="button"
+              class="close"
               aria-label="Remove trigger"
               @click="removeTrigger(index)">
               <span aria-hidden="true">&times;</span>
             </button>
           </div>
           <b-row class="border rounded m-2 p-1">
-            
+
             <b-col
               cols="10"
               md="6"
@@ -68,34 +68,34 @@
                 </b-card-header>
                 <b-card-body class="text-wrap">
                   <!-- Don't use the b-form-input -->
-                  <input 
+                  <input
                     :type="arg.contentType"
                     class="form-control"
-                    placeholder="Content" 
-                    aria-label="Argument content" 
+                    placeholder="Content"
+                    aria-label="Argument content"
                     v-model.lazy="arg.content">
                 </b-card-body>
               </b-card>
             </b-col>
-            
+
           </b-row>
         </div>
       </draggable>
     </app-summary-card>
-    
+
     <app-summary-card
       cardTitle="Actions selected"
       :contentToEvaluate="actions"
       @switchChange="canDragActions = $event">
-      <draggable 
+      <draggable
         v-model="actions"
         :disabled="!canDragActions"
-        @start="drag=true" 
+        @start="drag=true"
         @end="drag=false"
         class="list-group">
-        <div 
-          v-for="(userAction, index) in actions" 
-          :key="userAction.ID + '_' + $uuid.v1()" 
+        <div
+          v-for="(userAction, index) in actions"
+          :key="userAction.ID + '_' + $uuid.v1()"
           class="list-group-item">
           <div v-if="userAction.chained">
             <div style="opacity: 0.7;" class="icon-box-add bg-primary rounded mb-2"></div>
@@ -111,16 +111,16 @@
                 to=""
               />
             </div>
-            <button 
-              type="button" 
-              class="close" 
+            <button
+              type="button"
+              class="close"
               aria-label="Remove action"
               @click="removeAction(index)">
               <span aria-hidden="true">&times;</span>
             </button>
           </div>
           <b-row class="border rounded m-2 p-1 row">
-            
+
             <b-col
               cols="10"
               md="6"
@@ -133,16 +133,16 @@
                 </b-card-header>
                 <b-card-body class="text-wrap">
                   <!-- Don't use b-form-input -->
-                  <input 
+                  <input
                     :type="arg.contentType"
                     class="form-control"
-                    placeholder="Content" 
+                    placeholder="Content"
                     aria-label="Argument content"
                     v-model.lazy="arg.content">
                 </b-card-body>
               </b-card>
             </b-col>
-            
+
           </b-row>
           <b-form-checkbox class="text-dark" v-model="userAction.chained" switch>
             <span class="small">Chained
@@ -166,11 +166,10 @@
       </draggable>
       <small class="text-muted">Tip: drag and drop for order the actions</small>
     </app-summary-card>
-    
+
   </b-card-body>
 
 </b-card>
-
 
 </template>
 
@@ -187,25 +186,25 @@ export default {
     }
   },
   computed: {
-    taskName() {
+    taskName () {
       return this.$store.getters['newTask/taskname']
     },
-    taskState() {
+    taskState () {
       return this.$store.getters['newTask/taskState']
     },
     triggers: {
-      get() {
+      get () {
         return this.$store.getters['newTask/triggerSelected']
       },
-      set(newValue) {
+      set (newValue) {
         this.$store.commit('newTask/setTrigger', newValue)
       }
     },
     actions: {
-      get() {
+      get () {
         return this.$store.getters['newTask/actionsSelected']
       },
-      set(newValue) {
+      set (newValue) {
         this.$store.commit('newTask/setActions', newValue)
       }
     }

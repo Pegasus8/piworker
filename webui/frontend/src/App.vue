@@ -1,7 +1,12 @@
 <template>
   <div id="app">
     <app-navbar/>
-    <router-view/>
+    <transition
+      name="fade"
+      mode="out-in"
+    >
+      <router-view style="animation-duration: 0.3s"/>
+    </transition>
   </div>
 </template>
 
@@ -23,6 +28,12 @@ export default {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-align: center;
+}
+
+.floating-alert {
+  position: fixed;
+  bottom: 2%;
+  right: 2%;
 }
 
 </style>

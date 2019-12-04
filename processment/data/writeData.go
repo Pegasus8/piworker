@@ -42,7 +42,7 @@ func NewTask(task *UserTask) error {
 	if err != nil {
 		return err
 	}
-	log.Println("Successfully added a new task with the name '%s' into " + 
+	log.Printf("Successfully added a new task with the name '%s' into " + 
 		"JSON user data\n", task.TaskInfo.Name)
 
 	// If the backup loop is not on, then start it

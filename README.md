@@ -13,6 +13,8 @@ Installation (**Untested**):
 * [Vuex](https://vuex.vuejs.org/)
 * [Vue.Draggable](https://github.com/SortableJS/Vue.Draggable)
 * [Vue-uuid](https://github.com/VitorLuizC/vue-uuid)
+* [Vue2-animate](https://github.com/asika32764/vue2-animate)
+* [Anime.js](https://animejs.com/)
 * [Icomoon](https://icomoon.io/)
 
 ### Backend (Go)

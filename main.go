@@ -30,7 +30,10 @@ func start() {
 	// Set user data filename
 	data.Filename = "user_data.json" //TODO: assign the name dinamically
 
-	initConfigs()
+	err := initConfigs()
+	if err != nil {
+		log.Fatal(err.Error())
+	}
 
 	log.Println("Getting user variables from files...")
 	log.Println("Reading user global variables...")
@@ -80,23 +83,23 @@ func setLogSettings() {
 	log.SetFlags(log.Ldate | log.Lmicroseconds | log.Lshortfile)
 }
 
-func initConfigs() {
+func initConfigs() error {
 	configsPath := filepath.Join(configs.ConfigsPath, configs.Filename)
 	exists, err := files.Exists(configsPath)
 	if err != nil {
-		log.Fatal(err.Error())
+		return err
 	}
 	if !exists {
 		configs.CurrentConfigs = &configs.DefaultConfigs
 		err = configs.WriteToFile()
 		if err != nil {
-			log.Fatal(err.Error())
+			return err
 		}
 	} else {
-		log.Println("Configs file found")
 		err = configs.ReadFromFile()
 		if err != nil {
-			log.Fatal(err.Error())
+			return err
 		}
 	}
+	return nil
 }

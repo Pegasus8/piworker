@@ -128,6 +128,9 @@
     <span v-if="!submitted"><span class="icon-checkmark"></span> Save</span>
     <b-spinner v-else variant="dark" class="" label="Loading"/>
   </b-button>
+  <b-alert :show="responseContent != ''" :variant="alertVariant" class="floating-alert" @dismissed='responseContent = ""' dismissible fade>
+    {{ responseContent }}
+  </b-alert>
 </b-container>
 </template>
 
@@ -136,6 +139,7 @@ import Summary from '../components/new-task/Summary.vue'
 import FormGroupContainer from '../components/new-task/FormGroupContainer.vue'
 import { mapMutations, mapGetters } from 'vuex'
 import axios from 'axios'
+import router from '../router'
 
 export default {
   data () {
@@ -143,25 +147,27 @@ export default {
       newTrigger: '',
       newAction: '',
       stateSelected: '',
-      submitted: false
+      submitted: false,
+      alertVariant: 'success',
+      responseContent: ''
     }
   },
   computed: {
     ...mapGetters('elementsInfo', [
-      'triggers', 
+      'triggers',
       'actions'
     ]),
     taskName: {
-      get() {
+      get () {
         return this.$store.getters['newTask/taskname']
       },
-      set(newValue) {
+      set (newValue) {
         return this.$store.commit('newTask/setTaskname', newValue)
       }
     },
     isAllSelected () {
-      if (this.taskName && this.stateSelected && 
-        this.$store.getters['newTask/triggerSelected'].length > 0 && 
+      if (this.taskName && this.stateSelected &&
+        this.$store.getters['newTask/triggerSelected'].length > 0 &&
         this.$store.getters['newTask/actionsSelected'].length > 0) {
         return false
       } else {
@@ -183,21 +189,21 @@ export default {
       }
     },
     addActionBtnStyle () {
-      if (!this.$store.getters['newTask/actionsSelected'].length > 0){
+      if (!this.$store.getters['newTask/actionsSelected'].length > 0) {
         return 'outline-primary'
       } else {
         return 'outline-success'
       }
     },
     setTriggerBtnStyle () {
-      if (!this.$store.getters['newTask/triggerSelected'].length > 0){
+      if (!this.$store.getters['newTask/triggerSelected'].length > 0) {
         return 'outline-primary'
       } else {
         return 'outline-success'
       }
     },
     setTaskstateBtnStyle () {
-      if (this.$store.getters['newTask/taskState'] == ''){
+      if (this.$store.getters['newTask/taskState'] == '') {
         return 'outline-primary'
       } else {
         return 'outline-success'
@@ -215,7 +221,7 @@ export default {
       if (!this.newTrigger) {
         return
       }
-      let trigger = this.triggers.filter((t) => {
+      const trigger = this.triggers.filter((t) => {
         return t.name == this.newTrigger
       })
 
@@ -225,7 +231,7 @@ export default {
       if (!this.newAction) {
         return
       }
-      let action = this.actions.filter((a) => {
+      const action = this.actions.filter((a) => {
         return a.name === this.newAction
       })
 
@@ -238,30 +244,35 @@ export default {
 
       this.setTaskState(this.stateSelected)
     },
+    clearFields () {
+      this.taskName = ''
+      this.stateSelected = ''
+      this.setTaskState('')
+      this.newTrigger = ''
+      this.newAction = ''
+      this.$store.commit('newTask/setActions', [])
+      this.$store.commit('newTask/setTrigger', null) // cambiar
+    },
     submitTask () {
       if (this.submitted) return
-      
+
       this.submitted = true
       console.info('Submitting a new task to the API...')
-      const newTaskData = {
-        'task': {
-          'name': this.$store.getters["newTask/taskname"],
-          'state': this.$store.getters["newTask/taskState"],
-          // Only send one trigger. This is because, for now, multi-triggers are not supported.
-          'trigger': this.$store.getters["newTask/triggerSelected"][0],
-          'actions': this.$store.getters["newTask/actionsSelected"]
-        }
-      }
-
-      // TODO Check the integrity of the data
-
-      console.info("Sending the data to the new tasks's API")
-      axios.post('/api/tasks/new', newTaskData)
+      this.$store.dispatch('newTask/submitData')
         .then((response) => {
           if (response.data.successful) {
             // Show a success alert
+            this.alertVariant = 'success'
+            this.responseContent = 'Data submitted correctly!'
+            this.clearFields()
+            setTimeout(() => {
+              this.responseContent = ''
+              router.replace({ name: 'statistics' })
+            }, 2000)
           } else {
             // Show an error alert, showing the message received (response.data.error)
+            this.alertVariant = 'danger'
+            this.responseContent = response.data.error
           }
           console.info('Data submitted correctly, response:', response)
           // Change the submitted variable only when the response is received

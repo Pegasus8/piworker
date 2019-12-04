@@ -1,6 +1,6 @@
 <template>
   <b-card bg-variant="dark" border-variant="secondary" text-variant="light" no-body>
-    
+
     <b-card-header class="text-left">
       <div class="d-flex">
         <div class="flex-grow-1 font-weight-bold">{{ taskName }}</div>
@@ -40,7 +40,7 @@
           <b-container>
             <b-list-group variant="dark" v-if="actions.length > 0">
               <app-list-group-item
-                v-for="action in actions" 
+                v-for="action in actions"
                 :key="action.ID + $uuid.v1()"
                 :editable="false"
                 :itemName="getActionName(action.ID)"
@@ -56,22 +56,22 @@
 
       <div :id="divFooterAccordionID">
         <div :id="logsHeadingID">
-          <b-button 
+          <b-button
             v-b-toggle="divLogsCollapseID"
             variant="link"
           >
             Logs
           </b-button>
         </div>
-        <b-collapse 
+        <b-collapse
           accordion="logs-accordion"
-          :id="divLogsCollapseID" 
+          :id="divLogsCollapseID"
           class="p-2 text-wrap text-monospace text-left small"
         >
           {{ logs }}
         </b-collapse>
       </div>
-      
+
     </b-card-footer>
   </b-card>
 </template>
@@ -111,28 +111,28 @@ export default {
   },
   computed: {
     state: {
-      get() {
+      get () {
         if (this.taskState == 'active') return true
         else return false
       },
-      set(newValue) {
+      set (newValue) {
         let value
         if (newValue) value = 'active'
         else value = 'inactive'
 
-        this.$emit("switch-change", value)
+        this.$emit('switch-change', value)
       }
     }
   },
   methods: {
     getTriggerName (id) {
       this.$store.getters['elementsInfo/triggers'].find((trigger) => {
-        if (trigger.ID == id) return trigger.name 
+        if (trigger.ID == id) return trigger.name
       })
     },
     getActionName (id) {
       this.$store.getters['elementsInfo/actions'].find((action) => {
-        if (action.ID == id) return action.name 
+        if (action.ID == id) return action.name
       })
     },
     setTriggerArgsNames (userTriggerID, userTriggerArgs) {
@@ -146,7 +146,7 @@ export default {
               }
             })
           }
-        } 
+        }
       })
 
       return userTriggerArgs
@@ -162,7 +162,7 @@ export default {
               }
             })
           }
-        } 
+        }
       })
 
       return userActionArgs

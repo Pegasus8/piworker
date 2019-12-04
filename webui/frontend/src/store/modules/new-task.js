@@ -16,6 +16,10 @@ const mutations = {
   },
   setTrigger: (state, trigger) => {
     // state.triggerSelected.push(newTrigger)
+    if (!trigger) {
+      state.triggerSelected = []
+      return
+    }
     // JSON.stringify && JSON.parse create a deep copy of the trigger
     state.triggerSelected = [JSON.parse(JSON.stringify(trigger))]
   },
@@ -36,27 +40,28 @@ const mutations = {
 
 const actions = {
   submitData: ({ state }) => {
-    // TODO Modify the object according to the API requirements
-    const newTaskData = {
-      'task': {
-        'name': state.taskname,
-        'state': state.taskState,
-        // Only send one trigger. This is because, for now, multi-triggers are not supported.
-        'trigger': state.triggerSelected[0],
-        'actions': state.actionsSelected
+    return new Promise((resolve, reject) => {
+      const newTaskData = {
+        'task': {
+          'name': state.taskname,
+          'state': state.taskState,
+          // Only send one trigger. This is because, for now, multi-triggers are not supported.
+          'trigger': state.triggerSelected[0],
+          'actions': state.actionsSelected
+        }
       }
-    }
-
-    // TODO Check the integrity of the data
-
-    console.info("Sending the data to the new tasks's API")
-    axios.post('/api/tasks/new', newTaskData)
-      .then((response) => {
-        console.info('Data submitted correctly, response:', response)
-      })
-      .catch((err) => {
-        console.error(err)
-      })
+  
+      // TODO Check the integrity of the data
+  
+      console.info("Sending the data to the new tasks's API")
+      axios.post('/api/tasks/new', newTaskData)
+        .then((response) => {
+          resolve(response)
+        })
+        .catch((err) => {
+          reject(err)
+        })
+    })
   }
 }
 
