@@ -97,8 +97,13 @@
           v-for="(userAction, index) in actions"
           :key="userAction.ID + '_' + $uuid.v1()"
           class="list-group-item">
-          <div v-if="userAction.chained">
-            <div style="opacity: 0.7;" class="icon-box-add bg-primary rounded mb-2"></div>
+          <div v-if="userAction.chained" class="bg-primary rounded mb-2">
+            <div style="opacity: 0.7;" class="icon-box-add my-1"></div>
+            <b-row class="justify-content-center">
+              <b-col cols='10' md='8' lg='6'>
+                <b-form-select size='sm' class="my-1" v-model='userAction.argumentToReplaceByCR' :options='userAction.args | argsNames' />
+              </b-col>
+            </b-row>
           </div>
           <div class="d-flex">
             <div class="flex-grow-1 text-break text-bolder text-dark">
@@ -220,6 +225,14 @@ export default {
     appSummaryCard: SummaryCard
   },
   filters: {
+    argsNames (args) {
+      console.log('Received args to filter:', args) //! Testear esto
+      let argsArray = []
+      args.forEach((arg) => {
+        argsArray.push(arg.name)
+      })
+      return argsArray
+    }
   },
   updated () {
     for (const [index, action] of this.actions.entries()) {
