@@ -12,7 +12,7 @@
     "axios": "^0.19.1",
     "bootstrap": "^4.4.1",
     "bootstrap-vue": "^2.2.2",
-    "core-js": "^3.4.5",
+    "core-js": "^3.6.4",
     "jquery": "^3.4.1",
     "popper.js": "^1.16.0",
     "portal-vue": "^2.1.6",
