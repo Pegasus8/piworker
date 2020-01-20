@@ -12,7 +12,7 @@ type Action struct {
 	Description string `json:"description"`
 	Run func(previousResult *ChainedResult, parentAction *data.UserAction, parentTaskName string) (bool, *ChainedResult, error)  `json:"-"`
 	ReturnedChainResultDescription string `json:"returnedChainResultDescription"`
-	ReturnedChainResultType uint `json:"returnedChainResultType"`
+	ReturnedChainResultType types.PWType `json:"returnedChainResultType"`
 	ArgToReplaceByCR string `json:"argToReplaceByCR"`
 	Args []Arg `json:"args"`
 }
