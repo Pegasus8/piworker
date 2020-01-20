@@ -139,7 +139,7 @@
                 <b-card-body class="text-wrap">
                   <!-- Don't use b-form-input -->
                   <input
-                    :type="arg.contentType"
+                    :type="arg.contentType | filterIncompatibleTypes" 
                     class="form-control"
                     placeholder="Content"
                     aria-label="Argument content"
@@ -232,6 +232,17 @@ export default {
         argsArray.push(arg.name)
       })
       return argsArray
+    },
+    filterIncompatibleTypes (argType) {
+      // If the type is not supported by default (like JSON, path, etc), replace it with a compatible one.
+      // NOTE This is temporal. On a future all the types will be supported.
+      const supportedTypes = ['text', 'password', 'email', 'number', 'url', 'tel', 'search', 'date', 'datetime', 'datetime-local', 'month', 'week', 'time', 'range', 'color']
+      if (!supportedTypes.includes(argType)) {
+        if (argType == 'number-float') argType = 'number'
+        else argType = 'text' // By default
+      }
+
+      return argType
     }
   },
   updated () {
