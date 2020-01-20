@@ -63,9 +63,7 @@ var WriteTextFile = actions.Action{
 		},
 	},
 	ReturnedChainResultDescription: "The path where will be writed the file.",
-	ReturnedChainResultType:        types.TypePath,
-	AcceptedChainResultDescription: "The path of the written file.",
-	AcceptedChainResultType:        types.TypePath,
+	ReturnedChainResultType:        types.Path,
 }
 
 func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
@@ -116,11 +114,11 @@ func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *da
 		if previousResult.Result == "" {
 			log.Println(ErrEmptyChainedResult.Error())
 		} else {
-			if previousResult.ResultType == types.TypePath {
+			if previousResult.ResultType == types.Path {
 				// Overwrite path
 				path = previousResult.Result
 			} else {
-				log.Printf("[%s] Type of previous ChainedResult (%d) differs with the required type (%d).\n", parentTaskName, previousResult.ResultType, types.TypePath)
+				log.Printf("[%s] Type of previous ChainedResult ('%s') differs with the required type ('%s').\n", parentTaskName, previousResult.ResultType, types.Path)
 			}
 		}
 	}
@@ -145,12 +143,12 @@ func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *da
 	}
 	defer file.Close()
 
-	bytesWrited, err := file.WriteString(content)
+	bytesWritten, err := file.WriteString(content)
 	if err != nil {
 		return false, &actions.ChainedResult{}, err
 	}
 
-	log.Printf("[%s] File written by the action WriteTextFile. Bytes written: %d\n", parentTaskName, bytesWrited)
+	log.Printf("[%s] File written by the action WriteTextFile. Bytes written: %d\n", parentTaskName, bytesWritten)
 
-	return true, &actions.ChainedResult{Result: fullpath, ResultType: types.TypePath}, nil
+	return true, &actions.ChainedResult{Result: fullpath, ResultType: types.Path}, nil
 }

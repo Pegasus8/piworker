@@ -47,9 +47,7 @@ var ExecuteCommand = actions.Action{
 		},
 	},
 	ReturnedChainResultDescription: "The command to execute.",
-	ReturnedChainResultType:        types.TypeString,
-	AcceptedChainResultDescription: "The output of the command executed.",
-	AcceptedChainResultType:        types.TypeString,
+	ReturnedChainResultType:        types.Text,
 }
 
 func executeCommand(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
@@ -77,11 +75,11 @@ func executeCommand(previousResult *actions.ChainedResult, parentAction *data.Us
 		if previousResult.Result == "" {
 			log.Println(ErrEmptyChainedResult.Error())
 		} else {
-			if previousResult.ResultType == types.TypeString {
+			if previousResult.ResultType == types.Text {
 				// Overwrite command
 				command = previousResult.Result
 			} else {
-				log.Printf("[%s] Type of previous ChainedResult (%d) differs with the required type (%d).\n", parentTaskName, previousResult.ResultType, types.TypeString)
+				log.Printf("[%s] Type of previous ChainedResult ('%s') differs with the required type ('%s').\n", parentTaskName, previousResult.ResultType, types.Text)
 			}
 		}
 	}
@@ -104,5 +102,5 @@ func executeCommand(previousResult *actions.ChainedResult, parentAction *data.Us
 		return false, &actions.ChainedResult{}, err
 	}
 
-	return true, &actions.ChainedResult{Result: string(output), ResultType: types.TypeString}, nil
+	return true, &actions.ChainedResult{Result: string(output), ResultType: types.Text}, nil
 }

@@ -49,9 +49,7 @@ var CompressFilesOfDir = actions.Action{
 		},
 	},
 	ReturnedChainResultDescription: "The path of the compressed file.",
-	ReturnedChainResultType:        types.TypePath,
-	AcceptedChainResultDescription: "The directory where the files compressed are located.",
-	AcceptedChainResultType:        types.TypePath,
+	ReturnedChainResultType:        types.Path,
 }
 
 func compressFilesOfDir(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
@@ -80,11 +78,11 @@ func compressFilesOfDir(previousResult *actions.ChainedResult, parentAction *dat
 		if previousResult.Result == "" {
 			log.Println(ErrEmptyChainedResult.Error())
 		} else {
-			if previousResult.ResultType == types.TypePath {
+			if previousResult.ResultType == types.Path {
 				// Overwrite targetDir
 				targetDir = previousResult.Result
 			} else {
-				log.Printf("[%s] Type of previous ChainedResult (%d) differs with the required type (%d).\n", parentTaskName, previousResult.ResultType, types.TypePath)
+				log.Printf("[%s] Type of previous ChainedResult ('%s') differs with the required type ('%s').\n", parentTaskName, previousResult.ResultType, types.Path)
 			}
 		}
 	}
@@ -148,5 +146,5 @@ func compressFilesOfDir(previousResult *actions.ChainedResult, parentAction *dat
 
 	log.Printf("[%s] Files compression finished into directory '%s'\n", parentTaskName, outputDir)
 
-	return true, &actions.ChainedResult{Result: outputDir, ResultType: types.TypePath}, nil
+	return true, &actions.ChainedResult{Result: outputDir, ResultType: types.Path}, nil
 }
