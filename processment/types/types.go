@@ -17,8 +17,8 @@ const (
 	// Any is the constant used to represent any type. Generally used on actions that doesn't
 	// require a special type to work. For example user variables related actions.
 	Any PWType = "any"
-	// String is the constant used to represent the content of type string (plain text).
-	String PWType = "text"
+	// Text is the constant used to represent the content of type string that does not have a specific format.
+	Text PWType = "text"
 	// Int is the constant used to represent the content of type integer.
 	Int PWType = "number"
 	// Float is the constant used to reperesent the content of type float.
