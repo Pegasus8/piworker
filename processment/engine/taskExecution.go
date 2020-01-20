@@ -270,3 +270,56 @@ func searchAndReplaceVariable(arg *data.UserArg, parentTaskName string) error {
 
 	return nil
 }
+
+func replaceArgByCR(chainedResult *actionsModel.ChainedResult, userAction *data.UserAction) (*data.UserAction, error) {
+	if userAction.Order == 0 {
+		// Prevent the usage of ChainedResult because there are no previous actions.
+		userAction.Chained = false
+	}
+	if userAction.Chained {
+		if chainedResult.Result == "" {
+			return nil, actionsList.ErrEmptyChainedResult
+		}
+
+		for _, userArg := range userAction.Args {
+			if userArg.ID == userAction.ArgumentToReplaceByCR {
+				userArgType, err := getUserArgType(userAction.ID, userArg.ID)
+				if err != nil {
+					return nil, err
+				}
+				if chainedResult.ResultType != userArgType && userArgType != types.Any {
+					return nil, fmt.Errorf("Can't replace the arg with the ID '%s' of type '%s' with the previous ChainedResult of type '%s'", userArg.ID, userArgType, chainedResult.ResultType)
+
+				}
+				// If all is ok, replace the content
+				userArg.Content = chainedResult.Result
+			}
+		}
+	}
+
+	return userAction, nil
+}
+
+func getUserArgType(userActionID string, userArgID string) (types.PWType, error) {
+	var actionFound bool
+
+	for _, action := range actionsList.ACTIONS {
+		if action.ID == userActionID {
+			actionFound = true
+			for _, arg := range action.Args {
+				if arg.ID == userArgID {
+					return arg.ContentType, nil
+				}
+			}
+		}
+	}
+
+	var err error
+	if actionFound {
+		err = fmt.Errorf("Unrecognized argument ID '%s' of the action '%s'", userArgID, userActionID)
+	} else {
+		err = fmt.Errorf("Unrecognized action ID '%s'", userActionID)
+	}
+
+	return types.Any, err
+}
