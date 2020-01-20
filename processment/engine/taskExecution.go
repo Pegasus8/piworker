@@ -1,7 +1,7 @@
 package engine
 
 import (
-	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -13,6 +13,7 @@ import (
 	actionsModel "github.com/Pegasus8/piworker/processment/elements/actions"
 	actionsList "github.com/Pegasus8/piworker/processment/elements/actions/models"
 	triggersList "github.com/Pegasus8/piworker/processment/elements/triggers/models"
+	"github.com/Pegasus8/piworker/processment/types"
 	"github.com/Pegasus8/piworker/processment/uservariables"
 )
 
@@ -79,8 +80,7 @@ func runTrigger(trigger data.UserTrigger, parentTaskName string) (bool, error) {
 		}
 	}
 
-	log.Printf("[%s] The trigger with the ID '%s' cannot be found\n", parentTaskName, trigger.ID)
-	return false, errors.New("Trigger not found")
+	return false, fmt.Errorf("The trigger with the ID '%s' cannot be found", trigger.ID)
 }
 
 func runActions(task *data.UserTask) {
@@ -117,6 +117,14 @@ func runActions(task *data.UserTask) {
 								return
 							}
 						}
+
+						ua, err := replaceArgByCR(chainedResult, &userAction)
+						if err != nil {
+							log.Printf("[%s] %s\n", task.TaskInfo.Name, err.Error())
+							return
+						}
+						userAction = *ua
+
 						result, chr, err := action.Run(chainedResult, &userAction, task.TaskInfo.Name)
 						// Set the returned chr (chained result) to our main instance of the ChainedResult struct (`chainedResult`).
 						// This will be given to the next action (if exists).
