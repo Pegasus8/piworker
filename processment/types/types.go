@@ -29,6 +29,10 @@ const (
 	Path PWType = "path"
 	// JSON is the constant used to reperesent the content of type JSON (example: "{"foo": "bar"}").
 	JSON PWType = "json"
+	// URL is the constant used to reperesent the content of type URL. For example: "https://golang.org".
+	URL PWType = "url"
+	// Date is the constant used to represent the content with the format of a date. For example: "10/11/2020".
+	Date PWType = "date"
 )
 
 // IsInt is a function used to check if a string value can be converted to integer or not.
@@ -82,6 +86,6 @@ func GetType(value string) PWType {
 	} else if isPath, _ := IsPath(value); isPath {
 		return Path
 	} else {
-		return String
+		return Text
 	}
 }
