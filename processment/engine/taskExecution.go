@@ -262,7 +262,7 @@ func searchAndReplaceVariable(arg *data.UserArg, parentTaskName string) error {
 			return err
 		}
 		localVariable.RLock()
-		// If all it's ok, replace the content of the argument (wich is the variable name basically)
+		// If all it's ok, replace the content of the argument (which is the variable name basically)
 		// with the content of the desired user local variable.
 		arg.Content = localVariable.Content
 		localVariable.RUnlock()
