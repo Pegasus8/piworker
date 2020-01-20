@@ -2,6 +2,7 @@ package triggers
 
 import (
 	"github.com/Pegasus8/piworker/processment/data"
+	"github.com/Pegasus8/piworker/processment/types"
 )
 
 // Trigger is a struct used in every Action
@@ -20,5 +21,5 @@ type Arg struct {
 	Description string `json:"description"`
 	// Content interface{} `json:"content"`
 	// Must be one type from here: https://bootstrap-vue.js.org/docs/components/form-input/#input-type
-	ContentType string `json:"contentType"`
+	ContentType types.PWType `json:"contentType"`
 }
