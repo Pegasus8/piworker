@@ -6,26 +6,29 @@ The objective of this is basically have a centralized way of represent different
 */
 
 import (
-	"strconv"
 	"regexp"
+	"strconv"
 )
 
+// PWType represents the standard types used on different parts of PiWorker. The objective of this is have a centralized way of represent the content with a specific format for a better management of it.
+type PWType string
+
 const (
-	// TypeAny is the constant used to represent any type. Generally used on actions that doesn't 
+	// Any is the constant used to represent any type. Generally used on actions that doesn't
 	// require a special type to work. For example user variables related actions.
-	TypeAny = 1000
-	// TypeString is the constant used to represent the content of type string (plain text).
-	TypeString = 999
-	// TypeInt is the constant used to represent the content of type integer.
-	TypeInt = 998
-	// TypeFloat is the constant used to reperesent the content of type float.
-	TypeFloat = 997
-	// TypeBool is the constant used to reperesent the content of type boolean.
-	TypeBool = 996
-	// TypePath is the constant used to reperesent the content of type path (example: "/home/pi/random/folder").
-	TypePath = 995
-	// TypeJSON is the constant used to reperesent the content of type JSON (example: "{"foo": "bar"}").
-	TypeJSON = 994
+	Any PWType = "any"
+	// String is the constant used to represent the content of type string (plain text).
+	String PWType = "text"
+	// Int is the constant used to represent the content of type integer.
+	Int PWType = "number"
+	// Float is the constant used to reperesent the content of type float.
+	Float PWType = "number-float"
+	// Bool is the constant used to reperesent the content of type boolean.
+	Bool PWType = "boolean"
+	// Path is the constant used to reperesent the content of type path (example: "/home/pi/random/folder").
+	Path PWType = "path"
+	// JSON is the constant used to reperesent the content of type JSON (example: "{"foo": "bar"}").
+	JSON PWType = "json"
 )
 
 // IsInt is a function used to check if a string value can be converted to integer or not.
@@ -68,16 +71,17 @@ func IsPath(value string) (bool, string) {
 	return true, value
 }
 
-func GetType(value string) uint {
+// GetType identifies the type of the specified `value` (string). UNFINISHED.
+func GetType(value string) PWType {
 	if isInt, _ := IsInt(value); isInt {
-		return TypeInt
+		return Int
 	} else if isFloat, _ := IsFloat(value); isFloat {
-		return TypeFloat
+		return Float
 	} else if isBool, _ := IsBool(value); isBool {
-		return TypeBool
+		return Bool
 	} else if isPath, _ := IsPath(value); isPath {
-		return TypePath
+		return Path
 	} else {
-		return TypeString
+		return String
 	}
 }
