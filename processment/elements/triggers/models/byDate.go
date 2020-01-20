@@ -6,7 +6,10 @@ import (
 
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/elements/triggers"
+	"github.com/Pegasus8/piworker/processment/types"
 )
+
+//FIXME Must be merged with the trigger `byHour`
 
 // ID's
 const (
@@ -29,8 +32,7 @@ var ByDate = triggers.Trigger {
 			Name: "Date",
 			Description: "The date to launch the trigger. The format used is dd/MM/YYYY." + 
 				" Example: 15/11/2019",
-			// Content: "",
-			ContentType: "date",
+			ContentType: types.Date,
 		},
 	},
 }

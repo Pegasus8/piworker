@@ -7,6 +7,7 @@ import (
 	"log"
 
 	"github.com/Pegasus8/piworker/processment/data"
+	"github.com/Pegasus8/piworker/processment/types"
 	"github.com/Pegasus8/piworker/processment/elements/triggers"
 	"github.com/Pegasus8/piworker/processment/stats"
 )
@@ -33,7 +34,7 @@ var RaspberryTemperature = triggers.Trigger {
 			Description: "The expected temperature of the Raspberry Pi. Must be in" + 
 				" float format and without the 'ºC'. Example: 55.1.",
 			// Content: "",
-			ContentType: "text",
+			ContentType: types.Float,
 		},
 	},
 }
