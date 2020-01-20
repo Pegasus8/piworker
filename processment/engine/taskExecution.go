@@ -109,10 +109,7 @@ func runActions(task *data.UserTask) {
 				for _, action := range actionsList.ACTIONS {
 					if userAction.ID == action.ID {
 						log.Printf("[%s] Running action n%d. Chained: %t | Previous chained result: %+v\n", task.TaskInfo.Name, orderN, userAction.Chained, chainedResult)
-						if !userAction.Chained {
-							// Overwrite previous result to prevent being used.
-							chainedResult = &actionsModel.ChainedResult{}
-						}
+
 						for _, arg := range userAction.Args {
 							err := searchAndReplaceVariable(&arg, task.TaskInfo.Name)
 							if err != nil {
