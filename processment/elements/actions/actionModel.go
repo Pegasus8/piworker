@@ -12,8 +12,7 @@ type Action struct {
 	Run func(previousResult *ChainedResult, parentAction *data.UserAction, parentTaskName string) (bool, *ChainedResult, error)  `json:"-"`
 	ReturnedChainResultDescription string `json:"returnedChainResultDescription"`
 	ReturnedChainResultType uint `json:"returnedChainResultType"`
-	AcceptedChainResultDescription string `json:"acceptedChainResultDescription"`
-	AcceptedChainResultType uint `json:"acceptedChainResultType"`
+	ArgToReplaceByCR string `json:"argToReplaceByCR"`
 	Args []Arg `json:"args"`
 }
 
