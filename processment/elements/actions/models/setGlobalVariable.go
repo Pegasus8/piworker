@@ -72,14 +72,6 @@ func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 		}
 	}
 
-	if parentAction.Chained {
-		if previousResult.Result == "" {
-			log.Println(ErrEmptyChainedResult.Error())
-		} else {
-			// No need to check the type
-		}
-	}
-
 	if variableName == "" || variableContent == "" {
 		return false, &actions.ChainedResult{}, errors.New("Error: variableName or variableContent empty")
 	}

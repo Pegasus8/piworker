@@ -74,14 +74,6 @@ func setLocalVariableAction(previousResult *actions.ChainedResult, parentAction 
 		}
 	}
 
-	if parentAction.Chained {
-		if previousResult.Result == "" {
-			log.Println(ErrEmptyChainedResult.Error())
-		} else {
-			// No needed check the type
-		}
-	}
-
 	if variableName == "" || variableContent == "" {
 		return false, &actions.ChainedResult{}, errors.New("Error: variableName or variableContent empty")
 	}

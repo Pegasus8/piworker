@@ -74,19 +74,6 @@ func compressFilesOfDir(previousResult *actions.ChainedResult, parentAction *dat
 		}
 	}
 
-	if parentAction.Chained {
-		if previousResult.Result == "" {
-			log.Println(ErrEmptyChainedResult.Error())
-		} else {
-			if previousResult.ResultType == types.Path {
-				// Overwrite targetDir
-				targetDir = previousResult.Result
-			} else {
-				log.Printf("[%s] Type of previous ChainedResult ('%s') differs with the required type ('%s').\n", parentTaskName, previousResult.ResultType, types.Path)
-			}
-		}
-	}
-
 	if targetDir == "" || outputDir == "" {
 		return false, &actions.ChainedResult{}, errors.New("Error: targetDir or outputDir empty")
 	}

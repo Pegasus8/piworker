@@ -2,7 +2,6 @@ package models
 
 import (
 	"errors"
-	"log"
 	"os/exec"
 	"strings"
 	"time"
@@ -68,19 +67,6 @@ func executeCommand(previousResult *actions.ChainedResult, parentAction *data.Us
 			commandArgs = strings.Split(arg.Content, ",")
 		default:
 			return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
-		}
-	}
-
-	if parentAction.Chained {
-		if previousResult.Result == "" {
-			log.Println(ErrEmptyChainedResult.Error())
-		} else {
-			if previousResult.ResultType == types.Text {
-				// Overwrite command
-				command = previousResult.Result
-			} else {
-				log.Printf("[%s] Type of previous ChainedResult ('%s') differs with the required type ('%s').\n", parentTaskName, previousResult.ResultType, types.Text)
-			}
 		}
 	}
 

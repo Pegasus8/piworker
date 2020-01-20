@@ -110,19 +110,6 @@ func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *da
 
 	}
 
-	if parentAction.Chained {
-		if previousResult.Result == "" {
-			log.Println(ErrEmptyChainedResult.Error())
-		} else {
-			if previousResult.ResultType == types.Path {
-				// Overwrite path
-				path = previousResult.Result
-			} else {
-				log.Printf("[%s] Type of previous ChainedResult ('%s') differs with the required type ('%s').\n", parentTaskName, previousResult.ResultType, types.Path)
-			}
-		}
-	}
-
 	if path == "" || filename == "" || writingMode == "" {
 		return false, &actions.ChainedResult{}, errors.New("Error: path, filename or writingMode empty")
 	}

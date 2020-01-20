@@ -60,19 +60,6 @@ func getGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 		}
 	}
 
-	if parentAction.Chained {
-		if previousResult.Result == "" {
-			log.Println(ErrEmptyChainedResult.Error())
-		} else {
-			if previousResult.ResultType == types.Text {
-				// Overwrite name of the variable
-				variableName = previousResult.Result
-			} else {
-				log.Printf("[%s] Type of previous ChainedResult ('%s') differs with the required type ('%s').\n", parentTaskName, previousResult.ResultType, types.Text)
-			}
-		}
-	}
-
 	if variableName == "" {
 		return false, &actions.ChainedResult{}, errors.New("Error: variableName empty")
 	}
