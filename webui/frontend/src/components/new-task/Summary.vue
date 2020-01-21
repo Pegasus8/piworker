@@ -132,18 +132,27 @@
               class="mx-auto my-2"
               v-for="arg in userAction.args" :key="arg.ID + '_' + $uuid.v1()"
             >
-              <b-card no-body bg-variant="light" :title="arg.description">
+              <b-card 
+                no-body 
+                :title="arg.description" 
+                :class='{ 
+                  "bg-primary": userAction.argumentToReplaceByCR == arg.ID,
+                  "bg-light": userAction.argumentToReplaceByCR != arg.ID
+                }'
+              >
                 <b-card-header class="h5 p-1 text-wrap text-dark">
                   {{ arg.name }}
                 </b-card-header>
                 <b-card-body class="text-wrap">
                   <!-- Don't use b-form-input -->
                   <input
+                    v-if="userAction.argumentToReplaceByCR != arg.ID"
                     :type="arg.contentType | filterIncompatibleTypes" 
                     class="form-control"
                     placeholder="Content"
                     aria-label="Argument content"
                     v-model.lazy="arg.content">
+                    <p v-else class="text-">Using previous action result</p>
                 </b-card-body>
               </b-card>
             </b-col>
