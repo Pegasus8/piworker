@@ -158,7 +158,7 @@
             </b-col>
 
           </b-row>
-          <b-form-checkbox class="text-dark" v-model="userAction.chained" switch>
+          <b-form-checkbox class="text-dark" v-model="userAction.chained" :disabled='(userAction.order == 0)' switch>
             <span class="small">Chained
               <router-link
                 :id="'chained-action-info' + index"
