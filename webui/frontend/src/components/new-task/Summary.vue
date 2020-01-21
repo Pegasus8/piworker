@@ -252,11 +252,6 @@ export default {
 
       return argType
     }
-  },
-  updated () {
-    for (const [index, action] of this.actions.entries()) {
-      action.order = index
-    }
   }
 }
 </script>
