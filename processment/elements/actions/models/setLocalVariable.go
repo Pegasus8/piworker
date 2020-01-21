@@ -44,9 +44,7 @@ var SetLocalVariable = actions.Action{
 		},
 	},
 	ReturnedChainResultDescription: "The content setted to the variable.",
-	ReturnedChainResultType:        types.TypeAny,
-	AcceptedChainResultDescription: "Any content. The content received.",
-	AcceptedChainResultType:        types.TypeAny,
+	ReturnedChainResultType:        types.Any,
 }
 
 func setLocalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
@@ -73,14 +71,6 @@ func setLocalVariableAction(previousResult *actions.ChainedResult, parentAction 
 					"action SetLocalVariable\n", parentTaskName, arg.ID)
 				return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
 			}
-		}
-	}
-
-	if parentAction.Chained {
-		if previousResult.Result == "" {
-			log.Println(ErrEmptyChainedResult.Error())
-		} else {
-			// No needed check the type
 		}
 	}
 

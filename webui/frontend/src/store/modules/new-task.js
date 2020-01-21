@@ -27,9 +27,13 @@ const mutations = {
     state.triggerSelected.splice(triggerIndex, 1)
   },
   setActions: (state, actions) => {
+    for (const [index, action] of actions.entries()) {
+      action.order = index
+    }
     state.actionsSelected = actions
   },
   addAction: (state, action) => {
+    action.order = state.actionsSelected.length
     // JSON.stringify && JSON.parse create a deep copy of the action
     state.actionsSelected.push(JSON.parse(JSON.stringify(action)))
   },

@@ -34,9 +34,7 @@ var GetLocalVariable = actions.Action{
 		},
 	},
 	ReturnedChainResultDescription: "The content of the obtained variable.",
-	ReturnedChainResultType:        types.TypeAny,
-	AcceptedChainResultDescription: "Name of the variable",
-	AcceptedChainResultType:        types.TypeString,
+	ReturnedChainResultType:        types.Any,
 }
 
 func getLocalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
@@ -62,19 +60,6 @@ func getLocalVariableAction(previousResult *actions.ChainedResult, parentAction 
 		}
 	}
 
-	if parentAction.Chained {
-		if previousResult.Result == "" {
-			log.Println(ErrEmptyChainedResult.Error())
-		} else {
-			if previousResult.ResultType == types.TypeString {
-				// Overwrite name of the variable
-				variableName = previousResult.Result
-			} else {
-				log.Printf("[%s] Type of previous ChainedResult (%d) differs with the required type (%d).\n", parentTaskName, previousResult.ResultType, types.TypeString)
-			}
-		}
-	}
-
 	if variableName == "" {
 		return false, &actions.ChainedResult{}, errors.New("Error: variableName empty")
 	}
@@ -84,5 +69,5 @@ func getLocalVariableAction(previousResult *actions.ChainedResult, parentAction 
 		return false, &actions.ChainedResult{}, err
 	}
 
-	return true, &actions.ChainedResult{Result: localVariable.Content, ResultType: types.TypeAny}, nil
+	return true, &actions.ChainedResult{Result: localVariable.Content, ResultType: types.Any}, nil
 }

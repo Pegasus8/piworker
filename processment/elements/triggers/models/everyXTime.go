@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/Pegasus8/piworker/processment/data"
+	"github.com/Pegasus8/piworker/processment/types"
 	"github.com/Pegasus8/piworker/processment/elements/triggers"
 )
 
@@ -30,7 +31,7 @@ var _EveryXTime = triggers.Trigger{
 			Description: "Time of repetition. Format must be '1h10m10s' where" +
 				" 'h' = hours, 'm' = minutes and 's' = seconds.",
 			// Content:     "",
-			ContentType: "text",
+			ContentType: types.Text,
 		},
 	},
 }

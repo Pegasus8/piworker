@@ -97,8 +97,13 @@
           v-for="(userAction, index) in actions"
           :key="userAction.ID + '_' + $uuid.v1()"
           class="list-group-item">
-          <div v-if="userAction.chained">
-            <div style="opacity: 0.7;" class="icon-box-add bg-primary rounded mb-2"></div>
+          <div v-if="userAction.chained" class="bg-primary rounded mb-2">
+            <div style="opacity: 0.7;" class="icon-box-add my-1"></div>
+            <b-row class="justify-content-center">
+              <b-col cols='10' md='8' lg='6'>
+                <b-form-select size='sm' class="my-1" v-model='userAction.argumentToReplaceByCR' :options='userAction.args | prepareChainedArgsSelect' />
+              </b-col>
+            </b-row>
           </div>
           <div class="d-flex">
             <div class="flex-grow-1 text-break text-bolder text-dark">
@@ -127,24 +132,34 @@
               class="mx-auto my-2"
               v-for="arg in userAction.args" :key="arg.ID + '_' + $uuid.v1()"
             >
-              <b-card no-body bg-variant="light" :title="arg.description">
+              <b-card 
+                no-body 
+                :title="arg.description" 
+                :class='{ 
+                  "bg-primary": userAction.argumentToReplaceByCR == arg.ID,
+                  "bg-light": userAction.argumentToReplaceByCR != arg.ID
+                }'
+              >
                 <b-card-header class="h5 p-1 text-wrap text-dark">
                   {{ arg.name }}
                 </b-card-header>
                 <b-card-body class="text-wrap">
                   <!-- Don't use b-form-input -->
                   <input
-                    :type="arg.contentType"
+                    v-if="userAction.argumentToReplaceByCR != arg.ID"
+                    :type="arg.contentType | filterIncompatibleTypes"
                     class="form-control"
                     placeholder="Content"
                     aria-label="Argument content"
-                    v-model.lazy="arg.content">
+                    v-model.lazy="arg.content"
+                    v-b-popover.focus.top='arg.description'
+                    :title="arg.name">
                 </b-card-body>
               </b-card>
             </b-col>
 
           </b-row>
-          <b-form-checkbox class="text-dark" v-model="userAction.chained" switch>
+          <b-form-checkbox class="text-dark" v-model="userAction.chained" :disabled='(userAction.order == 0)' switch>
             <span class="small">Chained
               <router-link
                 :id="'chained-action-info' + index"
@@ -220,10 +235,23 @@ export default {
     appSummaryCard: SummaryCard
   },
   filters: {
-  },
-  updated () {
-    for (const [index, action] of this.actions.entries()) {
-      action.order = index
+    prepareChainedArgsSelect (args) {
+      let argsArray = []
+      args.forEach((arg) => {
+        argsArray.push({ text: arg.name, value: arg.ID })
+      })
+      return argsArray
+    },
+    filterIncompatibleTypes (argType) {
+      // If the type is not supported by default (like JSON, path, etc), replace it with a compatible one.
+      // NOTE This is temporal. On a future all the types will be supported.
+      const supportedTypes = ['text', 'password', 'email', 'number', 'url', 'tel', 'search', 'date', 'datetime', 'datetime-local', 'month', 'week', 'time', 'range', 'color']
+      if (!supportedTypes.includes(argType)) {
+        if (argType == 'number-float') argType = 'number'
+        else argType = 'text' // By default
+      }
+
+      return argType
     }
   }
 }

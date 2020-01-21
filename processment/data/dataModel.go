@@ -31,6 +31,7 @@ type UserAction struct {
 	Args []UserArg `json:"args"`
 	Timestamp string `json:"timestamp"`
 	Chained bool `json:"chained"`
+	ArgumentToReplaceByCR string `json:"argumentToReplaceByCR"`
 	Order int `json:"order"`
 }
 

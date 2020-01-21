@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"github.com/Pegasus8/piworker/processment/data"
+	"github.com/Pegasus8/piworker/processment/types"
 	"github.com/Pegasus8/piworker/processment/elements/triggers"
 )
 
@@ -30,7 +31,7 @@ var VariationOfFileSize = triggers.Trigger{
 			Name:        "Path of the Objective File",
 			Description: "Must be on the format 'path/of/the/file.txt'.",
 			// Content:     "",
-			ContentType: "text",
+			ContentType: types.Path,
 		},
 	},
 }

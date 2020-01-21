@@ -1,7 +1,7 @@
 package engine
 
 import (
-	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -13,6 +13,7 @@ import (
 	actionsModel "github.com/Pegasus8/piworker/processment/elements/actions"
 	actionsList "github.com/Pegasus8/piworker/processment/elements/actions/models"
 	triggersList "github.com/Pegasus8/piworker/processment/elements/triggers/models"
+	"github.com/Pegasus8/piworker/processment/types"
 	"github.com/Pegasus8/piworker/processment/uservariables"
 )
 
@@ -79,8 +80,7 @@ func runTrigger(trigger data.UserTrigger, parentTaskName string) (bool, error) {
 		}
 	}
 
-	log.Printf("[%s] The trigger with the ID '%s' cannot be found\n", parentTaskName, trigger.ID)
-	return false, errors.New("Trigger not found")
+	return false, fmt.Errorf("The trigger with the ID '%s' cannot be found", trigger.ID)
 }
 
 func runActions(task *data.UserTask) {
@@ -109,10 +109,7 @@ func runActions(task *data.UserTask) {
 				for _, action := range actionsList.ACTIONS {
 					if userAction.ID == action.ID {
 						log.Printf("[%s] Running action n%d. Chained: %t | Previous chained result: %+v\n", task.TaskInfo.Name, orderN, userAction.Chained, chainedResult)
-						if !userAction.Chained {
-							// Overwrite previous result to prevent being used.
-							chainedResult = &actionsModel.ChainedResult{}
-						}
+
 						for _, arg := range userAction.Args {
 							err := searchAndReplaceVariable(&arg, task.TaskInfo.Name)
 							if err != nil {
@@ -120,6 +117,14 @@ func runActions(task *data.UserTask) {
 								return
 							}
 						}
+
+						ua, err := replaceArgByCR(chainedResult, &userAction)
+						if err != nil {
+							log.Printf("[%s] %s\n", task.TaskInfo.Name, err.Error())
+							return
+						}
+						userAction = *ua
+
 						result, chr, err := action.Run(chainedResult, &userAction, task.TaskInfo.Name)
 						// Set the returned chr (chained result) to our main instance of the ChainedResult struct (`chainedResult`).
 						// This will be given to the next action (if exists).
@@ -265,11 +270,64 @@ func searchAndReplaceVariable(arg *data.UserArg, parentTaskName string) error {
 			return err
 		}
 		localVariable.RLock()
-		// If all it's ok, replace the content of the argument (wich is the variable name basically)
+		// If all it's ok, replace the content of the argument (which is the variable name basically)
 		// with the content of the desired user local variable.
 		arg.Content = localVariable.Content
 		localVariable.RUnlock()
 	}
 
 	return nil
+}
+
+func replaceArgByCR(chainedResult *actionsModel.ChainedResult, userAction *data.UserAction) (*data.UserAction, error) {
+	if userAction.Order == 0 {
+		// Prevent the usage of ChainedResult because there are no previous actions.
+		userAction.Chained = false
+	}
+	if userAction.Chained {
+		if chainedResult.Result == "" {
+			return nil, actionsList.ErrEmptyChainedResult
+		}
+
+		for _, userArg := range userAction.Args {
+			if userArg.ID == userAction.ArgumentToReplaceByCR {
+				userArgType, err := getUserArgType(userAction.ID, userArg.ID)
+				if err != nil {
+					return nil, err
+				}
+				if chainedResult.ResultType != userArgType && userArgType != types.Any {
+					return nil, fmt.Errorf("Can't replace the arg with the ID '%s' of type '%s' with the previous ChainedResult of type '%s'", userArg.ID, userArgType, chainedResult.ResultType)
+
+				}
+				// If all is ok, replace the content
+				userArg.Content = chainedResult.Result
+			}
+		}
+	}
+
+	return userAction, nil
+}
+
+func getUserArgType(userActionID string, userArgID string) (types.PWType, error) {
+	var actionFound bool
+
+	for _, action := range actionsList.ACTIONS {
+		if action.ID == userActionID {
+			actionFound = true
+			for _, arg := range action.Args {
+				if arg.ID == userArgID {
+					return arg.ContentType, nil
+				}
+			}
+		}
+	}
+
+	var err error
+	if actionFound {
+		err = fmt.Errorf("Unrecognized argument ID '%s' of the action '%s'", userArgID, userActionID)
+	} else {
+		err = fmt.Errorf("Unrecognized action ID '%s'", userActionID)
+	}
+
+	return types.Any, err
 }

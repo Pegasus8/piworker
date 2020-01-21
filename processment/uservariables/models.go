@@ -2,6 +2,7 @@ package uservariables
 
 import (
 	"sync"
+	"github.com/Pegasus8/piworker/processment/types"
 )
 
 /**
@@ -17,7 +18,7 @@ import (
 type LocalVariable struct {
 	Name           string `json:"name"`
 	Content        string `json:"content"`
-	Type           uint    `json:"type"`
+	Type           types.PWType    `json:"type"`
 	ParentTaskName string `json:"parentTaskName"`
 	*sync.RWMutex
 }
@@ -26,7 +27,7 @@ type LocalVariable struct {
 type GlobalVariable struct {
 	Name    string `json:"name"`
 	Content string `json:"content"`
-	Type    uint    `json:"type"`
+	Type    types.PWType    `json:"type"`
 	*sync.RWMutex
 }
 
