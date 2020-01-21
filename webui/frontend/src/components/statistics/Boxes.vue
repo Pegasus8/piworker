@@ -82,7 +82,7 @@ export default {
     activeTasksCounter () {
       if (this.atc != this.$store.getters['statistics/activeTasksCounter']) {
         if (this.atcAnimation != null) {
-            this.atcAnimation.restart()
+          this.atcAnimation.restart()
         } else {
           this.atcAnimation = this.boxAnimation('atcBox')
         }
@@ -120,10 +120,10 @@ export default {
     boxAnimation (idTarget) {
       const blue = '48, 170, 232'
 
-      let timeline = anime.timeline({ easing: 'linear', direction: 'alternate' })
+      const timeline = anime.timeline({ easing: 'linear', direction: 'alternate' })
       timeline.add({
         targets: '#' + idTarget,
-        boxShadow: '0px 0px 15px rgba(' + blue + ', 0.4)',
+        boxShadow: '0px 0px 15px rgba(' + blue + ', 0.4)'
       })
 
       return timeline

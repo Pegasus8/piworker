@@ -132,10 +132,10 @@
               class="mx-auto my-2"
               v-for="arg in userAction.args" :key="arg.ID + '_' + $uuid.v1()"
             >
-              <b-card 
-                no-body 
-                :title="arg.description" 
-                :class='{ 
+              <b-card
+                no-body
+                :title="arg.description"
+                :class='{
                   "bg-primary": userAction.argumentToReplaceByCR == arg.ID,
                   "bg-light": userAction.argumentToReplaceByCR != arg.ID
                 }'
@@ -236,7 +236,7 @@ export default {
   },
   filters: {
     prepareChainedArgsSelect (args) {
-      let argsArray = []
+      const argsArray = []
       args.forEach((arg) => {
         argsArray.push({ text: arg.name, value: arg.ID })
       })
