@@ -9,6 +9,7 @@ import PortalVue from 'portal-vue'
 
 import 'bootstrap'; import 'bootstrap/dist/css/bootstrap.min.css'
 import 'bootstrap-vue/dist/bootstrap-vue.css'
+import vuetify from './plugins/vuetify'
 require('vue2-animate/dist/vue2-animate.min.css')
 
 Vue.config.productionTip = false
@@ -22,5 +23,6 @@ axios.defaults.baseURL = `${location.protocol}//${location.host}`
 new Vue({
   router,
   store,
+  vuetify,
   render: h => h(App)
 }).$mount('#app')
