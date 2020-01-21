@@ -147,12 +147,13 @@
                   <!-- Don't use b-form-input -->
                   <input
                     v-if="userAction.argumentToReplaceByCR != arg.ID"
-                    :type="arg.contentType | filterIncompatibleTypes" 
+                    :type="arg.contentType | filterIncompatibleTypes"
                     class="form-control"
                     placeholder="Content"
                     aria-label="Argument content"
-                    v-model.lazy="arg.content">
-                    <p v-else class="text-">Using previous action result</p>
+                    v-model.lazy="arg.content"
+                    v-b-popover.focus.top='arg.description'
+                    :title="arg.name">
                 </b-card-body>
               </b-card>
             </b-col>
