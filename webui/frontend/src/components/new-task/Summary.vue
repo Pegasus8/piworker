@@ -101,7 +101,7 @@
             <div style="opacity: 0.7;" class="icon-box-add my-1"></div>
             <b-row class="justify-content-center">
               <b-col cols='10' md='8' lg='6'>
-                <b-form-select size='sm' class="my-1" v-model='userAction.argumentToReplaceByCR' :options='userAction.args | argsNames' />
+                <b-form-select size='sm' class="my-1" v-model='userAction.argumentToReplaceByCR' :options='userAction.args | prepareChainedArgsSelect' />
               </b-col>
             </b-row>
           </div>
@@ -225,11 +225,10 @@ export default {
     appSummaryCard: SummaryCard
   },
   filters: {
-    argsNames (args) {
-      console.log('Received args to filter:', args) //! Testear esto
+    prepareChainedArgsSelect (args) {
       let argsArray = []
       args.forEach((arg) => {
-        argsArray.push(arg.name)
+        argsArray.push({ text: arg.name, value: arg.ID })
       })
       return argsArray
     },
