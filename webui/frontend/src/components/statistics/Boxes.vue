@@ -6,7 +6,6 @@
         sm="6"
         md="5"
         lg="3"
-        xl="2"
         class="m-3 mx-md-4 mx-lg-5 py-4"
       >
         <div id="atcBox">
@@ -24,7 +23,6 @@
         sm="6"
         md="5"
         lg="3"
-        xl="2"
         class="m-3 mx-md-4 mx-lg-5 py-4"
       >
         <div id="oetcBox">
@@ -42,7 +40,6 @@
         sm="6"
         md="5"
         lg="3"
-        xl="2"
         class="m-3 mx-md-4 mx-lg-5 py-4"
       >
         <div id="itcBox">
