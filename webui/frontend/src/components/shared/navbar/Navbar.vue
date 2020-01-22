@@ -1,16 +1,16 @@
 <template>
-  <b-navbar toggleable="lg" variant="dark" type="dark" class="text-light">
-    <b-navbar-brand class="mb-0 h1 font-weight-bold" href="#">
-      PiWorker
-      <b-badge variant="light" class="" id="version" pill>v0.1.0-alpha</b-badge>
-    </b-navbar-brand>
-    <b-navbar-toggle
+  <v-app-bar elevate-on-scroll dark dense app>
+    <v-app-bar-nav-icon @click="expandNavDrawer"/>
+    <v-toolbar-title class="font-weight-bold">
+      PiWorker <span class="overline">v0.1.0-alpha</span>
+    </v-toolbar-title>
+    <!-- <b-navbar-toggle
       target="navbarSupportedContent"
       aria-label="Toggle navigation"
       v-if="$store.getters['auth/isAuthenticated']"
-    />
+    /> -->
 
-    <b-collapse id="navbarSupportedContent" is-nav>
+    <!-- <b-collapse id="navbarSupportedContent" is-nav>
       <b-navbar-nav class="mr-auto">
         <router-link
           v-if="$store.getters['auth/isAuthenticated']"
@@ -56,12 +56,18 @@
           @click="$store.dispatch('auth/logout')"
         >Logout</b-button>
       </div>
-    </b-collapse>
-  </b-navbar>
+    </b-collapse> -->
+  </v-app-bar>
 </template>
 
 <script>
-export default {}
+export default {
+  methods: {
+    expandNavDrawer () {
+      this.$emit('expandDrawer')
+    }
+  }
+}
 </script>
 
 <style lang="scss" scoped>
