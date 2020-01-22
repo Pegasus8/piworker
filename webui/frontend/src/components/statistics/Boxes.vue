@@ -66,57 +66,50 @@ export default {
     return {
       atcAnimation: null,
       oetcAnimation: null,
-      itcAnimation: null,
-      atc: 0,
-      oetc: 0,
-      itc: 0
+      itcAnimation: null
     }
   },
   computed: {
     activeTasksCounter () {
-      if (this.atc != this.$store.getters['statistics/activeTasksCounter']) {
-        if (this.atcAnimation != null) {
-          this.atcAnimation.restart()
-        } else {
-          this.atcAnimation = this.boxAnimation('atcBox')
-        }
-        this.atc = this.$store.getters['statistics/activeTasksCounter']
-      }
-
       return this.$store.getters['statistics/activeTasksCounter']
     },
     onExecutionTasksCounter () {
-      if (this.oetc != this.$store.getters['statistics/onExecutionTasksCounter']) {
-        if (this.oetcAnimation != null) {
-          this.oetcAnimation.restart()
-        } else {
-          this.oetcAnimation = this.boxAnimation('oetcBox')
-        }
-        this.oetc = this.$store.getters['statistics/onExecutionTasksCounter']
-      }
-
       return this.$store.getters['statistics/onExecutionTasksCounter']
     },
     inactiveTasksCounter () {
-      if (this.itc != this.$store.getters['statistics/inactiveTasksCounter']) {
-        if (this.itcAnimation != null) {
-          this.itcAnimation.restart()
-        } else {
-          this.itcAnimation = this.boxAnimation('itcBox')
-        }
-        this.itc = this.$store.getters['statistics/inactiveTasksCounter']
-      }
-
       return this.$store.getters['statistics/inactiveTasksCounter']
     }
   },
+  watch: {
+    activeTasksCounter: function (newValue) {
+      if (this.atcAnimation != null) {
+        this.atcAnimation.restart()
+      } else {
+        this.atcAnimation = this.boxAnimation('atcBox')
+      }
+    },
+    onExecutionTasksCounter: function (newValue) {
+      if (this.oetcAnimation != null) {
+        this.oetcAnimation.restart()
+      } else {
+        this.oetcAnimation = this.boxAnimation('oetcBox')
+      }
+    },
+    inactiveTasksCounter: function (newValue) {
+      if (this.itcAnimation != null) {
+        this.itcAnimation.restart()
+      } else {
+        this.itcAnimation = this.boxAnimation('itcBox')
+      }
+    }
+  },
   methods: {
-    boxAnimation (idTarget) {
+    boxAnimation (targetID) {
       const blue = '48, 170, 232'
 
       const timeline = anime.timeline({ easing: 'linear', direction: 'alternate' })
       timeline.add({
-        targets: '#' + idTarget,
+        targets: '#' + targetID,
         boxShadow: '0px 0px 15px rgba(' + blue + ', 0.4)'
       })
 
