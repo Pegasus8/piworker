@@ -5,12 +5,14 @@
         {{ title }}
       </v-card-title>
       <v-card-text>
-        <div v-for="item in items" :key="item.title" class="text-left">
-          <span>
-            {{ item.title }}:
-            <span class="text-info font-weight-bold">{{ item.value }}</span>
-          </span>
-        </div>
+        <v-card outlined class="px-3 py-2">
+          <div v-for="item in items" :key="item.title" class="text-left">
+            <span>
+              {{ item.title }}:
+              <span class="text-info font-weight-bold">{{ item.value }}</span>
+            </span>
+          </div>
+        </v-card>
       </v-card-text>
     </v-card>
   </v-col>

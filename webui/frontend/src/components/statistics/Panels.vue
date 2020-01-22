@@ -2,7 +2,7 @@
   <v-container class="align-center mx-auto">
     <v-row class="m-3">
       <app-panel
-        title="More statistics about my tasks"
+        title="PiWorker statistics"
         :items="[
           { title: 'Completed tasks', value: completedTasksCounter },
           { title: 'Average execution time', value: averageExecutionTime + ' milliseconds' },
@@ -11,7 +11,7 @@
         ]"
       />
       <app-panel
-        title="Raspberry statistics"
+        title="Raspberry Pi statistics"
         :items="[
           { title: 'Temperature', value: raspberryStats.temperature + 'ºC' },
           { title: 'CPU load', value: raspberryStats.cpuLoad + '%' },
