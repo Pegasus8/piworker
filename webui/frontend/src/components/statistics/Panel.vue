@@ -1,33 +1,31 @@
 <template>
-  <b-row class="m-3">
-    <b-col class>
-      <b-card no-body bg-variant="light" border-variant="light">
-        <b-card-body class="text-center">
-          <span class="card-title h5">{{ title }}</span>
-        </b-card-body>
-        <b-collapse :id="'collapsePanel' + panelID">
-          <b-card class="px-sm-5 text-truncate">
-            <ul>
-              <li v-for="item in items" :key="item.title">
-                <span class="text-secondary">
-                  {{ item.title }}:
-                  <span class="text-info font-weight-bold">{{ item.value }}</span>
-                </span>
-              </li>
-            </ul>
-          </b-card>
-        </b-collapse>
-        <div class="text-center">
-          <div
-            class="icon-circle-down text-muted"
-            :id="showDetailsBtnID"
-            v-b-toggle="'collapsePanel' + panelID"
-            @click="showDetailsBtn"
-          ></div>
-        </div>
-      </b-card>
-    </b-col>
-  </b-row>
+  <v-col cols='12' lg='6'>
+    <v-card>
+      <v-card-text>
+        <h5 class="text-center">{{ title }}</h5>
+      </v-card-text>
+      <b-collapse :id="'collapsePanel' + panelID">
+        <v-card elevation='1' class="px-sm-5 text-truncate">
+          <ul>
+            <li v-for="item in items" :key="item.title">
+              <span class="text-secondary">
+                {{ item.title }}:
+                <span class="text-info font-weight-bold">{{ item.value }}</span>
+              </span>
+            </li>
+          </ul>
+        </v-card>
+      </b-collapse>
+      <div>
+        <div
+          class="icon-circle-down text-muted"
+          :id="showDetailsBtnID"
+          v-b-toggle="'collapsePanel' + panelID"
+          @click="showDetailsBtn"
+        ></div>
+      </div>
+    </v-card>
+  </v-col>
 </template>
 
 <script>
