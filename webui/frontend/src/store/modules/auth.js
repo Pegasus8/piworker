@@ -114,7 +114,7 @@ const actions = {
 
 const getters = {
   user: (state) => {
-    return state.user
+    return state.userID
   },
   isAuthenticated: (state) => {
     return state.tokenID !== null
