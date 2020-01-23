@@ -1,34 +1,90 @@
 <template>
-  <v-navigation-drawer v-model='expandNavDrawer' fixed app>
-    <v-list-item-group v-model="activeView">
-      <v-list-item :to="{name: 'statistics'}" @click="expandNavDrawer = false">
-        <v-list-item-title>
-          Statistics
-        </v-list-item-title>
+  <v-navigation-drawer v-model='expandNavDrawer' temporary app>
+    <v-list
+      nav
+      class="py-0"
+    >
+
+    <v-list-item two-line class='px-0'>
+      <v-list-item-avatar>
+        <v-icon x-large dark>mdi-account</v-icon>
+      </v-list-item-avatar>
+
+      <v-list-item-content>
+        <v-list-item-title class="title">{{ $store.getters['auth/user'] }}</v-list-item-title>
+        <v-list-item-subtitle v-if="admin" class="font-weight-bold">Admin</v-list-item-subtitle>
+      </v-list-item-content>
+    </v-list-item>
+
+    <v-divider/>
+
+      <v-list-item :to='{ name: "statistics" }' @click="expandNavDrawer = false" class="view-item">
+        <v-list-item-icon>
+          <v-icon>mdi-chart-areaspline</v-icon>
+        </v-list-item-icon>
+        <v-list-item-content>
+          <v-list-item-title>
+            Statistics
+          </v-list-item-title>
+        </v-list-item-content>
       </v-list-item>
-      <v-list-item :to="{name: 'management'}" @click="expandNavDrawer = false">
-        <v-list-item-title>
-          Management
-        </v-list-item-title>
+
+      <v-list-item :to="{ name: 'management' }" @click="expandNavDrawer = false" class="view-item">
+        <v-list-item-icon>
+          <v-icon>mdi-playlist-edit</v-icon>
+        </v-list-item-icon>
+        <v-list-item-content>
+          <v-list-item-title>
+            Management
+          </v-list-item-title>
+        </v-list-item-content>
       </v-list-item>
-      <v-list-item :to="{name: 'settings'}" @click="expandNavDrawer = false">
-        <v-list-item-title>
-          Settings
-        </v-list-item-title>
+
+      <v-list-item :to="{ name: 'settings' }" @click="expandNavDrawer = false" class="view-item">
+        <v-list-item-icon>
+          <v-icon>mdi-settings</v-icon>
+        </v-list-item-icon>
+        <v-list-item-content>
+          <v-list-item-title>
+            Settings
+          </v-list-item-title>
+        </v-list-item-content>
       </v-list-item>
-      <v-list-item :to="{name: 'new-task'}" @click="expandNavDrawer = false">
-        <v-list-item-title>
-          New Task
-        </v-list-item-title>
+
+      <v-divider/>
+
+      <v-list-item :to="{name: 'new-task'}" @click="expandNavDrawer = false" class="view-item ">
+        <v-list-item-icon>
+          <v-icon>mdi-plus-box</v-icon>
+        </v-list-item-icon>
+        <v-list-item-content>
+          <v-list-item-title>
+            New Task
+          </v-list-item-title>
+        </v-list-item-content>
       </v-list-item>
-    </v-list-item-group>
+
+    </v-list>
+
+    <template v-slot:append>
+      <div class="pa-2">
+        <v-btn
+          color='red'
+          class="darken-3"
+          block
+          @click="logout"
+        >
+        Logout
+        </v-btn>
+      </div>
+    </template>
   </v-navigation-drawer>
 </template>
 <script>
 export default {
   data () {
     return {
-      activeView: null
+      admin: true // TODO Get from API
     }
   },
   props: {
@@ -47,14 +103,16 @@ export default {
       }
     }
   },
-  watch: {
-    activeView: function (newValue) {
-      // When the view is closed close the navigation drawer
-      // this.expandNavDrawer = false
+  methods: {
+    logout () {
+      this.expandNavDrawer = false
+      this.$store.dispatch('auth/logout')
     }
   }
 }
 </script>
 <style lang="scss" scoped>
-
+.view-item {
+  text-decoration: none;
+}
 </style>
