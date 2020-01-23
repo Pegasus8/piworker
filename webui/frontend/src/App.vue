@@ -1,7 +1,9 @@
 <template>
   <v-app>
     <app-navigation-drawer
+      v-if="$store.getters['auth/isAuthenticated']"
       :expanded="expandNavDrawer"
+      @stateChange='expandNavDrawer = $event'
     />
     <app-navbar
       @expandDrawer='expandNavDrawer = !expandNavDrawer'
