@@ -138,7 +138,6 @@
 import Summary from '../components/new-task/Summary.vue'
 import FormGroupContainer from '../components/new-task/FormGroupContainer.vue'
 import { mapMutations, mapGetters } from 'vuex'
-import axios from 'axios'
 import router from '../router'
 
 export default {
@@ -203,7 +202,7 @@ export default {
       }
     },
     setTaskstateBtnStyle () {
-      if (this.$store.getters['newTask/taskState'] == '') {
+      if (this.$store.getters['newTask/taskState'] === '') {
         return 'outline-primary'
       } else {
         return 'outline-success'
@@ -222,7 +221,7 @@ export default {
         return
       }
       const trigger = this.triggers.filter((t) => {
-        return t.name == this.newTrigger
+        return t.name === this.newTrigger
       })
 
       this.setTrigger(...trigger)

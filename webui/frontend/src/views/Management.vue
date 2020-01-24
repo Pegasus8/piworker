@@ -26,7 +26,6 @@
 
 <script>
 import Task from '../components/management/Task.vue'
-import axios from 'axios'
 import { mapGetters } from 'vuex'
 
 export default {

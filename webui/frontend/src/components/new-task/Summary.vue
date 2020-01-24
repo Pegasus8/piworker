@@ -247,7 +247,7 @@ export default {
       // NOTE This is temporal. On a future all the types will be supported.
       const supportedTypes = ['text', 'password', 'email', 'number', 'url', 'tel', 'search', 'date', 'datetime', 'datetime-local', 'month', 'week', 'time', 'range', 'color']
       if (!supportedTypes.includes(argType)) {
-        if (argType == 'number-float') argType = 'number'
+        if (argType === 'number-float') argType = 'number'
         else argType = 'text' // By default
       }
 

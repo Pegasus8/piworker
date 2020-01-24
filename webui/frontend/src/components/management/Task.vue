@@ -112,7 +112,7 @@ export default {
   computed: {
     state: {
       get () {
-        if (this.taskState == 'active') return true
+        if (this.taskState === 'active') return true
         else return false
       },
       set (newValue) {
@@ -127,20 +127,20 @@ export default {
   methods: {
     getTriggerName (id) {
       this.$store.getters['elementsInfo/triggers'].find((trigger) => {
-        if (trigger.ID == id) return trigger.name
+        if (trigger.ID === id) return trigger.name
       })
     },
     getActionName (id) {
       this.$store.getters['elementsInfo/actions'].find((action) => {
-        if (action.ID == id) return action.name
+        if (action.ID === id) return action.name
       })
     },
     setTriggerArgsNames (userTriggerID, userTriggerArgs) {
       this.$store.getters['elementsInfo/triggers'].find((trigger) => {
-        if (trigger.ID == userTriggerID) {
-          for (arg in trigger.Args) {
+        if (trigger.ID === userTriggerID) {
+          for (const arg in trigger.Args) {
             userTriggerArgs.find((userArg) => {
-              if (arg.ID == userArg.ID) {
+              if (arg.ID === userArg.ID) {
                 // Set the name to the user arg.
                 userArg.name = arg.name
               }
@@ -153,10 +153,10 @@ export default {
     },
     setActionArgsNames (userActionID, userActionArgs) {
       this.$store.getters['elementsInfo/actions'].find((action) => {
-        if (action.ID == userActionID) {
+        if (action.ID === userActionID) {
           for (const arg in action.args) {
             userActionArgs.find((userArg) => {
-              if (arg.ID == userArg.ID) {
+              if (arg.ID === userArg.ID) {
                 // Set the name to the user arg.
                 userArg.name = arg.name
               }

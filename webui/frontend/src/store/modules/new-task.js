@@ -46,17 +46,17 @@ const actions = {
   submitData: ({ state }) => {
     return new Promise((resolve, reject) => {
       const newTaskData = {
-        'task': {
-          'name': state.taskname,
-          'state': state.taskState,
+        task: {
+          name: state.taskname,
+          state: state.taskState,
           // Only send one trigger. This is because, for now, multi-triggers are not supported.
-          'trigger': state.triggerSelected[0],
-          'actions': state.actionsSelected
+          trigger: state.triggerSelected[0],
+          actions: state.actionsSelected
         }
       }
-  
+
       // TODO Check the integrity of the data
-  
+
       console.info("Sending the data to the new tasks's API")
       axios.post('/api/tasks/new', newTaskData)
         .then((response) => {
