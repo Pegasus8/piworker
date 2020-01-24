@@ -34,8 +34,8 @@
               :disabled="!valid"
               class="primary darken-1 mt-2"
               @click="login"
-              block
               :loading='waintingResponse'
+              block
             >
               Login
             </v-btn>
@@ -44,14 +44,21 @@
       </v-card>
     </v-col>
   </v-row>
-  <v-row justify='center'>
-    <v-fade-transition>
-      <v-alert v-show="showAlert" type='error' class="mt-3">
-        Error when trying to login. Please, check your connection with PiWorker.
-        Error: <span class="font-weight-medium">{{ error }}</span>
-      </v-alert>
-    </v-fade-transition>
-  </v-row>
+  <v-snackbar
+    v-model="showAlert"
+    :bottom='true'
+    color='error'
+    :timeout='8000'
+  >
+    Error when trying to login: {{ error }}. Please, check your connection with PiWorker.
+    <v-btn
+      dark
+      text
+      @click="showAlert = false"
+    >
+      Close
+    </v-btn>
+  </v-snackbar>
 </v-container>
 </template>
 
