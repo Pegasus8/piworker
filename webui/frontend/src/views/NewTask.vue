@@ -1,152 +1,114 @@
 <template>
-<b-container>
-  <div class="form m-1">
-    <b-row>
-      <b-col>
-        <app-form-group-container
-          containerTitle="Name"
-          containerDescription="The name for your new task."
-          topElementID="task-name"
-          :withFooter="false"
-        >
-          <template v-slot:top>
-            <input
-              type="text"
-              class="form-control"
-              aria-describedby="task-name-description"
-              placeholder="Enter a task name"
-              id="task-name"
-              v-model="taskName"
+<v-container>
+  <v-card>
+    <v-card-title>
+      Create a new task
+    </v-card-title>
+    <v-card-text>
+      <v-form class="m-2" v-model="valid">
+        <v-text-field
+          v-model="taskName"
+          :rules='taskNameRules'
+          label="Task name"
+          outlined
+          required
+        />
+
+        <v-row justify='center'>
+          <v-col cols='12' lg='6' align='center'>
+            <v-autocomplete
+              v-model='newTrigger'
+              :items='triggers'
+              label='Trigger'
+              item-text='name'
+              placeholder="Start typing to Search"
+              hide-no-data
+              hide-selected
+              outlined
+              return-object
             />
-          </template>
-        </app-form-group-container>
-      </b-col>
-    </b-row>
+            <!-- TODO Implementation of args selection and triggers list -->
+            {{ $store.getters['newTask/triggerSelected'] }}
+          </v-col>
+          <v-col cols='12' lg='6' align='center'>
+            <v-autocomplete
+              v-model='newAction'
+              :items='actions'
+              label='Actions'
+              item-text='name'
+              placeholder="Start typing to Search"
+              hide-no-data
+              hide-selected
+              outlined
+              return-object
+            />
+            <!-- TODO Implementation of args selection and actions list -->
+            {{ $store.getters['newTask/actionsSelected'] }}
+          </v-col>
+        </v-row>
 
-    <b-row>
-      <b-col>
-        <app-form-group-container
-          containerTitle="Default state"
-          containerDescription="If the task will be executed (active) or not (inactive)."
-          topElementID="default-state"
-          :withFooter="true"
-        >
-          <template v-slot:top>
-            <select id="default-state" class="form-control" v-model="stateSelected">
-              <option>Active</option>
-              <option>Inactive</option>
-            </select>
-          </template>
-          <template v-slot:bottom>
-            <b-button
-              size="sm"
-              :variant="setTaskstateBtnStyle"
-              @click="setStateBtn"
-            >{{ stateBtnTxt }}</b-button>
-          </template>
-        </app-form-group-container>
-      </b-col>
-    </b-row>
+        <v-row justify='center'>
+          <v-col cols='auto'>
+            <v-switch
+              v-model="stateSelected"
+              color='success'
+              label='Enabled'
+              inset
+            />
+          </v-col>
+        </v-row>
+      </v-form>
+    </v-card-text>
+  </v-card>
 
-    <b-row>
-      <b-col md="6">
-        <app-form-group-container
-          v-if="triggers.length > 0"
-          containerTitle="Trigger"
-          containerDescription="Select one trigger."
-          topElementID="trigger-selector"
-          :withFooter="true"
-        >
-          <template v-slot:top>
-            <select
-              id="trigger-selector"
-              class="form-control"
-              aria-describedby="trigger-selector-description"
-              v-model="newTrigger"
-            >
-              <option
-                v-for="trigger in triggers"
-                :key="trigger.ID"
-                :title="trigger.description"
-              >{{ trigger.name }}</option>
-            </select>
-          </template>
-          <template v-slot:bottom>
-            <b-button
-              size="sm"
-              :variant="setTriggerBtnStyle"
-              @click="addTriggerBtn"
-            >{{ triggerBtnTxt }}</b-button>
-          </template>
-        </app-form-group-container>
-        <p v-else class="text-center font-weight-bolder text-danger mt-2">Can't get the info of Triggers</p>
-      </b-col>
+  <v-btn
+    class="primary darken-2 m-1"
+    :disabled="!valid"
+    :loading='submitted'
+    @click="submitTask()"
+    block
+  >
+    Save
+  </v-btn>
 
-      <b-col md="6">
-        <app-form-group-container
-          v-if="actions.length > 0"
-          containerTitle="Actions"
-          containerDescription="Select one or more actions."
-          topElementID="actions-selector"
-          :withFooter="true"
-        >
-          <template v-slot:top>
-            <select
-              id="actions-selector"
-              class="form-control"
-              aria-describedby="actions-selector-description"
-              v-model="newAction"
-            >
-              <option
-                v-for="action in actions"
-                :key="action.ID"
-                :title="action.description"
-              >{{ action.name }}</option>
-            </select>
-          </template>
-          <template v-slot:bottom>
-            <b-button
-              size="sm"
-              :variant="addActionBtnStyle"
-              @click="addActionBtn"
-            >Add</b-button>
-          </template>
-        </app-form-group-container>
-        <p v-else class="text-center font-weight-bolder text-danger mt-2">Can't get the info of Actions</p>
-      </b-col>
-    </b-row>
-  </div>
-
-  <div class="m-1">
-    <b-row>
-      <b-col>
-        <app-summary/>
-      </b-col>
-    </b-row>
-  </div>
-  <b-button block variant="primary" class="m-1" :disabled="isAllSelected" @click="submitTask()">
-    <span v-if="!submitted"><span class="icon-checkmark"></span> Save</span>
-    <b-spinner v-else variant="dark" class="" label="Loading"/>
-  </b-button>
-  <b-alert :show="responseContent != ''" :variant="alertVariant" class="floating-alert" @dismissed='responseContent = ""' dismissible fade>
+  <v-snackbar
+    v-model="alert"
+    :bottom='true'
+    :color='alertVariant'
+    :timeout='8000'
+  >
     {{ responseContent }}
-  </b-alert>
-</b-container>
+    <v-btn
+      dark
+      text
+      @click="alert = false"
+    >
+      Close
+    </v-btn>
+  </v-snackbar>
+</v-container>
 </template>
 
 <script>
-import Summary from '../components/new-task/Summary.vue'
-import FormGroupContainer from '../components/new-task/FormGroupContainer.vue'
 import { mapMutations, mapGetters } from 'vuex'
 import router from '../router'
 
 export default {
   data () {
     return {
+      valid: false,
+      taskNameRules: [
+        v => !v || 'The task must have a name'
+        // TODO Check if the name of the task is not repeated.
+      ],
+      selectTriggerRules: [],
+      selectActionsRules: [],
+
       newTrigger: '',
       newAction: '',
-      stateSelected: '',
+      stateSelected: true,
       submitted: false,
+      alert: false,
       alertVariant: 'success',
       responseContent: ''
     }
@@ -171,41 +133,6 @@ export default {
         return false
       } else {
         return true
-      }
-    },
-    triggerBtnTxt () {
-      if (this.$store.getters['newTask/triggerSelected'].length > 0) {
-        return 'Change'
-      } else {
-        return 'Select'
-      }
-    },
-    stateBtnTxt () {
-      if (this.$store.getters['newTask/taskState'] !== '') {
-        return 'Change'
-      } else {
-        return 'Select'
-      }
-    },
-    addActionBtnStyle () {
-      if (!this.$store.getters['newTask/actionsSelected'].length > 0) {
-        return 'outline-primary'
-      } else {
-        return 'outline-success'
-      }
-    },
-    setTriggerBtnStyle () {
-      if (!this.$store.getters['newTask/triggerSelected'].length > 0) {
-        return 'outline-primary'
-      } else {
-        return 'outline-success'
-      }
-    },
-    setTaskstateBtnStyle () {
-      if (this.$store.getters['newTask/taskState'] === '') {
-        return 'outline-primary'
-      } else {
-        return 'outline-success'
       }
     }
   },
@@ -253,32 +180,34 @@ export default {
       this.$store.commit('newTask/setTrigger', null) // cambiar
     },
     submitTask () {
-      if (this.submitted) return
-
       this.submitted = true
       console.info('Submitting a new task to the API...')
       this.$store.dispatch('newTask/submitData')
         .then((response) => {
           if (response.data.successful) {
             // Show a success alert
+            this.alert = true
             this.alertVariant = 'success'
             this.responseContent = 'Data submitted correctly!'
             this.clearFields()
             setTimeout(() => {
+              this.alert = false
               this.responseContent = ''
               router.replace({ name: 'statistics' })
             }, 2000)
           } else {
             // Show an error alert, showing the message received (response.data.error)
-            this.alertVariant = 'danger'
+            this.alert = true
+            this.alertVariant = 'error'
             this.responseContent = response.data.error
           }
-          console.info('Data submitted correctly, response:', response)
           // Change the submitted variable only when the response is received
           this.submitted = false
         })
         .catch((err) => {
-          console.error(err)
+          this.alert = true
+          this.alertVariant = 'error'
+          this.responseContent = err
           // Change the submitted variable only when the response is received
           this.submitted = false
         })
@@ -292,9 +221,17 @@ export default {
       this.$store.dispatch('elementsInfo/updateActionsInfo')
     }
   },
-  components: {
-    appSummary: Summary,
-    appFormGroupContainer: FormGroupContainer
+  watch: {
+    newAction: function (newVal) {
+      if (!newVal) return // Prevent the execution when we change the variable `this.newAction` to null.
+      this.addAction(newVal)
+      this.newAction = null
+    },
+    newTrigger: function (newVal) {
+      if (!newVal) return // Prevent the execution when we change the variable `this.newTrigger` to null.
+      this.setTrigger(newVal)
+      this.newTrigger = null
+    }
   }
 }
 
