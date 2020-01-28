@@ -461,6 +461,7 @@ func triggersInfoAPI(w http.ResponseWriter, request *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(triggersList.TRIGGERS)
 	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
 		log.Println("Error:", err.Error())
 	}
 }
@@ -474,6 +475,7 @@ func actionsInfoAPI(w http.ResponseWriter, request *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(actionsList.ACTIONS)
 	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
 		log.Println("Error:", err.Error())
 	}
 }
