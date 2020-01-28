@@ -56,13 +56,19 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 			
 			token, err := jwt.ParseWithClaims(r.Header["Token"][0], &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
                 if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-                    return nil, fmt.Errorf("There was an error")
+                    return nil, fmt.Errorf("The token is using an incorrect signing method")
                 }
                 return signingKey, nil
 			})
 
             if err != nil {
+				if err == jwt.ErrSignatureInvalid {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				w.WriteHeader(http.StatusBadRequest)
 				log.Println("Error when parsing the token:", err.Error())
+				return
             }
 
             if token.Valid {
@@ -101,12 +107,10 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
             } else {
 				log.Printf("The IP %s has tried to use a not valid token: '%s'\n", r.Host, token.Raw)
 				w.WriteHeader(http.StatusUnauthorized)
-				fmt.Fprintf(w, "Not authorized, invalid token.")
 			}
         } else {
 			log.Printf("The IP %s has tried to access without a token\n", r.Host)
 			w.WriteHeader(http.StatusUnauthorized)
-            fmt.Fprintf(w, "Not authorized.")
         }
     })
 }
