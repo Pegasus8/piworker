@@ -145,6 +145,11 @@ func statsWS(w http.ResponseWriter, request *http.Request) {
 }
 
 func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
+	if request.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	var response struct {
 		Successful bool `json:"successful"`
@@ -215,6 +220,11 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 }
 
 func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
+	if request.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	var response postResponse
 	var task data.UserTask
@@ -276,6 +286,11 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 }
 
 func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
+	if request.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	var response postResponse
 	var task data.UserTask
@@ -314,6 +329,11 @@ func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PO
 }
 
 func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: DELETE
+	if request.Method != "DELETE" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	var response postResponse
 	var toDelete = struct {
@@ -356,6 +376,11 @@ func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: DE
 }
 
 func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
+	if request.Method != "GET" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	userData, err := data.ReadData()
 	if err != nil {
@@ -367,6 +392,11 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 }
 
 func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
+	if request.Method != "GET" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	var response = struct {
 		Successful bool `json:"successful"`
@@ -416,9 +446,18 @@ func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 }
 
 func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
+	if request.Method != "GET" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
 }
 
 func triggersInfoAPI(w http.ResponseWriter, request *http.Request) {
+	if request.Method != "GET" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(triggersList.TRIGGERS)
 	if err != nil {
@@ -427,6 +466,11 @@ func triggersInfoAPI(w http.ResponseWriter, request *http.Request) {
 }
 
 func actionsInfoAPI(w http.ResponseWriter, request *http.Request) {
+	if request.Method != "GET" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(actionsList.ACTIONS)
 	if err != nil {
