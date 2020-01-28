@@ -50,6 +50,7 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 			// Prevents panic if an empty string is sended as token.
 			if r.Header["Token"][0] == "" { 
 				log.Printf("The adress %s tried to use an empty string as token. Rejected.\n", r.Host)
+				w.WriteHeader(http.StatusUnauthorized)
 				return 
 			}
 			
@@ -71,13 +72,15 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 				log.Printf("Token valid, checking on database...")
 				userAuthInfo, err := ReadLastToken(claims.User)
 				if err != nil {
-					fmt.Fprintf(w, "Error on the database, I can't check the authenticity of the token.")
 					log.Println(err.Error())
+					w.WriteHeader(http.StatusInternalServerError)
+					fmt.Fprintf(w, "Error on the database, I can't check the authenticity of the token.")
 					return
 				}
 				if userAuthInfo.Token != token.Raw {
 					str := "The token used is not the same as the last one registered in the database."
 					log.Println(str)
+					w.WriteHeader(http.StatusUnauthorized)
 					fmt.Fprintln(w, str)
 					return
 				}
@@ -97,10 +100,12 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 				endpoint(w, r)
             } else {
 				log.Printf("The IP %s has tried to use a not valid token: '%s'\n", r.Host, token.Raw)
+				w.WriteHeader(http.StatusUnauthorized)
 				fmt.Fprintf(w, "Not authorized, invalid token.")
 			}
         } else {
 			log.Printf("The IP %s has tried to access without a token\n", r.Host)
+			w.WriteHeader(http.StatusUnauthorized)
             fmt.Fprintf(w, "Not authorized.")
         }
     })
