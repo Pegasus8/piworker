@@ -44,9 +44,13 @@
                     <v-expansion-panel-header>
                       {{ arg.name }}
                     </v-expansion-panel-header>
-                    <v-expansion-panel-content>
+                    <v-expansion-panel-content class="text--secondary text--darken-2">
                       {{ arg.description }}
-                      <!-- TODO Add selector -->
+                      <app-adaptative-arg
+                        :content='arg.content'
+                        :argType="arg.type"
+                        @changed='arg.content = $event'
+                      />
                     </v-expansion-panel-content>
                   </v-expansion-panel>
                 </v-expansion-panels>
@@ -65,6 +69,8 @@
 </template>
 
 <script>
+import AdaptativeArgSelector from './AdaptativeArgSelector.vue'
+
 export default {
   props: {
     cardTitle: {
@@ -95,6 +101,9 @@ export default {
     openSelector () {
       this.$emit('open-selector')
     }
+  },
+  components: {
+    appAdaptativeArg: AdaptativeArgSelector
   }
 }
 </script>
