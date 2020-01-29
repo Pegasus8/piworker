@@ -102,7 +102,7 @@ export default {
     return {
       valid: false,
       taskNameRules: [
-        v => !v || 'The task must have a name'
+        v => !!v || 'The task must have a name'
         // TODO Check if the name of the task is not repeated.
       ],
       showTriggerSelectorDialog: false,
