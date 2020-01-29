@@ -29,9 +29,6 @@ export default {
         this.$emit('changed', newValue)
       }
     }
-  },
-  mounted () {
-    console.log(this.content)
   }
 }
 </script>
