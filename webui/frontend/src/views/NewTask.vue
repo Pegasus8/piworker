@@ -5,7 +5,7 @@
       Create a new task
     </v-card-title>
     <v-card-text>
-      <v-form class="m-2" v-model="valid">
+      <v-form class="m-2" v-model="valid" ref="form">
         <v-text-field
           v-model="taskName"
           :rules='taskNameRules'
@@ -16,34 +16,21 @@
 
         <v-row justify='center'>
           <v-col cols='12' lg='6' align='center'>
-            <v-autocomplete
-              v-model='newTrigger'
-              :items='triggers'
-              label='Trigger'
-              item-text='name'
-              placeholder="Start typing to Search"
-              hide-no-data
-              hide-selected
-              outlined
-              return-object
+            <app-elements-list
+              card-title='Trigger'
+              :user-elements="$store.getters['newTask/triggerSelected']"
+              @modified="setTrigger($event)"
+              @open-selector='showTriggerSelectorDialog = true'
             />
-            <!-- TODO Implementation of args selection and triggers list -->
-            {{ $store.getters['newTask/triggerSelected'] }}
           </v-col>
+
           <v-col cols='12' lg='6' align='center'>
-            <v-autocomplete
-              v-model='newAction'
-              :items='actions'
-              label='Actions'
-              item-text='name'
-              placeholder="Start typing to Search"
-              hide-no-data
-              hide-selected
-              outlined
-              return-object
+            <app-elements-list
+              card-title='Actions'
+              :user-elements="$store.getters['newTask/actionsSelected']"
+              @modified="setActions($event)"
+              @open-selector='showActionSelectorDialog = true'
             />
-            <!-- TODO Implementation of args selection and actions list -->
-            {{ $store.getters['newTask/actionsSelected'] }}
           </v-col>
         </v-row>
 
@@ -86,10 +73,27 @@
       Close
     </v-btn>
   </v-snackbar>
+
+  <app-element-selector
+    elementType='trigger'
+    :elements="triggers"
+    :show='showTriggerSelectorDialog'
+    @elementSelected='setTrigger($event)'
+    @dismissed='showTriggerSelectorDialog = false'
+  />
+  <app-element-selector
+    elementType='action'
+    :elements="actions"
+    :show='showActionSelectorDialog'
+    @elementSelected='addAction($event)'
+    @dismissed='showActionSelectorDialog = false'
+  />
 </v-container>
 </template>
 
 <script>
+import ElementSelector from '../components/new-task/ElementSelector.vue'
+import ElementsList from '../components/new-task/ElementsList.vue'
 import { mapMutations, mapGetters } from 'vuex'
 import router from '../router'
 
@@ -101,8 +105,8 @@ export default {
         v => !v || 'The task must have a name'
         // TODO Check if the name of the task is not repeated.
       ],
-      selectTriggerRules: [],
-      selectActionsRules: [],
+      showTriggerSelectorDialog: false,
+      showActionSelectorDialog: false,
 
       newTrigger: '',
       newAction: '',
@@ -141,7 +145,8 @@ export default {
       'setTaskname',
       'setTaskState',
       'setTrigger',
-      'addAction'
+      'addAction',
+      'setActions'
     ]),
     addTriggerBtn () {
       if (!this.newTrigger) {
@@ -232,6 +237,10 @@ export default {
       this.setTrigger(newVal)
       this.newTrigger = null
     }
+  },
+  components: {
+    appElementSelector: ElementSelector,
+    appElementsList: ElementsList
   }
 }
 
