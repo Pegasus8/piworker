@@ -20,6 +20,7 @@
               card-title='Trigger'
               :user-elements="$store.getters['newTask/triggerSelected']"
               @modified="setTrigger($event)"
+              @remove-item='removeTrigger($event)'
               @open-selector='showTriggerSelectorDialog = true'
             />
           </v-col>
@@ -29,6 +30,7 @@
               card-title='Actions'
               :user-elements="$store.getters['newTask/actionsSelected']"
               @modified="setActions($event)"
+              @remove-item='removeAction($event)'
               @open-selector='showActionSelectorDialog = true'
             />
           </v-col>
@@ -145,7 +147,9 @@ export default {
       'setTaskname',
       'setTaskState',
       'setTrigger',
+      'removeTrigger',
       'addAction',
+      'removeAction',
       'setActions'
     ]),
     addTriggerBtn () {

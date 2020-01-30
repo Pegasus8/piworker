@@ -9,7 +9,7 @@
     <v-card-text>
       <v-expansion-panels>
         <v-expansion-panel
-          v-for="userElement in userElementsComputed"
+          v-for="(userElement, index) in userElementsComputed"
           :key="userElement.ID + '_' + $uuid.v1()"
         >
           <v-expansion-panel-header v-slot="{ open }">
@@ -55,6 +55,17 @@
                   </v-expansion-panel>
                 </v-expansion-panels>
               </v-card-text>
+              <v-card-actions>
+                <v-spacer/>
+                <v-btn 
+                  color='red lighten-1'
+                  @click="removeItem(index)"
+                  text
+                  icon
+                >
+                  <v-icon>mdi-delete</v-icon>
+                </v-btn>
+              </v-card-actions>
             </v-card>
           </v-expansion-panel-content>
         </v-expansion-panel>
@@ -69,6 +80,7 @@
 </template>
 
 <script>
+import draggable from 'vuedraggable'
 import AdaptativeArgSelector from './AdaptativeArgSelector.vue'
 
 export default {
@@ -100,10 +112,14 @@ export default {
   methods: {
     openSelector () {
       this.$emit('open-selector')
+    },
+    removeItem (elementIndex) {
+      this.$emit('remove-item', elementIndex)
     }
   },
   components: {
-    appAdaptativeArg: AdaptativeArgSelector
+    appAdaptativeArg: AdaptativeArgSelector,
+    draggable
   }
 }
 </script>
