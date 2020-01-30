@@ -24,18 +24,18 @@
                     <v-fade-transition>
                       <v-btn
                         v-if='elementSelected !== element'
-                        color='green' 
-                        @click='elementSelected = element' 
-                        text 
+                        color='green'
+                        @click='elementSelected = element'
+                        text
                         icon
                       >
                         <v-icon>mdi-plus</v-icon>
                       </v-btn>
                       <v-btn
                         v-else
-                        color='red' 
-                        @click='elementSelected = null' 
-                        text 
+                        color='red'
+                        @click='elementSelected = null'
+                        text
                         icon
                       >
                         <v-icon>mdi-close</v-icon>
@@ -96,6 +96,7 @@ export default {
     submit () {
       this.$emit('elementSelected', this.elementSelected)
       this.showDialog = false
+      this.elementSelected = null
     }
   }
 }
