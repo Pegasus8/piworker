@@ -33,6 +33,8 @@ const (
 	URL PWType = "url"
 	// Date is the constant used to represent the content with the format of a date. For example: "10/11/2020".
 	Date PWType = "date"
+	// Time is the constant used to represent the content with the format of time.
+	Time PWType = "time"
 )
 
 // IsInt is a function used to check if a string value can be converted to integer or not.
