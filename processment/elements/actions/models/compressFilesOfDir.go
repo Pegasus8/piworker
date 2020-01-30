@@ -37,7 +37,7 @@ var CompressFilesOfDir = actions.Action{
 			Description: "The directory where the files to compress are located." +
 				" Example: '/home/pegasus8/Images/'",
 			// Content: "",
-			ContentType: "string",
+			ContentType: types.Path,
 		},
 		actions.Arg{
 			ID:   savetoCompressFilesOfDirArgID,
@@ -45,7 +45,7 @@ var CompressFilesOfDir = actions.Action{
 			Description: "Directory where save the compressed file, if not exists " +
 				"it will be created. Example: '/home/'",
 			// Content: "",
-			ContentType: "text",
+			ContentType: types.Path,
 		},
 	},
 	ReturnedChainResultDescription: "The path of the compressed file.",

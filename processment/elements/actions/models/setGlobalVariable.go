@@ -31,14 +31,14 @@ var SetGlobalVariable = actions.Action{
 			Name: "Name",
 			Description: "The name of the variable. Must be uppercase, without spaces or special characters. " +
 				"The unique special character allowed is the underscore ('_'). Example: THIS_IS_AN_EXAMPLE",
-			ContentType: "text",
+			ContentType: types.Text,
 		},
 		actions.Arg{
 			ID:   variableContentSetGlobalVariableID,
 			Name: "Variable content",
 			Description: "The content of the variable. Optionally can be: a result of a previous action, " +
 				"another variable or static content (setted by you).",
-			ContentType: "text",
+			ContentType: types.Any,
 		},
 	},
 	ReturnedChainResultDescription: "The content setted to the variable.",

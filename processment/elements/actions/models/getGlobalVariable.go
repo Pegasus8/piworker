@@ -30,7 +30,7 @@ var GetGlobalVariable = actions.Action{
 			ID:          variableNameGetGlobalVariableID,
 			Name:        "Name",
 			Description: "The name of the desired variable.",
-			ContentType: "text",
+			ContentType: types.Text,
 		},
 	},
 	ReturnedChainResultDescription: "The content of the obtained variable.",

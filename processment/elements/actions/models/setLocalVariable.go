@@ -33,14 +33,14 @@ var SetLocalVariable = actions.Action{
 				"The unique special character allowed is the underscore ('_'). Remind that local variables are only " +
 				"valid on the task where are created. If you want share a variable between tasks use a global variable" +
 				" instead. Example of variable: some_random_local_var",
-			ContentType: "text",
+			ContentType: types.Text,
 		},
 		actions.Arg{
 			ID:   variableContentSetLocalVariableID,
 			Name: "Variable content",
 			Description: "The content of the variable. Optionally can be: a result of a previous action, " +
 				"another variable or static content (setted by you).",
-			ContentType: "text",
+			ContentType: types.Any,
 		},
 	},
 	ReturnedChainResultDescription: "The content setted to the variable.",
