@@ -9,7 +9,7 @@
     <v-card-text>
       <v-expansion-panels>
         <v-expansion-panel
-          v-for="userElement in userElementsComputed" 
+          v-for="userElement in userElementsComputed"
           :key="userElement.ID + '_' + $uuid.v1()"
         >
           <v-expansion-panel-header v-slot="{ open }">
@@ -48,7 +48,7 @@
                       {{ arg.description }}
                       <app-adaptative-arg
                         :content='arg.content'
-                        :argType="arg.type"
+                        :argType="arg.contentType"
                         @changed='arg.content = $event'
                       />
                     </v-expansion-panel-content>
