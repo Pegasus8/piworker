@@ -39,6 +39,11 @@ const mutations = {
   },
   removeAction: (state, actionIndex) => {
     state.actionsSelected.splice(actionIndex, 1)
+  },
+  updateActionsOrder: (state) => {
+    for (const [index, action] of state.actionsSelected.entries()) {
+      action.order = index
+    }
   }
 }
 
