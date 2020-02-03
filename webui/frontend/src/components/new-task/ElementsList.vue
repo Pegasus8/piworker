@@ -1,75 +1,64 @@
 <template>
-  <v-card :elevation='0'>
+  <v-card outlined>
+
     <v-card-title>
       {{ cardTitle }}
     </v-card-title>
+
     <v-card-subtitle v-if="cardSubtitle !== ''" align='left'>
       {{ cardSubtitle }}
     </v-card-subtitle>
+
     <v-card-text>
-      <v-expansion-panels>
-        <v-expansion-panel
+
+      <draggable v-model='userElementsComputed'>
+        <div
           v-for="(userElement, index) in userElementsComputed"
           :key="userElement.ID + '_' + $uuid.v1()"
+          class="my-2"
         >
-          <v-expansion-panel-header v-slot="{ open }">
-            <v-row no-gutters>
-              <v-col cols="7">{{ userElement.name }}</v-col>
-              <v-col
-                cols="5"
-                class="caption text--secondary text--darken-2"
+          <v-card :elevation='4'>
+            <v-card-title>
+              {{ userElement.name }}
+            </v-card-title>
+            <v-card-subtitle>
+              {{ userElement.description }}
+            </v-card-subtitle>
+            <v-card-text>
+              <v-expansion-panels>
+                <v-expansion-panel v-for="arg in userElement.args" :key="arg.ID">
+                  <v-expansion-panel-header>
+                    {{ arg.name }}
+                  </v-expansion-panel-header>
+                  <v-expansion-panel-content class="text--secondary text--darken-2">
+                    {{ arg.description }}
+                    <app-adaptative-arg
+                      :content='arg.content'
+                      :argType="arg.contentType"
+                      @changed='arg.content = $event'
+                    />
+                  </v-expansion-panel-content>
+                </v-expansion-panel>
+              </v-expansion-panels>
+            </v-card-text>
+            <v-card-actions>
+              <v-spacer/>
+              <v-btn
+                color='red lighten-1'
+                @click="removeItem(index)"
+                text
+                icon
               >
-                <v-fade-transition leave-absolute>
-                  <span
-                    v-if="open"
-                    key="0"
-                  >
-                    Select the arguments
-                  </span>
-                  <span
-                    v-else
-                    key="1"
-                  >
-                    Arguments selected: 0/{{ userElement.args.length }}
-                  </span>
-                </v-fade-transition>
-              </v-col>
-            </v-row>
-          </v-expansion-panel-header>
-          <v-expansion-panel-content>
-            <v-card :elevation='0'>
-              <v-card-text>
-                <v-expansion-panels>
-                  <v-expansion-panel v-for="arg in userElement.args" :key="arg.ID">
-                    <v-expansion-panel-header>
-                      {{ arg.name }}
-                    </v-expansion-panel-header>
-                    <v-expansion-panel-content class="text--secondary text--darken-2">
-                      {{ arg.description }}
-                      <app-adaptative-arg
-                        :content='arg.content'
-                        :argType="arg.contentType"
-                        @changed='arg.content = $event'
-                      />
-                    </v-expansion-panel-content>
-                  </v-expansion-panel>
-                </v-expansion-panels>
-              </v-card-text>
-              <v-card-actions>
-                <v-spacer/>
-                <v-btn 
-                  color='red lighten-1'
-                  @click="removeItem(index)"
-                  text
-                  icon
-                >
-                  <v-icon>mdi-delete</v-icon>
-                </v-btn>
-              </v-card-actions>
-            </v-card>
-          </v-expansion-panel-content>
-        </v-expansion-panel>
-      </v-expansion-panels>
+                <v-icon>mdi-delete</v-icon>
+              </v-btn>
+            </v-card-actions>
+          </v-card>
+          <v-row v-if='userElement.order !== userElementsComputed.length - 1' class="my-1" justify='center'>
+            <v-icon color='blue darken-2' large>mdi-arrow-down-bold</v-icon>
+          </v-row>
+        </div>
+      </draggable>
+
       <v-row justify='center'>
         <v-btn color='green' @click="openSelector" text icon>
           <v-icon>mdi-plus</v-icon>
@@ -99,6 +88,10 @@ export default {
       required: true
     }
   },
+  data () {
+    return {
+    }
+  },
   computed: {
     userElementsComputed: {
       get () {
@@ -115,15 +108,19 @@ export default {
     },
     removeItem (elementIndex) {
       this.$emit('remove-item', elementIndex)
+    },
+    orderUpdateRequired () {
+      this.$emit('order-modified')
+    }
+  },
+  watch: {
+    userElementsComputed: function(newValue) {
+      this.orderUpdateRequired()
     }
   },
   components: {
+    draggable,
     appAdaptativeArg: AdaptativeArgSelector,
-    draggable
   }
 }
 </script>
-
-<style lang="scss" scoped>
-
-</style>
