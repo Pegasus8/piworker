@@ -114,13 +114,13 @@ export default {
     }
   },
   watch: {
-    userElementsComputed: function(newValue) {
+    userElementsComputed: function (newValue) {
       this.orderUpdateRequired()
     }
   },
   components: {
     draggable,
-    appAdaptativeArg: AdaptativeArgSelector,
+    appAdaptativeArg: AdaptativeArgSelector
   }
 }
 </script>
