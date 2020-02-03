@@ -32,6 +32,7 @@
               @modified="setActions($event)"
               @remove-item='removeAction($event)'
               @open-selector='showActionSelectorDialog = true'
+              @order-modified='updateActionsOrder()'
             />
           </v-col>
         </v-row>
@@ -150,7 +151,8 @@ export default {
       'removeTrigger',
       'addAction',
       'removeAction',
-      'setActions'
+      'setActions',
+      'updateActionsOrder'
     ]),
     addTriggerBtn () {
       if (!this.newTrigger) {
