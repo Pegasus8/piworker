@@ -12,6 +12,7 @@
     :rules='[
       rules.emptyNotAllowed
     ]'
+    :disabled='disabled'
     required
   />
   <v-textarea
@@ -24,6 +25,7 @@
       rules.emptyNotAllowed
     ]'
     clear-icon='cancel'
+    :disabled='disabled'
     filled
     auto-grow
     clearable
@@ -35,6 +37,7 @@
     :rules='[
       rules.emptyNotAllowed
     ]'
+    :disabled='disabled'
   />
   <v-time-picker
     v-if='argType == "time"'
@@ -42,6 +45,7 @@
     :rules='[
       rules.emptyNotAllowed
     ]'
+    :disabled='disabled'
   />
   <v-checkbox
     v-if='argType == "boolean"'
@@ -49,6 +53,7 @@
     :rules='[
       rules.emptyNotAllowed
     ]'
+    :disabled='disabled'
   />
 </div>
 </template>
@@ -63,6 +68,11 @@ export default {
     argType: {
       type: String,
       required: true
+    },
+    disabled: {
+      type: Boolean,
+      required: false,
+      default: false
     }
   },
   data () {
