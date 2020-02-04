@@ -17,6 +17,10 @@
           :key="userElement.ID + '_' + $uuid.v1()"
           class="my-2"
         >
+          <v-row v-if='userElement.order !== 0 && cardTitle === "Actions"' class="my-1" justify='center'>
+            <v-icon color='blue darken-2' large>mdi-arrow-down-bold</v-icon>
+            <v-icon v-if="userElement.chained" color='blue darken-2'>mdi-link-variant</v-icon>
+          </v-row>
           <v-card :elevation='4'>
             <v-card-title>
               {{ userElement.name }}
@@ -27,16 +31,47 @@
             <v-card-text>
               <v-expansion-panels>
                 <v-expansion-panel v-for="arg in userElement.args" :key="arg.ID">
-                  <v-expansion-panel-header>
+                  <v-expansion-panel-header
+                    :disable-icon-rotate='userElement.argumentToReplaceByCR === arg.ID'
+                  >
                     {{ arg.name }}
+                    <template
+                      v-if='userElement.argumentToReplaceByCR === arg.ID'
+                      v-slot:actions
+                    >
+                      <v-icon color="blue darken-2">mdi-link-box-variant</v-icon>
+                    </template>
                   </v-expansion-panel-header>
                   <v-expansion-panel-content class="text--secondary text--darken-2">
                     {{ arg.description }}
                     <app-adaptative-arg
                       :content='arg.content'
                       :argType="arg.contentType"
+                      :disabled='userElement.argumentToReplaceByCR === arg.ID && userElement.chained'
                       @changed='arg.content = $event'
                     />
+                    <div
+                      v-if='userElement.order !== 0 && cardTitle === "Actions"'
+                      class="d-flex flex-row-reverse"
+                    >
+                      <v-btn
+                        v-if="userElement.argumentToReplaceByCR !== arg.ID"
+                        @click='userElement.argumentToReplaceByCR = arg.ID; userElement.chained = true'
+                        text
+                        icon
+                      >
+                        <v-icon>mdi-link-variant</v-icon>
+                      </v-btn>
+                      <v-btn
+                        v-else
+                        color='red lighten-1'
+                        @click='userElement.argumentToReplaceByCR = ""; userElement.chained = false'
+                        text
+                        icon
+                      >
+                        <v-icon>mdi-link-variant-off</v-icon>
+                      </v-btn>
+                    </div>
                   </v-expansion-panel-content>
                 </v-expansion-panel>
               </v-expansion-panels>
@@ -53,9 +88,6 @@
               </v-btn>
             </v-card-actions>
           </v-card>
-          <v-row v-if='userElement.order !== userElementsComputed.length - 1 && cardTitle === "Actions"' class="my-1" justify='center'>
-            <v-icon color='blue darken-2' large>mdi-arrow-down-bold</v-icon>
-          </v-row>
         </div>
       </draggable>
 
