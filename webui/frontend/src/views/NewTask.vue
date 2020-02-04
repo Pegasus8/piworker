@@ -19,21 +19,25 @@
             <app-elements-list
               card-title='Trigger'
               :user-elements="$store.getters['newTask/triggerSelected']"
+              :dragAndDrop="!dragAndDropTriggers"
               @modified="setTrigger($event)"
               @remove-item='removeTrigger($event)'
               @open-selector='showTriggerSelectorDialog = true'
             />
+            <v-checkbox v-model='dragAndDropTriggers' label='Drag & drop' color='blue'/>
           </v-col>
 
           <v-col cols='12' lg='6' align='center'>
             <app-elements-list
               card-title='Actions'
               :user-elements="$store.getters['newTask/actionsSelected']"
+              :dragAndDrop="!dragAndDropActions"
               @modified="setActions($event)"
               @remove-item='removeAction($event)'
               @open-selector='showActionSelectorDialog = true'
               @order-modified='updateActionsOrder()'
             />
+            <v-checkbox v-model='dragAndDropActions' label='Drag & drop' color='blue'/>
           </v-col>
         </v-row>
 
@@ -117,7 +121,9 @@ export default {
       submitted: false,
       alert: false,
       alertVariant: 'success',
-      responseContent: ''
+      responseContent: '',
+      dragAndDropTriggers: true,
+      dragAndDropActions: true
     }
   },
   computed: {

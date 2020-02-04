@@ -11,7 +11,7 @@
 
     <v-card-text>
 
-      <draggable v-model='userElementsComputed'>
+      <draggable v-model='userElementsComputed' :disabled='dragAndDrop'>
         <div
           v-for="(userElement, index) in userElementsComputed"
           :key="userElement.ID + '_' + $uuid.v1()"
@@ -86,6 +86,11 @@ export default {
     userElements: {
       type: Array,
       required: true
+    },
+    dragAndDrop: {
+      type: Boolean,
+      required: false,
+      default: true
     }
   },
   data () {
