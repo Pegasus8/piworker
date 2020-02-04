@@ -53,7 +53,7 @@
               </v-btn>
             </v-card-actions>
           </v-card>
-          <v-row v-if='userElement.order !== userElementsComputed.length - 1' class="my-1" justify='center'>
+          <v-row v-if='userElement.order !== userElementsComputed.length - 1 && cardTitle === "Actions"' class="my-1" justify='center'>
             <v-icon color='blue darken-2' large>mdi-arrow-down-bold</v-icon>
           </v-row>
         </div>
