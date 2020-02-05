@@ -14,7 +14,7 @@
       <draggable v-model='userElementsComputed' :disabled='dragAndDrop'>
         <div
           v-for="(userElement, index) in userElementsComputed"
-          :key="userElement.ID + '_' + $uuid.v1()"
+          :key="userElement.internalID"
           class="my-2"
         >
           <v-row v-if='userElement.order !== 0 && cardTitle === "Actions"' class="my-1" justify='center'>
@@ -29,7 +29,7 @@
               {{ userElement.description }}
             </v-card-subtitle>
             <v-card-text>
-              <v-expansion-panels>
+              <v-expansion-panels v-model="userElement.openArg">
                 <v-expansion-panel v-for="arg in userElement.args" :key="arg.ID">
                   <v-expansion-panel-header
                     :disable-icon-rotate='userElement.argumentToReplaceByCR === arg.ID'
@@ -56,7 +56,7 @@
                     >
                       <v-btn
                         v-if="userElement.argumentToReplaceByCR !== arg.ID"
-                        @click='userElement.argumentToReplaceByCR = arg.ID; userElement.chained = true'
+                        @click='setArgChained(userElement, arg.ID)'
                         text
                         icon
                       >
@@ -65,7 +65,7 @@
                       <v-btn
                         v-else
                         color='red lighten-1'
-                        @click='userElement.argumentToReplaceByCR = ""; userElement.chained = false'
+                        @click='removeArgChained(userElement)'
                         text
                         icon
                       >
@@ -148,6 +148,20 @@ export default {
     },
     orderUpdateRequired () {
       this.$emit('order-modified')
+    },
+    setArgChained (action, argID) {
+      action.argumentToReplaceByCR = argID
+      action.chained = true
+      // Change the key of the component to force an update of the UI. Otherwise,
+      // the UI won't be updated until the next event.
+      action.internalID = this.$uuid.v4()
+    },
+    removeArgChained (action) {
+      action.argumentToReplaceByCR = ''
+      action.chained = false
+      // Change the key of the component to force an update of the UI. Otherwise,
+      // the UI won't be updated until the next event.
+      action.internalID = this.$uuid.v4()
     }
   },
   watch: {
