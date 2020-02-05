@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { uuid } from 'vue-uuid'
 
 const state = {
   taskname: '',
@@ -20,6 +21,10 @@ const mutations = {
       state.triggerSelected = []
       return
     }
+    // This will be used only as a reference for `key` prop.
+    trigger.internalID = uuid.v4()
+    // For `v-model` of `v-expansion-panels`.
+    trigger.openArg = null
     // JSON.stringify && JSON.parse create a deep copy of the trigger
     state.triggerSelected = [JSON.parse(JSON.stringify(trigger))]
   },
@@ -34,6 +39,10 @@ const mutations = {
   },
   addAction: (state, action) => {
     action.order = state.actionsSelected.length
+    // This will be used only as a reference for `key` prop.
+    action.internalID = uuid.v4()
+    // For `v-model` of `v-expansion-panels`.
+    action.openArg = null
     // JSON.stringify && JSON.parse create a deep copy of the action
     state.actionsSelected.push(JSON.parse(JSON.stringify(action)))
   },
