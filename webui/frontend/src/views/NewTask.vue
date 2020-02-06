@@ -47,6 +47,7 @@
               v-model="stateSelected"
               color='success'
               label='Enabled'
+              @change="setTaskState(stateSelected)"
               inset
             />
           </v-col>
@@ -107,7 +108,6 @@ import router from '../router'
 export default {
   data () {
     return {
-      valid: false,
       taskNameRules: [
         v => !!v || 'The task must have a name'
         // TODO Check if the name of the task is not repeated.
@@ -160,33 +160,6 @@ export default {
       'setActions',
       'updateActionsOrder'
     ]),
-    addTriggerBtn () {
-      if (!this.newTrigger) {
-        return
-      }
-      const trigger = this.triggers.filter((t) => {
-        return t.name === this.newTrigger
-      })
-
-      this.setTrigger(...trigger)
-    },
-    addActionBtn () {
-      if (!this.newAction) {
-        return
-      }
-      const action = this.actions.filter((a) => {
-        return a.name === this.newAction
-      })
-
-      this.addAction(...action)
-    },
-    setStateBtn () {
-      if (!this.stateSelected) {
-        return
-      }
-
-      this.setTaskState(this.stateSelected)
-    },
     clearFields () {
       this.taskName = ''
       this.stateSelected = ''
@@ -238,17 +211,10 @@ export default {
       this.$store.dispatch('elementsInfo/updateActionsInfo')
     }
   },
-  watch: {
-    newAction: function (newVal) {
-      if (!newVal) return // Prevent the execution when we change the variable `this.newAction` to null.
-      this.addAction(newVal)
-      this.newAction = null
-    },
-    newTrigger: function (newVal) {
-      if (!newVal) return // Prevent the execution when we change the variable `this.newTrigger` to null.
-      this.setTrigger(newVal)
-      this.newTrigger = null
-    }
+  mounted () {
+    // Usually the user will use the default status of the tasks, therefore, it must be set
+    // beforehand. Otherwise the value will not be saved in vuex.
+    this.setTaskState(this.stateSelected)
   },
   components: {
     appElementSelector: ElementSelector,
