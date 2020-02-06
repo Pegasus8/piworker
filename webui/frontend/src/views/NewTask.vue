@@ -5,7 +5,7 @@
       Create a new task
     </v-card-title>
     <v-card-text>
-      <v-form class="m-2" v-model="valid" ref="form">
+      <v-form class="m-2">
         <v-text-field
           v-model="taskName"
           :rules='taskNameRules'
@@ -57,7 +57,7 @@
 
   <v-btn
     class="primary darken-2 m-1"
-    :disabled="!valid"
+    :disabled="!isAllSelected"
     :loading='submitted'
     @click="submitTask()"
     block
@@ -143,9 +143,9 @@ export default {
       if (this.taskName && this.stateSelected &&
         this.$store.getters['newTask/triggerSelected'].length > 0 &&
         this.$store.getters['newTask/actionsSelected'].length > 0) {
-        return false
-      } else {
         return true
+      } else {
+        return false
       }
     }
   },
