@@ -203,14 +203,6 @@ export default {
         })
     }
   },
-  beforeCreate () {
-    if (!this.$store.getters['elementsInfo/triggers'].length > 0) {
-      this.$store.dispatch('elementsInfo/updateTriggersInfo')
-    }
-    if (!this.$store.getters['elementsInfo/actions'].length > 0) {
-      this.$store.dispatch('elementsInfo/updateActionsInfo')
-    }
-  },
   mounted () {
     // Usually the user will use the default status of the tasks, therefore, it must be set
     // beforehand. Otherwise the value will not be saved in vuex.
