@@ -78,7 +78,12 @@ export default new Router({
           next()
         }
       },
-      children: []
+      children: [
+        {
+          path: 'task/:name',
+          component: NewTaskView
+        }
+      ]
     },
     {
       path: '/settings',
