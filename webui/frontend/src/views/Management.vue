@@ -1,18 +1,27 @@
 <template>
-  <b-container class="p-4 text-center justify-content-center">
-    <h4 class="text-light">My Tasks</h4>
-    <b-container v-if="userTasks.length > 0" fluid>
-      <app-task
-        v-for="globalTaskInfo in userTasks" :key="(globalTaskInfo.task.name).replace(/\s/g, '_')"
-        :taskName="globalTaskInfo.task.name"
-        :taskState="globalTaskInfo.task.state"
-        :triggers="[globalTaskInfo.task.trigger]"
-        :actions="globalTaskInfo.task.actions"
-        logs=""
-      />
-      <!-- TODO Logs integration -->
-    </b-container>
-    <b-alert v-else variant="warning" class="m-4" fade>
+  <v-container class="p-4">
+    <h4 class="text-center">My Tasks</h4>
+    <v-container v-if="userTasks.length > 0" fluid>
+      <v-list nav>
+        <v-list-item-group color='blue'>
+          <v-list-item
+            v-for="(userTask, i) in userTasks"
+            :key="i"
+            @click="editTask(userTask.task.name)"
+          >
+            <v-list-item-content>
+              <v-list-item-title>
+                {{ userTask.task.name }}
+              </v-list-item-title>
+            </v-list-item-content>
+          </v-list-item>
+        </v-list-item-group>
+      </v-list>
+    </v-container>
+
+    <router-view/>
+
+    <!-- <b-alert v-else variant="warning" class="m-4" fade>
       Oops... It seems that you have not created any task yet.
       Let's click on the "New" button to create a new one!
     </b-alert>
@@ -20,12 +29,11 @@
       <h5>Error when getting info</h5>
       <hr>
       <p>{{ err }}</p>
-    </b-alert>
-  </b-container>
+    </b-alert> -->
+  </v-container>
 </template>
 
 <script>
-import Task from '../components/management/Task.vue'
 import { mapGetters } from 'vuex'
 
 export default {
@@ -39,22 +47,19 @@ export default {
       userTasks: 'tasks'
     })
   },
+  methods: {
+    editTask (taskName) {
+      const targetRoute = '/management/task/' + taskName
+      // Avoid pushing the current route.
+      if (this.$route.path === targetRoute) return
+      this.$router.push(targetRoute)
+    }
+  },
   components: {
-    appTask: Task
   },
   beforeCreate () {
-    if (!this.$store.getters['elementsInfo/triggers'].length > 0) {
-      this.$store.dispatch('elementsInfo/updateTriggersInfo')
-        .catch((error) => {
-          this.err = 'Error on trigger-structs API: ' + error
-        })
-    }
-    if (!this.$store.getters['elementsInfo/actions'].length > 0) {
-      this.$store.dispatch('elementsInfo/updateActionsInfo')
-        .catch((error) => {
-          this.err = 'Error on actions-structs API: ' + error
-        })
-    }
+    // This need to be executed always because the user can create a task and later come here to
+    // modify it, so, if the value is cached and no updated anymore, the new tasks won't be appear here.
     this.$store.dispatch('userTasks/fetchUserTasks')
   }
 }
