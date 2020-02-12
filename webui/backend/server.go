@@ -383,22 +383,11 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 		return
 	}
 
-	var reqData = struct {
-		FromWebUI bool `json:"fromWebUI"`
-	}{}
-
-	body, err := ioutil.ReadAll(request.Body)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
+	keys, ok := request.URL.Query()["fromWebUI"]
+	if !ok || len(keys[0]) < 1 {
+        log.Println("Url Param 'fromWebUI' is missing, sending the data without recreation")
 	}
 
-	err = json.Unmarshal(body, &reqData)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	fmt.Println("WebUI parameter:", reqData.FromWebUI)
 	w.Header().Set("Content-Type", "application/json")
 	userData, err := data.ReadData()
 	if err != nil {
@@ -407,7 +396,8 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 		return
 	}
 
-	if reqData.FromWebUI {
+	// fromWebUI = true
+	if keys[0] == "true" {
 		type argForWebUI struct {
 			Name        string       `json:"name"`
 			Description string       `json:"description"`
