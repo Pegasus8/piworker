@@ -1,36 +1,37 @@
 package backend
 
 import (
-	"github.com/Pegasus8/piworker/processment/types"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
-	"time"
-	"io/ioutil"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/Pegasus8/piworker/processment/types"
+
+	"github.com/Pegasus8/piworker/processment/configs"
+	"github.com/Pegasus8/piworker/processment/data"
+	actionsList "github.com/Pegasus8/piworker/processment/elements/actions/models"
+	triggersList "github.com/Pegasus8/piworker/processment/elements/triggers/models"
+	pwLogs "github.com/Pegasus8/piworker/processment/logs"
 	"github.com/Pegasus8/piworker/processment/stats"
 	"github.com/Pegasus8/piworker/webui/backend/auth"
 	"github.com/Pegasus8/piworker/webui/backend/websocket"
-	"github.com/Pegasus8/piworker/processment/data"
-	"github.com/Pegasus8/piworker/processment/configs"
-	triggersList"github.com/Pegasus8/piworker/processment/elements/triggers/models"
-	actionsList "github.com/Pegasus8/piworker/processment/elements/actions/models"
-	pwLogs "github.com/Pegasus8/piworker/processment/logs"
 
-	"github.com/gorilla/mux"
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/gobuffalo/packr/v2"
+	"github.com/gorilla/mux"
 )
 
 var statsChannel chan stats.Statistic
 var tlsSupport bool
 
 type postResponse struct {
-	Successful bool `json:"successful"`
-	Error string `json:"error"`
+	Successful bool   `json:"successful"`
+	Error      string `json:"error"`
 }
 
 //
@@ -80,7 +81,7 @@ func setupRoutes() {
 		// ─── WEBSOCKET ──────────────────────────────────────────────────────────────────
 		router.Handle("/ws", auth.IsAuthorized(statsWS))
 		// ────────────────────────────────────────────────────────────────────────────────
-	
+
 		// ─── SINGLE PAGE APP ────────────────────────────────────────────────────────────
 		router.PathPrefix("/").Handler(http.FileServer(box))
 		// ────────────────────────────────────────────────────────────────────────────────
@@ -99,10 +100,10 @@ func setupRoutes() {
 	if _, err := os.Stat("./server.key"); err == nil {
 		tlsSupport = true
 		log.Println("File 'server.key' found")
-		if _, err := os.Stat("./server.crt"); err == nil { 
+		if _, err := os.Stat("./server.crt"); err == nil {
 			log.Println("File 'server.crt' found")
-			tlsSupport = true 
-		} else { 
+			tlsSupport = true
+		} else {
 			tlsSupport = false
 			log.Println("File 'server.crt' not found")
 		}
@@ -153,9 +154,9 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 
 	w.Header().Set("Content-Type", "application/json")
 	var response struct {
-		Successful bool `json:"successful"`
-		Token string `json:"token"`
-		ExpiresAt int64 `json:"expiresAt"`
+		Successful bool   `json:"successful"`
+		Token      string `json:"token"`
+		ExpiresAt  int64  `json:"expiresAt"`
 	}
 	var user = struct {
 		Username string `json:"username"`
@@ -166,7 +167,7 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	// setCORSHeaders(&w, request)
 
 	body, err := ioutil.ReadAll(request.Body)
-	if err != nil{
+	if err != nil {
 		log.Printf("Error when trying to read the POST data sent by %s\n", request.Host)
 		response.Successful = false
 		goto response1
@@ -177,7 +178,7 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 		log.Printf("The data on the POST request of %s cannot be read\n", request.Host)
 		response.Successful = false
 		goto response1
-	} 
+	}
 
 	if ok := configs.AuthUser(user.Username, user.Password); ok {
 		configs.CurrentConfigs.RLock()
@@ -186,7 +187,7 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 		expiresAt := time.Now().Add(time.Hour * time.Duration(duration))
 		token, err := auth.NewJWT(
 			auth.CustomClaims{
-				User: user.Username, 
+				User:           user.Username,
 				StandardClaims: jwt.StandardClaims{ExpiresAt: expiresAt.Unix()},
 			},
 		)
@@ -202,11 +203,11 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 		now := time.Now()
 		err = auth.StoreToken(
 			auth.UserInfo{
-				ID: 0, // Not necessary, will be given by the sqlite database automatically.
-				User: user.Username,
-				Token: token,
-				ExpiresAt: expiresAt,
-				LastTimeUsed: now,
+				ID:               0, // Not necessary, will be given by the sqlite database automatically.
+				User:             user.Username,
+				Token:            token,
+				ExpiresAt:        expiresAt,
+				LastTimeUsed:     now,
 				InsertedDatetime: now,
 			},
 		)
@@ -214,8 +215,8 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 			log.Fatal(err.Error())
 		}
 	}
-	
-	response1:
+
+response1:
 
 	json.NewEncoder(w).Encode(response)
 }
@@ -235,13 +236,13 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	// setCORSHeaders(&w, request)
 
 	body, err := ioutil.ReadAll(request.Body)
-	if err != nil{
+	if err != nil {
 		log.Printf("Error when trying to read the POST data sent by %s\n", request.Host)
 		response.Successful = false
 		response.Error = err.Error()
 		goto response1
 	}
-	
+
 	err = json.Unmarshal(body, &task)
 	if err != nil {
 		log.Printf("The data on the POST request of %s cannot be read\n", request.Host)
@@ -281,8 +282,8 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 
 	response.Successful = true
 
-	response1:
-		
+response1:
+
 	json.NewEncoder(w).Encode(response)
 }
 
@@ -300,7 +301,7 @@ func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PO
 	// setCORSHeaders(&w, request)
 
 	body, err := ioutil.ReadAll(request.Body)
-	if err != nil{
+	if err != nil {
 		log.Printf("Error when trying to read the POST data sent by %s\n", request.Host)
 		response.Successful = false
 		response.Error = err.Error()
@@ -324,8 +325,8 @@ func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PO
 
 	response.Successful = true
 
-	response1:
-		
+response1:
+
 	json.NewEncoder(w).Encode(response)
 }
 
@@ -347,7 +348,7 @@ func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: DE
 	// TODO Implementation of partial delete
 
 	body, err := ioutil.ReadAll(request.Body)
-	if err != nil{
+	if err != nil {
 		log.Printf("Error when trying to read the POST data sent by %s\n", request.Host)
 		response.Successful = false
 		response.Error = err.Error()
@@ -371,8 +372,8 @@ func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: DE
 
 	response.Successful = true
 
-	response1:
-		
+response1:
+
 	json.NewEncoder(w).Encode(response)
 }
 
@@ -381,7 +382,7 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	var reqData = struct {
 		FromWebUI bool `json:"fromWebUI"`
 	}{}
@@ -408,36 +409,36 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 
 	if reqData.FromWebUI {
 		type argForWebUI struct {
-			Name string `json:"name"`
-			Description string `json:"description"`
-			ID string `json:"ID"`
-			Content string `json:"content"`
+			Name        string       `json:"name"`
+			Description string       `json:"description"`
+			ID          string       `json:"ID"`
+			Content     string       `json:"content"`
 			ContentType types.PWType `json:"contentType"`
 		}
 
 		type triggerForWebUI struct {
-			Name string `json:"name"`
-			Description string `json:"description"`
-			ID string `json:"ID"`
-			Timestamp string `json:"timestamp"`
-			Args []argForWebUI `json:"args"`
+			Name        string        `json:"name"`
+			Description string        `json:"description"`
+			ID          string        `json:"ID"`
+			Timestamp   string        `json:"timestamp"`
+			Args        []argForWebUI `json:"args"`
 		}
 
 		type actionForWebUI struct {
-			Name string `json:"name"`
-			Description string `json:"description"`
-			ID string `json:"ID"`
-			Timestamp string `json:"timestamp"`
-			Args []argForWebUI `json:"args"`
-			Order int `json:"order"`
-			Chained bool `json:"chained"`
-			ArgumentToReplaceByCR string `json:"argumentToReplaceByCR"`
+			Name                  string        `json:"name"`
+			Description           string        `json:"description"`
+			ID                    string        `json:"ID"`
+			Timestamp             string        `json:"timestamp"`
+			Args                  []argForWebUI `json:"args"`
+			Order                 int           `json:"order"`
+			Chained               bool          `json:"chained"`
+			ArgumentToReplaceByCR string        `json:"argumentToReplaceByCR"`
 		}
 
 		type taskForWebUI struct {
-			Name string `json:"name"`
-			State data.TaskState `json:"state"`
-			Trigger triggerForWebUI `json:"trigger"`
+			Name    string           `json:"name"`
+			State   data.TaskState   `json:"state"`
+			Trigger triggerForWebUI  `json:"trigger"`
 			Actions []actionForWebUI `json:"actions"`
 		}
 
@@ -458,24 +459,24 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 
 			for _, userAction := range task.TaskInfo.Actions {
 				pwaction := actionsList.Get(userAction.ID)
-				recreatedAction := actionForWebUI {
-					Name: pwaction.Name,
-					Description: pwaction.Description,
-					ID: userAction.ID,
-					Timestamp: userAction.Timestamp,
-					Args: []argForWebUI{}, // Will be completed after
-					Order: userAction.Order,
-					Chained: userAction.Chained,
+				recreatedAction := actionForWebUI{
+					Name:                  pwaction.Name,
+					Description:           pwaction.Description,
+					ID:                    userAction.ID,
+					Timestamp:             userAction.Timestamp,
+					Args:                  []argForWebUI{}, // Will be completed after
+					Order:                 userAction.Order,
+					Chained:               userAction.Chained,
 					ArgumentToReplaceByCR: userAction.ArgumentToReplaceByCR,
 				}
-				for _, arg := range userAction.Args{
+				for _, arg := range userAction.Args {
 					for _, pwarg := range pwaction.Args {
 						if arg.ID == pwarg.ID {
-							recreatedArg := argForWebUI {
-								Name: pwarg.Name,
+							recreatedArg := argForWebUI{
+								Name:        pwarg.Name,
 								Description: pwarg.Description,
-								ID: arg.ID,
-								Content: arg.Content,
+								ID:          arg.ID,
+								Content:     arg.Content,
 								ContentType: pwarg.ContentType,
 							}
 							recreatedAction.Args = append(recreatedAction.Args, recreatedArg)
@@ -489,21 +490,21 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 
 			func() {
 				pwtrigger := triggersList.Get(task.TaskInfo.Trigger.ID)
-				recreatedTrigger := triggerForWebUI {
-					Name: pwtrigger.Name,
+				recreatedTrigger := triggerForWebUI{
+					Name:        pwtrigger.Name,
 					Description: pwtrigger.Description,
-					ID: task.TaskInfo.Trigger.ID,
-					Timestamp: task.TaskInfo.Trigger.Timestamp,
-					Args: []argForWebUI{}, // Will be completed after
+					ID:          task.TaskInfo.Trigger.ID,
+					Timestamp:   task.TaskInfo.Trigger.Timestamp,
+					Args:        []argForWebUI{}, // Will be completed after
 				}
 				for _, arg := range task.TaskInfo.Trigger.Args {
 					for _, pwarg := range pwtrigger.Args {
 						if arg.ID == pwarg.ID {
-							recreatedArg := argForWebUI {
-								Name: pwarg.Name,
+							recreatedArg := argForWebUI{
+								Name:        pwarg.Name,
 								Description: pwarg.Description,
-								ID: arg.ID,
-								Content: arg.Content,
+								ID:          arg.ID,
+								Content:     arg.Content,
 								ContentType: pwarg.ContentType,
 							}
 							recreatedTrigger.Args = append(recreatedTrigger.Args, recreatedArg)
@@ -529,13 +530,13 @@ func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 
 	w.Header().Set("Content-Type", "application/json")
 	var response = struct {
-		Successful bool `json:"successful"`
-		Error string `json:"error"`
-		Logs []string `json:"logs"`
+		Successful bool     `json:"successful"`
+		Error      string   `json:"error"`
+		Logs       []string `json:"logs"`
 	}{}
 	var reqData = struct {
 		Taskname string `json:"taskname"`
-		Date string `json:"date"`
+		Date     string `json:"date"`
 	}{}
 	var logsContent string
 
@@ -556,12 +557,12 @@ func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 		response.Error = err.Error()
 		goto resp
 	}
-	
+
 	logsContent, err = pwLogs.GetLogs()
 	if err != nil {
 		log.Panicln("Cannot get the logs of PiWorker:", err.Error())
 	}
-	
+
 	reqData.Date = strings.TrimSpace(reqData.Date)
 	response.Logs, err = pwLogs.GetTaskLogs(&logsContent, reqData.Taskname, reqData.Date)
 	if err != nil {
@@ -570,7 +571,7 @@ func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 		response.Successful = true
 	}
 
-	resp:
+resp:
 
 	json.NewEncoder(w).Encode(response)
 }
@@ -612,6 +613,6 @@ func actionsInfoAPI(w http.ResponseWriter, request *http.Request) {
 
 func setCORSHeaders(w *http.ResponseWriter, reqest *http.Request) {
 	(*w).Header().Set("Access-Control-Allow-Origin", "*")
-    (*w).Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-    (*w).Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+	(*w).Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+	(*w).Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
 }
