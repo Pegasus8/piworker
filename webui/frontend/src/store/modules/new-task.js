@@ -62,7 +62,7 @@ const actions = {
       const newTaskData = {
         task: {
           name: state.taskname,
-          state: state.taskState,
+          state: state.taskState ? 'Active' : 'Inactive',
           // Only send one trigger. This is because, for now, multi-triggers are not supported.
           trigger: state.triggerSelected[0],
           actions: state.actionsSelected
