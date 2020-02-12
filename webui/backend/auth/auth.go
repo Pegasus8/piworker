@@ -73,7 +73,7 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 
             if token.Valid {
 				claims := token.Claims.(*CustomClaims)
-				log.Printf("Token of the user '%s' used by the IP %s\n", claims.User, r.Host)
+				log.Printf("Token of the user '%s' used by host %s\n", claims.User, r.Host)
 
 				log.Printf("Token valid, checking on database...")
 				userAuthInfo, err := ReadLastToken(claims.User)
