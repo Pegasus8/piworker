@@ -24,7 +24,6 @@
     :rules='[
       rules.emptyNotAllowed
     ]'
-    clear-icon='cancel'
     :disabled='disabled'
     filled
     auto-grow
