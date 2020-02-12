@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"github.com/Pegasus8/piworker/processment/types"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -380,15 +381,144 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+	
+	var reqData = struct {
+		FromWebUI bool `json:"fromWebUI"`
+	}{}
 
+	body, err := ioutil.ReadAll(request.Body)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	err = json.Unmarshal(body, &reqData)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	fmt.Println("WebUI parameter:", reqData.FromWebUI)
 	w.Header().Set("Content-Type", "application/json")
 	userData, err := data.ReadData()
 	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintf(w, err.Error())
 		return
 	}
 
-	json.NewEncoder(w).Encode(userData.Tasks)
+	if reqData.FromWebUI {
+		type argForWebUI struct {
+			Name string `json:"name"`
+			Description string `json:"description"`
+			ID string `json:"ID"`
+			Content string `json:"content"`
+			ContentType types.PWType `json:"contentType"`
+		}
+
+		type triggerForWebUI struct {
+			Name string `json:"name"`
+			Description string `json:"description"`
+			ID string `json:"ID"`
+			Timestamp string `json:"timestamp"`
+			Args []argForWebUI `json:"args"`
+		}
+
+		type actionForWebUI struct {
+			Name string `json:"name"`
+			Description string `json:"description"`
+			ID string `json:"ID"`
+			Timestamp string `json:"timestamp"`
+			Args []argForWebUI `json:"args"`
+			Order int `json:"order"`
+			Chained bool `json:"chained"`
+			ArgumentToReplaceByCR string `json:"argumentToReplaceByCR"`
+		}
+
+		type taskForWebUI struct {
+			Name string `json:"name"`
+			State data.TaskState `json:"state"`
+			Trigger triggerForWebUI `json:"trigger"`
+			Actions []actionForWebUI `json:"actions"`
+		}
+
+		type userTaskFromWebUI struct {
+			TaskInfo taskForWebUI `json:"task"`
+		}
+
+		type userDataFromWebUI struct {
+			Tasks []userTaskFromWebUI `json:"user-data"`
+		}
+
+		var recreatedUserData userDataFromWebUI
+
+		// Recreate the `UserTask.TaskInfo` struct
+		for _, task := range userData.Tasks {
+			var recreatedUserTask userTaskFromWebUI
+			var recreatedTask taskForWebUI
+
+			for _, userAction := range task.TaskInfo.Actions {
+				pwaction := actionsList.Get(userAction.ID)
+				recreatedAction := actionForWebUI {
+					Name: pwaction.Name,
+					Description: pwaction.Description,
+					ID: userAction.ID,
+					Timestamp: userAction.Timestamp,
+					Args: []argForWebUI{}, // Will be completed after
+					Order: userAction.Order,
+					Chained: userAction.Chained,
+					ArgumentToReplaceByCR: userAction.ArgumentToReplaceByCR,
+				}
+				for _, arg := range userAction.Args{
+					for _, pwarg := range pwaction.Args {
+						if arg.ID == pwarg.ID {
+							recreatedArg := argForWebUI {
+								Name: pwarg.Name,
+								Description: pwarg.Description,
+								ID: arg.ID,
+								Content: arg.Content,
+								ContentType: pwarg.ContentType,
+							}
+							recreatedAction.Args = append(recreatedAction.Args, recreatedArg)
+							break
+						}
+					}
+				}
+
+				recreatedTask.Actions = append(recreatedTask.Actions, recreatedAction)
+			}
+
+			func() {
+				pwtrigger := triggersList.Get(task.TaskInfo.Trigger.ID)
+				recreatedTrigger := triggerForWebUI {
+					Name: pwtrigger.Name,
+					Description: pwtrigger.Description,
+					ID: task.TaskInfo.Trigger.ID,
+					Timestamp: task.TaskInfo.Trigger.Timestamp,
+					Args: []argForWebUI{}, // Will be completed after
+				}
+				for _, arg := range task.TaskInfo.Trigger.Args {
+					for _, pwarg := range pwtrigger.Args {
+						if arg.ID == pwarg.ID {
+							recreatedArg := argForWebUI {
+								Name: pwarg.Name,
+								Description: pwarg.Description,
+								ID: arg.ID,
+								Content: arg.Content,
+								ContentType: pwarg.ContentType,
+							}
+							recreatedTrigger.Args = append(recreatedTrigger.Args, recreatedArg)
+						}
+					}
+				}
+				recreatedTask.Trigger = recreatedTrigger
+			}()
+			recreatedUserTask.TaskInfo = recreatedTask
+			recreatedUserData.Tasks = append(recreatedUserData.Tasks, recreatedUserTask)
+		}
+		json.NewEncoder(w).Encode(recreatedUserData)
+	} else {
+		json.NewEncoder(w).Encode(userData.Tasks)
+	}
 }
 
 func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
