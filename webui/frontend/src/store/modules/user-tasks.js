@@ -11,7 +11,7 @@ const mutations = {
 }
 
 const actions = {
-  getUserTasks: ({
+  fetchUserTasks: ({
     commit
   }) => {
     const configs = {

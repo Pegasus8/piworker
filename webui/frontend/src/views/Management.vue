@@ -55,7 +55,7 @@ export default {
           this.err = 'Error on actions-structs API: ' + error
         })
     }
-    this.$store.dispatch('userTasks/getUserTasks')
+    this.$store.dispatch('userTasks/fetchUserTasks')
   }
 }
 </script>
