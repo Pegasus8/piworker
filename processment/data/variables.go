@@ -21,20 +21,23 @@ var mutex = sync.Mutex{}
 
 //					** Tasks's States **					//
 
+// TaskState is the type used to represent the different states of the tasks.
+type TaskState string
+
 const (
 	// StateTaskCompleted is a variable that can be used in the `State` 
 	// field of every task. This state represents a finished task.
-	StateTaskCompleted string = "completed"
+	StateTaskCompleted TaskState = "completed"
 
 	// StateTaskOnExecution is a variable that can be used in the `State` 
 	// field of every task. This state represents a task currently on execution.
-	StateTaskOnExecution string = "on-execution"
+	StateTaskOnExecution TaskState = "on-execution"
 
 	// StateTaskInactive is a variable that can be used in the `State` 
 	// field of every task. This state represents a deactivated/inactive task.
-	StateTaskInactive string = "inactive"
+	StateTaskInactive TaskState = "inactive"
 
 	// StateTaskActive is a variable that can be used in the `State` 
 	// field of every task. This state represents an active task.
-	StateTaskActive string = "active"
+	StateTaskActive TaskState = "active"
 )

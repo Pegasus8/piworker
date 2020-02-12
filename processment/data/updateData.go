@@ -137,7 +137,7 @@ func UpdateTaskActions(name string, newActions *[]UserAction) error {
 }
 
 // UpdateTaskState is a function used to change the state of a task.
-func UpdateTaskState(name string, newState string) error {
+func UpdateTaskState(name string, newState TaskState) error {
 
 	data, err := ReadData()
 	if err != nil {

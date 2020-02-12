@@ -13,7 +13,7 @@ type UserTask struct {
 // TaskInfo is a struct for parsing every task
 type TaskInfo struct {
 	Name string `json:"name"`
-	State string `json:"state"`
+	State TaskState `json:"state"`
 	Trigger UserTrigger `json:"trigger"`
 	Actions []UserAction `json:"actions"` 
 }
