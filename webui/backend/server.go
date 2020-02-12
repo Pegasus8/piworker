@@ -446,6 +446,9 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 		for _, task := range userData.Tasks {
 			var recreatedUserTask userTaskFromWebUI
 			var recreatedTask taskForWebUI
+			
+			recreatedTask.Name = task.TaskInfo.Name
+			recreatedTask.State = task.TaskInfo.State
 
 			for _, userAction := range task.TaskInfo.Actions {
 				pwaction := actionsList.Get(userAction.ID)
