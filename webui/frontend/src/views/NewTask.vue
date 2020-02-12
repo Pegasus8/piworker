@@ -63,7 +63,7 @@
     @click="submitTask()"
     block
   >
-    Save
+    {{$route.params.name ? 'Update' : 'Save'}}
   </v-btn>
 
   <v-snackbar
@@ -166,8 +166,8 @@ export default {
       this.setTaskState('')
       this.newTrigger = ''
       this.newAction = ''
-      this.$store.commit('newTask/setActions', [])
-      this.$store.commit('newTask/setTrigger', null) // cambiar
+      this.setActions([])
+      this.setTrigger(null)
     },
     submitTask () {
       this.submitted = true
@@ -207,6 +207,17 @@ export default {
     // Usually the user will use the default status of the tasks, therefore, it must be set
     // beforehand. Otherwise the value will not be saved in vuex.
     this.setTaskState(this.stateSelected)
+
+    if (this.$route.params.name) {
+      // Coming from `Management` view.
+      this.taskName = this.$route.params.name
+
+      const task = this.$store.getters['userTasks/tasks'].find( t => t.task.name === this.taskName)
+
+      this.setActions(task.task.actions)
+      this.setTrigger(task.task.trigger)
+      this.setTaskState(task.task.state)
+    }
   },
   components: {
     appElementSelector: ElementSelector,
