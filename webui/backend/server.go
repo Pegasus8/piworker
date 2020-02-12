@@ -509,7 +509,7 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 			recreatedUserTask.TaskInfo = recreatedTask
 			recreatedUserData.Tasks = append(recreatedUserData.Tasks, recreatedUserTask)
 		}
-		json.NewEncoder(w).Encode(recreatedUserData)
+		json.NewEncoder(w).Encode(recreatedUserData.Tasks)
 	} else {
 		json.NewEncoder(w).Encode(userData.Tasks)
 	}
