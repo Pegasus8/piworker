@@ -14,8 +14,13 @@ const actions = {
   getUserTasks: ({
     commit
   }) => {
+    const configs = {
+      params: {
+        fromWebUI: true
+      }
+    }
     console.info('Sending request to get-all tasks API...')
-    axios.get('/api/tasks/get-all')
+    axios.get('/api/tasks/get-all', configs)
       .then((response) => {
         console.info('Response successful, parsing tasks...')
         commit('updateTasks', response.data)
