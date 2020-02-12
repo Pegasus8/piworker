@@ -98,6 +98,20 @@ export default {
       this.showDialog = false
       this.elementSelected = null
     }
+  },
+  beforeCreate () {
+    if (!this.$store.getters['elementsInfo/triggers'].length > 0) {
+      this.$store.dispatch('elementsInfo/updateTriggersInfo')
+        .catch((error) => {
+          this.err = 'Error on trigger-structs API: ' + error
+        })
+    }
+    if (!this.$store.getters['elementsInfo/actions'].length > 0) {
+      this.$store.dispatch('elementsInfo/updateActionsInfo')
+        .catch((error) => {
+          this.err = 'Error on actions-structs API: ' + error
+        })
+    }
   }
 }
 </script>
