@@ -80,7 +80,7 @@ export default new Router({
       },
       children: [
         {
-          path: 'task/:name',
+          path: 'edit',
           component: NewTaskView
         }
       ]
