@@ -1,8 +1,8 @@
 <template>
-<v-container>
+<div :class="{ 'container': !$route.query.task }">
   <v-card>
     <v-card-title>
-      Create a new task
+      {{ $route.query.task ? `Edit task "${ $route.query.task }"` : 'Create a new task' }}
     </v-card-title>
     <v-card-text>
       <v-form class="m-2">
@@ -54,17 +54,18 @@
         </v-row>
       </v-form>
     </v-card-text>
+    <v-card-actions>
+      <v-btn
+        class="primary darken-2 my-1"
+        :disabled="!isAllSelected"
+        :loading='submitted'
+        @click="submitTask()"
+        block
+      >
+        {{$route.query.task ? 'Update' : 'Save'}}
+      </v-btn>
+    </v-card-actions>
   </v-card>
-
-  <v-btn
-    class="primary darken-2 m-1"
-    :disabled="!isAllSelected"
-    :loading='submitted'
-    @click="submitTask()"
-    block
-  >
-    {{$route.params.name ? 'Update' : 'Save'}}
-  </v-btn>
 
   <v-snackbar
     v-model="alert"
@@ -96,14 +97,13 @@
     @elementSelected='addAction($event)'
     @dismissed='showActionSelectorDialog = false'
   />
-</v-container>
+</div>
 </template>
 
 <script>
 import ElementSelector from '../components/new-task/ElementSelector.vue'
 import ElementsList from '../components/new-task/ElementsList.vue'
 import { mapMutations, mapGetters } from 'vuex'
-import router from '../router'
 
 export default {
   data () {
@@ -183,7 +183,11 @@ export default {
             setTimeout(() => {
               this.alert = false
               this.responseContent = ''
-              router.replace({ name: 'statistics' })
+              if (!this.$route.query.task) {
+                this.$router.replace({ name: 'statistics' })
+              } else {
+                this.$router.replace({ name: 'management' })
+              }
             }, 2000)
           } else {
             // Show an error alert, showing the message received (response.data.error)
@@ -207,12 +211,11 @@ export default {
     // Usually the user will use the default status of the tasks, therefore, it must be set
     // beforehand. Otherwise the value will not be saved in vuex.
     this.setTaskState(this.stateSelected)
-
-    if (this.$route.params.name) {
+    if (this.$route.query.task) {
       // Coming from `Management` view.
-      this.taskName = this.$route.params.name
+      this.taskName = this.$route.query.task
 
-      const task = this.$store.getters['userTasks/tasks'].find( t => t.task.name === this.taskName)
+      const task = this.$store.getters['userTasks/tasks'].find(t => t.task.name === this.taskName)
 
       this.setActions(task.task.actions)
       this.setTrigger(task.task.trigger)
