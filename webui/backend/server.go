@@ -431,10 +431,12 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 		}
 
 		type taskForWebUI struct {
-			Name    string           `json:"name"`
-			State   data.TaskState   `json:"state"`
-			Trigger triggerForWebUI  `json:"trigger"`
-			Actions []actionForWebUI `json:"actions"`
+			Name             string           `json:"name"`
+			State            data.TaskState   `json:"state"`
+			Trigger          triggerForWebUI  `json:"trigger"`
+			Actions          []actionForWebUI `json:"actions"`
+			Created          time.Time        `json:"created"`
+			LastTimeModified time.Time        `json:"lastTimeModified"`
 		}
 
 		type userTaskFromWebUI struct {
@@ -461,6 +463,8 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 
 				recreatedTask.Name = task.TaskInfo.Name
 				recreatedTask.State = task.TaskInfo.State
+				recreatedTask.Created = task.TaskInfo.Created
+				recreatedTask.LastTimeModified = task.TaskInfo.LastTimeModified
 
 				for _, userAction := range task.TaskInfo.Actions {
 					pwaction := actionsList.Get(userAction.ID)

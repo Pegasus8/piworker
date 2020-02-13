@@ -1,5 +1,7 @@
 package data
 
+import "time"
+
 // UserData is the general struct for parsing data
 type UserData struct {
 	Tasks []UserTask `json:"user-data"` 
@@ -15,7 +17,9 @@ type TaskInfo struct {
 	Name string `json:"name"`
 	State TaskState `json:"state"`
 	Trigger UserTrigger `json:"trigger"`
-	Actions []UserAction `json:"actions"` 
+	Actions []UserAction `json:"actions"`
+	Created time.Time `json:"created"`
+	LastTimeModified time.Time `json:"lastTimeModified"`
 }
 
 // UserTrigger is a struct for parsing every trigger
