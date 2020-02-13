@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -273,6 +274,9 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 		goto response1
 	}
 
+	task.TaskInfo.Created = time.Now()
+	task.TaskInfo.LastTimeModified = task.TaskInfo.Created
+
 	err = data.NewTask(&task)
 	if err != nil {
 		log.Println("[ newTask API ]", err.Error())
@@ -316,6 +320,8 @@ func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PO
 		response.Error = err.Error()
 		goto response1
 	}
+
+	task.TaskInfo.LastTimeModified = time.Now()
 
 	err = data.UpdateTask(task.TaskInfo.Name, &task)
 	if err != nil {
@@ -536,9 +542,13 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 		}
 		close(results)
 
+		sort.SliceStable(recreatedUserData.Tasks, func(i, j int) bool {
+			return time.Since(recreatedUserData.Tasks[i].TaskInfo.Created) > time.Since(recreatedUserData.Tasks[j].TaskInfo.Created)
+		})
+
 		execTime := time.Since(startTime)
 		log.Printf("[ get-tasks API ] Well, maybe I exaggerated. It wasn't 54 years, but it was close! Or maybe not... (request processed in %s)\n", execTime.String())
-		
+
 		json.NewEncoder(w).Encode(recreatedUserData.Tasks)
 	} else {
 		json.NewEncoder(w).Encode(userData.Tasks)
