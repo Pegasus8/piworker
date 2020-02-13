@@ -168,14 +168,14 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 
 	body, err := ioutil.ReadAll(request.Body)
 	if err != nil {
-		log.Printf("Error when trying to read the POST data sent by %s\n", request.Host)
+		log.Printf("[ login API ] Error when trying to read the POST data sent by %s\n", request.Host)
 		response.Successful = false
 		goto response1
 	}
 
 	err = json.Unmarshal(body, &user)
 	if err != nil {
-		log.Printf("The data on the POST request of %s cannot be read\n", request.Host)
+		log.Printf("[ login API ] The data on the POST request of %s cannot be read\n", request.Host)
 		response.Successful = false
 		goto response1
 	}
@@ -192,7 +192,7 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 			},
 		)
 		if err != nil {
-			log.Println(err.Error())
+			log.Println("[ login API ]", err.Error())
 			response.Successful = false
 			goto response1
 		}
@@ -212,7 +212,7 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 			},
 		)
 		if err != nil {
-			log.Fatal(err.Error())
+			log.Fatal("[ login API ]", err.Error())
 		}
 	}
 
@@ -237,7 +237,7 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 
 	body, err := ioutil.ReadAll(request.Body)
 	if err != nil {
-		log.Printf("Error when trying to read the POST data sent by %s\n", request.Host)
+		log.Printf("[ newTask API ] Error when trying to read the POST data sent by %s\n", request.Host)
 		response.Successful = false
 		response.Error = err.Error()
 		goto response1
@@ -245,7 +245,7 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 
 	err = json.Unmarshal(body, &task)
 	if err != nil {
-		log.Printf("The data on the POST request of %s cannot be read\n", request.Host)
+		log.Printf("[ newTask API ] The data on the POST request of %s cannot be read\n", request.Host)
 		response.Successful = false
 		response.Error = err.Error()
 		goto response1
@@ -275,6 +275,7 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 
 	err = data.NewTask(&task)
 	if err != nil {
+		log.Println("[ newTask API ]", err.Error())
 		response.Successful = false
 		response.Error = err.Error()
 		goto response1
@@ -302,7 +303,7 @@ func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PO
 
 	body, err := ioutil.ReadAll(request.Body)
 	if err != nil {
-		log.Printf("Error when trying to read the POST data sent by %s\n", request.Host)
+		log.Printf("[ modifyTask API ] Error when trying to read the POST data sent by %s\n", request.Host)
 		response.Successful = false
 		response.Error = err.Error()
 		goto response1
@@ -310,7 +311,7 @@ func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PO
 
 	err = json.Unmarshal(body, &task)
 	if err != nil {
-		log.Printf("The data on the POST request of %s cannot be read\n", request.Host)
+		log.Printf("[ modifyTask API ] The data on the POST request of %s cannot be read\n", request.Host)
 		response.Successful = false
 		response.Error = err.Error()
 		goto response1
@@ -318,6 +319,7 @@ func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PO
 
 	err = data.UpdateTask(task.TaskInfo.Name, &task)
 	if err != nil {
+		log.Println("[ modifyTask API ]", err.Error())
 		response.Successful = false
 		response.Error = err.Error()
 		goto response1
@@ -349,7 +351,7 @@ func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: DE
 
 	body, err := ioutil.ReadAll(request.Body)
 	if err != nil {
-		log.Printf("Error when trying to read the POST data sent by %s\n", request.Host)
+		log.Printf("[ deleteTask API ] Error when trying to read the POST data sent by %s\n", request.Host)
 		response.Successful = false
 		response.Error = err.Error()
 		goto response1
@@ -357,7 +359,7 @@ func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: DE
 
 	err = json.Unmarshal(body, &toDelete)
 	if err != nil {
-		log.Printf("The data on the POST request of %s cannot be read\n", request.Host)
+		log.Printf("[ deleteTask API ] The data on the POST request of %s cannot be read\n", request.Host)
 		response.Successful = false
 		response.Error = err.Error()
 		goto response1
@@ -385,7 +387,7 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 
 	keys, ok := request.URL.Query()["fromWebUI"]
 	if !ok || len(keys[0]) < 1 {
-		log.Println("Url Param 'fromWebUI' is missing, sending the data without recreation")
+		log.Println("[ get-tasks API ] Url Param 'fromWebUI' is missing, sending the data without recreation")
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -398,6 +400,9 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 
 	// fromWebUI = true
 	if keys[0] == "true" {
+		log.Println("[ get-tasks API ] Param 'fromWebUI' detected, this little maneuver is gonna cost us 54 years...")
+		startTime := time.Now()
+
 		type argForWebUI struct {
 			Name        string       `json:"name"`
 			Description string       `json:"description"`
@@ -448,7 +453,7 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 			// to avoid a race condition, but here we don't have that problem, because the data is not shared
 			// between goroutines and because the data will be only read, will not be modified.
 			go func(task data.UserTask, resultChannel chan *userTaskFromWebUI) {
-				log.Printf("Starting the recreation of the task '%s'\n", task.TaskInfo.Name)
+				log.Printf("[ get-tasks API ] Starting the recreation of the task '%s'\n", task.TaskInfo.Name)
 				startTime := time.Now()
 
 				var recreatedUserTask userTaskFromWebUI
@@ -516,7 +521,7 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 				recreatedUserTask.TaskInfo = recreatedTask
 
 				executionTime := time.Since(startTime)
-				log.Printf("Task '%s' recreated in %s! Sending through the results channel...\n", recreatedTask.Name, executionTime.String())
+				log.Printf("[ get-tasks API ] Task '%s' recreated in %s! Sending through the results channel...\n", recreatedTask.Name, executionTime.String())
 				resultChannel <- &recreatedUserTask
 			}(task, results)
 		}
@@ -527,6 +532,9 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 		}
 		close(results)
 
+		execTime := time.Since(startTime)
+		log.Printf("[ get-tasks API ] Well, maybe I exaggerated. It wasn't 54 years, but it was close! Or maybe not... (request processed in %s)\n", execTime.String())
+		
 		json.NewEncoder(w).Encode(recreatedUserData.Tasks)
 	} else {
 		json.NewEncoder(w).Encode(userData.Tasks)
@@ -553,7 +561,7 @@ func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 
 	defer func() {
 		if r := recover(); r != nil {
-			log.Println("Recovering from panic triggered when getting logs")
+			log.Println("[ logs API ] Recovering from panic triggered when getting logs")
 		}
 	}()
 
@@ -571,7 +579,7 @@ func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 
 	logsContent, err = pwLogs.GetLogs()
 	if err != nil {
-		log.Panicln("Cannot get the logs of PiWorker:", err.Error())
+		log.Panicln("[ logs API ] Cannot get the logs of PiWorker:", err.Error())
 	}
 
 	reqData.Date = strings.TrimSpace(reqData.Date)
@@ -604,7 +612,7 @@ func triggersInfoAPI(w http.ResponseWriter, request *http.Request) {
 	err := json.NewEncoder(w).Encode(triggersList.TRIGGERS)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		log.Println("Error:", err.Error())
+		log.Println("[ triggersInfo API ] Error:", err.Error())
 	}
 }
 
@@ -618,7 +626,7 @@ func actionsInfoAPI(w http.ResponseWriter, request *http.Request) {
 	err := json.NewEncoder(w).Encode(actionsList.ACTIONS)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		log.Println("Error:", err.Error())
+		log.Println("[ actionsInfo API ] Error:", err.Error())
 	}
 }
 
