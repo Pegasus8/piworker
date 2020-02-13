@@ -385,7 +385,7 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 
 	keys, ok := request.URL.Query()["fromWebUI"]
 	if !ok || len(keys[0]) < 1 {
-        log.Println("Url Param 'fromWebUI' is missing, sending the data without recreation")
+		log.Println("Url Param 'fromWebUI' is missing, sending the data without recreation")
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -441,74 +441,92 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 		}
 
 		var recreatedUserData userDataFromWebUI
+		var results = make(chan *userTaskFromWebUI, len(userData.Tasks))
 
-		// Recreate the `UserTask.TaskInfo` struct
 		for _, task := range userData.Tasks {
-			var recreatedUserTask userTaskFromWebUI
-			var recreatedTask taskForWebUI
-			
-			recreatedTask.Name = task.TaskInfo.Name
-			recreatedTask.State = task.TaskInfo.State
+			// Usually, the best way of send data to a another goroutine is using channels among other things,
+			// to avoid a race condition, but here we don't have that problem, because the data is not shared
+			// between goroutines and because the data will be only read, will not be modified.
+			go func(task data.UserTask, resultChannel chan *userTaskFromWebUI) {
+				log.Printf("Starting the recreation of the task '%s'\n", task.TaskInfo.Name)
+				startTime := time.Now()
 
-			for _, userAction := range task.TaskInfo.Actions {
-				pwaction := actionsList.Get(userAction.ID)
-				recreatedAction := actionForWebUI{
-					Name:                  pwaction.Name,
-					Description:           pwaction.Description,
-					ID:                    userAction.ID,
-					Timestamp:             userAction.Timestamp,
-					Args:                  []argForWebUI{}, // Will be completed after
-					Order:                 userAction.Order,
-					Chained:               userAction.Chained,
-					ArgumentToReplaceByCR: userAction.ArgumentToReplaceByCR,
-				}
-				for _, arg := range userAction.Args {
-					for _, pwarg := range pwaction.Args {
-						if arg.ID == pwarg.ID {
-							recreatedArg := argForWebUI{
-								Name:        pwarg.Name,
-								Description: pwarg.Description,
-								ID:          arg.ID,
-								Content:     arg.Content,
-								ContentType: pwarg.ContentType,
+				var recreatedUserTask userTaskFromWebUI
+				var recreatedTask taskForWebUI
+
+				recreatedTask.Name = task.TaskInfo.Name
+				recreatedTask.State = task.TaskInfo.State
+
+				for _, userAction := range task.TaskInfo.Actions {
+					pwaction := actionsList.Get(userAction.ID)
+					recreatedAction := actionForWebUI{
+						Name:                  pwaction.Name,
+						Description:           pwaction.Description,
+						ID:                    userAction.ID,
+						Timestamp:             userAction.Timestamp,
+						Args:                  []argForWebUI{}, // Will be completed after
+						Order:                 userAction.Order,
+						Chained:               userAction.Chained,
+						ArgumentToReplaceByCR: userAction.ArgumentToReplaceByCR,
+					}
+					for _, arg := range userAction.Args {
+						for _, pwarg := range pwaction.Args {
+							if arg.ID == pwarg.ID {
+								recreatedArg := argForWebUI{
+									Name:        pwarg.Name,
+									Description: pwarg.Description,
+									ID:          arg.ID,
+									Content:     arg.Content,
+									ContentType: pwarg.ContentType,
+								}
+								recreatedAction.Args = append(recreatedAction.Args, recreatedArg)
+								break
 							}
-							recreatedAction.Args = append(recreatedAction.Args, recreatedArg)
-							break
 						}
 					}
+
+					recreatedTask.Actions = append(recreatedTask.Actions, recreatedAction)
 				}
 
-				recreatedTask.Actions = append(recreatedTask.Actions, recreatedAction)
-			}
-
-			func() {
-				pwtrigger := triggersList.Get(task.TaskInfo.Trigger.ID)
-				recreatedTrigger := triggerForWebUI{
-					Name:        pwtrigger.Name,
-					Description: pwtrigger.Description,
-					ID:          task.TaskInfo.Trigger.ID,
-					Timestamp:   task.TaskInfo.Trigger.Timestamp,
-					Args:        []argForWebUI{}, // Will be completed after
-				}
-				for _, arg := range task.TaskInfo.Trigger.Args {
-					for _, pwarg := range pwtrigger.Args {
-						if arg.ID == pwarg.ID {
-							recreatedArg := argForWebUI{
-								Name:        pwarg.Name,
-								Description: pwarg.Description,
-								ID:          arg.ID,
-								Content:     arg.Content,
-								ContentType: pwarg.ContentType,
+				func() {
+					pwtrigger := triggersList.Get(task.TaskInfo.Trigger.ID)
+					recreatedTrigger := triggerForWebUI{
+						Name:        pwtrigger.Name,
+						Description: pwtrigger.Description,
+						ID:          task.TaskInfo.Trigger.ID,
+						Timestamp:   task.TaskInfo.Trigger.Timestamp,
+						Args:        []argForWebUI{}, // Will be completed after
+					}
+					for _, arg := range task.TaskInfo.Trigger.Args {
+						for _, pwarg := range pwtrigger.Args {
+							if arg.ID == pwarg.ID {
+								recreatedArg := argForWebUI{
+									Name:        pwarg.Name,
+									Description: pwarg.Description,
+									ID:          arg.ID,
+									Content:     arg.Content,
+									ContentType: pwarg.ContentType,
+								}
+								recreatedTrigger.Args = append(recreatedTrigger.Args, recreatedArg)
 							}
-							recreatedTrigger.Args = append(recreatedTrigger.Args, recreatedArg)
 						}
 					}
-				}
-				recreatedTask.Trigger = recreatedTrigger
-			}()
-			recreatedUserTask.TaskInfo = recreatedTask
-			recreatedUserData.Tasks = append(recreatedUserData.Tasks, recreatedUserTask)
+					recreatedTask.Trigger = recreatedTrigger
+				}()
+				recreatedUserTask.TaskInfo = recreatedTask
+
+				executionTime := time.Since(startTime)
+				log.Printf("Task '%s' recreated in %s! Sending through the results channel...\n", recreatedTask.Name, executionTime.String())
+				resultChannel <- &recreatedUserTask
+			}(task, results)
 		}
+
+		for range userData.Tasks {
+			t := <-results
+			recreatedUserData.Tasks = append(recreatedUserData.Tasks, *t)
+		}
+		close(results)
+
 		json.NewEncoder(w).Encode(recreatedUserData.Tasks)
 	} else {
 		json.NewEncoder(w).Encode(userData.Tasks)
