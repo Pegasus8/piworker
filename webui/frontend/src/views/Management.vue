@@ -1,25 +1,56 @@
 <template>
   <v-container class="p-4">
     <h4 class="text-center">My Tasks</h4>
-    <v-container v-if="userTasks.length > 0" fluid>
-      <v-list nav>
-        <v-list-item-group color='blue'>
-          <v-list-item
-            v-for="(userTask, i) in userTasks"
-            :key="i"
-            @click="editTask(userTask.task.name)"
-          >
-            <v-list-item-content>
-              <v-list-item-title>
-                {{ userTask.task.name }}
-              </v-list-item-title>
-            </v-list-item-content>
-          </v-list-item>
-        </v-list-item-group>
-      </v-list>
+    <v-container v-if="userTasks.length > 0">
+      <v-expansion-panels>
+
+        <v-expansion-panel v-for="(userTask, i) in userTasks" :key="i">
+          <v-expansion-panel-header>
+            {{ userTask.task.name }}
+          </v-expansion-panel-header>
+          <v-expansion-panel-content>
+            <div class="d-flex justify-center">
+              <v-card :elevation='0' outlined>
+                <v-card-text class="p-1">
+                  <v-btn
+                    class="mx-4"
+                    color='red darken-2'
+                    text
+                    icon
+                  >
+                    <v-icon>mdi-delete</v-icon>
+                  </v-btn>
+                  <v-btn
+                    class="mx-4"
+                    color='blue darken-2'
+                    @click="editTask(userTask.task.name)"
+                    text
+                    icon
+                  >
+                    <v-icon>mdi-pencil</v-icon>
+                  </v-btn>
+                  <v-btn
+                    class="mx-4"
+                    :color='
+                      userTask.task.state === "Active" ? "green darken-2" : "red darken-2"
+                    '
+                    text
+                    icon
+                  >
+                    <v-icon>mdi-power</v-icon>
+                  </v-btn>
+                </v-card-text>
+              </v-card>
+            </div>
+          </v-expansion-panel-content>
+        </v-expansion-panel>
+
+      </v-expansion-panels>
     </v-container>
 
-    <router-view/>
+    <v-dialog v-model="showDialog" max-width='1000px' @click:outside='onDialogDismiss' scrollable>
+      <router-view/>
+    </v-dialog>
 
     <!-- <b-alert v-else variant="warning" class="m-4" fade>
       Oops... It seems that you have not created any task yet.
@@ -39,7 +70,8 @@ import { mapGetters } from 'vuex'
 export default {
   data () {
     return {
-      err: ''
+      err: '',
+      showDialog: false
     }
   },
   computed: {
@@ -49,10 +81,18 @@ export default {
   },
   methods: {
     editTask (taskName) {
-      const targetRoute = '/management/task/' + taskName
+      const targetRoute = '/management/edit'
       // Avoid pushing the current route.
       if (this.$route.path === targetRoute) return
-      this.$router.push(targetRoute)
+      this.$router.push({path: targetRoute, query: { task: taskName }})
+      this.showDialog = true
+    },
+    onDialogDismiss () {
+      this.showDialog = false
+      // To prevent cancellation of the animation
+      setTimeout(() => {
+        this.$router.replace({ name: 'management' })
+      }, 400)
     }
   },
   components: {
