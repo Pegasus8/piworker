@@ -2,9 +2,9 @@
   <v-container class="p-4">
     <h4 class="text-center">My Tasks</h4>
     <v-container v-if="userTasks.length > 0">
-      <v-expansion-panels>
+      <v-expansion-panels inset>
 
-        <v-expansion-panel v-for="(userTask, i) in userTasks" :key="i">
+        <v-expansion-panel v-for="(userTask, i) in userTasks" :key="userTask.task.ID">
           <v-expansion-panel-header>
             {{ userTask.task.name }}
           </v-expansion-panel-header>
