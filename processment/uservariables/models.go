@@ -19,7 +19,7 @@ type LocalVariable struct {
 	Name           string `json:"name"`
 	Content        string `json:"content"`
 	Type           types.PWType    `json:"type"`
-	ParentTaskName string `json:"parentTaskName"`
+	ParentTaskID string `json:"parentTaskID"`
 	*sync.RWMutex
 }
 

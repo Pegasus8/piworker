@@ -2,7 +2,6 @@ package uservariables
 
 import (
 	"encoding/json"
-	"strings"
 	"os"
 	"log"
 
@@ -20,7 +19,7 @@ func init() {
 // WriteToFile writes the current content of the LocalVariable to the corresponding file.
 func (localVar *LocalVariable) WriteToFile() error {
 	localVar.Lock()
-	filename := localVar.Name + "-" + strings.ReplaceAll(localVar.ParentTaskName, " ", "_")
+	filename := localVar.Name + "-" + localVar.ParentTaskID
 
 	byteData, err := json.MarshalIndent(localVar, "", "   ")
 	if err != nil {

@@ -123,13 +123,13 @@ func GetGlobalVariableName(argument string) string {
 }
 
 // GetLocalVariable returns a specific LocalVariable from the LocalVariablesSlice.
-func GetLocalVariable(name, parentTaskName string) (*LocalVariable, error) {
+func GetLocalVariable(name, parentTaskID string) (*LocalVariable, error) {
 	for _, localVariable := range *LocalVariablesSlice {
-		if localVariable.Name == name && localVariable.ParentTaskName == parentTaskName {
+		if localVariable.Name == name && localVariable.ParentTaskID == parentTaskID {
 			return &localVariable, nil
 		// Check if the problem is that the user is using a local variable of 
 		// other task.
-		} else if localVariable.Name == name && localVariable.ParentTaskName != parentTaskName {
+		} else if localVariable.Name == name && localVariable.ParentTaskID != parentTaskID {
 			return &LocalVariable{}, ErrInvalidParent
 		}
 	}
@@ -154,7 +154,7 @@ func getFiles() ([]os.FileInfo, error) {
 		return nil, err
 	}
 	for index, file := range files {
-		// Remove a folder if exists. Teorically this can't happen, but prevention is not bad.
+		// Remove a folder if exists. Theoretically this can't happen, but prevention is not bad.
 		if file.IsDir() {
 			files = append(files[:index], files[index+1:]...)
 		}
@@ -164,7 +164,7 @@ func getFiles() ([]os.FileInfo, error) {
 }
 
 func getLocalVariablesFiles(files *[]os.FileInfo) []os.FileInfo {
-	var rgx = regexp.MustCompile(`^([a-z_?]+)\-([a-zA-Z0-9_?]*)$`)
+	var rgx = regexp.MustCompile(`^([a-z_?]+)\-([a-zA-Z0-9-?]*)$`)
 	var lvfiles []os.FileInfo
 	for _, file := range *files {
 		if rgx.MatchString(file.Name()) {
