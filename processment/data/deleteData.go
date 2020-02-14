@@ -20,7 +20,7 @@ func DeleteTask(name string) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("Task with the name '%s' finded, deleting...\n", name)
+	log.Printf("Task with the name '%s' found, deleting...\n", name)
 
 	if len(data.Tasks) == 1 {
 		data.Tasks = []UserTask{}
