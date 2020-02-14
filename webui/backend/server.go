@@ -346,32 +346,20 @@ func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: DE
 
 	w.Header().Set("Content-Type", "application/json")
 	var response postResponse
-	var toDelete = struct {
-		Taskname string `json:"taskname"`
-	}{}
+	keys, ok := request.URL.Query()["id"]
+	if !ok || len(keys[0]) < 1 {
+		log.Println("[ deleteTask API ] Url Param 'id' is missing, rejecting the request")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	taskID := keys[0]
 
 	// Uncomment to enable CORS support.
 	//setCORSHeaders(&w, request)
 
 	// TODO Implementation of partial delete
 
-	body, err := ioutil.ReadAll(request.Body)
-	if err != nil {
-		log.Printf("[ deleteTask API ] Error when trying to read the POST data sent by %s\n", request.Host)
-		response.Successful = false
-		response.Error = err.Error()
-		goto response1
-	}
-
-	err = json.Unmarshal(body, &toDelete)
-	if err != nil {
-		log.Printf("[ deleteTask API ] The data on the POST request of %s cannot be read\n", request.Host)
-		response.Successful = false
-		response.Error = err.Error()
-		goto response1
-	}
-
-	err = data.DeleteTask(toDelete.Taskname)
+	err := data.DeleteTask(taskID)
 	if err != nil {
 		response.Successful = false
 		response.Error = err.Error()
