@@ -323,7 +323,7 @@ func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PO
 
 	task.TaskInfo.LastTimeModified = time.Now()
 
-	err = data.UpdateTask(task.TaskInfo.Name, &task)
+	err = data.UpdateTask(task.TaskInfo.ID, &task)
 	if err != nil {
 		log.Println("[ modifyTask API ]", err.Error())
 		response.Successful = false
@@ -443,6 +443,7 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 			Actions          []actionForWebUI `json:"actions"`
 			Created          time.Time        `json:"created"`
 			LastTimeModified time.Time        `json:"lastTimeModified"`
+			ID               string           `json:"ID"`
 		}
 
 		type userTaskFromWebUI struct {
@@ -471,6 +472,7 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 				recreatedTask.State = task.TaskInfo.State
 				recreatedTask.Created = task.TaskInfo.Created
 				recreatedTask.LastTimeModified = task.TaskInfo.LastTimeModified
+				recreatedTask.ID = task.TaskInfo.ID
 
 				for _, userAction := range task.TaskInfo.Actions {
 					pwaction := actionsList.Get(userAction.ID)
