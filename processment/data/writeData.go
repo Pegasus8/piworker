@@ -1,12 +1,13 @@
 package data
 
 import (
-	"os"
-	"path/filepath"
 	"encoding/json"
 	"log"
+	"os"
+	"path/filepath"
 
 	"github.com/Pegasus8/piworker/utilities/files"
+	"github.com/google/uuid"
 )
 
 func init() {
@@ -29,7 +30,10 @@ func NewTask(task *UserTask) error {
 	if err != nil {
 		return err
 	}
-	
+
+	// Set the task ID
+	task.TaskInfo.ID = uuid.New().String()
+
 	// Add the task
 	data.Tasks = append(data.Tasks, *task)
 
@@ -42,13 +46,13 @@ func NewTask(task *UserTask) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("Successfully added a new task with the name '%s' into " + 
+	log.Printf("Successfully added a new task with the name '%s' into "+
 		"JSON user data\n", task.TaskInfo.Name)
 
 	// If the backup loop is not on, then start it
 	if BackupLoopState != true {
 		StartBackupLoop()
-	} 
+	}
 
 	return nil
 }
@@ -57,7 +61,7 @@ func checkFile(filepath string) error {
 	if Filename == "" {
 		log.Fatalln(ErrNoFilenameAssigned)
 	}
-	
+
 	_, err := os.Stat(filepath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -90,6 +94,6 @@ func newJSONDataFile() error {
 		return err
 	}
 	log.Printf("New JSON data file with name '%s' initialized successfully\n", Filename)
-	
+
 	return nil
-}	
+}
