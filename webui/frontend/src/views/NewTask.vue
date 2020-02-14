@@ -1,8 +1,8 @@
 <template>
-<div :class="{ 'container': !$route.query.task }">
+<div :class="{ 'container': !$route.query.id }">
   <v-card>
     <v-card-title>
-      {{ $route.query.task ? `Edit task "${ $route.query.task }"` : 'Create a new task' }}
+      {{ $route.query.id ? `Edit task "${ this.taskName }"` : 'Create a new task' }}
     </v-card-title>
     <v-card-text>
       <v-form class="m-2">
@@ -62,7 +62,7 @@
         @click="submitTask()"
         block
       >
-        {{$route.query.task ? 'Update' : 'Save'}}
+        {{$route.query.id ? 'Update' : 'Save'}}
       </v-btn>
     </v-card-actions>
   </v-card>
@@ -211,15 +211,15 @@ export default {
     // Usually the user will use the default status of the tasks, therefore, it must be set
     // beforehand. Otherwise the value will not be saved in vuex.
     this.setTaskState(this.stateSelected)
-    if (this.$route.query.task) {
+    if (this.$route.query.id) {
       // Coming from `Management` view.
-      this.taskName = this.$route.query.task
 
-      const task = this.$store.getters['userTasks/tasks'].find(t => t.task.name === this.taskName)
+      const userTask = this.$store.getters['userTasks/tasks'].find(t => t.task.ID === this.$route.query.id)
 
-      this.setActions(task.task.actions)
-      this.setTrigger(task.task.trigger)
-      this.setTaskState(task.task.state)
+      this.taskName = userTask.task.name
+      this.setActions(userTask.task.actions)
+      this.setTrigger(userTask.task.trigger)
+      this.setTaskState(userTask.task.state)
     }
   },
   components: {
