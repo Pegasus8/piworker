@@ -23,5 +23,5 @@ Installation (**Untested**):
 * [Go-sqlite3](https://github.com/mattn/go-sqlite3)
 * [Packr](https://github.com/gobuffalo/packr/v2)
 * [Jwt-go](https://github.com/dgrijalva/jwt-go)
-* [Nanoid](https://github.com/aidarkhanov/nanoid)
 * [Lumberjack](https://github.com/natefinch/lumberjack)
+* [UUID by Google](https://github.com/google/uuid)
