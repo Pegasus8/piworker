@@ -45,7 +45,7 @@ var SetGlobalVariable = actions.Action{
 	ReturnedChainResultType:        types.Any,
 }
 
-func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
+func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *actions.ChainedResult, err error) {
 	var args *[]data.UserArg
 
 	// The name of the variable
@@ -65,8 +65,8 @@ func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 			variableContent = arg.Content
 		default:
 			{
-				log.Println("[%s] Unrecongnized argument with the ID '%s' on the "+
-					"action SetGlobalVariable\n", parentTaskName, arg.ID)
+				log.Println("[%s] Unrecognized argument with the ID '%s' on the "+
+					"action SetGlobalVariable\n", parentTaskID, arg.ID)
 				return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
 			}
 		}

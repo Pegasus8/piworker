@@ -47,7 +47,7 @@ var SetLocalVariable = actions.Action{
 	ReturnedChainResultType:        types.Any,
 }
 
-func setLocalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
+func setLocalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *actions.ChainedResult, err error) {
 	var args *[]data.UserArg
 
 	// The name of the variable
@@ -67,8 +67,8 @@ func setLocalVariableAction(previousResult *actions.ChainedResult, parentAction 
 			variableContent = arg.Content
 		default:
 			{
-				log.Println("[%s] Unrecongnized argument with the ID '%s' on the "+
-					"action SetLocalVariable\n", parentTaskName, arg.ID)
+				log.Println("[%s] Unrecognized argument with the ID '%s' on the "+
+					"action SetLocalVariable\n", parentTaskID, arg.ID)
 				return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
 			}
 		}
@@ -84,7 +84,7 @@ func setLocalVariableAction(previousResult *actions.ChainedResult, parentAction 
 		Name:    variableName,
 		Content: variableContent,
 		Type:    variableType,
-		ParentTaskName: parentTaskName,
+		ParentTaskID: parentTaskID,
 	}
 	err = lv.WriteToFile()
 	if err != nil {

@@ -49,7 +49,7 @@ var ExecuteCommand = actions.Action{
 	ReturnedChainResultType:        types.Text,
 }
 
-func executeCommand(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
+func executeCommand(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *actions.ChainedResult, err error) {
 	var args *[]data.UserArg
 
 	// Command

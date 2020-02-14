@@ -66,7 +66,7 @@ var WriteTextFile = actions.Action{
 	ReturnedChainResultType:        types.Path,
 }
 
-func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
+func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *actions.ChainedResult, err error) {
 	var args *[]data.UserArg
 
 	// Content of the file
@@ -102,8 +102,8 @@ func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *da
 			path = filepath.Clean(arg.Content)
 		default:
 			{
-				log.Println("[%s] Unrecongnized argument with the ID '%s' on the "+
-					"action WriteTextFile\n", parentTaskName, arg.ID)
+				log.Println("[%s] Unrecognized argument with the ID '%s' on the "+
+					"action WriteTextFile\n", parentTaskID, arg.ID)
 				return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
 			}
 		}
@@ -135,7 +135,7 @@ func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *da
 		return false, &actions.ChainedResult{}, err
 	}
 
-	log.Printf("[%s] File written by the action WriteTextFile. Bytes written: %d\n", parentTaskName, bytesWritten)
+	log.Printf("[%s] File written by the action WriteTextFile. Bytes written: %d\n", parentTaskID, bytesWritten)
 
 	return true, &actions.ChainedResult{Result: fullpath, ResultType: types.Path}, nil
 }
