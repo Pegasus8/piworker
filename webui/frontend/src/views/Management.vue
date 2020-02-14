@@ -23,7 +23,7 @@
                   <v-btn
                     class="mx-4"
                     color='blue darken-2'
-                    @click="editTask(userTask.task.name)"
+                    @click="editTask(userTask.task.ID)"
                     text
                     icon
                   >
@@ -80,11 +80,11 @@ export default {
     })
   },
   methods: {
-    editTask (taskName) {
+    editTask (taskID) {
       const targetRoute = '/management/edit'
       // Avoid pushing the current route.
       if (this.$route.path === targetRoute) return
-      this.$router.push({path: targetRoute, query: { task: taskName }})
+      this.$router.push({path: targetRoute, query: { id: taskID }})
       this.showDialog = true
     },
     onDialogDismiss () {
