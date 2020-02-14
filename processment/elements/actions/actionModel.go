@@ -21,7 +21,6 @@ type Arg struct {
 	ID string `json:"ID"`
 	Name string `json:"name"`
 	Description string `json:"description"`
-	// Must be one type from here: https://bootstrap-vue.js.org/docs/components/form-input/#input-type
 	ContentType types.PWType `json:"contentType"`
 }
 
