@@ -15,6 +15,7 @@
                   <v-btn
                     class="mx-4"
                     color='red darken-2'
+                    @click="deleteTask(userTask.task.ID, i)"
                     text
                     icon
                   >
@@ -65,7 +66,7 @@
 </template>
 
 <script>
-import { mapGetters } from 'vuex'
+import { mapGetters, mapActions } from 'vuex'
 
 export default {
   data () {
@@ -80,12 +81,18 @@ export default {
     })
   },
   methods: {
+    ...mapActions('userTasks', [
+      'removeUserTask'
+    ]),
     editTask (taskID) {
       const targetRoute = '/management/edit'
       // Avoid pushing the current route.
       if (this.$route.path === targetRoute) return
       this.$router.push({path: targetRoute, query: { id: taskID }})
       this.showDialog = true
+    },
+    deleteTask (taskID, index) {
+      this.removeUserTask(taskID, index)
     },
     onDialogDismiss () {
       this.showDialog = false
