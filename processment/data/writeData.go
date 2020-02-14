@@ -55,7 +55,7 @@ func NewTask(task *UserTask) error {
 
 func checkFile(filepath string) error {
 	if Filename == "" {
-		log.Fatalln(ErrNoFilenameAsigned)
+		log.Fatalln(ErrNoFilenameAssigned)
 	}
 	
 	_, err := os.Stat(filepath)

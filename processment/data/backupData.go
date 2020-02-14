@@ -18,7 +18,7 @@ func StartBackupLoop() error {
 	}
 
 	if Filename == "" {
-		return ErrNoFilenameAsigned
+		return ErrNoFilenameAssigned
 	}
 	if BackupLoopState == true {
 		return ErrBackupLoopAlreadyActive
