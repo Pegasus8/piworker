@@ -8,18 +8,21 @@ import (
 )
 
 // UpdateTask is a function used to update an existing task from the JSON data file.
-func UpdateTask(taskName string, updatedTask *UserTask) error {
+func UpdateTask(ID string, updatedTask *UserTask) error {
 	data, err := ReadData()
 	if err != nil {
 		return err
 	}
 
-	_, index, err := data.GetTaskByName(taskName)
+	_, index, err := data.GetTaskByID(ID)
 	if err != nil {
 		return err
 	}
 
-	log.Printf("Task with name '%s' finded, updating data...\n", taskName)
+	// Set the same ID
+	updatedTask.TaskInfo.ID = data.Tasks[index].TaskInfo.ID
+
+	log.Printf("Task with ID '%s' found, updating data...\n", ID)
 	data.Tasks[index] = *updatedTask
 
 	byteData, err := json.MarshalIndent(data, "", "   ")
@@ -38,24 +41,19 @@ func UpdateTask(taskName string, updatedTask *UserTask) error {
 }
 
 // UpdateTaskName is a function used to change the name of a task.
-func UpdateTaskName(oldName, newName string) error {
+func UpdateTaskName(ID, oldName, newName string) error {
 
 	data, err := ReadData()
 	if err != nil {
 		return err
 	}
 
-	oldTask, index, err := data.GetTaskByName(oldName)
+	_, index, err := data.GetTaskByID(ID)
 	if err != nil {
 		return err
 	}
-	
-	data.Tasks[index].TaskInfo = TaskInfo{
-		Name: newName,
-		State: oldTask.TaskInfo.State,
-		Trigger: oldTask.TaskInfo.Trigger,
-		Actions: oldTask.TaskInfo.Actions,
-	}
+
+	data.Tasks[index].TaskInfo.Name = newName
 
 	byteData, err := json.MarshalIndent(data, "", "   ")
 	if err != nil {
@@ -71,24 +69,19 @@ func UpdateTaskName(oldName, newName string) error {
 }
 
 // UpdateTaskTrigger is a function used to change the trigger of a task.
-func UpdateTaskTrigger(name string, newTrigger *UserTrigger) error {
+func UpdateTaskTrigger(ID string, newTrigger *UserTrigger) error {
 
 	data, err := ReadData()
 	if err != nil {
 		return err
 	}
 
-	oldTask, index, err := data.GetTaskByName(name)
+	_, index, err := data.GetTaskByID(ID)
 	if err != nil {
 		return err
 	}
-	
-	data.Tasks[index].TaskInfo = TaskInfo{
-		Name: oldTask.TaskInfo.Name,
-		State: oldTask.TaskInfo.State,
-		Trigger: *newTrigger,
-		Actions: oldTask.TaskInfo.Actions,
-	}
+
+	data.Tasks[index].TaskInfo.Trigger = *newTrigger
 
 	byteData, err := json.MarshalIndent(data, "", "   ")
 	if err != nil {
@@ -104,24 +97,19 @@ func UpdateTaskTrigger(name string, newTrigger *UserTrigger) error {
 }
 
 // UpdateTaskActions is a function used to change the actions of a task.
-func UpdateTaskActions(name string, newActions *[]UserAction) error {
+func UpdateTaskActions(ID string, newActions *[]UserAction) error {
 
 	data, err := ReadData()
 	if err != nil {
 		return err
 	}
 
-	oldTask, index, err := data.GetTaskByName(name)
+	_, index, err := data.GetTaskByID(ID)
 	if err != nil {
 		return err
 	}
-	
-	data.Tasks[index].TaskInfo = TaskInfo{
-		Name: oldTask.TaskInfo.Name,
-		State: oldTask.TaskInfo.State,
-		Trigger: oldTask.TaskInfo.Trigger,
-		Actions: *newActions,
-	}
+
+	data.Tasks[index].TaskInfo.Actions = *newActions
 
 	byteData, err := json.MarshalIndent(data, "", "   ")
 	if err != nil {
@@ -132,29 +120,24 @@ func UpdateTaskActions(name string, newActions *[]UserAction) error {
 	if err != nil {
 		return err
 	}
-	
+
 	return nil
 }
 
 // UpdateTaskState is a function used to change the state of a task.
-func UpdateTaskState(name string, newState TaskState) error {
+func UpdateTaskState(ID string, newState TaskState) error {
 
 	data, err := ReadData()
 	if err != nil {
 		return err
 	}
 
-	oldTask, index, err := data.GetTaskByName(name)
+	_, index, err := data.GetTaskByID(ID)
 	if err != nil {
 		return err
 	}
-	
-	data.Tasks[index].TaskInfo = TaskInfo{
-		Name: oldTask.TaskInfo.Name,
-		State: newState,
-		Trigger: oldTask.TaskInfo.Trigger,
-		Actions: oldTask.TaskInfo.Actions,
-	}
+
+	data.Tasks[index].TaskInfo.State = newState
 
 	byteData, err := json.MarshalIndent(data, "", "   ")
 	if err != nil {
