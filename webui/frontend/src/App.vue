@@ -39,7 +39,6 @@ export default {
 </script>
 
 <style lang="scss">
-@import url("assets/css/icomoon.css");
 
 .floating-alert {
   position: fixed;
