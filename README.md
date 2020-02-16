@@ -7,7 +7,6 @@ Installation (**Untested**):
 
 ## Acknowledgments
 ### Frontend (JS - VueJS)
-* [Bootstrap](https://getbootstrap.com)
 * [VueJS](https://vuejs.org/)
 * [Vue-router](https://router.vuejs.org/)
 * [Vuex](https://vuex.vuejs.org/)
