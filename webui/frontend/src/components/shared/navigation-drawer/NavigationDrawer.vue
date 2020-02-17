@@ -65,19 +65,6 @@
       </v-list-item>
 
     </v-list>
-
-    <template v-slot:append>
-      <div class="pa-2">
-        <v-btn
-          color='red'
-          class="darken-3"
-          block
-          @click="logout"
-        >
-        Logout
-        </v-btn>
-      </div>
-    </template>
   </v-navigation-drawer>
 </template>
 <script>
@@ -104,10 +91,6 @@ export default {
     }
   },
   methods: {
-    logout () {
-      this.expandNavDrawer = false
-      this.$store.dispatch('auth/logout')
-    }
   }
 }
 </script>
