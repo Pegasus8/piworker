@@ -1,53 +1,56 @@
 <template>
-  <v-container class="p-4">
-    <h4 class="text-center">My Tasks</h4>
-    <v-container v-if="userTasks.length > 0">
-      <v-expansion-panels inset>
+  <v-container class="pa-6">
+    <h2 class="text-center">My Tasks</h2>
+    <v-row v-if="userTasks.length > 0" justify='center'>
+      <v-col cols='10' xl='8'>
 
-        <v-expansion-panel v-for="(userTask, i) in userTasks" :key="userTask.task.ID">
-          <v-expansion-panel-header>
-            {{ userTask.task.name }}
-          </v-expansion-panel-header>
-          <v-expansion-panel-content>
-            <div class="d-flex justify-center">
-              <v-card :elevation='0' outlined>
-                <v-card-text class="p-1">
-                  <v-btn
-                    class="mx-4"
-                    color='red darken-2'
-                    @click="deleteTask(userTask.task.ID, i)"
-                    text
-                    icon
-                  >
-                    <v-icon>mdi-delete</v-icon>
-                  </v-btn>
-                  <v-btn
-                    class="mx-4"
-                    color='blue darken-2'
-                    @click="editTask(userTask.task.ID)"
-                    text
-                    icon
-                  >
-                    <v-icon>mdi-pencil</v-icon>
-                  </v-btn>
-                  <v-btn
-                    class="mx-4"
-                    :color='
-                      userTask.task.state === "Active" ? "green darken-2" : "red darken-2"
-                    '
-                    text
-                    icon
-                  >
-                    <v-icon>mdi-power</v-icon>
-                  </v-btn>
-                </v-card-text>
-              </v-card>
-            </div>
-          </v-expansion-panel-content>
-        </v-expansion-panel>
+        <v-expansion-panels inset>
 
-      </v-expansion-panels>
-    </v-container>
+          <v-expansion-panel v-for="(userTask, i) in userTasks" :key="userTask.task.ID">
+            <v-expansion-panel-header>
+              {{ userTask.task.name }}
+            </v-expansion-panel-header>
+            <v-expansion-panel-content>
+              <div class="d-flex justify-center">
+                <v-card :elevation='0' outlined>
+                  <v-card-text class="pa-1">
+                    <v-btn
+                      class="mx-4"
+                      color='red darken-2'
+                      @click="deleteTask(userTask.task.ID, i)"
+                      text
+                      icon
+                    >
+                      <v-icon>mdi-delete</v-icon>
+                    </v-btn>
+                    <v-btn
+                      class="mx-4"
+                      color='blue darken-2'
+                      @click="editTask(userTask.task.ID)"
+                      text
+                      icon
+                    >
+                      <v-icon>mdi-pencil</v-icon>
+                    </v-btn>
+                    <v-btn
+                      class="mx-4"
+                      :color='
+                        userTask.task.state === "Active" ? "green darken-2" : "red darken-2"
+                      '
+                      text
+                      icon
+                    >
+                      <v-icon>mdi-power</v-icon>
+                    </v-btn>
+                  </v-card-text>
+                </v-card>
+              </div>
+            </v-expansion-panel-content>
+          </v-expansion-panel>
+
+        </v-expansion-panels>
+
+      </v-col>
 
     <v-dialog v-model="showDialog" max-width='1000px' @click:outside='onDialogDismiss' scrollable>
       <router-view/>
@@ -88,7 +91,7 @@ export default {
       const targetRoute = '/management/edit'
       // Avoid pushing the current route.
       if (this.$route.path === targetRoute) return
-      this.$router.push({path: targetRoute, query: { id: taskID }})
+      this.$router.push({ path: targetRoute, query: { id: taskID } })
       this.showDialog = true
     },
     deleteTask (taskID, index) {
