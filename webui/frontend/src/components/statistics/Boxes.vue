@@ -1,17 +1,17 @@
 <template>
   <v-container class="my-4">
-    <v-row justify='center' class="mx-5 p-4">
+    <v-row justify='center' class="mx-5 pa-4">
       <v-col
         cols="7"
         sm="4"
         lg="3"
         xl="2"
-        class="m-3 mx-md-4 mx-lg-5 py-4"
+        class="ma-3 mx-md-4 mx-lg-5 py-4"
       >
         <div id="atcBox">
-          <v-card elevation='6' class="p-4">
+          <v-card elevation='6' class="pa-1">
             <v-card-title class="d-flex justify-center">
-              <h4 class="text-muted">Active</h4>
+              Active
             </v-card-title>
             <v-card-subtitle class="display-4 text-center my-1">
               {{ activeTasksCounter }}
@@ -25,12 +25,12 @@
         sm="4"
         lg="3"
         xl="2"
-        class="m-3 mx-md-4 mx-lg-5 py-4"
+        class="ma-3 mx-md-4 mx-lg-5 py-4"
       >
         <div id="oetcBox">
-          <v-card elevation='6' class="p-4">
+          <v-card elevation='6' class="pa-1">
             <v-card-title class="d-flex justify-center">
-              <h4 class="text-muted">Running...</h4>
+              Running...
             </v-card-title>
             <v-card-subtitle class="display-4 text-center my-1">
               {{ onExecutionTasksCounter }}
@@ -44,12 +44,12 @@
         sm="4"
         lg="3"
         xl="2"
-        class="m-3 mx-md-4 mx-lg-5 py-4"
+        class="ma-3 mx-md-4 mx-lg-5 py-4"
       >
         <div id="itcBox">
-          <v-card elevation='6' class="p-4">
+          <v-card elevation='6' class="pa-1">
             <v-card-title class="d-flex justify-center">
-              <h4 class="text-muted">Inactive</h4>
+              Inactive
             </v-card-title>
             <v-card-subtitle class="display-4 text-center my-1">
               {{ inactiveTasksCounter }}
