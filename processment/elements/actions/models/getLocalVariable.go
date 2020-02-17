@@ -30,14 +30,14 @@ var GetLocalVariable = actions.Action{
 			ID:          variableNameGetLocalVariableID,
 			Name:        "Name",
 			Description: "The name of the desired variable.",
-			ContentType: "text",
+			ContentType: types.Text,
 		},
 	},
 	ReturnedChainResultDescription: "The content of the obtained variable.",
 	ReturnedChainResultType:        types.Any,
 }
 
-func getLocalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
+func getLocalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *actions.ChainedResult, err error) {
 	var args *[]data.UserArg
 
 	// The name of the variable
@@ -53,8 +53,8 @@ func getLocalVariableAction(previousResult *actions.ChainedResult, parentAction 
 			}
 		default:
 			{
-				log.Println("[%s] Unrecongnized argument with the ID '%s' on the "+
-					"action GetLocalVariable\n", parentTaskName, arg.ID)
+				log.Println("[%s] Unrecognized argument with the ID '%s' on the "+
+					"action GetLocalVariable\n", parentTaskID, arg.ID)
 				return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
 			}
 		}
@@ -64,7 +64,7 @@ func getLocalVariableAction(previousResult *actions.ChainedResult, parentAction 
 		return false, &actions.ChainedResult{}, errors.New("Error: variableName empty")
 	}
 
-	localVariable, err := uservariables.GetLocalVariable(variableName, parentTaskName)
+	localVariable, err := uservariables.GetLocalVariable(variableName, parentTaskID)
 	if err != nil {
 		return false, &actions.ChainedResult{}, err
 	}

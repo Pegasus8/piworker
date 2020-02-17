@@ -7,15 +7,23 @@ const state = {
 const mutations = {
   updateTasks: (state, updatedTasks) => {
     state.tasks = updatedTasks
+  },
+  removeTask: (state, index) => {
+    state.tasks.splice(index, 1)
   }
 }
 
 const actions = {
-  getUserTasks: ({
+  fetchUserTasks: ({
     commit
   }) => {
+    const configs = {
+      params: {
+        fromWebUI: true
+      }
+    }
     console.info('Sending request to get-all tasks API...')
-    axios.get('/api/tasks/get-all')
+    axios.get('/api/tasks/get-all', configs)
       .then((response) => {
         console.info('Response successful, parsing tasks...')
         commit('updateTasks', response.data)
@@ -23,6 +31,20 @@ const actions = {
       })
       .catch((err) => {
         console.error('Error on get-all tasks API:', err)
+      })
+  },
+  removeUserTask: ({ commit }, taskID, taskIndex) => {
+    const configs = {
+      params: {
+        id: taskID
+      }
+    }
+    axios.delete('/api/tasks/delete', configs)
+      .then(_response => {
+        commit('removeTask', taskIndex)
+      })
+      .catch(err => {
+        console.error(err)
       })
   }
 }

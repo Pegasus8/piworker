@@ -7,15 +7,15 @@ Installation (**Untested**):
 
 ## Acknowledgments
 ### Frontend (JS - VueJS)
-* [Bootstrap](https://getbootstrap.com)
 * [VueJS](https://vuejs.org/)
+* [Vuetify](https://vuetifyjs.com)
 * [Vue-router](https://router.vuejs.org/)
 * [Vuex](https://vuex.vuejs.org/)
 * [Vue.Draggable](https://github.com/SortableJS/Vue.Draggable)
 * [Vue-uuid](https://github.com/VitorLuizC/vue-uuid)
-* [Vue2-animate](https://github.com/asika32764/vue2-animate)
 * [Anime.js](https://animejs.com/)
-* [Icomoon](https://icomoon.io/)
+* [typeface-roboto (Google Roboto)](https://github.com/KyleAMathews/typefaces/tree/master/packages/roboto)
+* [Material Design Icons](https://materialdesignicons.com/)
 
 ### Backend (Go)
 * [Websocket by Gorilla](https://github.com/gorilla/websocket)
@@ -23,5 +23,5 @@ Installation (**Untested**):
 * [Go-sqlite3](https://github.com/mattn/go-sqlite3)
 * [Packr](https://github.com/gobuffalo/packr/v2)
 * [Jwt-go](https://github.com/dgrijalva/jwt-go)
-* [Nanoid](https://github.com/aidarkhanov/nanoid)
 * [Lumberjack](https://github.com/natefinch/lumberjack)
+* [UUID by Google](https://github.com/google/uuid)

@@ -31,21 +31,21 @@ var SetGlobalVariable = actions.Action{
 			Name: "Name",
 			Description: "The name of the variable. Must be uppercase, without spaces or special characters. " +
 				"The unique special character allowed is the underscore ('_'). Example: THIS_IS_AN_EXAMPLE",
-			ContentType: "text",
+			ContentType: types.Text,
 		},
 		actions.Arg{
 			ID:   variableContentSetGlobalVariableID,
 			Name: "Variable content",
 			Description: "The content of the variable. Optionally can be: a result of a previous action, " +
 				"another variable or static content (setted by you).",
-			ContentType: "text",
+			ContentType: types.Any,
 		},
 	},
 	ReturnedChainResultDescription: "The content setted to the variable.",
 	ReturnedChainResultType:        types.Any,
 }
 
-func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
+func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *actions.ChainedResult, err error) {
 	var args *[]data.UserArg
 
 	// The name of the variable
@@ -65,8 +65,8 @@ func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 			variableContent = arg.Content
 		default:
 			{
-				log.Println("[%s] Unrecongnized argument with the ID '%s' on the "+
-					"action SetGlobalVariable\n", parentTaskName, arg.ID)
+				log.Println("[%s] Unrecognized argument with the ID '%s' on the "+
+					"action SetGlobalVariable\n", parentTaskID, arg.ID)
 				return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
 			}
 		}

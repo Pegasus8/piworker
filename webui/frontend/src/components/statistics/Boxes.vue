@@ -1,67 +1,64 @@
 <template>
-  <b-container class="my-4" fluid>
-    <b-row class="justify-content-center mx-5 p-4">
-      <b-col
-        cols="10"
-        sm="6"
-        md="5"
+  <v-container class="my-4">
+    <v-row justify='center' class="mx-5 pa-4">
+      <v-col
+        cols="7"
+        sm="4"
         lg="3"
         xl="2"
-        class="border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark"
-        id="atcBox"
+        class="ma-3 mx-md-4 mx-lg-5 py-4"
       >
-        <b-card-body class="text-center">
-          <b-card-title class="text-muted h4">Active</b-card-title>
-          <b-card-sub-title>
-            <h3
-              class="mb-2 text-light display-4"
-              id="active-tasks-number"
-            >{{ activeTasksCounter }}</h3>
-          </b-card-sub-title>
-        </b-card-body>
-      </b-col>
+        <div id="atcBox">
+          <v-card elevation='6' class="pa-1">
+            <v-card-title class="d-flex justify-center">
+              Active
+            </v-card-title>
+            <v-card-subtitle class="display-4 text-center my-1">
+              {{ activeTasksCounter }}
+            </v-card-subtitle>
+          </v-card>
+        </div>
+      </v-col>
 
-      <b-col
-        cols="10"
-        sm="6"
-        md="5"
+      <v-col
+        cols="7"
+        sm="4"
         lg="3"
         xl="2"
-        class="border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark"
-        id="oetcBox"
+        class="ma-3 mx-md-4 mx-lg-5 py-4"
       >
-        <b-card-body class="text-center">
-          <b-card-title class="text-muted h4">On Execution</b-card-title>
-          <b-card-sub-title>
-            <h3
-              class="mb-2 text-light display-4"
-              id="onexecution-tasks-number"
-            >{{ onExecutionTasksCounter }}</h3>
-          </b-card-sub-title>
-        </b-card-body>
-      </b-col>
+        <div id="oetcBox">
+          <v-card elevation='6' class="pa-1">
+            <v-card-title class="d-flex justify-center">
+              Running...
+            </v-card-title>
+            <v-card-subtitle class="display-4 text-center my-1">
+              {{ onExecutionTasksCounter }}
+            </v-card-subtitle>
+          </v-card>
+        </div>
+      </v-col>
 
-      <b-col
-        cols="10"
-        sm="6"
-        md="5"
+      <v-col
+        cols="7"
+        sm="4"
         lg="3"
         xl="2"
-        class="border border-secondary card m-3 mx-md-4 mx-lg-5 py-4 bg-dark"
-        id="itcBox"
+        class="ma-3 mx-md-4 mx-lg-5 py-4"
       >
-        <b-card-body class="text-center">
-          <b-card-title class="text-muted h4">Inactive</b-card-title>
-          <b-card-sub-title>
-            <h3
-              class="mb-2 text-light display-4"
-              id="inactive-tasks-number"
-            >{{ inactiveTasksCounter }}</h3>
-          </b-card-sub-title>
-        </b-card-body>
-      </b-col>
-    </b-row>
-  </b-container>
+        <div id="itcBox">
+          <v-card elevation='6' class="pa-1">
+            <v-card-title class="d-flex justify-center">
+              Inactive
+            </v-card-title>
+            <v-card-subtitle class="display-4 text-center my-1">
+              {{ inactiveTasksCounter }}
+            </v-card-subtitle>
+          </v-card>
+        </div>
+      </v-col>
+    </v-row>
+  </v-container>
 </template>
 
 <script>
@@ -72,58 +69,51 @@ export default {
     return {
       atcAnimation: null,
       oetcAnimation: null,
-      itcAnimation: null,
-      atc: 0,
-      oetc: 0,
-      itc: 0
+      itcAnimation: null
     }
   },
   computed: {
     activeTasksCounter () {
-      if (this.atc != this.$store.getters['statistics/activeTasksCounter']) {
-        if (this.atcAnimation != null) {
-            this.atcAnimation.restart()
-        } else {
-          this.atcAnimation = this.boxAnimation('atcBox')
-        }
-        this.atc = this.$store.getters['statistics/activeTasksCounter']
-      }
-
       return this.$store.getters['statistics/activeTasksCounter']
     },
     onExecutionTasksCounter () {
-      if (this.oetc != this.$store.getters['statistics/onExecutionTasksCounter']) {
-        if (this.oetcAnimation != null) {
-          this.oetcAnimation.restart()
-        } else {
-          this.oetcAnimation = this.boxAnimation('oetcBox')
-        }
-        this.oetc = this.$store.getters['statistics/onExecutionTasksCounter']
-      }
-
       return this.$store.getters['statistics/onExecutionTasksCounter']
     },
     inactiveTasksCounter () {
-      if (this.itc != this.$store.getters['statistics/inactiveTasksCounter']) {
-        if (this.itcAnimation != null) {
-          this.itcAnimation.restart()
-        } else {
-          this.itcAnimation = this.boxAnimation('itcBox')
-        }
-        this.itc = this.$store.getters['statistics/inactiveTasksCounter']
-      }
-
       return this.$store.getters['statistics/inactiveTasksCounter']
     }
   },
+  watch: {
+    activeTasksCounter: function (newValue) {
+      if (this.atcAnimation != null) {
+        this.atcAnimation.restart()
+      } else {
+        this.atcAnimation = this.boxAnimation('atcBox')
+      }
+    },
+    onExecutionTasksCounter: function (newValue) {
+      if (this.oetcAnimation != null) {
+        this.oetcAnimation.restart()
+      } else {
+        this.oetcAnimation = this.boxAnimation('oetcBox')
+      }
+    },
+    inactiveTasksCounter: function (newValue) {
+      if (this.itcAnimation != null) {
+        this.itcAnimation.restart()
+      } else {
+        this.itcAnimation = this.boxAnimation('itcBox')
+      }
+    }
+  },
   methods: {
-    boxAnimation (idTarget) {
+    boxAnimation (targetID) {
       const blue = '48, 170, 232'
 
-      let timeline = anime.timeline({ easing: 'linear', direction: 'alternate' })
+      const timeline = anime.timeline({ easing: 'linear', direction: 'alternate' })
       timeline.add({
-        targets: '#' + idTarget,
-        boxShadow: '0px 0px 15px rgba(' + blue + ', 0.4)',
+        targets: '#' + targetID,
+        boxShadow: '0px 0px 15px rgba(' + blue + ', 0.4)'
       })
 
       return timeline

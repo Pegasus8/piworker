@@ -1,71 +1,65 @@
 <template>
-<b-container class="my-4">
-  <b-row class="justify-content-center">
-    <b-col sm="9" md="7" lg="5" xl="4">
-      <b-card bg-variant="dark" text-variant="light">
-        <template v-slot:header>
-          <h5 class="font-weight-bold">Sign in</h5>
-        </template>
-        <b-form>
-          <b-form-group
-            class="text-left"
-            label="Username"
-            label-for="username"
+<v-container class="my-4">
+  <v-row justify='center'>
+    <v-col sm="9" md="7" lg="5" xl="4">
+      <v-card elevation='12' dark>
+        <v-card-title>
+          Sign in
+        </v-card-title>
+        <v-card-text>
+          <v-form
+            ref="form"
+            v-model="valid"
           >
-            <b-form-input
-              id="username"
-              type="text"
-              placeholder="Enter your username"
+            <v-text-field
               v-model="form.username"
-              aria-describedby="usernamelHelp"
+              :rules="usernameRules"
+              label="Username"
               required
             />
-          </b-form-group>
-          <b-form-group
-            class="text-left"
-            label="Password"
-            label-for="passwordInput"
-          >
-            <b-form-input
-              id="passwordInput"
-              type="password"
-              placeholder="Enter your password"
-              aria-describedby="passwordHelp"
+            <v-text-field
               v-model="form.password"
+              :rules="passwordRules"
+              label="Password"
+              type='password'
               required
             />
-          </b-form-group>
-        </b-form>
-        <template v-slot:footer>
-          <b-button variant="primary" size="lg" @click="login" block>
-            Login
-          </b-button>
-        </template>
-      </b-card>
-      <transition name="fade">
-        <div
-          v-if="showAlert"
-          class="alert alert-warning mt-3"
-          role="alert"
-        >
-          Wrong user/password
-        </div>
-      </transition>
-      <transition name="fade">
-        <div
-          v-if="errorOnLogin"
-          class="alert alert-danger mt-3"
-          role="alert"
-        >
-          <h4>Error when trying to login</h4>
-          <p>Please, check your connection with PiWorker.</p>
-          <hr>
-          <p>Error: {{ error }}</p>
-        </div>
-      </transition>
-    </b-col>
-  </b-row>
-</b-container>
+            <v-checkbox
+              v-model="form.keepLogged"
+              label="Keep me logged"
+              color='primary'
+            ></v-checkbox>
+
+            <v-btn
+              :disabled="!valid"
+              class="primary darken-1 mt-2"
+              @click="login"
+              :loading='waintingResponse'
+              block
+            >
+              Login
+            </v-btn>
+          </v-form>
+        </v-card-text>
+      </v-card>
+    </v-col>
+  </v-row>
+  <v-snackbar
+    v-model="showAlert"
+    :bottom='true'
+    color='error'
+    :timeout='8000'
+  >
+    Error when trying to login: {{ error }}. Please, check your connection with PiWorker.
+    <v-btn
+      dark
+      text
+      @click="showAlert = false"
+    >
+      Close
+    </v-btn>
+  </v-snackbar>
+</v-container>
 </template>
 
 <script>
@@ -74,23 +68,23 @@ export default {
     return {
       form: {
         username: '',
-        password: ''
+        password: '',
+        keepLogged: false
       },
       waintingResponse: false,
+      usernameRules: [
+        v => !!v || 'Username is required'
+      ],
+      passwordRules: [
+        v => !!v || 'Username is required'
+      ],
+      valid: true,
       showAlert: false,
-      errorOnLogin: false,
       error: ''
     }
   },
   methods: {
     login (event) {
-      if (this.waintingResponse) {
-        return // Prevent multiple requests
-      }
-      if (!this.form.username || !this.form.password) {
-        return
-      }
-      event.preventDefault()
       this.waintingResponse = true
       this.$store.dispatch('auth/login', {
         user: this.form.username,
@@ -100,18 +94,23 @@ export default {
           this.waintingResponse = false
           if (!response.successful) {
             this.showAlert = true
-            setTimeout(() => this.showAlert = false, 3000)
+            setTimeout(() => {
+              this.showAlert = false
+            }, 3000)
           }
         })
         .catch((err) => {
           this.waintingResponse = false
-          this.errorOnLogin = true
+          this.showAlert = true
           this.error = err.message
           console.error('Error when trying to login:', err)
           setTimeout(() => {
-            this.errorOnLogin = false
-            this.error = ''
-          }, 15000)
+            this.showAlert = false
+            setTimeout(() => {
+              // Prevents the disappearance of the error when the alert is beginning to fade
+              this.error = ''
+            }, 2000)
+          }, 10000)
         })
     }
   }

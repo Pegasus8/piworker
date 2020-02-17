@@ -1,39 +1,41 @@
 <template>
-  <div id="app">
-    <app-navbar/>
-    <transition
-      name="fade"
-      mode="out-in"
-    >
-      <router-view style="animation-duration: 0.3s"/>
-    </transition>
-  </div>
+  <v-app>
+    <app-navigation-drawer
+      v-if="$store.getters['auth/isAuthenticated']"
+      :expanded="expandNavDrawer"
+      @stateChange='expandNavDrawer = $event'
+    />
+    <app-navbar
+      @expandDrawer='expandNavDrawer = !expandNavDrawer'
+    />
+    <v-content>
+      <v-fade-transition
+        mode="out-in"
+      >
+        <router-view style="animation-duration: 0.3s"/>
+      </v-fade-transition>
+    </v-content>
+  </v-app>
 </template>
 
 <script>
-import Navbar from './components/navbar/Navbar.vue'
+import Navbar from './components/shared/navbar/Navbar.vue'
+import NavigationDrawer from './components/shared/navigation-drawer/NavigationDrawer.vue'
 
 export default {
+  data () {
+    return {
+      expandNavDrawer: false
+    }
+  },
+  methods: {
+  },
   components: {
-    appNavbar: Navbar
+    appNavbar: Navbar,
+    appNavigationDrawer: NavigationDrawer
   }
 }
 </script>
 
 <style lang="scss">
-@import url("assets/css/icomoon.css");
-
-#app {
-  font-family: 'Avenir', Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-align: center;
-}
-
-.floating-alert {
-  position: fixed;
-  bottom: 2%;
-  right: 2%;
-}
-
 </style>

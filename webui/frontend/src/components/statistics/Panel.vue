@@ -1,37 +1,24 @@
 <template>
-  <b-row class="m-3">
-    <b-col class>
-      <b-card no-body bg-variant="light" border-variant="light">
-        <b-card-body class="text-center">
-          <span class="card-title h5">{{ title }}</span>
-        </b-card-body>
-        <b-collapse :id="'collapsePanel' + panelID">
-          <b-card class="px-sm-5 text-truncate">
-            <ul>
-              <li v-for="item in items" :key="item.title">
-                <span class="text-secondary">
-                  {{ item.title }}:
-                  <span class="text-info font-weight-bold">{{ item.value }}</span>
-                </span>
-              </li>
-            </ul>
-          </b-card>
-        </b-collapse>
-        <div class="text-center">
-          <div
-            class="icon-circle-down text-muted"
-            :id="showDetailsBtnID"
-            v-b-toggle="'collapsePanel' + panelID"
-            @click="showDetailsBtn"
-          ></div>
-        </div>
-      </b-card>
-    </b-col>
-  </b-row>
+  <v-col cols='10' lg='6'>
+    <v-card>
+      <v-card-title>
+        {{ title }}
+      </v-card-title>
+      <v-card-text>
+        <v-card outlined class="px-3 py-2">
+          <div v-for="item in items" :key="item.title" class="text-left">
+            <span>
+              {{ item.title }}:
+              <span class="text-info font-weight-bold">{{ item.value }}</span>
+            </span>
+          </div>
+        </v-card>
+      </v-card-text>
+    </v-card>
+  </v-col>
 </template>
 
 <script>
-import anime from 'animejs'
 export default {
   props: {
     title: {
@@ -45,30 +32,10 @@ export default {
   },
   data () {
     return {
-      panelID: null,
-      showDetails: false,
-      showDetailsBtnID: null
+      show: false
     }
   },
   methods: {
-    showDetailsBtn () {
-      this.showDetails = !this.showDetails
-
-      let rotation = 0
-      if (this.showDetails) {
-        rotation = 180
-      }
-      anime({
-        targets: '#' + this.showDetailsBtnID,
-        rotate: rotation,
-        duration: 500,
-        easing: 'easeInOutQuad'
-      })
-    }
-  },
-  mounted () {
-    this.panelID = this._uid
-    this.showDetailsBtnID = 'showDetails' + this._uid
   }
 }
 </script>

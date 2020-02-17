@@ -11,3 +11,14 @@ var TRIGGERS = []triggers.Trigger {
 	RaspberryTemperature,
 	VariationOfFileSize,
 }
+
+// Get is a function that finds and returns a specific trigger.
+func Get(id string) *triggers.Trigger {
+	for _, trigger := range TRIGGERS {
+		if trigger.ID == id {
+			return &trigger
+		}
+	}
+
+	return &triggers.Trigger{}
+}

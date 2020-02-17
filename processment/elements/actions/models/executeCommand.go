@@ -34,7 +34,7 @@ var ExecuteCommand = actions.Action{
 			Name:        "Command",
 			Description: "The command to execute.",
 			// Content:     "",
-			ContentType: "text",
+			ContentType: types.Text,
 		},
 		actions.Arg{
 			ID:   argumentsExecuteCommandID,
@@ -42,14 +42,14 @@ var ExecuteCommand = actions.Action{
 			Description: "The arguments of the command provided, separated" +
 				" by a comma.",
 			// Content:     "",
-			ContentType: "text",
+			ContentType: types.Text,
 		},
 	},
 	ReturnedChainResultDescription: "The command to execute.",
 	ReturnedChainResultType:        types.Text,
 }
 
-func executeCommand(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
+func executeCommand(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *actions.ChainedResult, err error) {
 	var args *[]data.UserArg
 
 	// Command

@@ -22,7 +22,7 @@ export default new Router({
       path: '/login',
       component: LoginView,
       name: 'login',
-      beforeEnter: (to, from, next) => {
+      beforeEnter: (_to, _from, next) => {
         // Check if the user is already authenticated.
         if (store.getters['auth/isAuthenticated']) {
           // If authenticated, redirect to statistics view.
@@ -46,7 +46,7 @@ export default new Router({
       path: '/statistics',
       component: StatisticsView,
       name: 'statistics',
-      beforeEnter: (to, from, next) => {
+      beforeEnter: (_to, _from, next) => {
         // NOTE Only is needed try autologin here (and on the login view) because is the path by default.
         // Check if the user is already authenticated.
         if (!store.getters['auth/isAuthenticated']) {
@@ -70,7 +70,7 @@ export default new Router({
       path: '/management',
       component: ManagementView,
       name: 'management',
-      beforeEnter: (to, from, next) => {
+      beforeEnter: (_to, _from, next) => {
         if (!store.getters['auth/isAuthenticated']) {
           // If not authenticated, redirect to login view.
           next({ name: 'login' })
@@ -78,13 +78,18 @@ export default new Router({
           next()
         }
       },
-      children: []
+      children: [
+        {
+          path: 'edit',
+          component: NewTaskView
+        }
+      ]
     },
     {
       path: '/settings',
       component: SettingsView,
       name: 'settings',
-      beforeEnter: (to, from, next) => {
+      beforeEnter: (_to, _from, next) => {
         if (!store.getters['auth/isAuthenticated']) {
           // If not authenticated, redirect to login view.
           next({ name: 'login' })
@@ -97,7 +102,7 @@ export default new Router({
       path: '/new-task',
       component: NewTaskView,
       name: 'new-task',
-      beforeEnter: (to, from, next) => {
+      beforeEnter: (_to, _from, next) => {
         if (!store.getters['auth/isAuthenticated']) {
           // If not authenticated, redirect to login view.
           next({ name: 'login' })

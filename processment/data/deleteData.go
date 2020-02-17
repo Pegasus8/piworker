@@ -8,7 +8,7 @@ import (
 )
 
 // DeleteTask is a function used to delete a specific task from the JSON user database.
-func DeleteTask(name string) error {
+func DeleteTask(ID string) error {
 	log.Println("Deleting a task...")
 
 	data, err := ReadData()
@@ -16,11 +16,11 @@ func DeleteTask(name string) error {
 		return err
 	}
 
-	_, index, err := data.GetTaskByName(name)
+	_, index, err := data.GetTaskByID(ID)
 	if err != nil {
 		return err
 	}
-	log.Printf("Task with the name '%s' finded, deleting...\n", name)
+	log.Printf("Task with the ID '%s' found, deleting...\n", ID)
 
 	if len(data.Tasks) == 1 {
 		data.Tasks = []UserTask{}

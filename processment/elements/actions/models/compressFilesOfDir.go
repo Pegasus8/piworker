@@ -37,7 +37,7 @@ var CompressFilesOfDir = actions.Action{
 			Description: "The directory where the files to compress are located." +
 				" Example: '/home/pegasus8/Images/'",
 			// Content: "",
-			ContentType: "string",
+			ContentType: types.Path,
 		},
 		actions.Arg{
 			ID:   savetoCompressFilesOfDirArgID,
@@ -45,14 +45,14 @@ var CompressFilesOfDir = actions.Action{
 			Description: "Directory where save the compressed file, if not exists " +
 				"it will be created. Example: '/home/'",
 			// Content: "",
-			ContentType: "text",
+			ContentType: types.Path,
 		},
 	},
 	ReturnedChainResultDescription: "The path of the compressed file.",
 	ReturnedChainResultType:        types.Path,
 }
 
-func compressFilesOfDir(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
+func compressFilesOfDir(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *actions.ChainedResult, err error) {
 	var args *[]data.UserArg
 
 	// Directory of files
@@ -78,25 +78,25 @@ func compressFilesOfDir(previousResult *actions.ChainedResult, parentAction *dat
 		return false, &actions.ChainedResult{}, errors.New("Error: targetDir or outputDir empty")
 	}
 
-	log.Printf("[%s] Creating the directory '%s' if it doesn't exist...\n", parentTaskName, outputDir)
+	log.Printf("[%s] Creating the directory '%s' if it doesn't exist...\n", parentTaskID, outputDir)
 	err = os.MkdirAll(outputDir, 0700)
 	if err != nil {
 		return false, &actions.ChainedResult{}, nil
 	}
 
-	log.Printf("[%s] Getting the files of the directory '%s'\n", parentTaskName, targetDir)
+	log.Printf("[%s] Getting the files of the directory '%s'\n", parentTaskID, targetDir)
 	files, err := ioutil.ReadDir(targetDir)
 	if err != nil {
 		return false, &actions.ChainedResult{}, err
 	}
-	log.Printf("[%s] Files obtained\n", parentTaskName)
+	log.Printf("[%s] Files obtained\n", parentTaskID)
 
 	for _, file := range files {
 		if file.IsDir() {
-			log.Printf("[%s] Skipping '%s' because it isn't a file\n", parentTaskName, file.Name())
+			log.Printf("[%s] Skipping '%s' because it isn't a file\n", parentTaskID, file.Name())
 			continue
 		}
-		log.Printf("[%s] Starting the compression of the file '%s'...\n", parentTaskName, file.Name())
+		log.Printf("[%s] Starting the compression of the file '%s'...\n", parentTaskID, file.Name())
 
 		openedFile, err := os.Open(
 			filepath.Join(targetDir, file.Name()),
@@ -127,11 +127,11 @@ func compressFilesOfDir(previousResult *actions.ChainedResult, parentAction *dat
 			return false, &actions.ChainedResult{}, err
 		}
 
-		log.Printf("[%s] '%s' compressed by the action CompressFilesOfDir\n", parentTaskName, newFilename)
+		log.Printf("[%s] '%s' compressed by the action CompressFilesOfDir\n", parentTaskID, newFilename)
 
 	}
 
-	log.Printf("[%s] Files compression finished into directory '%s'\n", parentTaskName, outputDir)
+	log.Printf("[%s] Files compression finished into directory '%s'\n", parentTaskID, outputDir)
 
 	return true, &actions.ChainedResult{Result: outputDir, ResultType: types.Path}, nil
 }

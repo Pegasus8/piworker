@@ -14,3 +14,14 @@ var ACTIONS = []actions.Action{
 	GetGlobalVariable,
 	GetLocalVariable,
 }
+
+// Get is a function that finds and returns a specific action.
+func Get(id string) *actions.Action {
+	for _, action := range ACTIONS {
+		if action.ID == id {
+			return &action
+		}
+	}
+
+	return &actions.Action{}
+}

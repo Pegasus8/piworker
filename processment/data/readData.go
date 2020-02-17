@@ -43,13 +43,24 @@ func ReadData() (*UserData, error){
 
 // GetTaskByName is a method of the UserData struct that returns a specific task, 
 // searching it by it name.
-func (data *UserData) GetTaskByName(name string) (findedTask *UserTask, indexPosition int, err error) {
+func (data *UserData) GetTaskByName(name string) (taskFound *UserTask, indexPosition int, err error) {
 	for index, task := range data.Tasks {
 		if task.TaskInfo.Name == name {
 			return &data.Tasks[index], index, nil
 		}
 	}
 	return nil, 0, ErrBadTaskName
+}
+
+// GetTaskByID is a method of the UserData struct that returns a specific task, 
+// searching it by it ID.
+func (data *UserData) GetTaskByID(ID string) (taskFound *UserTask, indexPosition int, err error) {
+	for index, task := range data.Tasks {
+		if task.TaskInfo.ID == ID {
+			return &data.Tasks[index], index, nil
+		}
+	}
+	return nil, 0, ErrBadTaskID
 }
 
 // GetActiveTasks is a method of the UserData struct that returns the tasks

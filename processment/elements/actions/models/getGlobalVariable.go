@@ -30,14 +30,14 @@ var GetGlobalVariable = actions.Action{
 			ID:          variableNameGetGlobalVariableID,
 			Name:        "Name",
 			Description: "The name of the desired variable.",
-			ContentType: "text",
+			ContentType: types.Text,
 		},
 	},
 	ReturnedChainResultDescription: "The content of the obtained variable.",
 	ReturnedChainResultType:        types.Any,
 }
 
-func getGlobalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskName string) (result bool, chainedResult *actions.ChainedResult, err error) {
+func getGlobalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *actions.ChainedResult, err error) {
 	var args *[]data.UserArg
 
 	// The name of the variable
@@ -54,7 +54,7 @@ func getGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 		default:
 			{
 				log.Println("[%s] Unrecongnized argument with the ID '%s' on the "+
-					"action GetGlobalVariable\n", parentTaskName, arg.ID)
+					"action GetGlobalVariable\n", parentTaskID, arg.ID)
 				return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
 			}
 		}

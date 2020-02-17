@@ -10,7 +10,7 @@ type Trigger struct {
 	ID string `json:"ID"`
 	Name string `json:"name"`
 	Description string `json:"description"`
-	Run func(args *[]data.UserArg, parentTaskName string) (bool, error) `json:"-"`
+	Run func(args *[]data.UserArg, parentTaskID string) (bool, error) `json:"-"`
 	Args []Arg `json:"args"`
 }
 
@@ -20,6 +20,5 @@ type Arg struct {
 	Name string `json:"name"`
 	Description string `json:"description"`
 	// Content interface{} `json:"content"`
-	// Must be one type from here: https://bootstrap-vue.js.org/docs/components/form-input/#input-type
 	ContentType types.PWType `json:"contentType"`
 }

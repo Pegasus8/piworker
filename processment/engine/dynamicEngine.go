@@ -5,8 +5,6 @@ import (
 	"time"
 	"log"
 
-	// "github.com/Pegasus8/piworker/utilities/log"
-
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/stats"
 	"github.com/Pegasus8/piworker/processment/configs"
@@ -33,8 +31,8 @@ func StartEngine() {
 	for _, task := range userData.Tasks {
 		// Create the channel for each task (with active state).
 		if task.TaskInfo.State == data.StateTaskActive {
-			tasksGoroutines[task.TaskInfo.Name] = make(chan data.UserTask)
-			go runTaskLoop(task.TaskInfo.Name, tasksGoroutines[task.TaskInfo.Name])
+			tasksGoroutines[task.TaskInfo.ID] = make(chan data.UserTask)
+			go runTaskLoop(task.TaskInfo.ID, tasksGoroutines[task.TaskInfo.ID])
 		}
 	}
 	log.Println("Channels created correctly")
@@ -86,16 +84,16 @@ func StartEngine() {
 				// Skip the task
 				continue
 			}
-			taskName := task.TaskInfo.Name
+			taskID := task.TaskInfo.ID
 			// Check if the task loop and channel have already been initialized
-			if _, alreadyExists := tasksGoroutines[taskName]; !alreadyExists {
+			if _, alreadyExists := tasksGoroutines[taskID]; !alreadyExists {
 				// Initialize the channel
-				tasksGoroutines[taskName] = make(chan data.UserTask)
+				tasksGoroutines[taskID] = make(chan data.UserTask)
 				// Start the loop
-				go runTaskLoop(taskName, tasksGoroutines[taskName])
+				go runTaskLoop(taskID, tasksGoroutines[taskID])
 			}
 			// Send the data to the task's channel
-			tasksGoroutines[taskName] <- task
+			tasksGoroutines[taskID] <- task
 		}
 	}
 }

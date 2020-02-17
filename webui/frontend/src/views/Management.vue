@@ -1,18 +1,62 @@
 <template>
-  <b-container class="p-4 text-center justify-content-center">
-    <h4 class="text-light">My Tasks</h4>
-    <b-container v-if="userTasks.length > 0" fluid>
-      <app-task
-        v-for="globalTaskInfo in userTasks" :key="(globalTaskInfo.task.name).replace(/\s/g, '_')"
-        :taskName="globalTaskInfo.task.name"
-        :taskState="globalTaskInfo.task.state"
-        :triggers="[globalTaskInfo.task.trigger]"
-        :actions="globalTaskInfo.task.actions"
-        logs=""
-      />
-      <!-- TODO Logs integration -->
-    </b-container>
-    <b-alert v-else variant="warning" class="m-4" fade>
+  <v-container class="pa-6">
+    <h2 class="text-center">My Tasks</h2>
+    <v-row v-if="userTasks.length > 0" justify='center'>
+      <v-col cols='10' xl='8'>
+
+        <v-expansion-panels inset>
+
+          <v-expansion-panel v-for="(userTask, i) in userTasks" :key="userTask.task.ID">
+            <v-expansion-panel-header>
+              {{ userTask.task.name }}
+            </v-expansion-panel-header>
+            <v-expansion-panel-content>
+              <div class="d-flex justify-center">
+                <v-card :elevation='0' outlined>
+                  <v-card-text class="pa-1">
+                    <v-btn
+                      class="mx-4"
+                      color='red darken-2'
+                      @click="deleteTask(userTask.task.ID, i)"
+                      text
+                      icon
+                    >
+                      <v-icon>mdi-delete</v-icon>
+                    </v-btn>
+                    <v-btn
+                      class="mx-4"
+                      color='blue darken-2'
+                      @click="editTask(userTask.task.ID)"
+                      text
+                      icon
+                    >
+                      <v-icon>mdi-pencil</v-icon>
+                    </v-btn>
+                    <v-btn
+                      class="mx-4"
+                      :color='
+                        userTask.task.state === "Active" ? "green darken-2" : "red darken-2"
+                      '
+                      text
+                      icon
+                    >
+                      <v-icon>mdi-power</v-icon>
+                    </v-btn>
+                  </v-card-text>
+                </v-card>
+              </div>
+            </v-expansion-panel-content>
+          </v-expansion-panel>
+
+        </v-expansion-panels>
+
+      </v-col>
+
+    <v-dialog v-model="showDialog" max-width='1000px' @click:outside='onDialogDismiss' scrollable>
+      <router-view/>
+    </v-dialog>
+
+    <!-- <b-alert v-else variant="warning" class="m-4" fade>
       Oops... It seems that you have not created any task yet.
       Let's click on the "New" button to create a new one!
     </b-alert>
@@ -20,19 +64,18 @@
       <h5>Error when getting info</h5>
       <hr>
       <p>{{ err }}</p>
-    </b-alert>
-  </b-container>
+    </b-alert> -->
+  </v-container>
 </template>
 
 <script>
-import Task from '../components/management/Task.vue'
-import axios from 'axios'
-import { mapGetters } from 'vuex'
+import { mapGetters, mapActions } from 'vuex'
 
 export default {
   data () {
     return {
-      err: ''
+      err: '',
+      showDialog: false
     }
   },
   computed: {
@@ -40,23 +83,34 @@ export default {
       userTasks: 'tasks'
     })
   },
+  methods: {
+    ...mapActions('userTasks', [
+      'removeUserTask'
+    ]),
+    editTask (taskID) {
+      const targetRoute = '/management/edit'
+      // Avoid pushing the current route.
+      if (this.$route.path === targetRoute) return
+      this.$router.push({ path: targetRoute, query: { id: taskID } })
+      this.showDialog = true
+    },
+    deleteTask (taskID, index) {
+      this.removeUserTask(taskID, index)
+    },
+    onDialogDismiss () {
+      this.showDialog = false
+      // To prevent cancellation of the animation
+      setTimeout(() => {
+        this.$router.replace({ name: 'management' })
+      }, 400)
+    }
+  },
   components: {
-    appTask: Task
   },
   beforeCreate () {
-    if (!this.$store.getters['elementsInfo/triggers'].length > 0) {
-      this.$store.dispatch('elementsInfo/updateTriggersInfo')
-        .catch((error) => {
-          this.err = 'Error on trigger-structs API: ' + error
-        })
-    }
-    if (!this.$store.getters['elementsInfo/actions'].length > 0) {
-      this.$store.dispatch('elementsInfo/updateActionsInfo')
-        .catch((error) => {
-          this.err = 'Error on actions-structs API: ' + error
-        })
-    }
-    this.$store.dispatch('userTasks/getUserTasks')
+    // This need to be executed always because the user can create a task and later come here to
+    // modify it, so, if the value is cached and no updated anymore, the new tasks won't be appear here.
+    this.$store.dispatch('userTasks/fetchUserTasks')
   }
 }
 </script>

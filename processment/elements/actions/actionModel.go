@@ -10,7 +10,7 @@ type Action struct {
 	ID string `json:"ID"`
 	Name string `json:"name"`
 	Description string `json:"description"`
-	Run func(previousResult *ChainedResult, parentAction *data.UserAction, parentTaskName string) (bool, *ChainedResult, error)  `json:"-"`
+	Run func(previousResult *ChainedResult, parentAction *data.UserAction, parentTaskID string) (bool, *ChainedResult, error)  `json:"-"`
 	ReturnedChainResultDescription string `json:"returnedChainResultDescription"`
 	ReturnedChainResultType types.PWType `json:"returnedChainResultType"`
 	Args []Arg `json:"args"`
@@ -21,7 +21,6 @@ type Arg struct {
 	ID string `json:"ID"`
 	Name string `json:"name"`
 	Description string `json:"description"`
-	// Must be one type from here: https://bootstrap-vue.js.org/docs/components/form-input/#input-type
 	ContentType types.PWType `json:"contentType"`
 }
 

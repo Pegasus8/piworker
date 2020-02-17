@@ -37,7 +37,7 @@ var ByDate = triggers.Trigger {
 	},
 }
 
-func byDateTrigger(args *[]data.UserArg, parentTaskName string) (result bool, err error) {
+func byDateTrigger(args *[]data.UserArg, parentTaskID string) (result bool, err error) {
 	
 	// Received hour in format 02/01/2006
 	var date time.Time
@@ -54,14 +54,14 @@ func byDateTrigger(args *[]data.UserArg, parentTaskName string) (result bool, er
 
 			default: {
 				log.Printf("[%s] Unrecognized argument with the ID '%s' on the " + 
-					"trigger ByDate\n", parentTaskName, arg.ID)
+					"trigger ByDate\n", parentTaskID, arg.ID)
 				return false, ErrUnrecognizedArgID
 			}
 		}
 	}
 
 	if time.Now().Format("02/01/2006") == date.Format("02/01/2006") {
-		log.Printf("[%s] Date matched, trigger launched\n", parentTaskName)
+		log.Printf("[%s] Date matched, trigger launched\n", parentTaskID)
 		return true, nil
 	}
 
