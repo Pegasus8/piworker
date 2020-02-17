@@ -8,12 +8,15 @@ Installation (**Untested**):
 ## Acknowledgments
 ### Frontend (JS - VueJS)
 * [VueJS](https://vuejs.org/)
+* [Vuetify](https://vuetifyjs.com)
 * [Vue-router](https://router.vuejs.org/)
 * [Vuex](https://vuex.vuejs.org/)
 * [Vue.Draggable](https://github.com/SortableJS/Vue.Draggable)
 * [Vue-uuid](https://github.com/VitorLuizC/vue-uuid)
 * [Vue2-animate](https://github.com/asika32764/vue2-animate)
 * [Anime.js](https://animejs.com/)
+* [typeface-roboto (Google Roboto)](https://github.com/KyleAMathews/typefaces/tree/master/packages/roboto)
+* [Material Design Icons](https://materialdesignicons.com/)
 
 ### Backend (Go)
 * [Websocket by Gorilla](https://github.com/gorilla/websocket)
