@@ -6,7 +6,6 @@ import axios from 'axios'
 import UUID from 'vue-uuid'
 
 import vuetify from './plugins/vuetify'
-require('vue2-animate/dist/vue2-animate.min.css')
 require('typeface-roboto')
 
 Vue.config.productionTip = false
