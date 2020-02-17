@@ -1,6 +1,6 @@
 <template>
-  <v-container class="align-center mx-auto">
-    <v-row class="m-3">
+  <v-container>
+    <v-row justify='center' class="ma-3">
       <app-panel
         title="PiWorker statistics"
         :items="[
