@@ -1,103 +1,105 @@
 <template>
-<div :class="{ 'container': !$route.query.id }">
-  <v-card>
-    <v-card-title>
-      {{ $route.query.id ? `Edit task "${ this.taskName }"` : 'Create a new task' }}
-    </v-card-title>
-    <v-card-text>
-      <v-form class="m-2">
-        <v-text-field
-          v-model="taskName"
-          :rules='taskNameRules'
-          label="Task name"
-          outlined
-          required
-        />
+<v-row justify='center' no-gutters>
+  <v-col :cols='!$route.query.id ? 10 : false' :lg='!$route.query.id ? 8 : false'>
+    <v-card>
+      <v-card-title>
+        {{ $route.query.id ? `Edit task "${ this.taskName }"` : 'Create a new task' }}
+      </v-card-title>
+      <v-card-text>
+        <v-form class="m-2">
+          <v-text-field
+            v-model="taskName"
+            :rules='taskNameRules'
+            label="Task name"
+            outlined
+            required
+          />
 
-        <v-row justify='center'>
-          <v-col cols='12' lg='6' align='center'>
-            <app-elements-list
-              card-title='Trigger'
-              :user-elements="$store.getters['newTask/triggerSelected']"
-              :dragAndDrop="!dragAndDropTriggers"
-              @modified="setTrigger($event)"
-              @remove-item='removeTrigger($event)'
-              @open-selector='showTriggerSelectorDialog = true'
-            />
-            <v-checkbox v-model='dragAndDropTriggers' label='Drag & drop' color='blue'/>
-          </v-col>
+          <v-row justify='center'>
+            <v-col cols='12' lg='6' align='center'>
+              <app-elements-list
+                card-title='Trigger'
+                :user-elements="$store.getters['newTask/triggerSelected']"
+                :dragAndDrop="!dragAndDropTriggers"
+                @modified="setTrigger($event)"
+                @remove-item='removeTrigger($event)'
+                @open-selector='showTriggerSelectorDialog = true'
+              />
+              <v-checkbox v-model='dragAndDropTriggers' label='Drag & drop' color='blue'/>
+            </v-col>
 
-          <v-col cols='12' lg='6' align='center'>
-            <app-elements-list
-              card-title='Actions'
-              :user-elements="$store.getters['newTask/actionsSelected']"
-              :dragAndDrop="!dragAndDropActions"
-              @modified="setActions($event)"
-              @remove-item='removeAction($event)'
-              @open-selector='showActionSelectorDialog = true'
-              @order-modified='updateActionsOrder()'
-            />
-            <v-checkbox v-model='dragAndDropActions' label='Drag & drop' color='blue'/>
-          </v-col>
-        </v-row>
+            <v-col cols='12' lg='6' align='center'>
+              <app-elements-list
+                card-title='Actions'
+                :user-elements="$store.getters['newTask/actionsSelected']"
+                :dragAndDrop="!dragAndDropActions"
+                @modified="setActions($event)"
+                @remove-item='removeAction($event)'
+                @open-selector='showActionSelectorDialog = true'
+                @order-modified='updateActionsOrder()'
+              />
+              <v-checkbox v-model='dragAndDropActions' label='Drag & drop' color='blue'/>
+            </v-col>
+          </v-row>
 
-        <v-row justify='center'>
-          <v-col cols='auto'>
-            <v-switch
-              v-model="stateSelected"
-              color='success'
-              label='Enabled'
-              @change="setTaskState(stateSelected)"
-              inset
-            />
-          </v-col>
-        </v-row>
-      </v-form>
-    </v-card-text>
-    <v-card-actions>
-      <v-btn
-        class="primary darken-2 my-1"
-        :disabled="!isAllSelected"
-        :loading='submitted'
-        @click="submitTask()"
-        block
-      >
-        {{$route.query.id ? 'Update' : 'Save'}}
-      </v-btn>
-    </v-card-actions>
-  </v-card>
+          <v-row justify='center'>
+            <v-col cols='auto'>
+              <v-switch
+                v-model="stateSelected"
+                color='success'
+                label='Enabled'
+                @change="setTaskState(stateSelected)"
+                inset
+              />
+            </v-col>
+          </v-row>
+        </v-form>
+      </v-card-text>
+      <v-card-actions>
+        <v-btn
+          class="primary darken-2 my-1"
+          :disabled="!isAllSelected"
+          :loading='submitted'
+          @click="submitTask()"
+          block
+        >
+          {{$route.query.id ? 'Update' : 'Save'}}
+        </v-btn>
+      </v-card-actions>
+    </v-card>
 
-  <v-snackbar
-    v-model="alert"
-    :bottom='true'
-    :color='alertVariant'
-    :timeout='8000'
-  >
-    {{ responseContent }}
-    <v-btn
-      dark
-      text
-      @click="alert = false"
+    <v-snackbar
+      v-model="alert"
+      :bottom='true'
+      :color='alertVariant'
+      :timeout='8000'
     >
-      Close
-    </v-btn>
-  </v-snackbar>
+      {{ responseContent }}
+      <v-btn
+        dark
+        text
+        @click="alert = false"
+      >
+        Close
+      </v-btn>
+    </v-snackbar>
 
-  <app-element-selector
-    elementType='trigger'
-    :elements="triggers"
-    :show='showTriggerSelectorDialog'
-    @elementSelected='setTrigger($event)'
-    @dismissed='showTriggerSelectorDialog = false'
-  />
-  <app-element-selector
-    elementType='action'
-    :elements="actions"
-    :show='showActionSelectorDialog'
-    @elementSelected='addAction($event)'
-    @dismissed='showActionSelectorDialog = false'
-  />
-</div>
+    <app-element-selector
+      elementType='trigger'
+      :elements="triggers"
+      :show='showTriggerSelectorDialog'
+      @elementSelected='setTrigger($event)'
+      @dismissed='showTriggerSelectorDialog = false'
+    />
+    <app-element-selector
+      elementType='action'
+      :elements="actions"
+      :show='showActionSelectorDialog'
+      @elementSelected='addAction($event)'
+      @dismissed='showActionSelectorDialog = false'
+    />
+  </v-col>
+</v-row>
 </template>
 
 <script>
