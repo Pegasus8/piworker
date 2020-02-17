@@ -9,7 +9,6 @@
         <v-form class="m-2">
           <v-text-field
             v-model="taskName"
-            :rules='taskNameRules'
             label="Task name"
             outlined
             required
@@ -110,10 +109,10 @@ import { mapMutations, mapGetters } from 'vuex'
 export default {
   data () {
     return {
-      taskNameRules: [
-        v => !!v || 'The task must have a name'
-        // TODO Check if the name of the task is not repeated.
-      ],
+      // taskNameRules: [
+      //   v => !!v || 'The task must have a name'
+      //   // TODO Check if the name of the task is not repeated.
+      // ],
       showTriggerSelectorDialog: false,
       showActionSelectorDialog: false,
 
@@ -142,7 +141,7 @@ export default {
       }
     },
     isAllSelected () {
-      if (this.taskName && this.stateSelected &&
+      if (this.taskName && this.$store.getters['newTask/taskState'] !== '' &&
         this.$store.getters['newTask/triggerSelected'].length > 0 &&
         this.$store.getters['newTask/actionsSelected'].length > 0) {
         return true
@@ -164,7 +163,7 @@ export default {
     ]),
     clearFields () {
       this.taskName = ''
-      this.stateSelected = ''
+      this.stateSelected = true
       this.setTaskState('')
       this.newTrigger = ''
       this.newAction = ''
@@ -210,9 +209,6 @@ export default {
     }
   },
   mounted () {
-    // Usually the user will use the default status of the tasks, therefore, it must be set
-    // beforehand. Otherwise the value will not be saved in vuex.
-    this.setTaskState(this.stateSelected)
     if (this.$route.query.id) {
       // Coming from `Management` view.
 
@@ -222,7 +218,14 @@ export default {
       this.setActions(userTask.task.actions)
       this.setTrigger(userTask.task.trigger)
       this.setTaskState(userTask.task.state)
+      this.stateSelected = userTask.task.state === 'Active'
+    } else {
+      // New Task view
+      this.clearFields()
     }
+    // Usually the user will use the default status of the tasks, therefore, it must be set
+    // beforehand. Otherwise the value will not be saved in vuex.
+    this.setTaskState(this.stateSelected)
   },
   components: {
     appElementSelector: ElementSelector,
