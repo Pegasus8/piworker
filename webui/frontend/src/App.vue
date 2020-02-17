@@ -9,12 +9,11 @@
       @expandDrawer='expandNavDrawer = !expandNavDrawer'
     />
     <v-content>
-      <transition
-        name="fade"
+      <v-fade-transition
         mode="out-in"
       >
         <router-view style="animation-duration: 0.3s"/>
-      </transition>
+      </v-fade-transition>
     </v-content>
   </v-app>
 </template>
