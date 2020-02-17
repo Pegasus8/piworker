@@ -1,5 +1,5 @@
 <template>
-<v-row justify='center' no-gutters>
+<v-row justify='center' :no-gutters='$route.query.id'> <!-- If the current view is NewTask, add gutters, otherwise, don't. -->
   <v-col :cols='!$route.query.id ? 10 : false' :lg='!$route.query.id ? 8 : false'>
     <v-card>
       <v-card-title>
