@@ -3,8 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
-	"os"
 	"github.com/Pegasus8/piworker/processment/configs"
+	"os"
 )
 
 func handleFlags() {
@@ -33,11 +33,11 @@ func handleFlags() {
 
 	if *serviceFlag {
 		if len(os.Args) != 3 {
-			fmt.Printf("It seems that you are using more/less arguments than expected.\n" + 
+			fmt.Printf("It seems that you are using more/less arguments than expected.\n" +
 				"Flags to manage the service:\n" +
 				"\t--service install -> To install the service\n" +
-				"\t--service delete -> To delete the service (if already installed)\n" + 
-				"\t--service start -> To start the service (if already installed)\n" + 
+				"\t--service delete -> To delete the service (if already installed)\n" +
+				"\t--service start -> To start the service (if already installed)\n" +
 				"\t--service stop -> To stop the service (if is active)\n",
 			)
 			os.Exit(1)
@@ -74,7 +74,7 @@ func changeUserPasswordFlagHandler(username, newPassword string) {
 		os.Exit(1)
 	}
 	err := configs.ChangeUserPassword(username, newPassword)
-	if err != nil{
+	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	} else {

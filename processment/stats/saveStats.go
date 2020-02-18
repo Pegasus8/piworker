@@ -1,10 +1,10 @@
 package stats
 
 import (
-	"os"
 	"database/sql"
 	"log"
-	
+	"os"
+
 	_ "github.com/mattn/go-sqlite3" // SQLite3 package
 )
 
@@ -16,13 +16,13 @@ func init() {
 	}
 }
 
-/* 
+/*
 *	Usage order:
 *	1) InitDB
 *	2) defer db.Close()
 *	3) CreateTable
 *	4) StoreRasberryStatistics/ReadRaspberryStatistics
-*/
+ */
 
 // InitDB is the function used to initialize the sqlite3 database.
 func InitDB(filepath string) (*sql.DB, error) {
@@ -37,7 +37,7 @@ func InitDB(filepath string) (*sql.DB, error) {
 	return db, nil
 }
 
-// CreateTable is the function used to create the default tables into 
+// CreateTable is the function used to create the default tables into
 // the sqlite3 database.
 func CreateTable(db *sql.DB) error {
 	sqlStatement := `
@@ -56,7 +56,7 @@ func CreateTable(db *sql.DB) error {
 	return nil
 }
 
-// StoreRasberryStatistics is the function used to save a slice of 
+// StoreRasberryStatistics is the function used to save a slice of
 // `RaspberryStats` struct into the sqlite3 database.
 func StoreRasberryStatistics(db *sql.DB, items ...RaspberryStats) error {
 	sqlStatement := `
@@ -91,7 +91,7 @@ func StoreRasberryStatistics(db *sql.DB, items ...RaspberryStats) error {
 	return nil
 }
 
-// ReadRaspberryStatistics is the function used to read the raspberry's 
+// ReadRaspberryStatistics is the function used to read the raspberry's
 // statistics stored in the sqlite3 database.
 func ReadRaspberryStatistics(db *sql.DB) ([]RaspberryStats, error) {
 	sqlStatement := `

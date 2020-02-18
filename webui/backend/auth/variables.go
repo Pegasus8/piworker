@@ -12,5 +12,5 @@ const (
 	DatabasePath = data.DataPath
 )
 
-// Database is the tokens database instance. Need the execution of the function `InitDB` for initialization. 
+// Database is the tokens database instance. Need the execution of the function `InitDB` for initialization.
 var Database *sql.DB

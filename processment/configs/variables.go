@@ -10,45 +10,45 @@ const Filename string = "configs.json"
 // ConfigsPath is the path where the configs file wanna be saved
 const ConfigsPath string = "./configs/"
 
-// DefaultConfigs is the variable that contains the default configs generally 
+// DefaultConfigs is the variable that contains the default configs generally
 // used when the config file not exists.
 var DefaultConfigs = Configs{
 	Behavior: Behavior{
 		LoopSleep: 500, // Milliseconds
 	},
 	Security: Security{
-		DeniedIPs: []string{},
+		DeniedIPs:          []string{},
 		LocalNetworkAccess: true,
 	},
 	Backups: Backups{
-		BackupData: false, 
-		BackupConfigs: false,
-		DataBackupPath: ".",
+		BackupData:        false,
+		BackupConfigs:     false,
+		DataBackupPath:    ".",
 		ConfigsBackupPath: ".",
-		Freq: 24, // 1 day 
+		Freq:              24, // 1 day
 	},
 	APIConfigs: APIConfigs{
-		NewTaskAPI: true,
-		EditTaskAPI: true,
-		DeleteTaskAPI: true,
+		NewTaskAPI:     true,
+		EditTaskAPI:    true,
+		DeleteTaskAPI:  true,
 		GetAllTasksAPI: true,
-		StatisticsAPI: true,
-		LogsAPI: true,
-		RequireToken: true,
-		SigningKey: "",
-		TokenDuration: 168, // 7 days 
+		StatisticsAPI:  true,
+		LogsAPI:        true,
+		RequireToken:   true,
+		SigningKey:     "",
+		TokenDuration:  168, // 7 days
 	},
 	Updates: Updates{
-		DailyCheck: true,
-		AutoDownload: true,
+		DailyCheck:     true,
+		AutoDownload:   true,
 		BugsPrevention: true,
 	},
 	WebUI: WebUI{
-		Enabled: true,
+		Enabled:            true,
 		RequireCredentials: true,
-		ListeningPort: "8080",
-	 },
-	 Users: []User{},
+		ListeningPort:      "8080",
+	},
+	Users: []User{},
 }
 
 // CurrentConfigs is the variable that contains the parsed configs

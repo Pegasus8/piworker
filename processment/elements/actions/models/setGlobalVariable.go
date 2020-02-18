@@ -2,9 +2,9 @@ package models
 
 import (
 	"errors"
-	"github.com/Pegasus8/piworker/processment/types"
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/elements/actions"
+	"github.com/Pegasus8/piworker/processment/types"
 	"github.com/Pegasus8/piworker/processment/uservariables"
 	"log"
 	"strings"
@@ -105,7 +105,6 @@ func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 		newGVS := append(*uservariables.GlobalVariablesSlice, *gv)
 		uservariables.GlobalVariablesSlice = &newGVS
 	}
-
 
 	return true, &actions.ChainedResult{Result: variableContent, ResultType: variableType}, nil
 }

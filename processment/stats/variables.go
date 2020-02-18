@@ -5,5 +5,5 @@ const (
 	DatabaseName = "stats.db"
 
 	// SatisticsPath is the path where the stats will be saved.
-	SatisticsPath = "./statistics/"	
+	SatisticsPath = "./statistics/"
 )

@@ -1,10 +1,10 @@
 package logs
 
 import (
+	"fmt"
 	"io/ioutil"
 	"path/filepath"
 	"regexp"
-	"fmt"
 )
 
 // GetLogs obtains the logs from the file `last.log`.
@@ -31,7 +31,7 @@ func GetTaskLogs(logs *string, taskID, date string) (taskLogs []string, err erro
 
 	var rgx = regexp.MustCompile(`(?m)^(` + date + `).+:\s\[([` + taskID + `]+)\].+$`)
 
-    taskLogs = append(taskLogs, rgx.FindAllString(*logs, -1)...)
+	taskLogs = append(taskLogs, rgx.FindAllString(*logs, -1)...)
 
 	return taskLogs, nil
 }

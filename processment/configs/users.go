@@ -14,7 +14,7 @@ func NewUser(username, password string, admin bool) error {
 	}
 
 	newUser := User{
-		username, 
+		username,
 		hashedPassword,
 		admin,
 	}
@@ -40,14 +40,14 @@ func DeleteUser(username string) error {
 			CurrentConfigs.RUnlock()
 			CurrentConfigs.Lock()
 			CurrentConfigs.Users = append(
-				CurrentConfigs.Users[:index], CurrentConfigs.Users[index+1:]...
+				CurrentConfigs.Users[:index], CurrentConfigs.Users[index+1:]...,
 			)
 			CurrentConfigs.Unlock()
 			err := WriteToFile()
 			if err != nil {
 				return err
 			}
-			
+
 			return nil
 		}
 	}

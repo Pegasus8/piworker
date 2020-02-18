@@ -1,19 +1,19 @@
 package engine
 
 import (
+	"log"
 	"os"
 	"time"
-	"log"
 
+	"github.com/Pegasus8/piworker/processment/configs"
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/stats"
-	"github.com/Pegasus8/piworker/processment/configs"
 	"github.com/Pegasus8/piworker/webui/backend"
 )
 
 // StartEngine is the function used to start the Dynamic Engine
 func StartEngine() {
- 	log.Println("Starting the Dynamic Engine...")
+	log.Println("Starting the Dynamic Engine...")
 	defer os.RemoveAll(TempDir)
 
 	var tasksGoroutines = make(map[string]chan data.UserTask)
@@ -52,7 +52,7 @@ func StartEngine() {
 	configs.CurrentConfigs.RLock()
 	tickDuration := time.Millisecond * time.Duration(configs.CurrentConfigs.Behavior.LoopSleep)
 	configs.CurrentConfigs.RUnlock()
-	
+
 	// Keep the data updated
 	for range time.Tick(tickDuration) {
 		select {

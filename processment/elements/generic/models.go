@@ -6,19 +6,19 @@ import (
 
 // Element is the generic struct used by structs Trigger and Action
 type Element struct {
-	ID string
-	Name string
+	ID          string
+	Name        string
 	Description string
-	Run func(*[]data.UserArg) (bool, error)
-	Args []Arg
+	Run         func(*[]data.UserArg) (bool, error)
+	Args        []Arg
 }
 
 // Arg is the struct that defines every argument received by any Element type.
 type Arg struct {
-	ID string
-	Name string
+	ID          string
+	Name        string
 	Description string
-	Content interface{}
+	Content     interface{}
 	ContentType string
 }
 

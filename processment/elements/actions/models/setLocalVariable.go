@@ -2,9 +2,9 @@ package models
 
 import (
 	"errors"
-	"github.com/Pegasus8/piworker/processment/types"
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/elements/actions"
+	"github.com/Pegasus8/piworker/processment/types"
 	"github.com/Pegasus8/piworker/processment/uservariables"
 	"log"
 	"strings"
@@ -81,9 +81,9 @@ func setLocalVariableAction(previousResult *actions.ChainedResult, parentAction 
 	variableType := types.GetType(variableContent)
 
 	lv := &uservariables.LocalVariable{
-		Name:    variableName,
-		Content: variableContent,
-		Type:    variableType,
+		Name:         variableName,
+		Content:      variableContent,
+		Type:         variableType,
 		ParentTaskID: parentTaskID,
 	}
 	err = lv.WriteToFile()
@@ -108,7 +108,6 @@ func setLocalVariableAction(previousResult *actions.ChainedResult, parentAction 
 		newLVS := append(*uservariables.LocalVariablesSlice, *lv)
 		uservariables.LocalVariablesSlice = &newLVS
 	}
-
 
 	return true, &actions.ChainedResult{Result: variableContent, ResultType: variableType}, nil
 }

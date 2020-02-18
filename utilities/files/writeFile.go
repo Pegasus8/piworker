@@ -1,18 +1,18 @@
 package files
 
 import (
+	"io/ioutil"
+	"os"
 	"path/filepath"
 	"sync"
-	"os"
-	"io/ioutil"
 )
 
 var mutex sync.Mutex
 
-// WriteFile is a function that writes byte content inside 
+// WriteFile is a function that writes byte content inside
 // some file. If the file already exists it will be overwritten.
 func WriteFile(dir string, filename string, data []byte) (path string, err error) {
-	
+
 	// Clear dir string
 	dir = filepath.Clean(dir)
 

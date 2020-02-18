@@ -2,9 +2,9 @@ package models
 
 import (
 	"errors"
-	"github.com/Pegasus8/piworker/processment/types"
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/elements/actions"
+	"github.com/Pegasus8/piworker/processment/types"
 	"github.com/Pegasus8/piworker/processment/uservariables"
 	"log"
 	"strings"

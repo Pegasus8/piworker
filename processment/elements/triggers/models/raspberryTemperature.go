@@ -1,15 +1,15 @@
 package models
 
 import (
+	"log"
+	"os/exec"
 	"regexp"
 	"strconv"
-	"os/exec"
-	"log"
 
 	"github.com/Pegasus8/piworker/processment/data"
-	"github.com/Pegasus8/piworker/processment/types"
 	"github.com/Pegasus8/piworker/processment/elements/triggers"
 	"github.com/Pegasus8/piworker/processment/stats"
+	"github.com/Pegasus8/piworker/processment/types"
 )
 
 // ID's
@@ -21,17 +21,17 @@ const (
 	tempRaspberryTempArgID = "T3-1"
 )
 
-// RaspberryTemperature - Trigger 
-var RaspberryTemperature = triggers.Trigger {
-	ID: raspberryTempID,
-	Name: "Raspberry's Temperature",
+// RaspberryTemperature - Trigger
+var RaspberryTemperature = triggers.Trigger{
+	ID:          raspberryTempID,
+	Name:        "Raspberry's Temperature",
 	Description: "",
-	Run: raspberryTempTrigger,
-	Args: []triggers.Arg {
-		triggers.Arg {
-			ID: tempRaspberryTempArgID,
+	Run:         raspberryTempTrigger,
+	Args: []triggers.Arg{
+		triggers.Arg{
+			ID:   tempRaspberryTempArgID,
 			Name: "Expected Temperature",
-			Description: "The expected temperature of the Raspberry Pi. Must be in" + 
+			Description: "The expected temperature of the Raspberry Pi. Must be in" +
 				" float format and without the 'ºC'. Example: 55.1.",
 			// Content: "",
 			ContentType: types.Float,
@@ -46,17 +46,19 @@ func raspberryTempTrigger(args *[]data.UserArg, parentTaskID string) (result boo
 
 	for _, arg := range *args {
 		switch arg.ID {
-			// Temperature arg
-			case tempRaspberryTempArgID: {
+		// Temperature arg
+		case tempRaspberryTempArgID:
+			{
 				expectedTemp, err = strconv.ParseFloat(arg.Content, 64)
 				if err != nil {
 					return false, err
 				}
 			}
 
-			default: {
-				log.Printf("[%s] Unrecognized argument with the ID '%s' on the " + 
-				"trigger RaspberryTemperature\n", parentTaskID, arg.ID)
+		default:
+			{
+				log.Printf("[%s] Unrecognized argument with the ID '%s' on the "+
+					"trigger RaspberryTemperature\n", parentTaskID, arg.ID)
 				return false, ErrUnrecognizedArgID
 			}
 		}
@@ -69,14 +71,14 @@ func raspberryTempTrigger(args *[]data.UserArg, parentTaskID string) (result boo
 		return false, err
 	}
 
-	if rgx.MatchString(string(output)){
+	if rgx.MatchString(string(output)) {
 		match := rgx.FindStringSubmatch(string(output))
 		if match != nil {
 			temp, err := strconv.ParseFloat(match[1], 64)
 			if err != nil {
 				return false, err
 			}
-	
+
 			if expectedTemp == temp {
 				return true, nil
 			}

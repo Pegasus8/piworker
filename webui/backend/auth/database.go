@@ -1,9 +1,9 @@
 package auth
 
 import (
-	"os"
 	"database/sql"
 	"log"
+	"os"
 	"path/filepath"
 	// "os/signal"
 	// "syscall"
@@ -29,23 +29,23 @@ func init() {
 	// 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	// 	// Close the database when the shutdown signal is received.
 	// 	<-sigs
-		
+
 	// 	log.Println("Database closed")
 	// }()
-	
+
 	err = CreateTable()
 	if err != nil {
 		log.Panicln(err)
 	}
 }
 
-/* 
+/*
 *	Usage order:
 *	1) InitDB
 *	2) defer db.Close()
 *	3) CreateTable
 *	4) StoreToken/ReadLastToken
-*/
+ */
 
 // InitDB is the function used to initialize the sqlite3 database.
 func InitDB() (*sql.DB, error) {
@@ -60,7 +60,7 @@ func InitDB() (*sql.DB, error) {
 	return db, nil
 }
 
-// CreateTable is the function used to create the default tables into 
+// CreateTable is the function used to create the default tables into
 // the sqlite3 database.
 func CreateTable() error {
 	sqlStatement := `
@@ -79,6 +79,7 @@ func CreateTable() error {
 	}
 	return nil
 }
+
 // StoreToken is the function used to save a `UserInfo` struct into the
 // sqlite3 database.
 func StoreToken(authUser UserInfo) error {
@@ -112,7 +113,7 @@ func StoreToken(authUser UserInfo) error {
 	return nil
 }
 
-// ReadLastToken is the function used to read the last auth info of a user 
+// ReadLastToken is the function used to read the last auth info of a user
 // from the sqlite3 database.
 func ReadLastToken(user string) (UserInfo, error) {
 	sqlStatement := `

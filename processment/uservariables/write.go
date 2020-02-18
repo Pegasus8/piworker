@@ -2,8 +2,8 @@ package uservariables
 
 import (
 	"encoding/json"
-	"os"
 	"log"
+	"os"
 
 	"github.com/Pegasus8/piworker/utilities/files"
 )

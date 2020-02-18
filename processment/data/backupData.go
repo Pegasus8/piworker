@@ -1,10 +1,10 @@
 package data
 
 import (
-	"time"
 	"encoding/json"
-	"strings"
 	"log"
+	"strings"
+	"time"
 
 	"github.com/Pegasus8/piworker/processment/configs"
 	"github.com/Pegasus8/piworker/utilities/files"
@@ -12,7 +12,7 @@ import (
 
 // StartBackupLoop is a function used to backup the user data every 1 day.
 func StartBackupLoop() error {
-	if !configs.CurrentConfigs.Backups.BackupData{
+	if !configs.CurrentConfigs.Backups.BackupData {
 		log.Println("Data backup config disabled, skipping...")
 		return nil
 	}
@@ -75,4 +75,3 @@ func backup() error {
 
 	return nil
 }
-

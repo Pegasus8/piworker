@@ -1,9 +1,9 @@
-package stats 
+package stats
 
 import (
-	"time"
-	"path/filepath"
 	"log"
+	"path/filepath"
+	"time"
 
 	"github.com/Pegasus8/piworker/processment/data"
 )
@@ -27,7 +27,7 @@ func StartLoop(statsChannel chan Statistic, dataChannel chan data.UserData) {
 
 	log.Println("Starting stats loop...")
 	for range time.Tick(1 * time.Second) {
-		userData := <- dataChannel
+		userData := <-dataChannel
 		statistics, err := GetStatistics(&userData)
 		if err != nil {
 			log.Panicln(err)

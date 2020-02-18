@@ -1,8 +1,8 @@
 package uservariables
 
 import (
-	"sync"
 	"github.com/Pegasus8/piworker/processment/types"
+	"sync"
 )
 
 /**
@@ -16,18 +16,18 @@ import (
 
 // LocalVariable is the struct used to represent a local variable of the user.
 type LocalVariable struct {
-	Name           string `json:"name"`
-	Content        string `json:"content"`
-	Type           types.PWType    `json:"type"`
-	ParentTaskID string `json:"parentTaskID"`
+	Name         string       `json:"name"`
+	Content      string       `json:"content"`
+	Type         types.PWType `json:"type"`
+	ParentTaskID string       `json:"parentTaskID"`
 	*sync.RWMutex
 }
 
 // GlobalVariable is the struct used to represent a global variable of the user.
 type GlobalVariable struct {
-	Name    string `json:"name"`
-	Content string `json:"content"`
-	Type    types.PWType    `json:"type"`
+	Name    string       `json:"name"`
+	Content string       `json:"content"`
+	Type    types.PWType `json:"type"`
 	*sync.RWMutex
 }
 

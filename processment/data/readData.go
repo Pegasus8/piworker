@@ -1,20 +1,20 @@
 package data
 
 import (
-	"io/ioutil"
-	"os"
-	"log"
 	"encoding/json"
+	"io/ioutil"
+	"log"
+	"os"
 	"path/filepath"
 )
 
 // ReadData is a func that returns the user data into structs
-func ReadData() (*UserData, error){
+func ReadData() (*UserData, error) {
 	fullpath := filepath.Join(DataPath, Filename)
 	if err := checkFile(fullpath); err != nil {
 		return nil, err
 	}
-	
+
 	mutex.Lock()
 	defer mutex.Unlock()
 	log.Println("Reading user data...")
@@ -41,7 +41,7 @@ func ReadData() (*UserData, error){
 	return &data, nil
 }
 
-// GetTaskByName is a method of the UserData struct that returns a specific task, 
+// GetTaskByName is a method of the UserData struct that returns a specific task,
 // searching it by it name.
 func (data *UserData) GetTaskByName(name string) (taskFound *UserTask, indexPosition int, err error) {
 	for index, task := range data.Tasks {
@@ -52,7 +52,7 @@ func (data *UserData) GetTaskByName(name string) (taskFound *UserTask, indexPosi
 	return nil, 0, ErrBadTaskName
 }
 
-// GetTaskByID is a method of the UserData struct that returns a specific task, 
+// GetTaskByID is a method of the UserData struct that returns a specific task,
 // searching it by it ID.
 func (data *UserData) GetTaskByID(ID string) (taskFound *UserTask, indexPosition int, err error) {
 	for index, task := range data.Tasks {

@@ -127,8 +127,8 @@ func GetLocalVariable(name, parentTaskID string) (*LocalVariable, error) {
 	for _, localVariable := range *LocalVariablesSlice {
 		if localVariable.Name == name && localVariable.ParentTaskID == parentTaskID {
 			return &localVariable, nil
-		// Check if the problem is that the user is using a local variable of 
-		// other task.
+			// Check if the problem is that the user is using a local variable of
+			// other task.
 		} else if localVariable.Name == name && localVariable.ParentTaskID != parentTaskID {
 			return &LocalVariable{}, ErrInvalidParent
 		}

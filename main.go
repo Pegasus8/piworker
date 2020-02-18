@@ -5,11 +5,11 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/Pegasus8/piworker/processment/configs"
 	"github.com/Pegasus8/piworker/processment/data"
 	"github.com/Pegasus8/piworker/processment/engine"
-	"github.com/Pegasus8/piworker/processment/configs"
-	"github.com/Pegasus8/piworker/processment/uservariables"
 	"github.com/Pegasus8/piworker/processment/logs"
+	"github.com/Pegasus8/piworker/processment/uservariables"
 	"github.com/Pegasus8/piworker/utilities/files"
 	"gopkg.in/natefinch/lumberjack.v2"
 )

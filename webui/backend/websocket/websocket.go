@@ -1,9 +1,9 @@
 package websocket
 
 import (
-	"net/http"
 	"encoding/json"
 	"log"
+	"net/http"
 
 	"github.com/Pegasus8/piworker/processment/stats"
 	"github.com/gorilla/websocket"
@@ -11,7 +11,7 @@ import (
 
 // Read and write buffer sizes
 var upgrader = websocket.Upgrader{
-	ReadBufferSize: 1024,
+	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 }
 
@@ -37,19 +37,18 @@ func Upgrade(w http.ResponseWriter, request *http.Request) (*websocket.Conn, err
 // Writer func sends data into WebSocket to the client
 func Writer(conn *websocket.Conn, statsChannel chan stats.Statistic) {
 
-	
 	// Other way to do that
 	// // for {
 	// // 	ticker := time.NewTicker(5 * time.Second)
 	// // 	for t := range ticker.C { ... }
 	// // }
-	
+
 	log.Println("Sending data to ", conn.RemoteAddr())
 	// Send data to client every 1 sec
 	for {
 
 		// Get data
-		data := <- statsChannel
+		data := <-statsChannel
 
 		jsonData, err := json.Marshal(data)
 		if err != nil {
@@ -60,13 +59,12 @@ func Writer(conn *websocket.Conn, statsChannel chan stats.Statistic) {
 		// Send data
 		err = conn.WriteMessage(websocket.TextMessage, jsonData)
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway){
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
 				log.Println(err)
 				return
-			} 
+			}
 			log.Println("The client", conn.RemoteAddr(), "has closed the websocket connection")
 			return
 		}
 	}
 }
-	

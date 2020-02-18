@@ -11,7 +11,7 @@ import (
 //! This internal tool was created with this help:
 //! https://tutorialedge.net/golang/go-encrypt-decrypt-aes-tutorial/
 
-// EncryptContent is a function used to encrypt []byte 
+// EncryptContent is a function used to encrypt []byte
 // content using AES encryption
 func EncryptContent(contentToEncrypt, key []byte) ([]byte, error) {
 	if len(key) != 32 {
@@ -36,7 +36,7 @@ func EncryptContent(contentToEncrypt, key []byte) ([]byte, error) {
 	_, err = io.ReadFull(rand.Reader, nonce)
 	if err != nil {
 		return nil, err
-	} 
+	}
 
 	// Encrypt the text using Seal function
 	encryptedContent := gcm.Seal(nonce, nonce, contentToEncrypt, nil)

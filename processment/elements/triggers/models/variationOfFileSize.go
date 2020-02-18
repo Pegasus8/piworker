@@ -1,13 +1,13 @@
 package models
 
 import (
+	"log"
 	"os"
 	"path/filepath"
-	"log"
 
 	"github.com/Pegasus8/piworker/processment/data"
-	"github.com/Pegasus8/piworker/processment/types"
 	"github.com/Pegasus8/piworker/processment/elements/triggers"
+	"github.com/Pegasus8/piworker/processment/types"
 )
 
 // ID's

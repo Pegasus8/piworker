@@ -1,11 +1,11 @@
 package stats
 
 import (
+	"io/ioutil"
+	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
-	"os/exec"
-	"os"
-	"io/ioutil"
 
 	"github.com/Pegasus8/piworker/processment/data"
 )
@@ -35,32 +35,32 @@ func GetStatistics(tasks *data.UserData) (statistics *Statistic, err error) {
 	if err != nil {
 		return nil, err
 	}
-	rRAMUsage,err := getRaspberryRAMUsage()
+	rRAMUsage, err := getRaspberryRAMUsage()
 	if err != nil {
 		return nil, err
 	}
 
-	return &Statistic {
-		ActiveTasks: activeTasks,
-		InactiveTasks: inactiveTasks,
-		OnExecutionTasks: onExecutionTasks,
-		CompletedTasks: completedTasks,
+	return &Statistic{
+		ActiveTasks:          activeTasks,
+		InactiveTasks:        inactiveTasks,
+		OnExecutionTasks:     onExecutionTasks,
+		CompletedTasks:       completedTasks,
 		AverageExecutionTime: 0.0, //TODO
-		OperatingTime: 0, //TODO
-		BackupLoopState: data.BackupLoopState,
-		
-		RaspberryStats: RaspberryStats {
+		OperatingTime:        0,   //TODO
+		BackupLoopState:      data.BackupLoopState,
+
+		RaspberryStats: RaspberryStats{
 			Temperature: rTemperature,
-			CPULoad: rCPULoad,
+			CPULoad:     rCPULoad,
 			FreeStorage: rFreeStorage,
-			RAMUsage: rRAMUsage,
+			RAMUsage:    rRAMUsage,
 		},
 	}, nil
 }
 
 func getRaspberryTemperature() (temperature float64, err error) {
 	rgx := regexp.MustCompile(`(?m)^\w+=([0-9]+\.[0-9]).+$`)
-	
+
 	cmd := exec.Command("vcgencmd", "measure_temp")
 	output, err := cmd.Output()
 	if err != nil {
@@ -75,7 +75,7 @@ func getRaspberryTemperature() (temperature float64, err error) {
 		}
 		return temp, nil
 	}
-	
+
 	return 0.0, ErrBadTemperatureParse
 }
 
@@ -100,19 +100,21 @@ func getRaspberryCPULoad() (cpuload string, err error) {
 	if len(match) > 1 {
 		values := make([]int64, 0)
 		for index, m := range match {
-			if index == 0 { continue } // Skip the line matched
+			if index == 0 {
+				continue
+			} // Skip the line matched
 			val, err := strconv.ParseInt(m, 10, 64)
 			if err != nil {
 				return "", err
 			}
 			values = append(values, val)
 		}
-		result := (values[3] * 100) / (values[0] + values[1] + values[2] + 
+		result := (values[3] * 100) / (values[0] + values[1] + values[2] +
 			values[3] + values[4] + values[5] + values[6])
 
 		return string(result) + "%", nil
-	} 
-		
+	}
+
 	return "", ErrBadCPULoadParse
 }
 
