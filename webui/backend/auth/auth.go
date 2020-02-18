@@ -7,7 +7,7 @@ import (
 	"time"
 
 	// "github.com/Pegasus8/piworker/utilities/files"
-	"github.com/Pegasus8/piworker/processment/configs"
+	"github.com/Pegasus8/piworker/core/configs"
 
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/google/uuid"

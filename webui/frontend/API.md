@@ -11,12 +11,12 @@ Some of these APIs need authentication, so each petition needs have a header (`T
 ### Tasks management
 - [x] Path: **`/api/tasks/new`**. 
       Method: **POST**.
-      Body: **[UserTask](https://github.com/Pegasus8/PiWorker/blob/6b6f13a04a2d23b782be2c6918a52490e71129a8/processment/data/dataModel.go#L9)**.
+      Body: **[UserTask](https://github.com/Pegasus8/PiWorker/blob/6b6f13a04a2d23b782be2c6918a52490e71129a8/core/data/dataModel.go#L9)**.
       Retreived data: **`{"successful": true/false, "error": ""}`**. 
       **Token required**
 - [x] Path: **`/api/tasks/modify`**. 
       Method: **POST**. 
-      Body: **[UserTask](https://github.com/Pegasus8/PiWorker/blob/6b6f13a04a2d23b782be2c6918a52490e71129a8/processment/data/dataModel.go#L9)**.
+      Body: **[UserTask](https://github.com/Pegasus8/PiWorker/blob/6b6f13a04a2d23b782be2c6918a52490e71129a8/core/data/dataModel.go#L9)**.
       Retreived data: **`{"successful": true/false, "error": ""}`**. 
       **Token required**
       *Warning: this API uses the taskname (`UserTask.TaskInfo.Name`) to find the task to modify. Once finded, the task will be overwritten. **Be careful using it outside of the WebUI.***
@@ -28,7 +28,7 @@ Some of these APIs need authentication, so each petition needs have a header (`T
 - [x] Path: **`/api/tasks/get-all`**. 
       Method: **GET**. 
       Body: **`{}`** (not required)
-      Retreived data: **[[UserData.Tasks](https://github.com/Pegasus8/PiWorker/blob/6b6f13a04a2d23b782be2c6918a52490e71129a8/processment/data/dataModel.go#L4)]**. 
+      Retreived data: **[[UserData.Tasks](https://github.com/Pegasus8/PiWorker/blob/6b6f13a04a2d23b782be2c6918a52490e71129a8/core/data/dataModel.go#L4)]**. 
       **Token required**
 
 ### Logs

@@ -5,7 +5,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/Pegasus8/piworker/processment/stats"
+	"github.com/Pegasus8/piworker/core/stats"
 	"github.com/gorilla/websocket"
 )
 

@@ -11,14 +11,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Pegasus8/piworker/processment/types"
+	"github.com/Pegasus8/piworker/core/types"
 
-	"github.com/Pegasus8/piworker/processment/configs"
-	"github.com/Pegasus8/piworker/processment/data"
-	actionsList "github.com/Pegasus8/piworker/processment/elements/actions/models"
-	triggersList "github.com/Pegasus8/piworker/processment/elements/triggers/models"
-	pwLogs "github.com/Pegasus8/piworker/processment/logs"
-	"github.com/Pegasus8/piworker/processment/stats"
+	"github.com/Pegasus8/piworker/core/configs"
+	"github.com/Pegasus8/piworker/core/data"
+	actionsList "github.com/Pegasus8/piworker/core/elements/actions/models"
+	triggersList "github.com/Pegasus8/piworker/core/elements/triggers/models"
+	pwLogs "github.com/Pegasus8/piworker/core/logs"
+	"github.com/Pegasus8/piworker/core/stats"
 	"github.com/Pegasus8/piworker/webui/backend/auth"
 	"github.com/Pegasus8/piworker/webui/backend/websocket"
 

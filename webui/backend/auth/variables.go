@@ -2,7 +2,7 @@ package auth
 
 import (
 	"database/sql"
-	"github.com/Pegasus8/piworker/processment/data"
+	"github.com/Pegasus8/piworker/core/data"
 )
 
 const (
