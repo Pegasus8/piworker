@@ -37,7 +37,7 @@ type UserAction struct {
 	Timestamp             string    `json:"timestamp"`
 	Chained               bool      `json:"chained"`
 	ArgumentToReplaceByCR string    `json:"argumentToReplaceByCR"`
-	Order                 int       `json:"order"`
+	Order                 int8       `json:"order"`
 }
 
 // UserArg is a struct for arg parsing

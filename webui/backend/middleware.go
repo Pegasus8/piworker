@@ -1,8 +1,8 @@
 package backend
 
 import (
-	"log"
 	"net/http"
+	"github.com/rs/zerolog/log"
 )
 
 func loggingMiddleware(next http.Handler) http.Handler {
@@ -11,8 +11,13 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		if r.TLS != nil {
 			tls = true
 		}
-		log.Printf("[ URI: '%s' ] [ %s ] Request from: %s, TLS: %t, ContentLenght: %d\n",
-			r.RequestURI, r.Method, r.RemoteAddr, tls, r.ContentLength)
+		log.Info().
+			Str("URI", r.RequestURI).
+			Str("method", r.Method).
+			Str("remoteAddr", r.RemoteAddr).
+			Bool("tls", tls).
+			Int64("contentLength", r.ContentLength).
+			Msg("Request received")
 		// Call the next handler, which can be another middleware in the chain, or the final handler.
 		next.ServeHTTP(w, r)
 	})

@@ -1,7 +1,6 @@
 package models
 
 import (
-	"log"
 	"time"
 
 	"github.com/Pegasus8/piworker/core/data"
@@ -56,15 +55,12 @@ func byHourTrigger(args *[]data.UserArg, parentTaskID string) (result bool, err 
 
 		default:
 			{
-				log.Printf("[%s] Unrecognized argument with the ID '%s' on the "+
-					"trigger ByHour\n", parentTaskID, arg.ID)
 				return false, ErrUnrecognizedArgID
 			}
 		}
 	}
 
 	if time.Now().Format("15:04") == hour.Format("15:04") {
-		log.Printf("[%s] Hour matched, trigger launched\n", parentTaskID)
 		return true, nil
 	}
 

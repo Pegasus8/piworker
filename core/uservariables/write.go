@@ -2,17 +2,17 @@ package uservariables
 
 import (
 	"encoding/json"
-	"log"
 	"os"
 
 	"github.com/Pegasus8/piworker/utilities/files"
+	"github.com/rs/zerolog/log"
 )
 
 func init() {
 	// Create data path if not exists
 	err := os.MkdirAll(UserVariablesPath, os.ModePerm)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err).Msg("Cannot initialize the directory to store the user variables")
 	}
 }
 

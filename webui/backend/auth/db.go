@@ -2,7 +2,6 @@ package auth
 
 import (
 	"database/sql"
-	"log"
 	"os"
 	"path/filepath"
 	// "os/signal"
@@ -10,18 +9,19 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite3 package
+	"github.com/rs/zerolog/log"
 )
 
 func init() {
-	// Create statistics path if not exists
+	// Create the path if not exists
 	err := os.MkdirAll(DatabasePath, os.ModePerm)
 	if err != nil {
-		log.Panicln(err)
+		log.Fatal().Err(err).Str("path", DatabasePath).Msg("Cannot initialize the directory to store tokens")
 	}
 
 	Database, err = InitDB()
 	if err != nil {
-		log.Panicln(err)
+		log.Panic().Err(err).Msg("Cannot initialize the database to store tokens")
 	}
 
 	// go func() {
@@ -35,7 +35,7 @@ func init() {
 
 	err = CreateTable()
 	if err != nil {
-		log.Panicln(err)
+		log.Panic().Err(err).Msg("Error when trying to create the table on the tokens database")
 	}
 }
 

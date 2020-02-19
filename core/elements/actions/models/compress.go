@@ -4,13 +4,13 @@ import (
 	"compress/gzip"
 	"errors"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 
 	"github.com/Pegasus8/piworker/core/data"
 	"github.com/Pegasus8/piworker/core/elements/actions"
 	"github.com/Pegasus8/piworker/core/types"
+	"github.com/rs/zerolog/log"
 )
 
 // ID's
@@ -78,25 +78,25 @@ func compressFilesOfDir(previousResult *actions.ChainedResult, parentAction *dat
 		return false, &actions.ChainedResult{}, errors.New("Error: targetDir or outputDir empty")
 	}
 
-	log.Printf("[%s] Creating the directory '%s' if it doesn't exist...\n", parentTaskID, outputDir)
+	log.Info().Str("taskID", parentTaskID).Msgf("Creating the directory '%s' if it doesn't exists...", outputDir)
 	err = os.MkdirAll(outputDir, 0700)
 	if err != nil {
 		return false, &actions.ChainedResult{}, nil
 	}
 
-	log.Printf("[%s] Getting the files of the directory '%s'\n", parentTaskID, targetDir)
+	log.Info().Str("taskID", parentTaskID).Msgf("Getting the files of the directory '%s'", targetDir)
 	files, err := ioutil.ReadDir(targetDir)
 	if err != nil {
 		return false, &actions.ChainedResult{}, err
 	}
-	log.Printf("[%s] Files obtained\n", parentTaskID)
+	log.Info().Str("taskID", parentTaskID).Msg("Files obtained")
 
 	for _, file := range files {
 		if file.IsDir() {
-			log.Printf("[%s] Skipping '%s' because it isn't a file\n", parentTaskID, file.Name())
+			log.Warn().Str("taskID", parentTaskID).Msgf("Skipping '%s' because it isn't a file", file.Name())
 			continue
 		}
-		log.Printf("[%s] Starting the compression of the file '%s'...\n", parentTaskID, file.Name())
+		log.Info().Str("taskID", parentTaskID).Msgf("Starting the compression of the file '%s'...", file.Name())
 
 		openedFile, err := os.Open(
 			filepath.Join(targetDir, file.Name()),
@@ -127,11 +127,11 @@ func compressFilesOfDir(previousResult *actions.ChainedResult, parentAction *dat
 			return false, &actions.ChainedResult{}, err
 		}
 
-		log.Printf("[%s] '%s' compressed by the action CompressFilesOfDir\n", parentTaskID, newFilename)
+		log.Info().Str("taskID", parentTaskID).Msgf("'%s' compressed by the action CompressFilesOfDir", newFilename)
 
 	}
 
-	log.Printf("[%s] Files compression finished into directory '%s'\n", parentTaskID, outputDir)
+	log.Info().Str("taskID", parentTaskID).Msgf("Files compression finished into directory '%s'", outputDir)
 
 	return true, &actions.ChainedResult{Result: outputDir, ResultType: types.Path}, nil
 }

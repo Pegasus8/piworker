@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	// "log"
 	"os"
 	"path/filepath"
 
@@ -12,6 +12,8 @@ import (
 	"github.com/Pegasus8/piworker/core/uservariables"
 	"github.com/Pegasus8/piworker/utilities/files"
 	"gopkg.in/natefinch/lumberjack.v2"
+	"github.com/rs/zerolog"
+    "github.com/rs/zerolog/log"
 )
 
 func main() {
@@ -26,33 +28,30 @@ func start() {
 	// Logs settings
 	setLogSettings()
 
-	log.Println("Running PiWorker...")
+	log.Info().Msg("Starting PiWorker...")
 	// Set user data filename
 	data.Filename = "user_data.json" //TODO: assign the name dinamically
 
 	err := initConfigs()
 	if err != nil {
-		log.Fatal(err.Error())
+		log.Fatal().Err(err).Msg("Error when initializing configs")
 	}
 
-	log.Println("Getting user variables from files...")
-	log.Println("Reading user global variables...")
+	log.Info().Str("path", uservariables.UserVariablesPath).Msg("Getting and reading user's global variables from files...")
 	globalVariables, err := uservariables.ReadGlobalVariablesFromFiles()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err).Msg("Error when trying to read the user's global variables")
 	}
-	log.Println("Global variables read correctly!, saving on the global variable...")
+	log.Info().Int("length", len(*globalVariables)).Msg("Global variables read correctly!, saving them on the variable")
 	uservariables.GlobalVariablesSlice = globalVariables
-	log.Println("Global variables saved!")
 
-	log.Println("Reading user local variables...")
+	log.Info().Str("path", uservariables.UserVariablesPath).Msg("Getting and reading user's local variables from files...")
 	localVariables, err := uservariables.ReadLocalVariablesFromFiles()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err).Msg("Error when trying to read the user's local variables")
 	}
-	log.Println("Local variables read correctly!, saving on the global variable...")
+	log.Info().Int("length", len(*localVariables)).Msg("Local variables read correctly!, saving them on the variable")
 	uservariables.LocalVariablesSlice = localVariables
-	log.Println("Local variables saved!")
 
 	// Start the Dynamic Engine
 	engine.StartEngine()
@@ -68,19 +67,21 @@ func prepareLogsDirectory(dir string) error {
 }
 
 func setLogSettings() {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	logFullpath := filepath.Join(logs.LogsPath, logs.Filename)
 
 	if err := prepareLogsDirectory(logs.LogsPath); err != nil {
-		log.Panicln(err)
+		log.Fatal().
+			Err(err).
+			Msg("Error when trying to initialize the directory of logs")
 	}
 
-	log.SetOutput(&lumberjack.Logger{
+	log.Logger = log.Output(&lumberjack.Logger{
 		Filename:  logFullpath,
 		MaxSize:   25,
 		MaxAge:    7,
 		LocalTime: true,
 	})
-	log.SetFlags(log.Ldate | log.Lmicroseconds | log.Lshortfile)
 }
 
 func initConfigs() error {

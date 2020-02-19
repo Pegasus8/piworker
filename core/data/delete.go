@@ -2,14 +2,14 @@ package data
 
 import (
 	"encoding/json"
-	"log"
 
 	"github.com/Pegasus8/piworker/utilities/files"
+	"github.com/rs/zerolog/log"
 )
 
 // DeleteTask is a function used to delete a specific task from the JSON user database.
 func DeleteTask(ID string) error {
-	log.Println("Deleting a task...")
+	log.Info().Str("taskID", ID).Msg("Deleting task...")
 
 	data, err := ReadData()
 	if err != nil {
@@ -20,7 +20,7 @@ func DeleteTask(ID string) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("Task with the ID '%s' found, deleting...\n", ID)
+	log.Info().Str("taskID", ID).Msg("Task found, deleting...")
 
 	if len(data.Tasks) == 1 {
 		data.Tasks = []UserTask{}
@@ -38,7 +38,7 @@ func DeleteTask(ID string) error {
 	if err != nil {
 		return err
 	}
-	log.Println("Task deleted successfully")
 
+	log.Info().Str("taskID", ID).Msg("Task deleted successfully")
 	return nil
 }

@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"log"
 	"os"
 	"time"
 
@@ -9,11 +8,12 @@ import (
 	"github.com/Pegasus8/piworker/core/data"
 	"github.com/Pegasus8/piworker/core/stats"
 	"github.com/Pegasus8/piworker/webui/backend"
+	"github.com/rs/zerolog/log"
 )
 
 // StartEngine is the function used to start the Dynamic Engine
 func StartEngine() {
-	log.Println("Starting the Dynamic Engine...")
+	log.Info().Msg("Starting the Dynamic Engine...")
 	defer os.RemoveAll(TempDir)
 
 	var tasksGoroutines = make(map[string]chan data.UserTask)
@@ -21,13 +21,15 @@ func StartEngine() {
 	var statsChannel chan stats.Statistic // Channel between the WebUI and Stats loop.
 	var dataChannel chan data.UserData
 
-	log.Println("Reading the user data for first time...")
+	log.Info().Msg("Reading the user data for first time...")
 	userData, err := data.ReadData()
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatal().
+			Err(err).
+			Msg("Error when trying to read the user data file")
 	}
 
-	log.Println("Creating channels for tasks ...")
+	log.Info().Msg("Creating channels for tasks...")
 	for _, task := range userData.Tasks {
 		// Create the channel for each task (with active state).
 		if task.TaskInfo.State == data.StateTaskActive {
@@ -35,18 +37,18 @@ func StartEngine() {
 			go runTaskLoop(task.TaskInfo.ID, tasksGoroutines[task.TaskInfo.ID])
 		}
 	}
-	log.Println("Channels created correctly")
+	log.Info().Msg("Channels created correctly")
 
 	// Start the watchdog for the data file.
-	log.Println("Running the watchdog for the data file...")
+	log.Info().Msg("Running the watchdog for the data file...")
 	go checkForAnUpdate(needUpdateData)
 
 	// Start the WebUI server.
-	log.Println("Starting the WebUI server...")
+	log.Info().Msg("Starting the WebUI server...")
 	go backend.Run(statsChannel)
 
 	// Start the stats recollection.
-	log.Println("Starting the stats loop...")
+	log.Info().Msg("Starting the stats loop...")
 	go stats.StartLoop(statsChannel, dataChannel)
 
 	configs.CurrentConfigs.RLock()
@@ -58,14 +60,17 @@ func StartEngine() {
 		select {
 		case <-needUpdateData:
 			{
-				log.Println("Updating the data variable due to a change detected...")
+				log.Info().
+					Msg("Updating the data variable due to a change detected...")
 				// Renew the data variable.
 				userData, err = data.ReadData()
 				if err != nil {
-					log.Fatalln(err)
-				} else {
-					log.Println("Data variable updated successfully")
+					log.Fatal().
+						Err(err).
+						Msg("Error when trying to update the data on the engine")
 				}
+
+				log.Info().Msg("Data variable updated successfully")
 			}
 		default:
 			// Keep using the current data.

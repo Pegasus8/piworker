@@ -6,7 +6,6 @@ import (
 	"github.com/Pegasus8/piworker/core/elements/actions"
 	"github.com/Pegasus8/piworker/core/types"
 	"github.com/Pegasus8/piworker/core/uservariables"
-	"log"
 	"strings"
 )
 
@@ -65,8 +64,6 @@ func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 			variableContent = arg.Content
 		default:
 			{
-				log.Println("[%s] Unrecognized argument with the ID '%s' on the "+
-					"action SetGlobalVariable\n", parentTaskID, arg.ID)
 				return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
 			}
 		}

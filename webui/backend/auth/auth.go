@@ -2,7 +2,6 @@ package auth
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
@@ -11,9 +10,8 @@ import (
 
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 )
-
-// TODO get the configs from the configs file
 
 var signingKey []byte
 
@@ -50,7 +48,9 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 
 			// Prevents panic if an empty string is sended as token.
 			if r.Header["Token"][0] == "" {
-				log.Printf("The adress %s tried to use an empty string as token. Rejected.\n", r.Host)
+				log.Warn().
+					Str("remoteAddr", r.RemoteAddr).
+					Msg("The client has tried to use an empty string as token. Rejected.")
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
@@ -68,49 +68,68 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 					return
 				}
 				w.WriteHeader(http.StatusBadRequest)
-				log.Println("Error when parsing the token:", err.Error())
+				log.Error().
+					Err(err).Str("remoteAddr", r.RemoteAddr).
+					Msg("Error when parsing the token")
 				return
 			}
 
 			if token.Valid {
 				claims := token.Claims.(*CustomClaims)
-				log.Printf("Token of the user '%s' used by host %s\n", claims.User, r.Host)
+				log.Info().
+					Str("remoteAddr", r.RemoteAddr).
+					Str("tokenOwner", claims.User).
+					Msg("Token used")
 
 				log.Printf("Token valid, checking on database...")
 				userAuthInfo, err := ReadLastToken(claims.User)
 				if err != nil {
-					log.Println(err.Error())
+					log.Error().
+						Err(err).
+						Str("tokenOwner", claims.User).
+						Str("remoteAddr", r.RemoteAddr).
+						Msg("Cannot check the authenticity of the token")
 					w.WriteHeader(http.StatusInternalServerError)
-					fmt.Fprintf(w, "Error on the database, I can't check the authenticity of the token.")
+					fmt.Fprintf(w, "Error on the database, cannot check the authenticity of the token.")
 					return
 				}
 				if userAuthInfo.Token != token.Raw {
 					str := "The token used is not the same as the last one registered in the database."
-					log.Println(str)
+					log.Warn().
+						Str("tokenOwner", claims.User).
+						Str("remoteAddr", r.RemoteAddr).
+						Msg(str)
 					w.WriteHeader(http.StatusUnauthorized)
 					fmt.Fprintln(w, str)
 					return
 				}
-				log.Println("Token correctly checked on the database")
+				log.Info().
+					Str("tokenOwner", claims.User).
+					Str("remoteAddr", r.RemoteAddr).
+					Msg("Token correctly checked on the database")
 
-				defer func() {
-					// On case of panicking
-					if err := recover(); err != nil {
-						log.Println("Recover from panic:", err)
-					}
-				}()
 				err = UpdateLastTimeUsed(userAuthInfo.ID, time.Now())
 				if err != nil {
-					log.Panicln(err.Error())
+					log.Panic().
+						Err(err).
+						Str("tokenOwner", claims.User).
+						Str("remoteAddr", r.RemoteAddr).
+						Int64("id", userAuthInfo.ID).
+						Msg("Error when updating the last time used register")
 				}
 
 				endpoint(w, r)
 			} else {
-				log.Printf("The IP %s has tried to use a not valid token: '%s'\n", r.Host, token.Raw)
+				log.Warn().
+					Str("remoteAddr", r.RemoteAddr).
+					Str("token", token.Raw).
+					Msg("A client has tried to use a not valid token")
 				w.WriteHeader(http.StatusUnauthorized)
 			}
 		} else {
-			log.Printf("The IP %s has tried to access without a token\n", r.Host)
+			log.Warn().
+				Str("remoteAddr", r.RemoteAddr).
+				Msg("A client has tried to access without a token")
 			w.WriteHeader(http.StatusUnauthorized)
 		}
 	})
@@ -133,6 +152,6 @@ func generateSigningKey() {
 	// Write the updated configs (with the SigningKey)
 	err := configs.WriteToFile()
 	if err != nil {
-		log.Fatal(err.Error())
+		log.Fatal().Err(err).Msg("Cannot write the signing key in the configs file")
 	}
 }

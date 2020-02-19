@@ -1,10 +1,10 @@
 package backend
 
 import (
+	"errors"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"sort"
@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/Pegasus8/piworker/core/types"
-
 	"github.com/Pegasus8/piworker/core/configs"
 	"github.com/Pegasus8/piworker/core/data"
 	actionsList "github.com/Pegasus8/piworker/core/elements/actions/models"
@@ -25,6 +24,7 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/gobuffalo/packr/v2"
 	"github.com/gorilla/mux"
+	"github.com/rs/zerolog/log"
 )
 
 var statsChannel chan stats.Statistic
@@ -95,34 +95,34 @@ func setupRoutes() {
 		ReadTimeout:  15 * time.Second,
 	}
 
-	log.Println("Listening and serving on port", configs.CurrentConfigs.WebUI.ListeningPort)
+	log.Info().Msgf("Listening and serving on port %s", configs.CurrentConfigs.WebUI.ListeningPort)
 	configs.CurrentConfigs.RUnlock()
 
 	if _, err := os.Stat("./server.key"); err == nil {
 		tlsSupport = true
-		log.Println("File 'server.key' found")
+		log.Info().Msg("File 'server.key' found")
 		if _, err := os.Stat("./server.crt"); err == nil {
-			log.Println("File 'server.crt' found")
+			log.Info().Msg("File 'server.crt' found")
 			tlsSupport = true
 		} else {
 			tlsSupport = false
-			log.Println("File 'server.crt' not found")
+			log.Warn().Msg("File 'server.crt' not found")
 		}
 	} else {
 		tlsSupport = false
-		log.Println("File 'server.key' not found")
+		log.Warn().Msg("File 'server.key' not found")
 	}
 
 	if tlsSupport {
-		log.Fatal(srv.ListenAndServeTLS("./server.crt", "./server.key"))
+		log.Fatal().Err(srv.ListenAndServeTLS("./server.crt", "./server.key")).Msg("")
 	} else {
-		log.Fatal(srv.ListenAndServe())
+		log.Fatal().Err(srv.ListenAndServe()).Msg("")
 	}
 }
 
 // Run - start the server
 func Run(statsChan chan stats.Statistic) {
-	log.Println("Starting server...")
+	log.Info().Msg("Starting server...")
 
 	statsChannel = statsChan
 
@@ -169,14 +169,22 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 
 	body, err := ioutil.ReadAll(request.Body)
 	if err != nil {
-		log.Printf("[ login API ] Error when trying to read the POST data sent by %s\n", request.Host)
+		log.Error().
+			Err(err).
+			Str("api", "login").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Error when trying to read the data received")
 		response.Successful = false
 		goto response1
 	}
 
 	err = json.Unmarshal(body, &user)
 	if err != nil {
-		log.Printf("[ login API ] The data on the POST request of %s cannot be read\n", request.Host)
+		log.Error().
+			Err(err).
+			Str("api", "login").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Error when trying to unmarshal the data received")
 		response.Successful = false
 		goto response1
 	}
@@ -193,7 +201,11 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 			},
 		)
 		if err != nil {
-			log.Println("[ login API ]", err.Error())
+			log.Error().
+				Err(err).
+				Str("api", "login").
+				Str("remoteAddr", request.RemoteAddr).
+				Msg("")
 			response.Successful = false
 			goto response1
 		}
@@ -213,7 +225,11 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 			},
 		)
 		if err != nil {
-			log.Fatal("[ login API ]", err.Error())
+			log.Error().
+				Err(err).
+				Str("api", "login").
+				Str("remoteAddr", request.RemoteAddr).
+				Msg("")
 		}
 	}
 
@@ -238,7 +254,11 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 
 	body, err := ioutil.ReadAll(request.Body)
 	if err != nil {
-		log.Printf("[ newTask API ] Error when trying to read the POST data sent by %s\n", request.Host)
+		log.Error().
+			Err(err).
+			Str("api", "newTask").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Error when trying to read the data received")
 		response.Successful = false
 		response.Error = err.Error()
 		goto response1
@@ -246,7 +266,11 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 
 	err = json.Unmarshal(body, &task)
 	if err != nil {
-		log.Printf("[ newTask API ] The data on the POST request of %s cannot be read\n", request.Host)
+		log.Error().
+			Err(err).
+			Str("api", "newTask").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Error when trying to unmarshal the data received")
 		response.Successful = false
 		response.Error = err.Error()
 		goto response1
@@ -255,12 +279,22 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	// Read the data to see if the taskname already exists
 	tasksOnDB, err = data.ReadData()
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("api", "newTask").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Cannot read the tasks from the user data file")
 		response.Successful = false
 		response.Error = err.Error()
 		goto response1
 	}
 	if _, _, err = tasksOnDB.GetTaskByName(task.TaskInfo.Name); err != nil {
 		if err != data.ErrBadTaskName {
+			log.Error().
+				Err(err).
+				Str("api", "newTask").
+				Str("remoteAddr", request.RemoteAddr).
+				Msg("Error when trying to check if the name of the new task exists")
 			response.Successful = false
 			response.Error = err.Error()
 			goto response1
@@ -279,7 +313,11 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 
 	err = data.NewTask(&task)
 	if err != nil {
-		log.Println("[ newTask API ]", err.Error())
+		log.Error().
+			Err(err).
+			Str("api", "newTask").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Error when trying to create a new task")
 		response.Successful = false
 		response.Error = err.Error()
 		goto response1
@@ -307,7 +345,11 @@ func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PO
 
 	body, err := ioutil.ReadAll(request.Body)
 	if err != nil {
-		log.Printf("[ modifyTask API ] Error when trying to read the POST data sent by %s\n", request.Host)
+		log.Error().
+			Err(err).
+			Str("api", "modifyTask").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Error when trying to read the data received")
 		response.Successful = false
 		response.Error = err.Error()
 		goto response1
@@ -315,7 +357,11 @@ func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PO
 
 	err = json.Unmarshal(body, &task)
 	if err != nil {
-		log.Printf("[ modifyTask API ] The data on the POST request of %s cannot be read\n", request.Host)
+		log.Error().
+			Err(err).
+			Str("api", "modifyTask").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Error when trying to unmarshal the data received")
 		response.Successful = false
 		response.Error = err.Error()
 		goto response1
@@ -325,7 +371,11 @@ func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PO
 
 	err = data.UpdateTask(task.TaskInfo.ID, &task)
 	if err != nil {
-		log.Println("[ modifyTask API ]", err.Error())
+		log.Error().
+			Err(err).
+			Str("api", "login").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("")
 		response.Successful = false
 		response.Error = err.Error()
 		goto response1
@@ -348,7 +398,11 @@ func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: DE
 	var response postResponse
 	keys, ok := request.URL.Query()["id"]
 	if !ok || len(keys[0]) < 1 {
-		log.Println("[ deleteTask API ] Url Param 'id' is missing, rejecting the request")
+		log.Error().
+			Err(errors.New("Url Param 'id' is missing")).
+			Str("api", "deleteTask").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Rejecting request because absence of 'id' param")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -361,6 +415,12 @@ func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: DE
 
 	err := data.DeleteTask(taskID)
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("api", "deleteTask").
+			Str("remoteAddr", request.RemoteAddr).
+			Str("taskID", taskID).
+			Msg("There was a problem when trying to delete the task")
 		response.Successful = false
 		response.Error = err.Error()
 		goto response1
@@ -381,12 +441,20 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 
 	keys, ok := request.URL.Query()["fromWebUI"]
 	if !ok || len(keys[0]) < 1 {
-		log.Println("[ get-tasks API ] Url Param 'fromWebUI' is missing, sending the data without recreation")
+		log.Warn().
+			Str("api", "getTasks").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Url Param 'fromWebUI' is missing, sending the data without recreation")
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	userData, err := data.ReadData()
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("api", "getTasks").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Error when trying to read the user tasks")
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintf(w, err.Error())
 		return
@@ -394,7 +462,10 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 
 	// fromWebUI = true
 	if keys[0] == "true" {
-		log.Println("[ get-tasks API ] Param 'fromWebUI' detected, this little maneuver is gonna cost us 54 years...")
+		log.Info().
+			Str("api", "getTasks").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Param 'fromWebUI' detected, this little maneuver is gonna cost us 54 years...")
 		startTime := time.Now()
 
 		type argForWebUI struct {
@@ -419,7 +490,7 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 			ID                    string        `json:"ID"`
 			Timestamp             string        `json:"timestamp"`
 			Args                  []argForWebUI `json:"args"`
-			Order                 int           `json:"order"`
+			Order                 int8           `json:"order"`
 			Chained               bool          `json:"chained"`
 			ArgumentToReplaceByCR string        `json:"argumentToReplaceByCR"`
 		}
@@ -450,7 +521,11 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 			// to avoid a race condition, but here we don't have that problem, because the data is not shared
 			// between goroutines and because the data will be only read, will not be modified.
 			go func(task data.UserTask, resultChannel chan *userTaskFromWebUI) {
-				log.Printf("[ get-tasks API ] Starting the recreation of the task '%s'\n", task.TaskInfo.Name)
+				log.Info().
+					Str("api", "getTasks").
+					Str("remoteAddr", request.RemoteAddr).
+					Str("taskID", task.TaskInfo.ID).
+					Msg("Starting the recreation of the task")
 				startTime := time.Now()
 
 				var recreatedUserTask userTaskFromWebUI
@@ -521,7 +596,12 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 				recreatedUserTask.TaskInfo = recreatedTask
 
 				executionTime := time.Since(startTime)
-				log.Printf("[ get-tasks API ] Task '%s' recreated in %s! Sending through the results channel...\n", recreatedTask.Name, executionTime.String())
+				log.Info().
+					Str("api", "getTasks").
+					Str("remoteAddr", request.RemoteAddr).
+					Str("taskID", task.TaskInfo.ID).
+					Dur("executionTime", executionTime).
+					Msg("Task recreated, sending through the results channel...")
 				resultChannel <- &recreatedUserTask
 			}(task, results)
 		}
@@ -537,7 +617,11 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 		})
 
 		execTime := time.Since(startTime)
-		log.Printf("[ get-tasks API ] Well, maybe I exaggerated. It wasn't 54 years, but it was close! Or maybe not... (request processed in %s)\n", execTime.String())
+		log.Info().
+			Str("api", "getTasks").
+			Str("remoteAddr", request.RemoteAddr).
+			Dur("executionTime", execTime).
+			Msg("Well, maybe I exaggerated. It wasn't 54 years, but it was close! Or maybe not...")
 
 		json.NewEncoder(w).Encode(recreatedUserData.Tasks)
 	} else {
@@ -550,6 +634,8 @@ func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+
+	// TODO Use the ID of the task as a param
 
 	w.Header().Set("Content-Type", "application/json")
 	var response = struct {
@@ -565,7 +651,10 @@ func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 
 	defer func() {
 		if r := recover(); r != nil {
-			log.Println("[ logs API ] Recovering from panic triggered when getting logs")
+			log.Warn().
+				Str("api", "logs").
+				Str("remoteAddr", request.RemoteAddr).
+				Msg("Recovering from panic triggered when getting logs")
 		}
 	}()
 
@@ -583,12 +672,23 @@ func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 
 	logsContent, err = pwLogs.GetLogs()
 	if err != nil {
-		log.Panicln("[ logs API ] Cannot get the logs of PiWorker:", err.Error())
+		log.Panic().
+			Err(err).
+			Str("api", "logs").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Cannot get the logs")
 	}
 
 	reqData.Date = strings.TrimSpace(reqData.Date)
 	response.Logs, err = pwLogs.GetTaskLogs(&logsContent, reqData.Taskname, reqData.Date)
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("api", "logs").
+			Str("remoteAddr", request.RemoteAddr).
+			Str("taskID", reqData.Taskname). //TODO Change for ID
+			Msg("")
+
 		response.Error = err.Error()
 	} else {
 		response.Successful = true
@@ -616,7 +716,11 @@ func triggersInfoAPI(w http.ResponseWriter, request *http.Request) {
 	err := json.NewEncoder(w).Encode(triggersList.TRIGGERS)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		log.Println("[ triggersInfo API ] Error:", err.Error())
+		log.Error().
+			Err(err).
+			Str("api", "triggersInfo").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("")
 	}
 }
 
@@ -630,7 +734,11 @@ func actionsInfoAPI(w http.ResponseWriter, request *http.Request) {
 	err := json.NewEncoder(w).Encode(actionsList.ACTIONS)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		log.Println("[ actionsInfo API ] Error:", err.Error())
+		log.Error().
+			Err(err).
+			Str("api", "actionsInfo").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("")
 	}
 }
 

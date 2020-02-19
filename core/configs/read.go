@@ -3,9 +3,10 @@ package configs
 import (
 	"encoding/json"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
+
+    "github.com/rs/zerolog/log"
 )
 
 // ReadFromFile is a method used to read the configs file and parse the content into
@@ -16,13 +17,12 @@ func ReadFromFile() error {
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	log.Println("Reading config file...")
+	log.Info().Str("path", ConfigsPath).Msg("Reading config file...")
 	jsonData, err := os.Open(fullpath)
 	if err != nil {
 		return err
 	}
 	defer jsonData.Close()
-	log.Println("Configs loaded")
 
 	byteContent, err := ioutil.ReadAll(jsonData)
 	if err != nil {
@@ -38,5 +38,6 @@ func ReadFromFile() error {
 	// Update configs variable
 	CurrentConfigs = &cfg
 
+	log.Info().Msg("Configs loaded")
 	return nil
 }

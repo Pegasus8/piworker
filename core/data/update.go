@@ -2,13 +2,15 @@ package data
 
 import (
 	"encoding/json"
-	"log"
 
 	"github.com/Pegasus8/piworker/utilities/files"
+	"github.com/rs/zerolog/log"
 )
 
 // UpdateTask is a function used to update an existing task from the JSON data file.
 func UpdateTask(ID string, updatedTask *UserTask) error {
+	log.Info().Str("taskID", ID).Msg("Updating task...")
+
 	data, err := ReadData()
 	if err != nil {
 		return err
@@ -36,12 +38,13 @@ func UpdateTask(ID string, updatedTask *UserTask) error {
 		return err
 	}
 
-	log.Println("Task updated successfully")
+	log.Info().Str("taskID", ID).Msg("Task updated successfully")
 	return nil
 }
 
 // UpdateTaskName is a function used to change the name of a task.
 func UpdateTaskName(ID, oldName, newName string) error {
+	log.Info().Str("taskID", ID).Msg("Updating task name...")
 
 	data, err := ReadData()
 	if err != nil {
@@ -65,11 +68,13 @@ func UpdateTaskName(ID, oldName, newName string) error {
 		return err
 	}
 
+	log.Info().Str("taskID", ID).Msg("Task name updated successfully")
 	return nil
 }
 
 // UpdateTaskTrigger is a function used to change the trigger of a task.
 func UpdateTaskTrigger(ID string, newTrigger *UserTrigger) error {
+	log.Info().Str("taskID", ID).Msg("Updating task trigger...")
 
 	data, err := ReadData()
 	if err != nil {
@@ -93,11 +98,13 @@ func UpdateTaskTrigger(ID string, newTrigger *UserTrigger) error {
 		return err
 	}
 
+	log.Info().Str("taskID", ID).Msg("Task trigger updated successfully")
 	return nil
 }
 
 // UpdateTaskActions is a function used to change the actions of a task.
 func UpdateTaskActions(ID string, newActions *[]UserAction) error {
+	log.Info().Str("taskID", ID).Msg("Updating task actions...")
 
 	data, err := ReadData()
 	if err != nil {
@@ -121,11 +128,13 @@ func UpdateTaskActions(ID string, newActions *[]UserAction) error {
 		return err
 	}
 
+	log.Info().Str("taskID", ID).Msg("Task actions updated successfully")
 	return nil
 }
 
 // UpdateTaskState is a function used to change the state of a task.
 func UpdateTaskState(ID string, newState TaskState) error {
+	log.Info().Str("taskID", ID).Msg("Updating task state...")
 
 	data, err := ReadData()
 	if err != nil {
@@ -149,5 +158,6 @@ func UpdateTaskState(ID string, newState TaskState) error {
 		return err
 	}
 
+	log.Info().Str("taskID", ID).Msg("Task state updated successfully")
 	return nil
 }

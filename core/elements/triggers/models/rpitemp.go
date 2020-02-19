@@ -1,7 +1,6 @@
 package models
 
 import (
-	"log"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -57,8 +56,6 @@ func raspberryTempTrigger(args *[]data.UserArg, parentTaskID string) (result boo
 
 		default:
 			{
-				log.Printf("[%s] Unrecognized argument with the ID '%s' on the "+
-					"trigger RaspberryTemperature\n", parentTaskID, arg.ID)
 				return false, ErrUnrecognizedArgID
 			}
 		}

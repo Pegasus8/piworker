@@ -1,7 +1,6 @@
 package models
 
 import (
-	"log"
 	"time"
 
 	"github.com/Pegasus8/piworker/core/data"
@@ -51,8 +50,6 @@ func everyXTimeTrigger(args *[]data.UserArg, parentTaskID string) (result bool, 
 			}
 		default:
 			{
-				log.Printf("[%s] Unrecognized argument with the ID '%s' on the "+
-					"trigger EveryXTime\n", parentTaskID, arg.ID)
 				return false, ErrUnrecognizedArgID
 			}
 		}

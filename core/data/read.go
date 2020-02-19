@@ -3,9 +3,10 @@ package data
 import (
 	"encoding/json"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
+
+	"github.com/rs/zerolog/log"
 )
 
 // ReadData is a func that returns the user data into structs
@@ -17,14 +18,13 @@ func ReadData() (*UserData, error) {
 
 	mutex.Lock()
 	defer mutex.Unlock()
-	log.Println("Reading user data...")
+	log.Info().Str("path", DataPath).Msg("Reading user data...")
 
 	jsonData, err := os.Open(fullpath)
 	if err != nil {
 		return nil, err
 	}
 	defer jsonData.Close()
-	log.Println("Data user loaded")
 
 	byteContent, err := ioutil.ReadAll(jsonData)
 	if err != nil {
@@ -37,7 +37,7 @@ func ReadData() (*UserData, error) {
 		return nil, err
 	}
 
-	log.Println("User data obtained")
+	log.Info().Msg("User data loaded")
 	return &data, nil
 }
 

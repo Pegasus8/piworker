@@ -1,7 +1,6 @@
 package models
 
 import (
-	"log"
 	"os"
 	"path/filepath"
 
@@ -49,8 +48,6 @@ func variationOfFileSize(args *[]data.UserArg, parentTaskID string) (result bool
 			filePath = filepath.Clean(arg.Content)
 		default:
 			{
-				log.Printf("[%s] Unrecognized argument with the ID '%s' on the "+
-					"trigger VariationOfFileSize\n", parentTaskID, arg.ID)
 				return false, ErrUnrecognizedArgID
 			}
 		}

@@ -2,13 +2,13 @@ package models
 
 import (
 	"errors"
-	"log"
 	"os"
 	"path/filepath"
 
 	"github.com/Pegasus8/piworker/core/data"
 	"github.com/Pegasus8/piworker/core/elements/actions"
 	"github.com/Pegasus8/piworker/core/types"
+	"github.com/rs/zerolog/log"
 )
 
 // ID's
@@ -102,8 +102,6 @@ func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *da
 			path = filepath.Clean(arg.Content)
 		default:
 			{
-				log.Println("[%s] Unrecognized argument with the ID '%s' on the "+
-					"action WriteTextFile\n", parentTaskID, arg.ID)
 				return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
 			}
 		}
@@ -135,7 +133,7 @@ func writeTextFileAction(previousResult *actions.ChainedResult, parentAction *da
 		return false, &actions.ChainedResult{}, err
 	}
 
-	log.Printf("[%s] File written by the action WriteTextFile. Bytes written: %d\n", parentTaskID, bytesWritten)
+	log.Info().Str("taskID", parentTaskID).Msgf("File written by the action WriteTextFile. Bytes written: %d", bytesWritten)
 
 	return true, &actions.ChainedResult{Result: fullpath, ResultType: types.Path}, nil
 }

@@ -1,7 +1,6 @@
 package models
 
 import (
-	"log"
 	"time"
 
 	"github.com/Pegasus8/piworker/core/data"
@@ -55,15 +54,12 @@ func byDateTrigger(args *[]data.UserArg, parentTaskID string) (result bool, err 
 
 		default:
 			{
-				log.Printf("[%s] Unrecognized argument with the ID '%s' on the "+
-					"trigger ByDate\n", parentTaskID, arg.ID)
 				return false, ErrUnrecognizedArgID
 			}
 		}
 	}
 
 	if time.Now().Format("02/01/2006") == date.Format("02/01/2006") {
-		log.Printf("[%s] Date matched, trigger launched\n", parentTaskID)
 		return true, nil
 	}
 

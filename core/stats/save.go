@@ -2,17 +2,17 @@ package stats
 
 import (
 	"database/sql"
-	"log"
 	"os"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite3 package
+	"github.com/rs/zerolog/log"
 )
 
 func init() {
 	// Create statistics path if not exists
 	err := os.MkdirAll(StatisticsPath, os.ModePerm)
 	if err != nil {
-		log.Panicln(err)
+		log.Fatal().Err(err).Str("path", StatisticsPath).Msg("Cannot initialize the directory to store statistics")
 	}
 }
 
