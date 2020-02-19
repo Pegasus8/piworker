@@ -10,7 +10,7 @@ import (
 
 func init() {
 	// Create statistics path if not exists
-	err := os.MkdirAll(SatisticsPath, os.ModePerm)
+	err := os.MkdirAll(StatisticsPath, os.ModePerm)
 	if err != nil {
 		log.Panicln(err)
 	}

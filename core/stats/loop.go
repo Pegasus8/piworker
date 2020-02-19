@@ -13,8 +13,9 @@ import (
 func StartLoop(statsChannel chan Statistic, dataChannel chan data.UserData) {
 	log.Println("Preparing to start stats loop...")
 
-	log.Println("Preparing database...")
-	db, err := InitDB(filepath.Join(SatisticsPath, DatabaseName))
+	log.Info().Msg("Preparing database...")
+	path := filepath.Join(StatisticsPath, DatabaseName)
+	db, err := InitDB(path)
 	if err != nil {
 		log.Panicln(err)
 	}
