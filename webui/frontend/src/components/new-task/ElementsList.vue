@@ -33,8 +33,21 @@
                 <v-expansion-panel v-for="arg in userElement.args" :key="arg.ID">
                   <v-expansion-panel-header
                     :disable-icon-rotate='userElement.argumentToReplaceByCR === arg.ID'
+                    v-slot='{ open }'
                   >
                     {{ arg.name }}
+                    <v-fade-transition leave-absolute>
+                      <span
+                        v-if="
+                          !open &&
+                          cardTitle === 'Actions' &&
+                          userElement.order !== 0 &&
+                          userElementsComputed[index - 1].returnedChainResultType === arg.contentType
+                        "
+                        style='font-size: 8px;'
+                        class="mx-2"
+                      >&#x25CF;</span>
+                    </v-fade-transition>
                     <template
                       v-if='userElement.argumentToReplaceByCR === arg.ID'
                       v-slot:actions
@@ -42,7 +55,9 @@
                       <v-icon color="blue darken-2">mdi-link-box-variant</v-icon>
                     </template>
                   </v-expansion-panel-header>
-                  <v-expansion-panel-content class="text--secondary text--darken-2">
+                  <v-expansion-panel-content
+                    class="text--secondary"
+                  >
                     {{ arg.description }}
                     <app-adaptative-arg
                       :content='arg.content'
@@ -54,29 +69,41 @@
                       v-if='userElement.order !== 0 && cardTitle === "Actions"'
                       class="d-flex flex-row-reverse"
                     >
-                      <v-btn
-                        v-if="userElement.argumentToReplaceByCR !== arg.ID"
-                        @click='setArgChained(userElement, arg.ID)'
-                        text
-                        icon
-                      >
-                        <v-icon>mdi-link-variant</v-icon>
-                      </v-btn>
-                      <v-btn
-                        v-else
-                        color='red lighten-1'
-                        @click='removeArgChained(userElement)'
-                        text
-                        icon
-                      >
-                        <v-icon>mdi-link-variant-off</v-icon>
-                      </v-btn>
+                      <div v-if='userElementsComputed[index - 1].returnedChainResultType === arg.contentType'>
+                        <v-btn
+                          v-if="userElement.argumentToReplaceByCR !== arg.ID"
+                          color='blue lighten-1'
+                          @click='setArgChained(userElement, arg.ID)'
+                          icon
+                        >
+                          <v-icon>mdi-link-variant</v-icon>
+                        </v-btn>
+                        <v-btn
+                          v-else
+                          color='red lighten-1'
+                          @click='removeArgChained(userElement)'
+                          icon
+                        >
+                          <v-icon>mdi-link-variant-off</v-icon>
+                        </v-btn>
+                      </div>
+                      <div v-else>
+                        <v-tooltip left>
+                          <template v-slot:activator="{ on }">
+                            <v-icon v-on="on" color='red lighten-1'>mdi-shield-link-variant</v-icon>
+                          </template>
+                          <span>This argument is not compatible with the previous result.</span>
+                        </v-tooltip>
+                      </div>
                     </div>
                   </v-expansion-panel-content>
                 </v-expansion-panel>
               </v-expansion-panels>
             </v-card-text>
             <v-card-actions>
+              <div v-if="cardTitle === 'Actions'" class="text--secondary caption font-weight-light">
+                Returned type: {{ userElement.returnedChainResultType }}
+              </div>
               <v-spacer/>
               <v-btn
                 color='red lighten-1'
