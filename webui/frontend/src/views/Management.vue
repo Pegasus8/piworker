@@ -111,6 +111,12 @@ export default {
     // This need to be executed always because the user can create a task and later come here to
     // modify it, so, if the value is cached and no updated anymore, the new tasks won't be appear here.
     this.$store.dispatch('userTasks/fetchUserTasks')
+  },
+  mounted () {
+    this.$root.$on('taskUpdated', () => {
+      this.$store.dispatch('userTasks/fetchUserTasks')
+      this.onDialogDismiss()
+    })
   }
 }
 </script>
