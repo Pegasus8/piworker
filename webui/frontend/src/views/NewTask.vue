@@ -173,31 +173,26 @@ export default {
     submitTask () {
       this.submitted = true
       console.info('Submitting a new task to the API...')
-      this.$store.dispatch('newTask/submitData')
-        .then((response) => {
-          if (response.data.successful) {
-            // Show a success alert
-            this.alert = true
-            this.alertVariant = 'success'
-            this.responseContent = 'Data submitted correctly!'
-            this.clearFields()
-            setTimeout(() => {
-              this.alert = false
-              this.responseContent = ''
-              if (!this.$route.query.task) {
-                this.$router.replace({ name: 'statistics' })
-              } else {
-                this.$router.replace({ name: 'management' })
-              }
-            }, 2000)
-          } else {
-            // Show an error alert, showing the message received (response.data.error)
-            this.alert = true
-            this.alertVariant = 'error'
-            this.responseContent = response.data.error
-          }
-          // Change the submitted variable only when the response is received
-          this.submitted = false
+
+      this.$store.dispatch(
+        this.$route.query.id ? 'newTask/updateTask' : 'newTask/submitTask',
+        this.$route.query.id
+      )
+        .then((_response) => {
+          // Show a success alert
+          this.alert = true
+          this.alertVariant = 'success'
+          this.responseContent = this.$route.query.id ? 'Data updated correctly!' : 'Data submitted correctly!'
+          this.clearFields()
+          setTimeout(() => {
+            this.alert = false
+            this.responseContent = ''
+            if (!this.$route.query.id) {
+              this.$router.replace({ name: 'statistics' })
+            } else {
+              this.$root.$emit('taskUpdated')
+            }
+          }, 2000)
         })
         .catch((err) => {
           this.alert = true
