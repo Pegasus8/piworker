@@ -244,8 +244,6 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	var response postResponse
 	var task data.UserTask
 	var tasksOnDB *data.UserData
 
@@ -259,9 +257,8 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 			Str("api", "newTask").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Error when trying to read the data received")
-		response.Successful = false
-		response.Error = err.Error()
-		goto response1
+		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 
 	err = json.Unmarshal(body, &task)
@@ -271,9 +268,8 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 			Str("api", "newTask").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Error when trying to unmarshal the data received")
-		response.Successful = false
-		response.Error = err.Error()
-		goto response1
+		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 
 	// Read the data to see if the taskname already exists
@@ -284,9 +280,8 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 			Str("api", "newTask").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Cannot read the tasks from the user data file")
-		response.Successful = false
-		response.Error = err.Error()
-		goto response1
+		w.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 	if _, _, err = tasksOnDB.GetTaskByName(task.TaskInfo.Name); err != nil {
 		if err != data.ErrBadTaskName {
@@ -295,17 +290,16 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 				Str("api", "newTask").
 				Str("remoteAddr", request.RemoteAddr).
 				Msg("Error when trying to check if the name of the new task exists")
-			response.Successful = false
-			response.Error = err.Error()
-			goto response1
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 		// If the error is data.ErrBadTaskName means that the task doesn't
 		// exists.
 	} else {
 		// If there is no error the name already exists.
-		response.Successful = false
-		response.Error = "The name of the task already exists"
-		goto response1
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintln(w, "The name of the task already exists")
+		return
 	}
 
 	task.TaskInfo.Created = time.Now()
@@ -318,16 +312,9 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 			Str("api", "newTask").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Error when trying to create a new task")
-		response.Successful = false
-		response.Error = err.Error()
-		goto response1
+		w.WriteHeader(http.StatusInternalServerError)
 	}
-
-	response.Successful = true
-
-response1:
-
-	json.NewEncoder(w).Encode(response)
+	w.WriteHeader(http.StatusOK)
 }
 
 func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
