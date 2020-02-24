@@ -57,7 +57,7 @@ const mutations = {
 }
 
 const actions = {
-  submitData: ({ state }) => {
+  submitTask: ({ state }) => {
     return new Promise((resolve, reject) => {
       const newTaskData = {
         task: {
