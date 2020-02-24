@@ -317,14 +317,25 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	w.WriteHeader(http.StatusOK)
 }
 
-func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
-	if request.Method != "POST" {
+func updateTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PUT
+	if request.Method != "PUT" {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	var response postResponse
+	// w.Header().Set("Content-Type", "application/json")
+	keys, ok := request.URL.Query()["id"]
+	if !ok || len(keys[0]) < 1 {
+		log.Error().
+			Err(errors.New("Url Param 'id' is missing")).
+			Str("api", "updateTask").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Rejecting request because absence of 'id' param")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	taskID := keys[0]
+
 	var task data.UserTask
 
 	// Uncomment to enable CORS support.
@@ -334,45 +345,38 @@ func modifyTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PO
 	if err != nil {
 		log.Error().
 			Err(err).
-			Str("api", "modifyTask").
+			Str("api", "updateTask").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Error when trying to read the data received")
-		response.Successful = false
-		response.Error = err.Error()
-		goto response1
+		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 
 	err = json.Unmarshal(body, &task)
 	if err != nil {
 		log.Error().
 			Err(err).
-			Str("api", "modifyTask").
+			Str("api", "updateTask").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Error when trying to unmarshal the data received")
-		response.Successful = false
-		response.Error = err.Error()
-		goto response1
+		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 
 	task.TaskInfo.LastTimeModified = time.Now()
 
-	err = data.UpdateTask(task.TaskInfo.ID, &task)
+	err = data.UpdateTask(taskID, &task)
 	if err != nil {
 		log.Error().
 			Err(err).
-			Str("api", "login").
+			Str("api", "updateTask").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("")
-		response.Successful = false
-		response.Error = err.Error()
-		goto response1
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, err.Error())
+		return
 	}
-
-	response.Successful = true
-
-response1:
-
-	json.NewEncoder(w).Encode(response)
+	w.WriteHeader(http.StatusOK)
 }
 
 func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: DELETE
