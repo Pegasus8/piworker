@@ -60,7 +60,7 @@ func setupRoutes() {
 		router.Handle("/api/tasks/new", auth.IsAuthorized(newTaskAPI)).Methods("POST")
 	}
 	if apiConfigs.EditTaskAPI {
-		router.Handle("/api/tasks/modify", auth.IsAuthorized(modifyTaskAPI)).Methods("POST")
+		router.Handle("/api/tasks/update", auth.IsAuthorized(updateTaskAPI)).Methods("PUT")
 	}
 	if apiConfigs.DeleteTaskAPI {
 		router.Handle("/api/tasks/delete", auth.IsAuthorized(deleteTaskAPI)).Methods("DELETE")
