@@ -23,6 +23,7 @@ func UpdateTask(ID string, updatedTask *UserTask) error {
 
 	// Set the same ID
 	updatedTask.TaskInfo.ID = data.Tasks[index].TaskInfo.ID
+	updatedTask.TaskInfo.Created = data.Tasks[index].TaskInfo.Created
 
 	log.Printf("Task with ID '%s' found, updating data...\n", ID)
 	data.Tasks[index] = *updatedTask
