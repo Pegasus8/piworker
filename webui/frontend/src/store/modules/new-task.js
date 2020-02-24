@@ -80,6 +80,32 @@ const actions = {
           reject(err)
         })
     })
+  },
+  updateTask: ({ state }, taskID) => {
+    return new Promise((resolve, reject) => {
+      const configs = {
+        params: {
+          id: taskID
+        }
+      }
+      const updatedTaskData = {
+        task: {
+          name: state.taskname,
+          state: state.taskState ? 'Active' : 'Inactive',
+          // Only send one trigger. This is because, for now, multi-triggers are not supported.
+          trigger: state.triggerSelected[0],
+          actions: state.actionsSelected
+        }
+      }
+
+      axios.put('/api/tasks/update', updatedTaskData, configs)
+        .then((response) => {
+          resolve(response)
+        })
+        .catch((err) => {
+          reject(err)
+        })
+    })
   }
 }
 
