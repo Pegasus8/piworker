@@ -1,9 +1,12 @@
 package main
 
 import (
-	// "log"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
+
+	"github.com/Pegasus8/piworker/core/signals"
 
 	"github.com/Pegasus8/piworker/core/configs"
 	"github.com/Pegasus8/piworker/core/data"
@@ -11,9 +14,9 @@ import (
 	"github.com/Pegasus8/piworker/core/logs"
 	"github.com/Pegasus8/piworker/core/uservariables"
 	"github.com/Pegasus8/piworker/utilities/files"
-	"gopkg.in/natefinch/lumberjack.v2"
 	"github.com/rs/zerolog"
-    "github.com/rs/zerolog/log"
+	"github.com/rs/zerolog/log"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 func main() {
@@ -31,6 +34,9 @@ func start() {
 	log.Info().Msg("Starting PiWorker...")
 	// Set user data filename
 	data.Filename = "user_data.json" //TODO: assign the name dinamically
+
+	signals.Shutdown = make(chan os.Signal)
+	signal.Notify(signals.Shutdown, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 
 	err := initConfigs()
 	if err != nil {
