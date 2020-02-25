@@ -1,8 +1,11 @@
 package main
 
 import (
-	"log"
+	"fmt"
+	"syscall"
 	"os"
+
+	"github.com/Pegasus8/piworker/core/signals"
 
 	"github.com/kardianos/service"
 )
@@ -19,7 +22,9 @@ func (p *program) run() {
 }
 
 func (p *program) Stop(s service.Service) error {
-	// TODO Channel to send stop signal
+	if signals.Shutdown != nil {
+		signals.Shutdown <- syscall.SIGINT
+	}
 	return nil
 }
 
