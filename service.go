@@ -31,7 +31,8 @@ func (p *program) Stop(s service.Service) error {
 func manageService(action string) {
 	wd, err := os.Getwd()
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println(err.Error())
+		os.Exit(1)
 	}
 
 	serviceConfigs := &service.Config{
@@ -43,7 +44,8 @@ func manageService(action string) {
 	p := &program{}
 	pwService, err := service.New(p, serviceConfigs)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println("Error when trying to create a new instance of Service:", err.Error())
+		os.Exit(1)
 	}
 
 	switch action {
@@ -51,54 +53,58 @@ func manageService(action string) {
 		{
 			err = pwService.Install()
 			if err != nil {
-				log.Fatalln("Error when trying to install the service:", err.Error())
+				fmt.Println("Error when trying to install the service:", err.Error())
+				os.Exit(1)
 			}
-			log.Println("Service installed correctly!")
+			fmt.Println("Service installed correctly!")
 		}
 	case "delete":
 		{
 			err = pwService.Uninstall()
 			if err != nil {
-				log.Fatalln("Error when trying to delete the service:", err.Error())
+				fmt.Println("Error when trying to delete the service:", err.Error())
+				os.Exit(1)
 			}
-			log.Println("Service deleted correctly!")
+			fmt.Println("Service deleted correctly!")
 		}
 	case "start":
 		{
 			err = pwService.Start()
 			if err != nil {
-				log.Fatalln("Error when trying to start the service:", err.Error())
+				fmt.Println("Error when trying to start the service:", err.Error())
+				os.Exit(1)
 			}
-			log.Println("Service started successfully!")
+			fmt.Println("Service started successfully!")
 		}
 	case "stop":
 		{
 			err := pwService.Stop()
 			if err != nil {
-				log.Fatalln("Error when trying to stop the service:", err.Error())
+				fmt.Println("Error when trying to stop the service:", err.Error())
+				os.Exit(1)
 			}
-			log.Println("Service stopped successfully!")
+			fmt.Println("Service stopped successfully!")
 		}
 	case "status":
 		{
 			status, err := pwService.Status()
 			if err != nil {
-				log.Fatalln("Error when trying to get the status of the service:", err.Error())
+				fmt.Println("Error when trying to get the status of the service:", err.Error())
+				os.Exit(1)
 			}
 			switch status {
 			case service.StatusRunning:
-				log.Println("Service status: Running")
+				fmt.Println("Service status: Running")
 			case service.StatusStopped:
-				log.Println("Service status: Stopped")
+				fmt.Println("Service status: Stopped")
 			case service.StatusUnknown:
 				// From kardianos/service documentation.
-				log.Printf("Service status: Unknown\nStatus is unable to be determined due to an error or it was not installed.\n")
-
+				fmt.Printf("Service status: Unknown\nStatus is unable to be determined due to an error or because it was not installed.\n")
 			}
 		}
 	default:
 		{
-			log.Printf("Unrecognized action '%s'\n", action)
+			fmt.Printf("Unrecognized action '%s'\n", action)
 			os.Exit(1)
 		}
 	}
