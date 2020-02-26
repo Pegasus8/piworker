@@ -1,13 +1,15 @@
 package auth
 
 import (
-	jwt "github.com/dgrijalva/jwt-go"
 	"time"
+
+	jwt "github.com/dgrijalva/jwt-go"
 )
 
 // CustomClaims is the struct used to parse the claims from the JWT token
 type CustomClaims struct {
-	User string `json:"user"`
+	User  string `json:"user"`
+	Admin bool   `json:"admin"`
 	jwt.StandardClaims
 }
 
