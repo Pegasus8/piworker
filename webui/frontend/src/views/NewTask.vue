@@ -104,7 +104,7 @@
 <script>
 import ElementSelector from '../components/new-task/ElementSelector.vue'
 import ElementsList from '../components/new-task/ElementsList.vue'
-import { mapMutations, mapGetters } from 'vuex'
+import { mapGetters, mapMutations, mapActions } from 'vuex'
 
 export default {
   data () {
@@ -153,12 +153,14 @@ export default {
   methods: {
     ...mapMutations('newTask', [
       'setTaskname',
-      'setTaskState',
+      'setTaskState'
+    ]),
+    ...mapActions('newTask', [
       'setTrigger',
       'removeTrigger',
+      'setActions',
       'addAction',
       'removeAction',
-      'setActions',
       'updateActionsOrder'
     ]),
     clearFields () {
