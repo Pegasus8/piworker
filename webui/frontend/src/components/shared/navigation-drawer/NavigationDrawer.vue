@@ -12,7 +12,7 @@
 
       <v-list-item-content>
         <v-list-item-title class="title">{{ user }}</v-list-item-title>
-        <v-list-item-subtitle v-if="admin" class="font-weight-bold">Admin</v-list-item-subtitle>
+        <v-list-item-subtitle v-if="isAdmin" class="font-weight-bold">Admin</v-list-item-subtitle>
       </v-list-item-content>
     </v-list-item>
 
@@ -71,11 +71,6 @@
 import { mapGetters } from 'vuex'
 
 export default {
-  data () {
-    return {
-      admin: true // TODO Get from API
-    }
-  },
   props: {
     expanded: {
       required: true,
@@ -84,7 +79,8 @@ export default {
   },
   computed: {
     ...mapGetters('auth', [
-      'user'
+      'user',
+      'isAdmin'
     ]),
     expandNavDrawer: {
       get () {
