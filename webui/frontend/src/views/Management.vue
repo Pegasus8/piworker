@@ -51,6 +51,7 @@
         </v-expansion-panels>
 
       </v-col>
+    </v-row>
 
     <v-dialog v-model="showDialog" max-width='1000px' @click:outside='onDialogDismiss' scrollable>
       <router-view/>
