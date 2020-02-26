@@ -33,21 +33,23 @@
                 <v-expansion-panel v-for="arg in userElement.args" :key="arg.ID">
                   <v-expansion-panel-header
                     :disable-icon-rotate='userElement.argumentToReplaceByCR === arg.ID'
-                    v-slot='{ open }'
                   >
-                    {{ arg.name }}
-                    <v-fade-transition leave-absolute>
-                      <span
-                        v-if="
-                          !open &&
-                          cardTitle === 'Actions' &&
-                          userElement.order !== 0 &&
-                          userElementsComputed[index - 1].returnedChainResultType === arg.contentType
-                        "
-                        style='font-size: 8px;'
-                        class="mx-2"
-                      >&#x25CF;</span>
-                    </v-fade-transition>
+                    <template v-slot='{ open }'>
+                      {{ arg.name }}
+                      <v-fade-transition leave-absolute>
+                        <span
+                          v-if="
+                            !open &&
+                            cardTitle === 'Actions' &&
+                            userElement.order !== 0 &&
+                            userElementsComputed[index - 1].returnedChainResultType === arg.contentType
+                          "
+                          style='font-size: 8px;'
+                          class="mx-2"
+                        >&#x25CF;</span>
+                      </v-fade-transition>
+                    </template>
+
                     <template
                       v-if='userElement.argumentToReplaceByCR === arg.ID'
                       v-slot:actions
