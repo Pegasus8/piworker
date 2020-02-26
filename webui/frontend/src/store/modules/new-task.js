@@ -57,6 +57,24 @@ const mutations = {
 }
 
 const actions = {
+  setTrigger: ({ commit }, trigger) => {
+    commit('setTrigger', trigger)
+  },
+  removeTrigger: ({ commit }, triggerIndex) => {
+    commit('removeTrigger', triggerIndex)
+  },
+  setActions: ({ commit }, actions) => {
+    commit('setActions', actions)
+  },
+  addAction: ({ commit }, action) => {
+    commit('addAction', action)
+  },
+  removeAction: ({ commit }, actionIndex) => {
+    commit('removeAction', actionIndex)
+  },
+  updateActionsOrder: ({ commit }) => {
+    commit('updateActionsOrder')
+  },
   submitTask: ({ state }) => {
     return new Promise((resolve, reject) => {
       const newTaskData = {
