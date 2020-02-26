@@ -1,8 +1,8 @@
 package backend
 
 import (
-	"errors"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Pegasus8/piworker/core/types"
 	"github.com/Pegasus8/piworker/core/configs"
 	"github.com/Pegasus8/piworker/core/data"
 	actionsList "github.com/Pegasus8/piworker/core/elements/actions/models"
 	triggersList "github.com/Pegasus8/piworker/core/elements/triggers/models"
 	pwLogs "github.com/Pegasus8/piworker/core/logs"
 	"github.com/Pegasus8/piworker/core/stats"
+	"github.com/Pegasus8/piworker/core/types"
 	"github.com/Pegasus8/piworker/webui/backend/auth"
 	"github.com/Pegasus8/piworker/webui/backend/websocket"
 
@@ -155,9 +155,9 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 
 	w.Header().Set("Content-Type", "application/json")
 	var response struct {
-		Successful bool   `json:"successful"`
-		Token      string `json:"token"`
-		ExpiresAt  int64  `json:"expiresAt"`
+		Token     string `json:"token"`
+		ExpiresAt int64  `json:"expiresAt"`
+		Admin     bool   `json:"admin"`
 	}
 	var user = struct {
 		Username string `json:"username"`
@@ -174,8 +174,8 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 			Str("api", "login").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Error when trying to read the data received")
-		response.Successful = false
-		goto response1
+		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 
 	err = json.Unmarshal(body, &user)
@@ -185,18 +185,19 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 			Str("api", "login").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Error when trying to unmarshal the data received")
-		response.Successful = false
-		goto response1
+		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 
-	if ok := configs.AuthUser(user.Username, user.Password); ok {
+	if u, ok := configs.AuthUser(user.Username, user.Password); ok {
 		configs.CurrentConfigs.RLock()
 		duration := configs.CurrentConfigs.APIConfigs.TokenDuration
 		configs.CurrentConfigs.RUnlock()
 		expiresAt := time.Now().Add(time.Hour * time.Duration(duration))
 		token, err := auth.NewJWT(
 			auth.CustomClaims{
-				User:           user.Username,
+				User:           u.Username,
+				Admin:          u.Admin,
 				StandardClaims: jwt.StandardClaims{ExpiresAt: expiresAt.Unix()},
 			},
 		)
@@ -206,12 +207,12 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 				Str("api", "login").
 				Str("remoteAddr", request.RemoteAddr).
 				Msg("")
-			response.Successful = false
-			goto response1
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
-		response.Successful = true
 		response.Token = token
 		response.ExpiresAt = expiresAt.Unix()
+		response.Admin = u.Admin
 
 		now := time.Now()
 		err = auth.StoreToken(
@@ -232,8 +233,6 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 				Msg("")
 		}
 	}
-
-response1:
 
 	json.NewEncoder(w).Encode(response)
 }
@@ -481,7 +480,7 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 			ID                    string        `json:"ID"`
 			Timestamp             string        `json:"timestamp"`
 			Args                  []argForWebUI `json:"args"`
-			Order                 int8           `json:"order"`
+			Order                 int8          `json:"order"`
 			Chained               bool          `json:"chained"`
 			ArgumentToReplaceByCR string        `json:"argumentToReplaceByCR"`
 		}
