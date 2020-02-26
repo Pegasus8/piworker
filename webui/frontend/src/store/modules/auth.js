@@ -4,13 +4,15 @@ import router from '../../router'
 const state = {
   tokenID: null,
   userID: null,
-  user: null
+  user: null,
+  admin: false
 }
 
 const mutations = {
   authUser: (state, userData) => {
     state.tokenID = userData.token
     state.userID = userData.userID
+    state.admin = userData.admin
   },
   storeUser: (state, user) => {
     state.user = user
@@ -19,6 +21,7 @@ const mutations = {
     state.tokenID = null
     state.userID = null
     state.user = null
+    state.admin = false
   }
 }
 
@@ -37,6 +40,7 @@ const actions = {
     localStorage.removeItem('token')
     localStorage.removeItem('userID')
     localStorage.removeItem('expirationTime')
+    localStorage.removeItem('admin')
     router.replace('/login')
   },
   tryAutologin: ({ commit }) => {
@@ -57,9 +61,11 @@ const actions = {
     // Token still valid
     const userID = localStorage.getItem('userID')
     console.info('User found on the local storage, saving changes on vuex')
+    const admin = localStorage.getItem('admin')
     commit('authUser', {
       token,
-      userID
+      userID,
+      admin: admin === 'true'
     })
     console.info('Auth info commited on vuex')
 
@@ -74,7 +80,8 @@ const actions = {
         password: authData.password
       })
         .then((response) => {
-          if (!response.data.successful) {
+          console.log(response)
+          if (response.data.token === '') {
             console.warn('Server rejected username or password')
             resolve({ successful: false })
             return
@@ -87,14 +94,16 @@ const actions = {
           localStorage.setItem('token', response.data.token)
           localStorage.setItem('userID', authData.user)
           localStorage.setItem('expirationTime', expirationDate)
+          localStorage.setItem('admin', response.data.admin)
           console.info('Auth info saved on local storage')
 
-          console.info('Commiting auth info on vuex')
+          console.info('Committing auth info on vuex')
           commit('authUser', {
             tokenID: response.data.token,
-            userID: authData.user
+            userID: authData.user,
+            admin: response.data.admin
           })
-          console.info('Auth info commited, setting a logout timer...')
+          console.info('Auth info committed, setting a logout timer...')
           dispatch('setLogoutTimer', response.data.expiresAt)
           console.info('Logout timer setted')
 
@@ -118,6 +127,9 @@ const getters = {
   },
   isAuthenticated: (state) => {
     return state.tokenID !== null
+  },
+  isAdmin: (state) => {
+    return state.admin
   }
 }
 
