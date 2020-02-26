@@ -63,6 +63,7 @@
 
 <script>
 import anime from 'animejs'
+import { mapGetters } from 'vuex'
 
 export default {
   data () {
@@ -73,15 +74,11 @@ export default {
     }
   },
   computed: {
-    activeTasksCounter () {
-      return this.$store.getters['statistics/activeTasksCounter']
-    },
-    onExecutionTasksCounter () {
-      return this.$store.getters['statistics/onExecutionTasksCounter']
-    },
-    inactiveTasksCounter () {
-      return this.$store.getters['statistics/inactiveTasksCounter']
-    }
+    ...mapGetters('statistics', [
+      'activeTasksCounter',
+      'onExecutionTasksCounter',
+      'inactiveTasksCounter'
+    ])
   },
   watch: {
     activeTasksCounter: function (newValue) {

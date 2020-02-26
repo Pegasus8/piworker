@@ -2,7 +2,7 @@
   <v-app-bar elevate-on-scroll dark dense app>
     <v-fade-transition>
       <v-app-bar-nav-icon
-        v-show="$store.getters['auth/isAuthenticated']"
+        v-show="isAuthenticated"
         @click.stop="expandNavDrawer"
       />
     </v-fade-transition>
@@ -15,7 +15,7 @@
       >
         <template v-slot:activator="{ on }">
           <v-fade-transition>
-            <v-btn icon v-on="on" v-show="$store.getters['auth/isAuthenticated']">
+            <v-btn icon v-on="on" v-show="isAuthenticated">
               <v-icon>mdi-dots-vertical</v-icon>
             </v-btn>
           </v-fade-transition>
@@ -23,7 +23,7 @@
         <v-list>
           <v-list-item
             :key="$uuid.v4()"
-            @click="$store.dispatch('auth/logout')"
+            @click="logout"
           >
             <v-list-item-title>Logout</v-list-item-title>
           </v-list-item>
@@ -33,8 +33,18 @@
 </template>
 
 <script>
+import { mapGetters, mapActions } from 'vuex'
+
 export default {
+  computed: {
+    ...mapGetters('auth', [
+      'isAuthenticated'
+    ])
+  },
   methods: {
+    ...mapActions('auth', [
+      'logout'
+    ]),
     expandNavDrawer () {
       this.$emit('expandDrawer')
     }

@@ -11,7 +11,7 @@
       </v-list-item-avatar>
 
       <v-list-item-content>
-        <v-list-item-title class="title">{{ $store.getters['auth/user'] }}</v-list-item-title>
+        <v-list-item-title class="title">{{ user }}</v-list-item-title>
         <v-list-item-subtitle v-if="admin" class="font-weight-bold">Admin</v-list-item-subtitle>
       </v-list-item-content>
     </v-list-item>
@@ -53,7 +53,7 @@
 
       <v-divider/>
 
-      <v-list-item :to="{name: 'new-task'}" @click="expandNavDrawer = false" class="view-item ">
+      <v-list-item :to="{ name: 'new-task' }" @click="expandNavDrawer = false" class="view-item ">
         <v-list-item-icon>
           <v-icon>mdi-plus-box</v-icon>
         </v-list-item-icon>
@@ -68,6 +68,8 @@
   </v-navigation-drawer>
 </template>
 <script>
+import { mapGetters } from 'vuex'
+
 export default {
   data () {
     return {
@@ -81,6 +83,9 @@ export default {
     }
   },
   computed: {
+    ...mapGetters('auth', [
+      'user'
+    ]),
     expandNavDrawer: {
       get () {
         return this.expanded
