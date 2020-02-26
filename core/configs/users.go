@@ -56,19 +56,19 @@ func DeleteUser(username string) error {
 }
 
 // AuthUser is used to authenticate a user.
-func AuthUser(username, password string) (authenticated bool) {
+func AuthUser(username, password string) (user User, authenticated bool) {
 	CurrentConfigs.RLock()
 	defer CurrentConfigs.RUnlock()
 	for _, user := range CurrentConfigs.Users {
 		if user.Username == username {
 			err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
 			if err != nil {
-				return false
+				return User{}, false
 			}
-			return true
+			return user, true
 		}
 	}
-	return false
+	return User{}, false
 }
 
 // ChangeUserPassword is a function used to change the password of a user.
