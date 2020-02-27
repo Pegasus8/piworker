@@ -45,18 +45,20 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 		}
 		configs.CurrentConfigs.RUnlock()
 
-		if r.Header["Token"] != nil {
+		if r.Header["Authorization"] != nil {
 
 			// Prevents panic if an empty string is sended as token.
-			if r.Header["Token"][0] == "" {
+			if r.Header["Authorization"][0] == "" {
 				log.Warn().
 					Str("remoteAddr", r.RemoteAddr).
-					Msg("The client has tried to use an empty string as token. Rejected.")
+					Msg("Empty 'Authorization' header. Rejected.")
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
 
-			token, err := jwt.ParseWithClaims(r.Header["Token"][0], &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+			authHeader := strings.Replace(r.Header["Authorization"][0], "Bearer ", "", 1)
+
+			token, err := jwt.ParseWithClaims(authHeader, &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
 				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 					return nil, fmt.Errorf("The token is using an incorrect signing method")
 				}
