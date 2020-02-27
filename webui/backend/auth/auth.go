@@ -18,13 +18,14 @@ var signingKey []byte
 // NewJWT is a function to generate a new JWT tokken
 func NewJWT(claim CustomClaims) (jwtToken string, err error) {
 	token := jwt.New(jwt.SigningMethodHS256)
-	claims := token.Claims.(jwt.MapClaims)
+	// claims := token.Claims.(jwt.MapClaims)
 
-	claims["user"] = claim.User
-	claims["exp"] = claim.StandardClaims.ExpiresAt
+	// claims["user"] = claim.User
+	// claims["exp"] = claim.StandardClaims.ExpiresAt
+
+	token.Claims = claim
 
 	tokenString, err := token.SignedString(signingKey)
-
 	if err != nil {
 		return "", err
 	}
