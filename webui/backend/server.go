@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"sort"
@@ -169,24 +168,13 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	// Uncomment to enable CORS support.
 	// setCORSHeaders(&w, request)
 
-	body, err := ioutil.ReadAll(request.Body)
+	err := json.NewDecoder(request.Body).Decode(&user)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("api", "login").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Error when trying to read the data received")
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	err = json.Unmarshal(body, &user)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("api", "login").
-			Str("remoteAddr", request.RemoteAddr).
-			Msg("Error when trying to unmarshal the data received")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -259,24 +247,13 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	// Uncomment to enable CORS support.
 	// setCORSHeaders(&w, request)
 
-	body, err := ioutil.ReadAll(request.Body)
+	err := json.NewDecoder(request.Body).Decode(&task)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("api", "newTask").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Error when trying to read the data received")
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	err = json.Unmarshal(body, &task)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("api", "newTask").
-			Str("remoteAddr", request.RemoteAddr).
-			Msg("Error when trying to unmarshal the data received")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -323,6 +300,7 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 			Msg("Error when trying to create a new task")
 		w.WriteHeader(http.StatusInternalServerError)
 	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -350,24 +328,13 @@ func updateTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PU
 	// Uncomment to enable CORS support.
 	// setCORSHeaders(&w, request)
 
-	body, err := ioutil.ReadAll(request.Body)
+	err := json.NewDecoder(request.Body).Decode(&task)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("api", "updateTask").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Error when trying to read the data received")
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	err = json.Unmarshal(body, &task)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("api", "updateTask").
-			Str("remoteAddr", request.RemoteAddr).
-			Msg("Error when trying to unmarshal the data received")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -410,8 +377,6 @@ func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: DE
 
 	// Uncomment to enable CORS support.
 	//setCORSHeaders(&w, request)
-
-	// TODO Implementation of partial delete
 
 	err := data.DeleteTask(taskID)
 	if err != nil {
@@ -658,13 +623,7 @@ func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 		}
 	}()
 
-	body, err := ioutil.ReadAll(request.Body)
-	if err != nil {
-		response.Error = err.Error()
-		goto resp
-	}
-
-	err = json.Unmarshal(body, &reqData)
+	err := json.NewDecoder(request.Body).Decode(&reqData)
 	if err != nil {
 		response.Error = err.Error()
 		goto resp
