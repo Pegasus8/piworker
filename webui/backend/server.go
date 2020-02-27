@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/Pegasus8/piworker/core/configs"
 	"github.com/Pegasus8/piworker/core/data"
 	actionsList "github.com/Pegasus8/piworker/core/elements/actions/models"
@@ -238,6 +240,8 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 				Str("remoteAddr", request.RemoteAddr).
 				Msg("")
 		}
+	} else {
+		w.WriteHeader(http.StatusUnauthorized)
 	}
 
 	json.NewEncoder(w).Encode(response)
