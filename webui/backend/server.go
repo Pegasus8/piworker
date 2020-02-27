@@ -193,12 +193,19 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 		configs.CurrentConfigs.RLock()
 		duration := configs.CurrentConfigs.APIConfigs.TokenDuration
 		configs.CurrentConfigs.RUnlock()
-		expiresAt := time.Now().Add(time.Hour * time.Duration(duration))
+		now := time.Now()
+		expiresAt := now.Add(time.Hour * time.Duration(duration))
+		tokenID := uuid.New().String()
 		token, err := auth.NewJWT(
 			auth.CustomClaims{
-				User:           u.Username,
-				Admin:          u.Admin,
-				StandardClaims: jwt.StandardClaims{ExpiresAt: expiresAt.Unix()},
+				Admin: u.Admin,
+				StandardClaims: jwt.StandardClaims{
+					Subject:   u.Username,
+					Issuer:    "PiWorker",
+					Id:        tokenID,
+					IssuedAt:  now.Unix(),
+					ExpiresAt: expiresAt.Unix(),
+				},
 			},
 		)
 		if err != nil {
@@ -214,7 +221,6 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 		response.ExpiresAt = expiresAt.Unix()
 		response.Admin = u.Admin
 
-		now := time.Now()
 		err = auth.StoreToken(
 			auth.UserInfo{
 				ID:               0, // Not necessary, will be given by the sqlite database automatically.
