@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+	"strings"
 
 	// "github.com/Pegasus8/piworker/utilities/files"
 	"github.com/Pegasus8/piworker/core/configs"
@@ -81,25 +82,26 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 				claims := token.Claims.(*CustomClaims)
 				log.Info().
 					Str("remoteAddr", r.RemoteAddr).
-					Str("tokenOwner", claims.User).
+					Str("tokenOwner", claims.Subject).
 					Msg("Token used")
-
-				log.Printf("Token valid, checking on database...")
-				userAuthInfo, err := ReadLastToken(claims.User)
+				
+				userAuthInfo, err := ReadLastToken(claims.Subject)
 				if err != nil {
 					log.Error().
 						Err(err).
-						Str("tokenOwner", claims.User).
+						Str("tokenOwner", claims.Subject).
 						Str("remoteAddr", r.RemoteAddr).
 						Msg("Cannot check the authenticity of the token")
 					w.WriteHeader(http.StatusInternalServerError)
 					fmt.Fprintf(w, "Error on the database, cannot check the authenticity of the token.")
 					return
 				}
-				if userAuthInfo.Token != token.Raw {
+				if userAuthInfo.TokenID != claims.Id {
 					str := "The token used is not the same as the last one registered in the database."
 					log.Warn().
-						Str("tokenOwner", claims.User).
+						Str("tokenOwner", claims.Subject).
+						Str("receivedTokenID", claims.Id).
+						Str("expectedTokenID", userAuthInfo.TokenID).
 						Str("remoteAddr", r.RemoteAddr).
 						Msg(str)
 					w.WriteHeader(http.StatusUnauthorized)
@@ -107,7 +109,7 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 					return
 				}
 				log.Info().
-					Str("tokenOwner", claims.User).
+					Str("tokenOwner", claims.Subject).
 					Str("remoteAddr", r.RemoteAddr).
 					Msg("Token correctly checked on the database")
 
@@ -115,7 +117,7 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 				if err != nil {
 					log.Panic().
 						Err(err).
-						Str("tokenOwner", claims.User).
+						Str("tokenOwner", claims.Subject).
 						Str("remoteAddr", r.RemoteAddr).
 						Int64("id", userAuthInfo.ID).
 						Msg("Error when updating the last time used register")
