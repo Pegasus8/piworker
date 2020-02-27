@@ -225,7 +225,7 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 			auth.UserInfo{
 				ID:               0, // Not necessary, will be given by the sqlite database automatically.
 				User:             user.Username,
-				Token:            token,
+				TokenID:          tokenID,
 				ExpiresAt:        expiresAt,
 				LastTimeUsed:     now,
 				InsertedDatetime: now,
