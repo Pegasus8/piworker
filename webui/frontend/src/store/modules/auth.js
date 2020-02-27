@@ -70,7 +70,7 @@ const actions = {
     console.info('Auth info commited on vuex')
 
     console.info('Setting token header on axios')
-    axios.defaults.headers.common.Token = token
+    axios.defaults.headers.common.Authorization = 'Bearer ' + token
     console.info('Default axios header setted')
   },
   login: ({ commit, dispatch }, authData) => {
@@ -108,7 +108,7 @@ const actions = {
           console.info('Logout timer setted')
 
           console.info('Setting token header on axios')
-          axios.defaults.headers.common.Token = response.data.token
+          axios.defaults.headers.common.Authorization = 'Bearer ' + response.data.token
           console.info('Default axios header setted')
           router.replace({ name: 'statistics' })
           resolve({ successful: true })

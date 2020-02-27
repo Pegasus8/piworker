@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+	"strings"
 
 	// "github.com/Pegasus8/piworker/utilities/files"
 	"github.com/Pegasus8/piworker/core/configs"
@@ -18,13 +19,14 @@ var signingKey []byte
 // NewJWT is a function to generate a new JWT tokken
 func NewJWT(claim CustomClaims) (jwtToken string, err error) {
 	token := jwt.New(jwt.SigningMethodHS256)
-	claims := token.Claims.(jwt.MapClaims)
+	// claims := token.Claims.(jwt.MapClaims)
 
-	claims["user"] = claim.User
-	claims["exp"] = claim.StandardClaims.ExpiresAt
+	// claims["user"] = claim.User
+	// claims["exp"] = claim.StandardClaims.ExpiresAt
+
+	token.Claims = claim
 
 	tokenString, err := token.SignedString(signingKey)
-
 	if err != nil {
 		return "", err
 	}
@@ -44,18 +46,20 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 		}
 		configs.CurrentConfigs.RUnlock()
 
-		if r.Header["Token"] != nil {
+		if r.Header["Authorization"] != nil {
 
 			// Prevents panic if an empty string is sended as token.
-			if r.Header["Token"][0] == "" {
+			if r.Header["Authorization"][0] == "" {
 				log.Warn().
 					Str("remoteAddr", r.RemoteAddr).
-					Msg("The client has tried to use an empty string as token. Rejected.")
+					Msg("Empty 'Authorization' header. Rejected.")
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
 
-			token, err := jwt.ParseWithClaims(r.Header["Token"][0], &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+			authHeader := strings.Replace(r.Header["Authorization"][0], "Bearer ", "", 1)
+
+			token, err := jwt.ParseWithClaims(authHeader, &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
 				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 					return nil, fmt.Errorf("The token is using an incorrect signing method")
 				}
@@ -78,25 +82,26 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 				claims := token.Claims.(*CustomClaims)
 				log.Info().
 					Str("remoteAddr", r.RemoteAddr).
-					Str("tokenOwner", claims.User).
+					Str("tokenOwner", claims.Subject).
 					Msg("Token used")
-
-				log.Printf("Token valid, checking on database...")
-				userAuthInfo, err := ReadLastToken(claims.User)
+				
+				userAuthInfo, err := ReadLastToken(claims.Subject)
 				if err != nil {
 					log.Error().
 						Err(err).
-						Str("tokenOwner", claims.User).
+						Str("tokenOwner", claims.Subject).
 						Str("remoteAddr", r.RemoteAddr).
 						Msg("Cannot check the authenticity of the token")
 					w.WriteHeader(http.StatusInternalServerError)
 					fmt.Fprintf(w, "Error on the database, cannot check the authenticity of the token.")
 					return
 				}
-				if userAuthInfo.Token != token.Raw {
+				if userAuthInfo.TokenID != claims.Id {
 					str := "The token used is not the same as the last one registered in the database."
 					log.Warn().
-						Str("tokenOwner", claims.User).
+						Str("tokenOwner", claims.Subject).
+						Str("receivedTokenID", claims.Id).
+						Str("expectedTokenID", userAuthInfo.TokenID).
 						Str("remoteAddr", r.RemoteAddr).
 						Msg(str)
 					w.WriteHeader(http.StatusUnauthorized)
@@ -104,7 +109,7 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 					return
 				}
 				log.Info().
-					Str("tokenOwner", claims.User).
+					Str("tokenOwner", claims.Subject).
 					Str("remoteAddr", r.RemoteAddr).
 					Msg("Token correctly checked on the database")
 
@@ -112,7 +117,7 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 				if err != nil {
 					log.Panic().
 						Err(err).
-						Str("tokenOwner", claims.User).
+						Str("tokenOwner", claims.Subject).
 						Str("remoteAddr", r.RemoteAddr).
 						Int64("id", userAuthInfo.ID).
 						Msg("Error when updating the last time used register")

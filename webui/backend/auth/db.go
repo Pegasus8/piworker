@@ -67,7 +67,7 @@ func CreateTable() error {
 	CREATE TABLE IF NOT EXISTS UsersTokens(
 		ID INTEGER PRIMARY KEY AUTOINCREMENT,
 		User TEXT NOT NULL,
-		Token TEXT NOT NULL,
+		TokenID TEXT NOT NULL,
 		ExpiresAt DATETIME NOT NULL, 
 		LastTimeUsed DATETIME NOT NULL,
 		InsertedDatetime DATETIME NOT NULL
@@ -86,7 +86,7 @@ func StoreToken(authUser UserInfo) error {
 	sqlStatement := `
 	INSERT INTO UsersTokens(
 		User,
-		Token,
+		TokenID,
 		ExpiresAt,
 		LastTimeUsed,
 		InsertedDatetime
@@ -101,7 +101,7 @@ func StoreToken(authUser UserInfo) error {
 
 	stmt.Exec(
 		authUser.User,
-		authUser.Token,
+		authUser.TokenID,
 		authUser.ExpiresAt,
 		authUser.LastTimeUsed,
 		authUser.InsertedDatetime,
@@ -134,7 +134,7 @@ func ReadLastToken(user string) (UserInfo, error) {
 		err = row.Scan(
 			&result.ID,
 			&result.User,
-			&result.Token,
+			&result.TokenID,
 			&result.ExpiresAt,
 			&result.LastTimeUsed,
 			&result.InsertedDatetime,
