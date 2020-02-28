@@ -23,12 +23,9 @@ const actions = {
         fromWebUI: true
       }
     }
-    console.info('Sending request to get-all tasks API...')
     axios.get('/api/tasks/get-all', configs)
       .then((response) => {
-        console.info('Response successful, parsing tasks...')
         commit('updateTasks', response.data)
-        console.info('Tasks parsed!')
       })
       .catch((err) => {
         console.error('Error on get-all tasks API:', err)

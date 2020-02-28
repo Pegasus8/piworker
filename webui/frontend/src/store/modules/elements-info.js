@@ -18,18 +18,14 @@ const actions = {
   updateTriggersInfo: ({
     commit
   }) => {
-    console.info('Updating triggers info...')
     return new Promise((resolve, reject) => {
       axios.get('/api/webui/triggers-structs')
         .then((response) => {
-          console.info('Good response from triggers-structs API, parsing triggers...')
           const triggersStructs = response.data
           commit('setTriggers', triggersStructs)
-          console.info('Triggers info updated successfully!')
           resolve(response)
         })
         .catch((err) => {
-          console.error('Error on triggers-structs API', err)
           reject(err)
         })
     })
@@ -37,18 +33,14 @@ const actions = {
   updateActionsInfo: ({
     commit
   }) => {
-    console.info('Updating actions info...')
     return new Promise((resolve, reject) => {
       axios.get('/api/webui/actions-structs')
         .then((response) => {
-          console.info('Good response from actions-structs API, parsing actions...')
           const actionsStructs = response.data
           commit('setActions', actionsStructs)
-          console.info('Actions info updated successfully!')
           resolve(response)
         })
         .catch((err) => {
-          console.error('Error on actions-structs API', err)
           reject(err)
         })
     })

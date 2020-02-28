@@ -114,7 +114,6 @@ const actions = {
           resolve({ successful: true })
         })
         .catch((err) => {
-          console.error(err)
           reject(err)
         })
     })
