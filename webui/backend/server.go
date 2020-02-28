@@ -31,11 +31,6 @@ import (
 var statsChannel chan stats.Statistic
 var tlsSupport bool
 
-type postResponse struct {
-	Successful bool   `json:"successful"`
-	Error      string `json:"error"`
-}
-
 //
 // ──────────────────────────────────────────────────── I ──────────
 //   :::::: R O U T E S : :  :   :    :     :        :          :
@@ -155,6 +150,7 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+
 	var response struct {
 		Token     string `json:"token"`
 		ExpiresAt int64  `json:"expiresAt"`
@@ -175,7 +171,9 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 			Str("api", "login").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Error when trying to read the data received")
+
 		w.WriteHeader(http.StatusBadRequest)
+
 		return
 	}
 
@@ -204,7 +202,9 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 				Str("api", "login").
 				Str("remoteAddr", request.RemoteAddr).
 				Msg("")
+
 			w.WriteHeader(http.StatusInternalServerError)
+
 			return
 		}
 		response.Token = token
@@ -230,8 +230,11 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 		}
 	} else {
 		w.WriteHeader(http.StatusUnauthorized)
+
+		return
 	}
 
+	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(response)
 }
 
@@ -240,6 +243,8 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+
+	w.Header().Set("Content-Type", "application/json")
 
 	var task data.UserTask
 	var tasksOnDB *data.UserData
@@ -254,7 +259,9 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 			Str("api", "newTask").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Error when trying to read the data received")
+
 		w.WriteHeader(http.StatusBadRequest)
+
 		return
 	}
 
@@ -266,7 +273,9 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 			Str("api", "newTask").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Cannot read the tasks from the user data file")
+
 		w.WriteHeader(http.StatusInternalServerError)
+
 		return
 	}
 	if _, _, err = tasksOnDB.GetTaskByName(task.TaskInfo.Name); err != nil {
@@ -276,7 +285,9 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 				Str("api", "newTask").
 				Str("remoteAddr", request.RemoteAddr).
 				Msg("Error when trying to check if the name of the new task exists")
+
 			w.WriteHeader(http.StatusInternalServerError)
+
 			return
 		}
 		// If the error is data.ErrBadTaskName means that the task doesn't
@@ -284,7 +295,7 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	} else {
 		// If there is no error the name already exists.
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintln(w, "The name of the task already exists")
+
 		return
 	}
 
@@ -298,7 +309,10 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 			Str("api", "newTask").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Error when trying to create a new task")
+
 		w.WriteHeader(http.StatusInternalServerError)
+
+		return
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -310,6 +324,11 @@ func updateTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PU
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+
+	var task data.UserTask
+	var taskID string
+
 	// w.Header().Set("Content-Type", "application/json")
 	keys, ok := request.URL.Query()["id"]
 	if !ok || len(keys[0]) < 1 {
@@ -318,12 +337,12 @@ func updateTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PU
 			Str("api", "updateTask").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Rejecting request because absence of 'id' param")
+
 		w.WriteHeader(http.StatusBadRequest)
+
 		return
 	}
-	taskID := keys[0]
-
-	var task data.UserTask
+	taskID = keys[0]
 
 	// Uncomment to enable CORS support.
 	// setCORSHeaders(&w, request)
@@ -335,7 +354,9 @@ func updateTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PU
 			Str("api", "updateTask").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Error when trying to read the data received")
+
 		w.WriteHeader(http.StatusBadRequest)
+
 		return
 	}
 
@@ -348,10 +369,12 @@ func updateTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PU
 			Str("api", "updateTask").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("")
+
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, err.Error())
+
 		return
 	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -362,7 +385,9 @@ func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: DE
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	var response postResponse
+
+	var taskID string
+
 	keys, ok := request.URL.Query()["id"]
 	if !ok || len(keys[0]) < 1 {
 		log.Error().
@@ -370,10 +395,12 @@ func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: DE
 			Str("api", "deleteTask").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Rejecting request because absence of 'id' param")
+
 		w.WriteHeader(http.StatusBadRequest)
+
 		return
 	}
-	taskID := keys[0]
+	taskID = keys[0]
 
 	// Uncomment to enable CORS support.
 	//setCORSHeaders(&w, request)
@@ -386,16 +413,13 @@ func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: DE
 			Str("remoteAddr", request.RemoteAddr).
 			Str("taskID", taskID).
 			Msg("There was a problem when trying to delete the task")
-		response.Successful = false
-		response.Error = err.Error()
-		goto response1
+
+		w.WriteHeader(http.StatusInternalServerError)
+
+		return
 	}
 
-	response.Successful = true
-
-response1:
-
-	json.NewEncoder(w).Encode(response)
+	w.WriteHeader(http.StatusOK)
 }
 
 func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
@@ -403,6 +427,8 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+
+	w.Header().Set("Content-Type", "application/json")
 
 	keys, ok := request.URL.Query()["fromWebUI"]
 	if !ok || len(keys[0]) < 1 {
@@ -412,7 +438,6 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 			Msg("Url Param 'fromWebUI' is missing, sending the data without recreation")
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	userData, err := data.ReadData()
 	if err != nil {
 		log.Error().
@@ -420,18 +445,20 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 			Str("api", "getTasks").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Error when trying to read the user tasks")
+
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, err.Error())
+
 		return
 	}
 
 	// fromWebUI = true
 	if keys[0] == "true" {
+		startTime := time.Now()
+		
 		log.Info().
 			Str("api", "getTasks").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Param 'fromWebUI' detected, this little maneuver is gonna cost us 54 years...")
-		startTime := time.Now()
 
 		type argForWebUI struct {
 			Name        string       `json:"name"`
@@ -491,8 +518,8 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 					Str("remoteAddr", request.RemoteAddr).
 					Str("taskID", task.TaskInfo.ID).
 					Msg("Starting the recreation of the task")
+					
 				startTime := time.Now()
-
 				var recreatedUserTask userTaskFromWebUI
 				var recreatedTask taskForWebUI
 
@@ -668,6 +695,8 @@ func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GE
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+
+	w.WriteHeader(http.StatusNotImplemented)
 }
 
 func triggersInfoAPI(w http.ResponseWriter, request *http.Request) {
@@ -677,14 +706,16 @@ func triggersInfoAPI(w http.ResponseWriter, request *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+
 	err := json.NewEncoder(w).Encode(triggersList.TRIGGERS)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
 		log.Error().
-			Err(err).
-			Str("api", "triggersInfo").
-			Str("remoteAddr", request.RemoteAddr).
-			Msg("")
+		Err(err).
+		Str("api", "triggersInfo").
+		Str("remoteAddr", request.RemoteAddr).
+		Msg("")
+		
+		w.WriteHeader(http.StatusInternalServerError)
 	}
 }
 
@@ -695,6 +726,7 @@ func actionsInfoAPI(w http.ResponseWriter, request *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+
 	err := json.NewEncoder(w).Encode(actionsList.ACTIONS)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -703,6 +735,8 @@ func actionsInfoAPI(w http.ResponseWriter, request *http.Request) {
 			Str("api", "actionsInfo").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("")
+
+		w.WriteHeader(http.StatusInternalServerError)
 	}
 }
 
