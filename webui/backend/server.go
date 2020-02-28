@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
-	"strings"
+	// "strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,7 +16,7 @@ import (
 	"github.com/Pegasus8/piworker/core/data"
 	actionsList "github.com/Pegasus8/piworker/core/elements/actions/models"
 	triggersList "github.com/Pegasus8/piworker/core/elements/triggers/models"
-	pwLogs "github.com/Pegasus8/piworker/core/logs"
+	// pwLogs "github.com/Pegasus8/piworker/core/logs"
 	"github.com/Pegasus8/piworker/core/stats"
 	"github.com/Pegasus8/piworker/core/types"
 	"github.com/Pegasus8/piworker/webui/backend/auth"
@@ -600,9 +600,13 @@ func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 		return
 	}
 
+	w.WriteHeader(http.StatusNotImplemented)
+
+	/*
+	w.Header().Set("Content-Type", "application/json")
+
 	// TODO Use the ID of the task as a param
 
-	w.Header().Set("Content-Type", "application/json")
 	var response = struct {
 		Successful bool     `json:"successful"`
 		Error      string   `json:"error"`
@@ -656,6 +660,7 @@ func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 resp:
 
 	json.NewEncoder(w).Encode(response)
+	*/
 }
 
 func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
