@@ -8,7 +8,8 @@ const mutations = {
   updateTasks: (state, updatedTasks) => {
     state.tasks = updatedTasks
   },
-  removeTask: (state, index) => {
+  removeTask: (state, taskID) => {
+    const index = state.tasks.findIndex(t => t.task.ID === taskID)
     state.tasks.splice(index, 1)
   }
 }
@@ -33,7 +34,7 @@ const actions = {
         console.error('Error on get-all tasks API:', err)
       })
   },
-  removeUserTask: ({ commit }, taskID, taskIndex) => {
+  removeUserTask: ({ commit }, taskID) => {
     const configs = {
       params: {
         id: taskID
@@ -41,7 +42,7 @@ const actions = {
     }
     axios.delete('/api/tasks/delete', configs)
       .then(_response => {
-        commit('removeTask', taskIndex)
+        commit('removeTask', taskID)
       })
       .catch(err => {
         console.error(err)

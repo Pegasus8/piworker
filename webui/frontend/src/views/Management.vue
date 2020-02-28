@@ -6,7 +6,7 @@
 
         <v-expansion-panels inset>
 
-          <v-expansion-panel v-for="(userTask, i) in userTasks" :key="userTask.task.ID">
+          <v-expansion-panel v-for="userTask in userTasks" :key="userTask.task.ID">
             <v-expansion-panel-header>
               {{ userTask.task.name }}
             </v-expansion-panel-header>
@@ -17,7 +17,7 @@
                     <v-btn
                       class="mx-4"
                       color='red darken-2'
-                      @click="deleteTask(userTask.task.ID, i)"
+                      @click="deleteTask(userTask.task.ID)"
                       text
                       icon
                     >
@@ -95,8 +95,8 @@ export default {
       this.$router.push({ path: targetRoute, query: { id: taskID } })
       this.showDialog = true
     },
-    deleteTask (taskID, index) {
-      this.removeUserTask(taskID, index)
+    deleteTask (taskID) {
+      this.removeUserTask(taskID)
     },
     onDialogDismiss () {
       this.showDialog = false
