@@ -186,6 +186,8 @@ export default {
           this.alertVariant = 'success'
           this.responseContent = this.$route.query.id ? 'Data updated correctly!' : 'Data submitted correctly!'
           this.clearFields()
+          this.submitted = false
+
           setTimeout(() => {
             this.alert = false
             this.responseContent = ''
