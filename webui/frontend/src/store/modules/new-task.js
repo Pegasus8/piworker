@@ -28,8 +28,9 @@ const mutations = {
     // JSON.stringify && JSON.parse create a deep copy of the trigger
     state.triggerSelected = [JSON.parse(JSON.stringify(trigger))]
   },
-  removeTrigger: (state, triggerIndex) => {
-    state.triggerSelected.splice(triggerIndex, 1)
+  removeTrigger: (state, triggerInternalID) => {
+    const index = state.triggerSelected.findIndex(t => t.internalID === triggerInternalID)
+    state.triggerSelected.splice(index, 1)
   },
   setActions: (state, actions) => {
     for (const [index, action] of actions.entries()) {
@@ -46,8 +47,9 @@ const mutations = {
     // JSON.stringify && JSON.parse create a deep copy of the action
     state.actionsSelected.push(JSON.parse(JSON.stringify(action)))
   },
-  removeAction: (state, actionIndex) => {
-    state.actionsSelected.splice(actionIndex, 1)
+  removeAction: (state, actionInternalID) => {
+    const index = state.actionsSelected.findIndex(a => a.internalID === actionInternalID)
+    state.actionsSelected.splice(index, 1)
   },
   updateActionsOrder: (state) => {
     for (const [index, action] of state.actionsSelected.entries()) {
@@ -60,8 +62,8 @@ const actions = {
   setTrigger: ({ commit }, trigger) => {
     commit('setTrigger', trigger)
   },
-  removeTrigger: ({ commit }, triggerIndex) => {
-    commit('removeTrigger', triggerIndex)
+  removeTrigger: ({ commit }, triggerInternalID) => {
+    commit('removeTrigger', triggerInternalID)
   },
   setActions: ({ commit }, actions) => {
     commit('setActions', actions)
@@ -69,8 +71,8 @@ const actions = {
   addAction: ({ commit }, action) => {
     commit('addAction', action)
   },
-  removeAction: ({ commit }, actionIndex) => {
-    commit('removeAction', actionIndex)
+  removeAction: ({ commit }, actionInternalID) => {
+    commit('removeAction', actionInternalID)
   },
   updateActionsOrder: ({ commit }) => {
     commit('updateActionsOrder')

@@ -109,7 +109,7 @@
               <v-spacer/>
               <v-btn
                 color='red lighten-1'
-                @click="removeItem(index)"
+                @click="removeItem(userElement.internalID)"
                 text
                 icon
               >
@@ -172,8 +172,8 @@ export default {
     openSelector () {
       this.$emit('open-selector')
     },
-    removeItem (elementIndex) {
-      this.$emit('remove-item', elementIndex)
+    removeItem (elementInternalID) {
+      this.$emit('remove-item', elementInternalID)
     },
     orderUpdateRequired () {
       this.$emit('order-modified')
