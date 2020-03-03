@@ -35,3 +35,23 @@ type UserArg struct {
 	ID      string `json:"ID"`
 	Content string `json:"content"`
 }
+
+// EventType represents the different situations in which a task can be involved when the user
+// data file has been modified.
+type EventType uint8
+
+const (
+	// Modified represents a task that has variated some of its fields.
+	Modified EventType = iota
+	// Deleted represents a task that has been removed.
+	Deleted
+	// Added represents a new task.
+	Added
+)
+
+// Event is the struct used to know which action must be executed by the engine
+// with the given task.
+type Event struct {
+	Type   EventType
+	TaskID string
+}
