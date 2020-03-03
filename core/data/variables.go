@@ -6,16 +6,14 @@ import (
 
 //					** Data storage **					//
 
-// Filename is the name of the user JSON data file. Must be dynamically assigned
-// depending of the size of the file.
-var Filename = ""
-
 // BackupLoopState is the boolean variable used to show the state of the backup loop.
 var BackupLoopState = false
 
 const (
-	// DataPath is the path of the user JSON data file.
+	// DataPath is the path of the user SQLite database.
 	DataPath string = "./data/"
+	// DataFilename is the name of the SQLite file.
+	DataFilename string = "tasks.db"
 )
 
 var mutex = sync.Mutex{}
