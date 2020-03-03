@@ -3,38 +3,43 @@ package data
 import (
 	"encoding/json"
 
-	"github.com/Pegasus8/piworker/utilities/files"
 	"github.com/rs/zerolog/log"
 )
 
 // UpdateTask is a function used to update an existing task from the JSON data file.
 func UpdateTask(ID string, updatedTask *UserTask) error {
+	sqlStatement := `
+		UPDATE Tasks 
+		SET Name = ?, State = ?, Trigger = ?, Actions = ?, LastTimeModified = ? 
+		WHERE ID = ?;
+	`
+	var trigger string
+	var actions string
+
 	log.Info().Str("taskID", ID).Msg("Updating task...")
-
-	data, err := ReadData()
+	
+	// Marshal the UserTrigger struct
+	t, err := json.Marshal(updatedTask.Trigger)
 	if err != nil {
 		return err
 	}
-
-	_, index, err := data.GetTaskByID(ID)
+	trigger = string(t)
+	
+	// Marshal the []UserAction slice
+	a, err := json.Marshal(updatedTask.Actions)
 	if err != nil {
 		return err
 	}
+	actions = string(a)
 
-	// Set the same ID
-	updatedTask.TaskInfo.ID = data.Tasks[index].TaskInfo.ID
-	updatedTask.TaskInfo.Created = data.Tasks[index].TaskInfo.Created
-
-	log.Printf("Task with ID '%s' found, updating data...\n", ID)
-	data.Tasks[index] = *updatedTask
-
-	byteData, err := json.MarshalIndent(data, "", "   ")
-	if err != nil {
-		return err
-	}
-
-	// Re-write data into file
-	_, err = files.WriteFile(DataPath, Filename, byteData)
+	_, err = DB.Exec(sqlStatement,
+		updatedTask.Name,
+		updatedTask.State,
+		trigger,
+		actions,
+		updatedTask.LastTimeModified,
+		ID,
+	)
 	if err != nil {
 		return err
 	}
@@ -43,118 +48,21 @@ func UpdateTask(ID string, updatedTask *UserTask) error {
 	return nil
 }
 
-// UpdateTaskName is a function used to change the name of a task.
-func UpdateTaskName(ID, oldName, newName string) error {
-	log.Info().Str("taskID", ID).Msg("Updating task name...")
-
-	data, err := ReadData()
-	if err != nil {
-		return err
-	}
-
-	_, index, err := data.GetTaskByID(ID)
-	if err != nil {
-		return err
-	}
-
-	data.Tasks[index].TaskInfo.Name = newName
-
-	byteData, err := json.MarshalIndent(data, "", "   ")
-	if err != nil {
-		return err
-	}
-
-	_, err = files.WriteFile(DataPath, Filename, byteData)
-	if err != nil {
-		return err
-	}
-
-	log.Info().Str("taskID", ID).Msg("Task name updated successfully")
-	return nil
-}
-
-// UpdateTaskTrigger is a function used to change the trigger of a task.
-func UpdateTaskTrigger(ID string, newTrigger *UserTrigger) error {
-	log.Info().Str("taskID", ID).Msg("Updating task trigger...")
-
-	data, err := ReadData()
-	if err != nil {
-		return err
-	}
-
-	_, index, err := data.GetTaskByID(ID)
-	if err != nil {
-		return err
-	}
-
-	data.Tasks[index].TaskInfo.Trigger = *newTrigger
-
-	byteData, err := json.MarshalIndent(data, "", "   ")
-	if err != nil {
-		return err
-	}
-
-	_, err = files.WriteFile(DataPath, Filename, byteData)
-	if err != nil {
-		return err
-	}
-
-	log.Info().Str("taskID", ID).Msg("Task trigger updated successfully")
-	return nil
-}
-
-// UpdateTaskActions is a function used to change the actions of a task.
-func UpdateTaskActions(ID string, newActions *[]UserAction) error {
-	log.Info().Str("taskID", ID).Msg("Updating task actions...")
-
-	data, err := ReadData()
-	if err != nil {
-		return err
-	}
-
-	_, index, err := data.GetTaskByID(ID)
-	if err != nil {
-		return err
-	}
-
-	data.Tasks[index].TaskInfo.Actions = *newActions
-
-	byteData, err := json.MarshalIndent(data, "", "   ")
-	if err != nil {
-		return err
-	}
-
-	_, err = files.WriteFile(DataPath, Filename, byteData)
-	if err != nil {
-		return err
-	}
-
-	log.Info().Str("taskID", ID).Msg("Task actions updated successfully")
-	return nil
-}
-
 // UpdateTaskState is a function used to change the state of a task.
 func UpdateTaskState(ID string, newState TaskState) error {
 	log.Info().Str("taskID", ID).Msg("Updating task state...")
 
-	data, err := ReadData()
-	if err != nil {
-		return err
-	}
+	sqlStatement := `
+		UPDATE Tasks 
+		SET State = ?
+		WHERE ID = ?;
+	`
+	log.Info().Str("taskID", ID).Msg("Updating task...")
 
-	_, index, err := data.GetTaskByID(ID)
-	if err != nil {
-		return err
-	}
-
-	data.Tasks[index].TaskInfo.State = newState
-
-	byteData, err := json.MarshalIndent(data, "", "   ")
-	if err != nil {
-		return err
-	}
-
-	_, err = files.WriteFile(DataPath, Filename, byteData)
+	_, err := DB.Exec(sqlStatement,
+		newState,
+		ID,
+	)
 	if err != nil {
 		return err
 	}
