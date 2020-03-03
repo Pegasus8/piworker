@@ -32,8 +32,6 @@ func start() {
 	setLogSettings()
 
 	log.Info().Msg("Starting PiWorker...")
-	// Set user data filename
-	data.Filename = "user_data.json" //TODO: assign the name dinamically
 
 	signals.Shutdown = make(chan os.Signal)
 	signal.Notify(signals.Shutdown, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
