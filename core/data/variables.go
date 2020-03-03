@@ -2,6 +2,7 @@ package data
 
 import (
 	"sync"
+	"database/sql"
 )
 
 //					** Data storage **					//
@@ -40,3 +41,9 @@ const (
 	// field of every task. This state represents an active task.
 	StateTaskActive TaskState = "active"
 )
+
+// EventBus is the channel used to transport the events related to the tasks.
+var EventBus map[string]chan Event
+
+// DB is the instance of the SQLite3 database used to store the user's tasks.
+var DB *sql.DB
