@@ -9,7 +9,7 @@ const mutations = {
     state.tasks = updatedTasks
   },
   removeTask: (state, taskID) => {
-    const index = state.tasks.findIndex(t => t.task.ID === taskID)
+    const index = state.tasks.findIndex(t => t.ID === taskID)
     state.tasks.splice(index, 1)
   }
 }
