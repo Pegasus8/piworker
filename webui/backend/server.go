@@ -247,7 +247,6 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	w.Header().Set("Content-Type", "application/json")
 
 	var task data.UserTask
-	var tasksOnDB *data.UserData
 
 	// Uncomment to enable CORS support.
 	// setCORSHeaders(&w, request)
@@ -265,42 +264,8 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 		return
 	}
 
-	// Read the data to see if the taskname already exists
-	tasksOnDB, err = data.ReadData()
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("api", "newTask").
-			Str("remoteAddr", request.RemoteAddr).
-			Msg("Cannot read the tasks from the user data file")
-
-		w.WriteHeader(http.StatusInternalServerError)
-
-		return
-	}
-	if _, _, err = tasksOnDB.GetTaskByName(task.TaskInfo.Name); err != nil {
-		if err != data.ErrBadTaskName {
-			log.Error().
-				Err(err).
-				Str("api", "newTask").
-				Str("remoteAddr", request.RemoteAddr).
-				Msg("Error when trying to check if the name of the new task exists")
-
-			w.WriteHeader(http.StatusInternalServerError)
-
-			return
-		}
-		// If the error is data.ErrBadTaskName means that the task doesn't
-		// exists.
-	} else {
-		// If there is no error the name already exists.
-		w.WriteHeader(http.StatusBadRequest)
-
-		return
-	}
-
-	task.TaskInfo.Created = time.Now()
-	task.TaskInfo.LastTimeModified = task.TaskInfo.Created
+	task.Created = time.Now()
+	task.LastTimeModified = task.Created
 
 	err = data.NewTask(&task)
 	if err != nil {
@@ -308,7 +273,7 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 			Err(err).
 			Str("api", "newTask").
 			Str("remoteAddr", request.RemoteAddr).
-			Msg("Error when trying to create a new task")
+			Msg("Error when trying to add a new task")
 
 		w.WriteHeader(http.StatusInternalServerError)
 
@@ -360,7 +325,7 @@ func updateTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PU
 		return
 	}
 
-	task.TaskInfo.LastTimeModified = time.Now()
+	task.LastTimeModified = time.Now()
 
 	err = data.UpdateTask(taskID, &task)
 	if err != nil {
@@ -438,7 +403,7 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 			Msg("Url Param 'fromWebUI' is missing, sending the data without recreation")
 	}
 
-	userData, err := data.ReadData()
+	tasks, err := data.GetTasks()
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -497,39 +462,31 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 			ID               string           `json:"ID"`
 		}
 
-		type userTaskFromWebUI struct {
-			TaskInfo taskForWebUI `json:"task"`
-		}
+		var recreatedUserData []taskForWebUI
+		var results = make(chan *taskForWebUI, len(*tasks))
 
-		type userDataFromWebUI struct {
-			Tasks []userTaskFromWebUI `json:"user-data"`
-		}
-
-		var recreatedUserData userDataFromWebUI
-		var results = make(chan *userTaskFromWebUI, len(userData.Tasks))
-
-		for _, task := range userData.Tasks {
+		for _, task := range *tasks {
 			// Usually, the best way of send data to a another goroutine is using channels among other things,
 			// to avoid a race condition, but here we don't have that problem, because the data is not shared
 			// between goroutines and because the data will be only read, will not be modified.
-			go func(task data.UserTask, resultChannel chan *userTaskFromWebUI) {
+			go func(task data.UserTask, resultChannel chan *taskForWebUI) {
 				log.Info().
 					Str("api", "getTasks").
 					Str("remoteAddr", request.RemoteAddr).
-					Str("taskID", task.TaskInfo.ID).
+					Str("taskID", task.ID).
 					Msg("Starting the recreation of the task")
-					
+
 				startTime := time.Now()
-				var recreatedUserTask userTaskFromWebUI
 				var recreatedTask taskForWebUI
 
-				recreatedTask.Name = task.TaskInfo.Name
-				recreatedTask.State = task.TaskInfo.State
-				recreatedTask.Created = task.TaskInfo.Created
-				recreatedTask.LastTimeModified = task.TaskInfo.LastTimeModified
-				recreatedTask.ID = task.TaskInfo.ID
+				recreatedTask.Name = task.Name
+				recreatedTask.State = task.State
+				recreatedTask.Created = task.Created
+				recreatedTask.LastTimeModified = task.LastTimeModified
+				recreatedTask.ID = task.ID
 
-				for _, userAction := range task.TaskInfo.Actions {
+				// Reformatting of actions
+				for _, userAction := range task.Actions {
 					pwaction := actionsList.Get(userAction.ID)
 					recreatedAction := actionForWebUI{
 						Name:                  pwaction.Name,
@@ -560,52 +517,50 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 					recreatedTask.Actions = append(recreatedTask.Actions, recreatedAction)
 				}
 
-				func() {
-					pwtrigger := triggersList.Get(task.TaskInfo.Trigger.ID)
-					recreatedTrigger := triggerForWebUI{
-						Name:        pwtrigger.Name,
-						Description: pwtrigger.Description,
-						ID:          task.TaskInfo.Trigger.ID,
-						Timestamp:   task.TaskInfo.Trigger.Timestamp,
-						Args:        []argForWebUI{}, // Will be completed after
-					}
-					for _, arg := range task.TaskInfo.Trigger.Args {
-						for _, pwarg := range pwtrigger.Args {
-							if arg.ID == pwarg.ID {
-								recreatedArg := argForWebUI{
-									Name:        pwarg.Name,
-									Description: pwarg.Description,
-									ID:          arg.ID,
-									Content:     arg.Content,
-									ContentType: pwarg.ContentType,
-								}
-								recreatedTrigger.Args = append(recreatedTrigger.Args, recreatedArg)
+				// Reformatting of trigger
+				pwtrigger := triggersList.Get(task.Trigger.ID)
+				recreatedTrigger := triggerForWebUI{
+					Name:        pwtrigger.Name,
+					Description: pwtrigger.Description,
+					ID:          task.Trigger.ID,
+					Timestamp:   task.Trigger.Timestamp,
+					Args:        []argForWebUI{}, // Will be completed after
+				}
+				for _, arg := range task.Trigger.Args {
+					for _, pwarg := range pwtrigger.Args {
+						if arg.ID == pwarg.ID {
+							recreatedArg := argForWebUI{
+								Name:        pwarg.Name,
+								Description: pwarg.Description,
+								ID:          arg.ID,
+								Content:     arg.Content,
+								ContentType: pwarg.ContentType,
 							}
+							recreatedTrigger.Args = append(recreatedTrigger.Args, recreatedArg)
 						}
 					}
-					recreatedTask.Trigger = recreatedTrigger
-				}()
-				recreatedUserTask.TaskInfo = recreatedTask
+				}
+				recreatedTask.Trigger = recreatedTrigger
 
 				executionTime := time.Since(startTime)
 				log.Info().
 					Str("api", "getTasks").
 					Str("remoteAddr", request.RemoteAddr).
-					Str("taskID", task.TaskInfo.ID).
+					Str("taskID", task.ID).
 					Dur("executionTime", executionTime).
 					Msg("Task recreated, sending through the results channel...")
-				resultChannel <- &recreatedUserTask
+				resultChannel <- &recreatedTask
 			}(task, results)
 		}
 
-		for range userData.Tasks {
+		for range *tasks {
 			t := <-results
-			recreatedUserData.Tasks = append(recreatedUserData.Tasks, *t)
+			recreatedUserData = append(recreatedUserData, *t)
 		}
 		close(results)
 
-		sort.SliceStable(recreatedUserData.Tasks, func(i, j int) bool {
-			return time.Since(recreatedUserData.Tasks[i].TaskInfo.Created) > time.Since(recreatedUserData.Tasks[j].TaskInfo.Created)
+		sort.Slice(recreatedUserData, func(i, j int) bool {
+			return recreatedUserData[i].Created.After(recreatedUserData[j].Created)
 		})
 
 		execTime := time.Since(startTime)
@@ -615,9 +570,9 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 			Dur("executionTime", execTime).
 			Msg("Well, maybe I exaggerated. It wasn't 54 years, but it was close! Or maybe not...")
 
-		json.NewEncoder(w).Encode(recreatedUserData.Tasks)
+		json.NewEncoder(w).Encode(recreatedUserData)
 	} else {
-		json.NewEncoder(w).Encode(userData.Tasks)
+		json.NewEncoder(w).Encode(tasks)
 	}
 }
 
