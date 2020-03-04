@@ -9,7 +9,6 @@ import (
 	"github.com/Pegasus8/piworker/core/signals"
 
 	"github.com/Pegasus8/piworker/core/configs"
-	"github.com/Pegasus8/piworker/core/data"
 	"github.com/Pegasus8/piworker/core/engine"
 	"github.com/Pegasus8/piworker/core/logs"
 	"github.com/Pegasus8/piworker/core/uservariables"
