@@ -43,7 +43,7 @@ const (
 )
 
 // EventBus is the channel used to transport the events related to the tasks.
-var EventBus map[string]chan Event
+var EventBus chan Event
 
 // DB is the instance of the SQLite3 database used to store the user's tasks.
 var DB *sql.DB
