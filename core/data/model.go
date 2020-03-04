@@ -47,6 +47,8 @@ const (
 	Deleted
 	// Added represents a new task.
 	Added
+	// Failed represents a task that failed during execution.
+	Failed
 )
 
 // Event is the struct used to know which action must be executed by the engine
