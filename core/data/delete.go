@@ -18,5 +18,12 @@ func DeleteTask(ID string) error {
 	}
 
 	log.Info().Str("taskID", ID).Msg("Task deleted successfully")
+
+	event := Event{
+		Type:   Deleted,
+		TaskID: ID,
+	}
+	EventBus <- event
+
 	return nil
 }
