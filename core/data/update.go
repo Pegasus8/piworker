@@ -44,7 +44,14 @@ func UpdateTask(ID string, updatedTask *UserTask) error {
 		return err
 	}
 
-	log.Info().Str("taskID", ID).Msg("Task updated successfully")
+	log.Info().Str("taskID", ID).Msg("Task updated successfully, emiting the event...")
+
+	event := Event{
+		Type:   Modified,
+		TaskID: ID,
+	}
+	EventBus <- event
+
 	return nil
 }
 
