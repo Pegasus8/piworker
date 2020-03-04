@@ -36,7 +36,7 @@ func NewTask(task *UserTask) error {
 	if err != nil {
 		return err
 	}
-	
+
 	actions, err := json.Marshal(task.Actions)
 	if err != nil {
 		return err
@@ -55,7 +55,13 @@ func NewTask(task *UserTask) error {
 		return err
 	}
 
-	log.Info().Str("taskID", task.ID).Msg("Task successfully added")
+	log.Info().Str("taskID", task.ID).Msg("Task successfully added, emiting the event...")
+
+	event := Event{
+		Type:   Added,
+		TaskID: task.ID,
+	}
+	EventBus <- event
 
 	return nil
 }
