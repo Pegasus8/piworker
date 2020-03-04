@@ -154,7 +154,8 @@ func runActions(task *data.UserTask) error {
 
 	userActions := &task.Actions
 
-	log.Printf("[%s] Changing task state to '%s'\n", task.ID, data.StateTaskOnExecution)
+	log.Info().Str("taskID", task.ID).Msgf("Changing task state to '%s'\n", data.StateTaskOnExecution)
+
 	// Set task state to on-execution
 	err := data.UpdateTaskState(task.ID, data.StateTaskOnExecution)
 	if err != nil {
