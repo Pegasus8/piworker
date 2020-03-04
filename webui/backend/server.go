@@ -447,7 +447,7 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 			ID                    string        `json:"ID"`
 			Timestamp             string        `json:"timestamp"`
 			Args                  []argForWebUI `json:"args"`
-			Order                 int8          `json:"order"`
+			Order                 uint8          `json:"order"`
 			Chained               bool          `json:"chained"`
 			ArgumentToReplaceByCR string        `json:"argumentToReplaceByCR"`
 		}
