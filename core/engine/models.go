@@ -1,21 +1,16 @@
 package engine
 
-// Event represents the different situations in which a task can be involved when the user
-// data file has been modified.
-type Event uint8
-
-const (
-	// Modified represents a task that has variated some of its fields.
-	Modified Event = iota
-	// Deleted represents a task that has been removed.
-	Deleted
-	// Added represents a new task.
-	Added
+import (
+	"time"
+	"sync"
 )
 
-// ModificationEvent is the struct used to know which action must be executed by the engine
-// with the given task.
-type ModificationEvent struct {
-	Event  Event
-	TaskID string
+// TasksStats is the struct used to parse the statistics related with the execution of the tasks.
+type TasksStats struct{
+	Active uint16
+	OnExec uint8
+	Inactive uint16
+	AvgExecTime time.Duration
+	*sync.RWMutex
+	observations uint32
 }
