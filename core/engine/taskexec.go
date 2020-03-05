@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/Pegasus8/piworker/core/configs"
 	"github.com/Pegasus8/piworker/core/data"
 	actionsModel "github.com/Pegasus8/piworker/core/elements/actions"
 	actionsList "github.com/Pegasus8/piworker/core/elements/actions/models"
@@ -17,40 +18,54 @@ import (
 )
 
 func runTaskLoop(taskID string, taskChannel chan data.UserTask, managementChannel chan uint8) {
-	log.Info().Str("taskID", taskID).Msg("Loop started")
+	log.Info().Str("taskID", taskID).Msg("Task running, waiting for data...")
+
 	// Receive the task for first time.
 	taskReceived := <-taskChannel
 
-	for {
+	log.Info().Str("taskID", taskID).Msg("Data received, getting tick duration config before start the loop...")
+
+	// Load configs
+	configs.CurrentConfigs.Lock()
+	d := configs.CurrentConfigs.Behavior.LoopSleep
+	configs.CurrentConfigs.Unlock()
+
+	log.Info().Str("taskID", taskID).Int64("tickDuration", d).Msg("Tick duration obtained, starting task loop")
+
+	for range time.Tick(time.Millisecond * time.Duration(d)) {
 		select {
 		// Update the data.
 		case taskReceived = <-taskChannel:
 		// Stop signal received.
-		case code := <- managementChannel: {
-			switch code {
-			// Stopped by the system.
-			case 0: {
-				log.Info().
-					Str("taskID", taskReceived.ID).
-					Msg("Task stopped by the system")
-				return
+		case code := <-managementChannel:
+			{
+				switch code {
+				// Stopped by the system.
+				case 0:
+					{
+						log.Info().
+							Str("taskID", taskReceived.ID).
+							Msg("Task execution stopped by the system")
+						return
+					}
+				// Stopped by the user.
+				case 1:
+					{
+						log.Info().
+							Str("taskID", taskReceived.ID).
+							Msg("Task execution stopped by the user due to a state change")
+						return
+					}
+				// Task deleted by the user.
+				case 2:
+					{
+						log.Info().
+							Str("taskID", taskReceived.ID).
+							Msg("Task deleted by the user, execution stopped")
+						return
+					}
+				}
 			}
-			// Stopped by the user.
-			case 1: {
-				log.Info().
-					Str("taskID", taskReceived.ID).
-					Msg("Task stopped by the user due to a state change")
-				return
-			}
-			// Task deleted by the user.
-			case 2: {
-				log.Info().
-					Str("taskID", taskReceived.ID).
-					Msg("Task deleted by the user")
-				return
-			}
-			}
-		}
 
 		default:
 			// Keep using the same data unless a new event (related with
@@ -118,7 +133,7 @@ func runTaskLoop(taskID string, taskChannel chan data.UserTask, managementChanne
 	// If the loop breaks (by a 'break' statement), there was a failure, so an event of type `Failed` must
 	// be emitted.
 	event := data.Event{
-		Type: data.Failed,
+		Type:   data.Failed,
 		TaskID: taskReceived.ID,
 	}
 	data.EventBus <- event
