@@ -11,6 +11,6 @@ type TasksStats struct{
 	OnExec uint8
 	Inactive uint16
 	AvgExecTime time.Duration
-	*sync.RWMutex
+	sync.RWMutex
 	observations uint32
 }
