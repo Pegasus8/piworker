@@ -35,7 +35,7 @@
                     <v-btn
                       class="mx-4"
                       :color='
-                        userTask.state === "Active" ? "green darken-2" : "red darken-2"
+                        userTask.state === "active" ? "green darken-2" : "red darken-2"
                       '
                       text
                       icon

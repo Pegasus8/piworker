@@ -81,7 +81,7 @@ const actions = {
     return new Promise((resolve, reject) => {
       const newTaskData = {
         name: state.taskname,
-        state: state.taskState ? 'Active' : 'Inactive',
+        state: state.taskState ? 'active' : 'inactive',
         // Only send one trigger. This is because, for now, multi-triggers are not supported.
         trigger: state.triggerSelected[0],
         actions: state.actionsSelected
@@ -108,7 +108,7 @@ const actions = {
       }
       const updatedTaskData = {
         name: state.taskname,
-        state: state.taskState ? 'Active' : 'Inactive',
+        state: state.taskState ? 'active' : 'inactive',
         // Only send one trigger. This is because, for now, multi-triggers are not supported.
         trigger: state.triggerSelected[0],
         actions: state.actionsSelected

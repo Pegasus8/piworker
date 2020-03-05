@@ -217,7 +217,7 @@ export default {
       this.setActions(userTask.actions)
       this.setTrigger(userTask.trigger)
       this.setTaskState(userTask.state)
-      this.stateSelected = userTask.state === 'Active'
+      this.stateSelected = userTask.state === 'active'
     } else {
       // New Task view
       this.clearFields()
