@@ -118,6 +118,10 @@ func GetTaskByID(ID string) (taskFound *UserTask, err error) {
 	}
 	defer row.Close()
 
+	if !row.Next() {
+		return &task, ErrBadTaskID
+	}
+
 	err = row.Scan(
 		&task.ID,
 		&task.Name,
