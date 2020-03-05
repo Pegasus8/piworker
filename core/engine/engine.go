@@ -61,6 +61,8 @@ func StartEngine() {
 		managementChannels[task.ID] = make(chan uint8)
 		go runTaskLoop(task.ID, tasksGoroutines[task.ID], managementChannels[task.ID])
 
+		tasksGoroutines[task.ID] <- task
+
 		Stats.Lock()
 		Stats.Active++
 		Stats.Unlock()
