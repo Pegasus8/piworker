@@ -56,8 +56,8 @@ func GetTasks() (*[]UserTask, error) {
 	return &tasks, nil
 }
 
-// GetTaskByName is a method of the UserData struct that returns a specific task,
-// searching it by it name.
+// GetTaskByName is a function that returns a specific task,
+// searching it by the name on the tasks database.
 func GetTaskByName(name string) (taskFound *UserTask, err error) {
 	sqlStatement := `
 		SELECT * FROM Tasks
@@ -101,8 +101,8 @@ func GetTaskByName(name string) (taskFound *UserTask, err error) {
 	return &task, nil
 }
 
-// GetTaskByID is a method of the UserData struct that returns a specific task,
-// searching it by it ID.
+// GetTaskByID is a function that returns a specific task,
+// searching it by the ID on the tasks database.
 func GetTaskByID(ID string) (taskFound *UserTask, err error) {
 	sqlStatement := `
 		SELECT * FROM Tasks
@@ -150,166 +150,38 @@ func GetTaskByID(ID string) (taskFound *UserTask, err error) {
 	return &task, nil
 }
 
-// GetActiveTasks is a method of the UserData struct that returns the tasks
-// with the state `active`.
+// GetActiveTasks is a function that returns the tasks
+// with the state `active` from the tasks database.
 func GetActiveTasks() (activeTasks *[]UserTask, err error) {
-	sqlStatement := `
-		SELECT * FROM Tasks
-		WHERE State=?;
-	`
-	var tasks []UserTask
-
-	row, err := DB.Query(sqlStatement, StateTaskActive)
-	if err != nil {
-		return &tasks, err
-	}
-	defer row.Close()
-
-	for row.Next() {
-		var task UserTask
-		var trigger string
-		var actions string
-		err = row.Scan(
-			&task.ID,
-			&task.Name,
-			&task.State,
-			&trigger,
-			&actions,
-			&task.Created,
-			&task.LastTimeModified,
-		)
-		if err != nil {
-			return &tasks, err
-		}
-
-		// Parse the Trigger string into the proper struct.
-		err = json.Unmarshal([]byte(trigger), &task.Trigger)
-		if err != nil {
-			return &tasks, err
-		}
-
-		// Parse the Actions string into the proper struct.
-		err = json.Unmarshal([]byte(actions), &task.Actions)
-		if err != nil {
-			return &tasks, err
-		}
-
-		tasks = append(tasks, task)
-	}
-
-	return &tasks, nil
+	return getTasksByState(StateTaskActive)
 }
 
-// GetInactiveTasks is a method of the UserData struct that returns the tasks
-// with the state `inactive`.
+// GetInactiveTasks is a function that returns the tasks
+// with the state `inactive` from the tasks database.
 func GetInactiveTasks() (inactiveTasks *[]UserTask, err error) {
-	sqlStatement := `
-		SELECT * FROM Tasks
-		WHERE State=?;
-	`
-	var tasks []UserTask
-
-	row, err := DB.Query(sqlStatement, StateTaskInactive)
-	if err != nil {
-		return &tasks, err
-	}
-	defer row.Close()
-
-	for row.Next() {
-		var task UserTask
-		var trigger string
-		var actions string
-		err = row.Scan(
-			&task.ID,
-			&task.Name,
-			&task.State,
-			&trigger,
-			&actions,
-			&task.Created,
-			&task.LastTimeModified,
-		)
-		if err != nil {
-			return &tasks, err
-		}
-
-		// Parse the Trigger string into the proper struct.
-		err = json.Unmarshal([]byte(trigger), &task.Trigger)
-		if err != nil {
-			return &tasks, err
-		}
-
-		// Parse the Actions string into the proper struct.
-		err = json.Unmarshal([]byte(actions), &task.Actions)
-		if err != nil {
-			return &tasks, err
-		}
-
-		tasks = append(tasks, task)
-	}
-
-	return &tasks, nil
+	return getTasksByState(StateTaskInactive)
 }
 
-// GetCompletedTasks is a method of the UserData struct that returns the tasks
-// with the state `completed`.
-func GetCompletedTasks() (completedTasks *[]UserTask, err error) {
-	sqlStatement := `
-		SELECT * FROM Tasks
-		WHERE State=?;
-	`
-	var tasks []UserTask
-
-	row, err := DB.Query(sqlStatement, StateTaskCompleted)
-	if err != nil {
-		return &tasks, err
-	}
-	defer row.Close()
-
-	for row.Next() {
-		var task UserTask
-		var trigger string
-		var actions string
-		err = row.Scan(
-			&task.ID,
-			&task.Name,
-			&task.State,
-			&trigger,
-			&actions,
-			&task.Created,
-			&task.LastTimeModified,
-		)
-		if err != nil {
-			return &tasks, err
-		}
-
-		// Parse the Trigger string into the proper struct.
-		err = json.Unmarshal([]byte(trigger), &task.Trigger)
-		if err != nil {
-			return &tasks, err
-		}
-
-		// Parse the Actions string into the proper struct.
-		err = json.Unmarshal([]byte(actions), &task.Actions)
-		if err != nil {
-			return &tasks, err
-		}
-
-		tasks = append(tasks, task)
-	}
-
-	return &tasks, nil
+// GetFailedTasks is a function that returns the tasks
+// with the state `failed` from the tasks database.
+func GetFailedTasks() (failedTasks *[]UserTask, err error) {
+	return getTasksByState(StateTaskFailed)
 }
 
 // GetOnExecutionTasks is a method of the UserData struct that returns the tasks
 // with the state `on-execution`.
 func GetOnExecutionTasks() (onExecutionTasks *[]UserTask, err error) {
+	return getTasksByState(StateTaskOnExecution)
+}
+
+func getTasksByState(state TaskState) (matchedTasks *[]UserTask, err error) {
 	sqlStatement := `
 		SELECT * FROM Tasks
 		WHERE State=?;
 	`
 	var tasks []UserTask
 
-	row, err := DB.Query(sqlStatement, StateTaskOnExecution)
+	row, err := DB.Query(sqlStatement, state)
 	if err != nil {
 		return &tasks, err
 	}
