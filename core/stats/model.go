@@ -10,12 +10,12 @@ import (
 // Statistic is the struct used to parse each statistic.
 type Statistic struct {
 	// PiWorker stats
-	ActiveTasks          uint16  `json:"activeTasks"`
-	InactiveTasks        uint16  `json:"inactiveTasks"`
-	OnExecutionTasks     uint8   `json:"onExecutionTasks"`
-	FailedTasks          uint8   `json:"failedTasks"`
-	AverageExecutionTime float32 `json:"averageExecutionTime"` // for each task
-	BackupLoopState      bool    `json:"backupLoopState"`
+	ActiveTasks          uint16        `json:"activeTasks"`
+	InactiveTasks        uint16        `json:"inactiveTasks"`
+	OnExecutionTasks     uint8         `json:"onExecutionTasks"`
+	FailedTasks          uint8         `json:"failedTasks"`
+	AverageExecutionTime time.Duration `json:"averageExecutionTime"`
+	BackupLoopState      bool          `json:"backupLoopState"`
 
 	// Host (probably a RPi) stats
 	RaspberryStats RaspberryStats `json:"raspberryStats"`
@@ -59,13 +59,13 @@ type HostStats struct {
 
 // NewAvgObs is a method with the purpose of add new data to be calculated into the
 // `Statistic.AverageExecutionTime` field.
-func (s *Statistic) NewAvgObs(duration time.Duration) float32 {
+func (s *Statistic) NewAvgObs(duration time.Duration) time.Duration {
 	s.Lock()
 	defer s.Unlock()
 
 	s.sumExecTime += duration
 	s.obs++
-	s.AverageExecutionTime = float32(s.sumExecTime) / float32(s.obs)
+	s.AverageExecutionTime = time.Duration(float32(s.sumExecTime) / float32(s.obs))
 
 	return s.AverageExecutionTime
 }
