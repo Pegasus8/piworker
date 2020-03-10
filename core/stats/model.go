@@ -1,32 +1,71 @@
 package stats
 
-import "time"
+import (
+	"sync"
+	"time"
 
-// Stats is the struct used to work with general stats.
-type Stats struct {
-	Statistics []Statistic
-}
+	"github.com/shirou/gopsutil/host"
+)
 
 // Statistic is the struct used to parse each statistic.
 type Statistic struct {
 	// PiWorker stats
-	ActiveTasks          int     `json:"activeTasks"`
-	InactiveTasks        int     `json:"inactiveTasks"`
-	OnExecutionTasks     int     `json:"onExecutionTasks"`
-	CompletedTasks       int     `json:"completedTasks"`
-	AverageExecutionTime float64 `json:"averageExecutionTime"` // for each task
-	OperatingTime        int     `json:"operatingTime"`        // seconds
+	ActiveTasks          uint16  `json:"activeTasks"`
+	InactiveTasks        uint16  `json:"inactiveTasks"`
+	OnExecutionTasks     uint8   `json:"onExecutionTasks"`
+	FailedTasks          uint8   `json:"failedTasks"`
+	AverageExecutionTime float32 `json:"averageExecutionTime"` // for each task
 	BackupLoopState      bool    `json:"backupLoopState"`
 
-	// Raspberry stats
+	// Host (probably a RPi) stats
 	RaspberryStats RaspberryStats `json:"raspberryStats"`
+
+	sumExecTime time.Duration
+	obs         uint64
+
+	sync.RWMutex
 }
 
 // RaspberryStats is the struct what contains the statistics about the Raspberry device.
 type RaspberryStats struct {
-	Temperature float64   `json:"temperature"` // ºC
-	CPULoad     string    `json:"cpuLoad"`     // %
-	FreeStorage string    `json:"freeStorage"`
-	RAMUsage    string    `json:"ramUsage"`
-	Timestamp   time.Time `json:"timestamp"`
+	Host      HostStats    `json:"temperature"`
+	CPULoad   float64      `json:"cpuLoad"`
+	Storage   StorageStats `json:"storage"`
+	RAM       RAMStats     `json:"ram"`
+	Timestamp time.Time    `json:"timestamp"`
+}
+
+// RAMStats is the struct used to parse the statistics related with the RAM of the Host.
+type RAMStats struct {
+	Total     uint64 `json:"total"`
+	Available uint64 `json:"available"`
+	Used      uint64 `json:"used"`
+}
+
+// StorageStats is the struct used to parse storage stats of the Host.
+type StorageStats struct {
+	Total       uint64  `json:"total"`
+	Free        uint64  `json:"free"`
+	Used        uint64  `json:"used"`
+	UsedPercent float64 `json:"usedPercent"`
+}
+
+// HostStats is the struct used to parse some general statistics about the Host.
+type HostStats struct {
+	BootTime     uint64 `json:"bootTime"`
+	UpTime       uint64 `json:"uptime"`
+	Temperatures []host.TemperatureStat
+}
+
+// NewAvgObs is a method with the purpose of add new data to be calculated into the
+// `Statistic.AverageExecutionTime` field.
+func (s *Statistic) NewAvgObs(duration time.Duration) float32 {
+	s.Lock()
+	defer s.Unlock()
+
+	s.sumExecTime += duration
+	s.obs++
+	s.AverageExecutionTime = float32(s.sumExecTime) / float32(s.obs)
+
+	return s.AverageExecutionTime
 }
