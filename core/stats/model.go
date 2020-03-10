@@ -26,7 +26,7 @@ type Statistic struct {
 	sync.RWMutex
 }
 
-// RaspberryStats is the struct what contains the statistics about the Raspberry device.
+// RaspberryStats is the struct that contains the statistics related with the Host (generally it will be a Raspberry Pi).
 type RaspberryStats struct {
 	Host      HostStats    `json:"temperature"`
 	CPULoad   float64      `json:"cpuLoad"`
@@ -50,7 +50,7 @@ type StorageStats struct {
 	UsedPercent float64 `json:"usedPercent"`
 }
 
-// HostStats is the struct used to parse some general statistics about the Host.
+// HostStats is the struct used to parse some additional statistics about the Host.
 type HostStats struct {
 	BootTime     uint64 `json:"bootTime"`
 	UpTime       uint64 `json:"uptime"`
