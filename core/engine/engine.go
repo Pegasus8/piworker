@@ -2,7 +2,6 @@ package engine
 
 import (
 	"os"
-	// "time"
 
 	// "github.com/Pegasus8/piworker/core/configs"
 	"github.com/Pegasus8/piworker/core/data"
@@ -38,7 +37,7 @@ func StartEngine() {
 
 	activeTasks, err := data.GetActiveTasks()
 	if err != nil {
-		log.Fatal().
+		log.Panic().
 			Err(err).
 			Msgf("Error when trying to read the tasks with state '%s'\n", data.StateTaskActive)
 	}
@@ -46,13 +45,23 @@ func StartEngine() {
 	// Set Stats.Inactive counter (`inactiveTasks` will be used only here).
 	inactiveTasks, err := data.GetInactiveTasks()
 	if err != nil {
-		log.Fatal().
+		log.Panic().
 			Err(err).
 			Msgf("Error when trying to read the tasks with state '%s'\n", data.StateTaskInactive)
 	}
-	Stats.Lock()
-	Stats.Inactive = uint16(len(*inactiveTasks))
-	Stats.Unlock()
+	stats.Current.Lock()
+	stats.Current.InactiveTasks = uint16(len(*inactiveTasks))
+	stats.Current.Unlock()
+
+	failedTasks, err := data.GetFailedTasks()
+	if err != nil {
+		log.Panic().
+			Err(err).
+			Msgf("Error when trying to read the tasks with state '%s'\n", data.StateTaskFailed)
+	}
+	stats.Current.Lock()
+	stats.Current.FailedTasks = uint8(len(*failedTasks))
+	stats.Current.Unlock()
 
 	log.Info().Msg("Creating channels for active tasks...")
 	for _, task := range *activeTasks {
@@ -63,9 +72,9 @@ func StartEngine() {
 
 		tasksGoroutines[task.ID] <- task
 
-		Stats.Lock()
-		Stats.Active++
-		Stats.Unlock()
+		stats.Current.Lock()
+		stats.Current.ActiveTasks++
+		stats.Current.Unlock()
 	}
 	log.Info().Msg("Channels created correctly")
 
@@ -74,8 +83,12 @@ func StartEngine() {
 	go backend.Run(statsChannel)
 
 	// Start the stats recollection.
-	// log.Info().Msg("Starting the stats loop...")
-	// go stats.StartLoop(statsChannel, dataChannel)
+	log.Info().Msg("Starting the stats loop...")
+	statsDB := stats.StartLoop(statsChannel)
+	defer func() {
+		statsDB.Close()
+		log.Info().Msg("Stats db closed")
+	}()
 
 	go func() {
 		for {
@@ -92,9 +105,9 @@ func StartEngine() {
 
 					// Only add the new task if the state is 'active'.
 					if t.State != data.StateTaskActive {
-						Stats.Lock()
-						Stats.Inactive++
-						Stats.Unlock()
+						stats.Current.Lock()
+						stats.Current.InactiveTasks++
+						stats.Current.Unlock()
 
 						continue
 					}
@@ -107,9 +120,9 @@ func StartEngine() {
 					// Once the loop and the channels are initialized is time to send the new task.
 					tasksGoroutines[t.ID] <- *t
 
-					Stats.Lock()
-					Stats.Active++
-					Stats.Unlock()
+					stats.Current.Lock()
+					stats.Current.ActiveTasks++
+					stats.Current.Unlock()
 				}
 			case data.Modified:
 				{
@@ -133,10 +146,10 @@ func StartEngine() {
 							delete(tasksGoroutines, event.TaskID)
 							delete(managementChannels, event.TaskID)
 
-							Stats.Lock()
-							Stats.Active--
-							Stats.Inactive++
-							Stats.Unlock()
+							stats.Current.Lock()
+							stats.Current.ActiveTasks--
+							stats.Current.InactiveTasks++
+							stats.Current.Unlock()
 						}
 						// If the task was not running, there is nothing to do.
 
@@ -156,10 +169,10 @@ func StartEngine() {
 							// Once the loop and the channels are initialized is time to send the new task.
 							tasksGoroutines[t.ID] <- *t
 
-							Stats.Lock()
-							Stats.Active++
-							Stats.Inactive--
-							Stats.Unlock()
+							stats.Current.Lock()
+							stats.Current.ActiveTasks++
+							stats.Current.InactiveTasks--
+							stats.Current.Unlock()
 						}
 					}
 				}
@@ -167,9 +180,9 @@ func StartEngine() {
 				{
 					// If the task is not running (state != 'active'), skip the iteration.
 					if _, ok := tasksGoroutines[event.TaskID]; !ok{
-						Stats.Lock()
-						Stats.Inactive--
-						Stats.Unlock()
+						stats.Current.Lock()
+						stats.Current.InactiveTasks--
+						stats.Current.Unlock()
 						continue
 					}
 
@@ -182,9 +195,9 @@ func StartEngine() {
 					delete(tasksGoroutines, event.TaskID)
 					delete(managementChannels, event.TaskID)
 
-					Stats.Lock()
-					Stats.Active--
-					Stats.Unlock()
+					stats.Current.Lock()
+					stats.Current.ActiveTasks--
+					stats.Current.Unlock()
 				}
 			case data.Failed:
 				// Close the channels of the failed task and delete them of the maps.
@@ -194,10 +207,10 @@ func StartEngine() {
 				delete(managementChannels, event.TaskID)
 				
 				// Decrease the active tasks counter.
-				Stats.Lock()
-				Stats.Active--
-				Stats.Inactive++
-				Stats.Unlock()
+				stats.Current.Lock()
+				stats.Current.ActiveTasks--
+				stats.Current.FailedTasks++
+				stats.Current.Unlock()
 			}
 		}
 	}()
