@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/Pegasus8/piworker/core/stats"
 	"github.com/Pegasus8/piworker/core/configs"
 	"github.com/Pegasus8/piworker/core/data"
 	actionsModel "github.com/Pegasus8/piworker/core/elements/actions"
@@ -277,11 +278,14 @@ func runActions(task *data.UserTask) error {
 			Msg("Error when trying to update the task's state")
 	}
 
-	executionTime := time.Since(startTime).String()
+	executionTime := time.Since(startTime)
 	log.Info().
 		Str("taskID", task.ID).
-		Str("executionTime", executionTime).
+		Str("executionTime", executionTime.String()).
 		Msg("Actions executed")
+
+	// Add the execution time to the calculation of the field `stats.Current.AverageExecutionTime`.
+	stats.Current.NewAvgObs(executionTime)
 
 	return nil
 }
