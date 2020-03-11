@@ -17,7 +17,6 @@ import (
 	actionsList "github.com/Pegasus8/piworker/core/elements/actions/models"
 	triggersList "github.com/Pegasus8/piworker/core/elements/triggers/models"
 	// pwLogs "github.com/Pegasus8/piworker/core/logs"
-	"github.com/Pegasus8/piworker/core/stats"
 	"github.com/Pegasus8/piworker/core/types"
 	"github.com/Pegasus8/piworker/webui/backend/auth"
 	"github.com/Pegasus8/piworker/webui/backend/websocket"
@@ -28,7 +27,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var statsChannel chan stats.Statistic
 var tlsSupport bool
 
 //
@@ -117,10 +115,8 @@ func setupRoutes() {
 }
 
 // Run - start the server
-func Run(statsChan chan stats.Statistic) {
+func Run() {
 	log.Info().Msg("Starting server...")
-
-	statsChannel = statsChan
 
 	setupRoutes()
 }

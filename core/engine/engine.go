@@ -30,8 +30,6 @@ func StartEngine() {
 		}
 	}()
 	data.EventBus = make(chan data.Event)
-	// Channel between the WebUI and Stats loop.
-	var statsChannel chan stats.Statistic
 
 	log.Info().Msg("Reading the user data for first time...")
 
@@ -80,11 +78,11 @@ func StartEngine() {
 
 	// Start the server of the WebUI.
 	log.Info().Msg("Starting the WebUI server...")
-	go backend.Run(statsChannel)
+	go backend.Run()
 
 	// Start the stats recollection.
 	log.Info().Msg("Starting the stats loop...")
-	statsDB := stats.StartLoop(statsChannel)
+	statsDB := stats.StartLoop()
 	defer func() {
 		statsDB.Close()
 		log.Info().Msg("Stats db closed")

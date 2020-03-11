@@ -37,12 +37,6 @@ func StartLoop(statsChannel chan Statistic) *sql.DB {
 			if err = UpdateRPiStats(); err != nil {
 				log.Panic().Err(err).Msg("Error when trying to update the rpi stats")
 			}
-			select {
-			case statsChannel <- Current:
-				// Send the data to statsChannel.
-			default:
-				// If no receiver, avoid blocking.
-			}
 	
 			if err = StoreStats(db, &Current); err != nil {
 				log.Panic().Err(err).Msg("Error when trying to store stats on the db")
