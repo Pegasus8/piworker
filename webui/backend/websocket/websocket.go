@@ -42,10 +42,12 @@ func Writer(conn *websocket.Conn) {
 		*stats.TasksStats
 		*stats.RaspberryStats
 	}
+	ticker := time.NewTicker(time.Second * 1)
+	defer ticker.Stop()
 
 	log.Info().Str("remoteAddr", conn.RemoteAddr().String()).Msg("Sending data into WebSocket")
 	// Send data to client every 1 sec
-	for range time.Tick(time.Second * 1){
+	for range ticker.C{
 
 		stats.Current.RLock()
 		data := d{

@@ -33,7 +33,10 @@ func StartLoop() *sql.DB {
 	log.Info().Msg("Starting stats loop")
 
 	go func() {
-		for range time.Tick(5 * time.Second) {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
 			if err = UpdateRPiStats(); err != nil {
 				log.Panic().Err(err).Msg("Error when trying to update the rpi stats")
 			}

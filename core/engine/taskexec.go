@@ -30,10 +30,12 @@ func runTaskLoop(taskID string, taskChannel chan data.UserTask, managementChanne
 	configs.CurrentConfigs.Lock()
 	d := configs.CurrentConfigs.Behavior.LoopSleep
 	configs.CurrentConfigs.Unlock()
+	ticker := time.NewTicker(time.Millisecond * time.Duration(d))
+	defer ticker.Stop()
 
 	log.Info().Str("taskID", taskID).Int64("tickDuration", d).Msg("Tick duration obtained, starting task loop")
 
-	for range time.Tick(time.Millisecond * time.Duration(d)) {
+	for range ticker.C {
 		select {
 		// Update the data.
 		case taskReceived = <-taskChannel:
