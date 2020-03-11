@@ -78,10 +78,7 @@ func CreateTable(db *sql.DB) error {
 
 // StoreStats is the function used to save a slice of
 // `RaspberryStats` struct into the sqlite3 database.
-func StoreStats(db *sql.DB, item *Statistic) error {
-	item.RLock()
-	defer item.RUnlock()
-
+func StoreStats(db *sql.DB, ts *TasksStats, rs *RaspberryStats) error {
 	sqlStatement1 := `
 	INSERT INTO TasksStats(
 		ActiveTasks,
@@ -106,33 +103,33 @@ func StoreStats(db *sql.DB, item *Statistic) error {
 	now := time.Now()
 
 	_, err := db.Exec(sqlStatement1,
-		item.ActiveTasks,
-		item.InactiveTasks,
-		item.OnExecutionTasks,
-		item.FailedTasks,
-		item.AverageExecutionTime,
+		ts.ActiveTasks,
+		ts.InactiveTasks,
+		ts.OnExecutionTasks,
+		ts.FailedTasks,
+		ts.AverageExecutionTime,
 		now,
 	)
 	if err != nil {
 		return err
 	}
 
-	host, err := json.Marshal(item.RaspberryStats.Host)
+	host, err := json.Marshal(rs.Host)
 	if err != nil {
 		return err
 	}
-	storage, err := json.Marshal(item.RaspberryStats.Storage)
+	storage, err := json.Marshal(rs.Storage)
 	if err != nil {
 		return err
 	}
-	ram, err := json.Marshal(item.RaspberryStats.RAM)
+	ram, err := json.Marshal(rs.RAM)
 	if err != nil {
 		return err
 	}
 
 	_, err = db.Exec(sqlStatement2,
 		string(host),
-		item.RaspberryStats.CPULoad,
+		rs.CPULoad,
 		string(storage),
 		string(ram),
 		now,

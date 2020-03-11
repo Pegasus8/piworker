@@ -1,14 +1,13 @@
 package stats
 
 import (
-	"sync"
 	"time"
 
 	"github.com/shirou/gopsutil/host"
 )
 
-// Statistic is the struct used to parse each statistic.
-type Statistic struct {
+// TasksStats is the struct used to parse each statistic related with the tasks.
+type TasksStats struct {
 	// PiWorker stats
 	ActiveTasks          uint16        `json:"activeTasks"`
 	InactiveTasks        uint16        `json:"inactiveTasks"`
@@ -16,14 +15,10 @@ type Statistic struct {
 	FailedTasks          uint8         `json:"failedTasks"`
 	AverageExecutionTime time.Duration `json:"averageExecutionTime"`
 	BackupLoopState      bool          `json:"backupLoopState"`
-
-	// Host (probably a RPi) stats
-	RaspberryStats RaspberryStats `json:"raspberryStats"`
+	Timestamp            time.Time     `json:"timestamp"`
 
 	sumExecTime time.Duration
 	obs         uint64
-
-	sync.RWMutex
 }
 
 // RaspberryStats is the struct that contains the statistics related with the Host (generally it will be a Raspberry Pi).
@@ -59,10 +54,7 @@ type HostStats struct {
 
 // NewAvgObs is a method with the purpose of add new data to be calculated into the
 // `Statistic.AverageExecutionTime` field.
-func (s *Statistic) NewAvgObs(duration time.Duration) time.Duration {
-	s.Lock()
-	defer s.Unlock()
-
+func (s *TasksStats) NewAvgObs(duration time.Duration) time.Duration {
 	s.sumExecTime += duration
 	s.obs++
 	s.AverageExecutionTime = time.Duration(float32(s.sumExecTime) / float32(s.obs))
