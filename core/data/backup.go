@@ -1,5 +1,5 @@
 package data
-
+/*
 import (
 	"encoding/json"
 	"strings"
@@ -73,4 +73,4 @@ func backup() error {
 	}
 
 	return nil
-}
+}*/
