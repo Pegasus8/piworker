@@ -7,7 +7,7 @@ import (
 	"github.com/shirou/gopsutil/mem"
 )
 
-// GetStatistics is a function used to get PiWorker general statistics.
+// UpdateRPiStats is a function update the statistics related with the host (usually a Raspberry Pi), on the variable `Current`.
 func UpdateRPiStats() error {
 	Current.Lock()
 	defer Current.Unlock()
