@@ -1,6 +1,7 @@
 package engine
 
 import (
+	// "time"
 	"os"
 
 	// "github.com/Pegasus8/piworker/core/configs"
@@ -48,7 +49,7 @@ func StartEngine() {
 			Msgf("Error when trying to read the tasks with state '%s'\n", data.StateTaskInactive)
 	}
 	stats.Current.Lock()
-	stats.Current.InactiveTasks = uint16(len(*inactiveTasks))
+	stats.Current.TasksStats.InactiveTasks = uint16(len(*inactiveTasks))
 	stats.Current.Unlock()
 
 	failedTasks, err := data.GetFailedTasks()
@@ -58,7 +59,7 @@ func StartEngine() {
 			Msgf("Error when trying to read the tasks with state '%s'\n", data.StateTaskFailed)
 	}
 	stats.Current.Lock()
-	stats.Current.FailedTasks = uint8(len(*failedTasks))
+	stats.Current.TasksStats.FailedTasks = uint8(len(*failedTasks))
 	stats.Current.Unlock()
 
 	log.Info().Msg("Creating channels for active tasks...")
@@ -71,7 +72,7 @@ func StartEngine() {
 		tasksGoroutines[task.ID] <- task
 
 		stats.Current.Lock()
-		stats.Current.ActiveTasks++
+		stats.Current.TasksStats.ActiveTasks++
 		stats.Current.Unlock()
 	}
 	log.Info().Msg("Channels created correctly")
@@ -104,7 +105,7 @@ func StartEngine() {
 					// Only add the new task if the state is 'active'.
 					if t.State != data.StateTaskActive {
 						stats.Current.Lock()
-						stats.Current.InactiveTasks++
+						stats.Current.TasksStats.InactiveTasks++
 						stats.Current.Unlock()
 
 						continue
@@ -119,7 +120,7 @@ func StartEngine() {
 					tasksGoroutines[t.ID] <- *t
 
 					stats.Current.Lock()
-					stats.Current.ActiveTasks++
+					stats.Current.TasksStats.ActiveTasks++
 					stats.Current.Unlock()
 				}
 			case data.Modified:
@@ -145,8 +146,8 @@ func StartEngine() {
 							delete(managementChannels, event.TaskID)
 
 							stats.Current.Lock()
-							stats.Current.ActiveTasks--
-							stats.Current.InactiveTasks++
+							stats.Current.TasksStats.ActiveTasks--
+							stats.Current.TasksStats.InactiveTasks++
 							stats.Current.Unlock()
 						}
 						// If the task was not running, there is nothing to do.
@@ -168,8 +169,8 @@ func StartEngine() {
 							tasksGoroutines[t.ID] <- *t
 
 							stats.Current.Lock()
-							stats.Current.ActiveTasks++
-							stats.Current.InactiveTasks--
+							stats.Current.TasksStats.ActiveTasks++
+							stats.Current.TasksStats.InactiveTasks--
 							stats.Current.Unlock()
 						}
 					}
@@ -179,7 +180,7 @@ func StartEngine() {
 					// If the task is not running (state != 'active'), skip the iteration.
 					if _, ok := tasksGoroutines[event.TaskID]; !ok{
 						stats.Current.Lock()
-						stats.Current.InactiveTasks--
+						stats.Current.TasksStats.InactiveTasks--
 						stats.Current.Unlock()
 						continue
 					}
@@ -194,7 +195,7 @@ func StartEngine() {
 					delete(managementChannels, event.TaskID)
 
 					stats.Current.Lock()
-					stats.Current.ActiveTasks--
+					stats.Current.TasksStats.ActiveTasks--
 					stats.Current.Unlock()
 				}
 			case data.Failed:
@@ -206,8 +207,8 @@ func StartEngine() {
 				
 				// Decrease the active tasks counter.
 				stats.Current.Lock()
-				stats.Current.ActiveTasks--
-				stats.Current.FailedTasks++
+				stats.Current.TasksStats.ActiveTasks--
+				stats.Current.TasksStats.FailedTasks++
 				stats.Current.Unlock()
 			}
 		}

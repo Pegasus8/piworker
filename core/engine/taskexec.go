@@ -285,7 +285,9 @@ func runActions(task *data.UserTask) error {
 		Msg("Actions executed")
 
 	// Add the execution time to the calculation of the field `stats.Current.AverageExecutionTime`.
-	stats.Current.NewAvgObs(executionTime)
+	stats.Current.Lock()
+	stats.Current.TasksStats.NewAvgObs(executionTime)
+	stats.Current.Unlock()
 
 	return nil
 }

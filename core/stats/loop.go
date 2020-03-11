@@ -38,9 +38,11 @@ func StartLoop(statsChannel chan Statistic) *sql.DB {
 				log.Panic().Err(err).Msg("Error when trying to update the rpi stats")
 			}
 	
-			if err = StoreStats(db, &Current); err != nil {
+			Current.RLock()
+			if err = StoreStats(db, &Current.TasksStats, &Current.RaspberryStats); err != nil {
 				log.Panic().Err(err).Msg("Error when trying to store stats on the db")
 			}
+			Current.RUnlock()
 		}
 	}()
 
