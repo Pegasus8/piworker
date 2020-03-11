@@ -136,7 +136,7 @@ func statsWS(w http.ResponseWriter, request *http.Request) {
 	}
 	// Execution of data sending to the client
 	// into another goroutine
-	go websocket.Writer(ws, statsChannel)
+	go websocket.Writer(ws)
 }
 
 func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
