@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/Pegasus8/piworker/core/stats"
+	"github.com/Pegasus8/piworker/core/configs"
 	"github.com/Pegasus8/piworker/core/data"
 	actionsModel "github.com/Pegasus8/piworker/core/elements/actions"
 	actionsList "github.com/Pegasus8/piworker/core/elements/actions/models"
@@ -16,40 +18,100 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func runTaskLoop(taskID string, taskChannel chan data.UserTask) {
-	log.Info().Str("taskID", taskID).Msg("Loop started")
-	for {
-		// Receive the renewed data for the task in question, if there is not data
-		// just keep waiting for it.
-		taskReceived := <-taskChannel
+func runTaskLoop(taskID string, taskChannel chan data.UserTask, managementChannel chan uint8) {
+	log.Info().Str("taskID", taskID).Msg("Task running, waiting for data...")
 
-		triggered, err := runTrigger(taskReceived.TaskInfo.Trigger, taskReceived.TaskInfo.ID)
+	// Receive the task for first time.
+	taskReceived := <-taskChannel
+
+	log.Info().Str("taskID", taskID).Msg("Data received, getting tick duration config before start the loop...")
+
+	// Load configs
+	configs.CurrentConfigs.Lock()
+	d := configs.CurrentConfigs.Behavior.LoopSleep
+	configs.CurrentConfigs.Unlock()
+	ticker := time.NewTicker(time.Millisecond * time.Duration(d))
+	defer ticker.Stop()
+
+	log.Info().Str("taskID", taskID).Int64("tickDuration", d).Msg("Tick duration obtained, starting task loop")
+
+	for range ticker.C {
+		select {
+		// Update the data.
+		case taskReceived = <-taskChannel:
+		// Stop signal received.
+		case code := <-managementChannel:
+			{
+				switch code {
+				// Stopped by the system.
+				case 0:
+					{
+						log.Info().
+							Str("taskID", taskReceived.ID).
+							Msg("Task execution stopped by the system")
+						return
+					}
+				// Stopped by the user.
+				case 1:
+					{
+						log.Info().
+							Str("taskID", taskReceived.ID).
+							Msg("Task execution stopped by the user due to a state change")
+						return
+					}
+				// Task deleted by the user.
+				case 2:
+					{
+						log.Info().
+							Str("taskID", taskReceived.ID).
+							Msg("Task deleted by the user, execution stopped")
+						return
+					}
+				}
+			}
+
+		default:
+			// Keep using the same data unless a new event (related with
+			// the task running the loop) is received on the engine.
+		}
+
+		triggered, err := runTrigger(taskReceived.Trigger, taskReceived.ID)
 		if err != nil {
 			log.Error().
 				Err(err).
-				Str("taskID", taskReceived.TaskInfo.ID).
+				Str("taskID", taskReceived.ID).
 				Msg("Error while trying to run the trigger of the task, stopping the task execution...")
 			break
 		}
+
 		if triggered {
-			if wasRecentlyExecuted(taskReceived.TaskInfo.ID) {
+			if wasRecentlyExecuted(taskReceived.ID) {
 				log.Debug().
-					Str("taskID", taskReceived.TaskInfo.ID).
+					Str("taskID", taskReceived.ID).
 					Msg("The task was recently executed, the trigger stills active. Skipping it...")
+
 				goto skipTaskExecution
 			}
 
 			log.Info().
-				Str("taskID", taskReceived.TaskInfo.ID).
-				Str("triggerID", taskReceived.TaskInfo.Trigger.ID).
+				Str("taskID", taskReceived.ID).
+				Str("triggerID", taskReceived.Trigger.ID).
 				Msg("[%s] Trigger with the ID '%s' activated, running actions...")
-			runActions(&taskReceived)
 
-			err = setAsRecentlyExecuted(taskReceived.TaskInfo.ID)
+			err = runActions(&taskReceived)
 			if err != nil {
-				log.Fatal().
+				log.Error().
+					Str("taskID", taskReceived.ID).
 					Err(err).
-					Str("taskID", taskReceived.TaskInfo.ID).
+					Msg("Error when running the actions of the task")
+				break
+			}
+
+			err = setAsRecentlyExecuted(taskReceived.ID)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("taskID", taskReceived.ID).
 					Msg("Error when trying to set a task as recently executed")
 				break
 			}
@@ -58,18 +120,26 @@ func runTaskLoop(taskID string, taskChannel chan data.UserTask) {
 			// Skip the execution of the task but not skip the entire iteration
 			// in case of have to do something else with the task.
 		} else {
-			if wasRecentlyExecuted(taskReceived.TaskInfo.ID) {
-				err = setAsReadyToExecuteAgain(taskReceived.TaskInfo.ID)
+			if wasRecentlyExecuted(taskReceived.ID) {
+				err = setAsReadyToExecuteAgain(taskReceived.ID)
 				if err != nil {
-					log.Fatal().
+					log.Error().
 						Err(err).
-						Str("taskID", taskReceived.TaskInfo.ID).
+						Str("taskID", taskReceived.ID).
 						Msg("Error when trying to set a task as ready to execute again")
 					break
 				}
 			}
 		}
 	}
+
+	// If the loop breaks (by a 'break' statement), there was a failure, so an event of type `Failed` must
+	// be emitted.
+	event := data.Event{
+		Type:   data.Failed,
+		TaskID: taskReceived.ID,
+	}
+	data.EventBus <- event
 }
 
 func runTrigger(trigger data.UserTrigger, parentTaskID string) (bool, error) {
@@ -96,24 +166,25 @@ func runTrigger(trigger data.UserTrigger, parentTaskID string) (bool, error) {
 	return false, fmt.Errorf("The trigger with the ID '%s' cannot be found", trigger.ID)
 }
 
-func runActions(task *data.UserTask) {
-	log.Info().Str("taskID", task.TaskInfo.ID).Msg("Running actions...")
+func runActions(task *data.UserTask) error {
+	log.Info().Str("taskID", task.ID).Msg("Running actions...")
 	startTime := time.Now()
 
-	userActions := &task.TaskInfo.Actions
-	previousState := task.TaskInfo.State
+	userActions := &task.Actions
 
-	log.Printf("[%s] Changing task state to '%s'\n", task.TaskInfo.ID, data.StateTaskOnExecution)
+	log.Info().Str("taskID", task.ID).Msgf("Changing task state to '%s'\n", data.StateTaskOnExecution)
+
 	// Set task state to on-execution
-	err := data.UpdateTaskState(task.TaskInfo.ID, data.StateTaskOnExecution)
+	err := data.UpdateTaskState(task.ID, data.StateTaskOnExecution)
 	if err != nil {
-		log.Fatal().
-			Str("taskID", task.TaskInfo.ID).
-			Msgf("Error when trying to update the task state to '%s'", data.StateTaskOnExecution)
+		log.Error().
+			Str("taskID", task.ID).
+			Msgf("Error when trying to update the task state to '%s'\n", data.StateTaskOnExecution)
+		return err
 	}
 
 	var chainedResult *actionsModel.ChainedResult
-	var orderN int8 = 0
+	var orderN uint8 = 0
 	for range *userActions {
 
 		for _, userAction := range *userActions {
@@ -123,68 +194,66 @@ func runActions(task *data.UserTask) {
 				for _, action := range actionsList.ACTIONS {
 					if userAction.ID == action.ID {
 						log.Info().
-							Str("taskID", task.TaskInfo.ID).
+							Str("taskID", task.ID).
 							Str("actionID", userAction.ID).
 							Bool("chained", userAction.Chained).
-							Int8("actionOrder", userAction.Order).
+							Uint8("actionOrder", userAction.Order).
 							Str("previousResultType", string(chainedResult.ResultType)).
 							Str("previousResultContent", chainedResult.Result).
 							Msg("Running action")
 
 						for _, arg := range userAction.Args {
-							err := searchAndReplaceVariable(&arg, task.TaskInfo.ID)
+							err := searchAndReplaceVariable(&arg, task.ID)
 							if err != nil {
 								log.Error().
-									Str("taskID", task.TaskInfo.ID).
+									Str("taskID", task.ID).
 									Str("actionID", userAction.ID).
 									Str("argID", arg.ID).
 									Err(err).
-									Int8("actionOrder", orderN).
+									Uint8("actionOrder", orderN).
 									Msg("Error when searching for a variable on the argument")
-								return
+								return err
 							}
 						}
 
 						ua, err := replaceArgByCR(chainedResult, &userAction)
 						if err != nil {
 							log.Error().
-								Str("taskID", task.TaskInfo.ID).
+								Str("taskID", task.ID).
 								Str("actionID", userAction.ID).
 								Err(err).
-								Int8("actionOrder", userAction.Order).
+								Uint8("actionOrder", userAction.Order).
 								Msg("Error when trying to replace an argument for a variable")
-							return
+							return err
 						}
 						userAction = *ua
 
-						result, chr, err := action.Run(chainedResult, &userAction, task.TaskInfo.ID)
+						result, chr, err := action.Run(chainedResult, &userAction, task.ID)
 						// Set the returned chr (chained result) to our main instance of the ChainedResult struct (`chainedResult`).
 						// This will be given to the next action (if exists).
 						chainedResult = chr
 						if err != nil {
 							log.Error().
-								Str("taskID", task.TaskInfo.ID).
+								Str("taskID", task.ID).
 								Str("actionID", userAction.ID).
 								Err(err).
-								Int8("actionOrder", userAction.Order).
+								Uint8("actionOrder", userAction.Order).
 								Msg("Error when running the action")
-							return
+							return err
 						}
 						if result {
 							log.Info().
-								Str("taskID", task.TaskInfo.ID).
+								Str("taskID", task.ID).
 								Str("actionID", userAction.ID).
-								Int8("actionOrder", userAction.Order).
+								Uint8("actionOrder", userAction.Order).
 								Msg("Action finished correctly")
 						} else {
-							log.Printf("[%s] Action in order %d wasn't executed correctly. Aborting task for prevention of future errors...\n",
-								task.TaskInfo.ID, userAction.Order)
 							log.Warn().
-								Str("taskID", task.TaskInfo.ID).
+								Str("taskID", task.ID).
 								Str("actionID", userAction.ID).
-								Int8("actionOrder", userAction.Order).
+								Uint8("actionOrder", userAction.Order).
 								Msg("Action wasn't executed correctly. Aborting task for prevention of future errors...")
-							return
+							return fmt.Errorf("Action returned an unsuccessful result")
 						}
 
 						// No need to keep iterating
@@ -199,64 +268,30 @@ func runActions(task *data.UserTask) {
 
 	}
 
-	// Needed read the actual task state
-	updatedData, err := data.ReadData()
+	// Before the begin of actions's execution, the only possible state of the task is 'active' (otherwise the task won't be here).
+	// So now, after the execution of all the actions, let's restore the state to its previous value (remember that while the task is
+	// being executed the state will be 'on-execution').
+	err = data.UpdateTaskState(task.ID, data.StateTaskActive)
 	if err != nil {
 		log.Fatal().
-			Str("taskID", task.TaskInfo.ID).
+			Str("taskID", task.ID).
+			Str("previousState", string(data.StateTaskOnExecution)).
 			Err(err).
-			Msg("Error when trying to read the current status of the task")
+			Msg("Error when trying to update the task's state")
 	}
-	updatedTask, _, err := updatedData.GetTaskByID(task.TaskInfo.ID)
-	if err != nil {
-		log.Fatal().
-			Str("taskID", task.TaskInfo.ID).
-			Err(err).
-			Msg("Error when trying to get the task by its ID")
-	}
-	lastState := updatedTask.TaskInfo.State
-	// If the state has no changes, return to the original state
-	if lastState == data.StateTaskOnExecution {
-		err = data.UpdateTaskState(task.TaskInfo.ID, previousState)
-		if err != nil {
-			log.Fatal().
-				Str("taskID", task.TaskInfo.ID).
-				Str("previousState", string(previousState)).
-				Err(err).
-				Msg("Error when trying to update the task's state")
-		}
-	}
-	executionTime := time.Since(startTime).String()
-	log.Info().
-		Str("taskID", task.TaskInfo.ID).
-		Str("executionTime", executionTime).
-		Msg("Actions executed")
-}
 
-func checkForAnUpdate(updateChannel chan bool) {
-	dataPath := filepath.Join(data.DataPath, data.Filename)
-	var oldModTime time.Time
-	var newModTime time.Time
-	for range time.Tick(time.Millisecond * 300) {
-		fileInfo, err := os.Stat(dataPath)
-		if err != nil {
-			log.Error().Err(err).Msg("Error when trying to get the file's info of the user data file")
-			continue
-		}
-		// First run
-		if oldModTime.IsZero() {
-			log.Info().Msg("First run of the data file watchdog, setting variable of comparison")
-			oldModTime = fileInfo.ModTime()
-		}
-		newModTime = fileInfo.ModTime()
-		if oldModTime != newModTime {
-			log.Info().Msg("Change detected on the data file, sending the signal...")
-			// Send the signal
-			updateChannel <- true
-			// Update the variable
-			oldModTime = newModTime
-		}
-	}
+	executionTime := time.Since(startTime)
+	log.Info().
+		Str("taskID", task.ID).
+		Str("executionTime", executionTime.String()).
+		Msg("Actions executed")
+
+	// Add the execution time to the calculation of the field `stats.Current.AverageExecutionTime`.
+	stats.Current.Lock()
+	stats.Current.TasksStats.NewAvgObs(executionTime)
+	stats.Current.Unlock()
+
+	return nil
 }
 
 func setAsRecentlyExecuted(ID string) error {
@@ -269,7 +304,7 @@ func setAsRecentlyExecuted(ID string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	file.Close()
 
 	return nil
 }
@@ -303,30 +338,35 @@ func searchAndReplaceVariable(arg *data.UserArg, parentTaskID string) error {
 	if uservariables.ContainGlobalVariable(&arg.Content) {
 		// If yes, then get the name of the variable by using regex
 		varName := uservariables.GetGlobalVariableName(arg.Content)
+
 		// Get the variable from the name
 		globalVar, err := uservariables.GetGlobalVariable(varName)
 		if err != nil {
 			log.Error().Err(err).Str("taskID", parentTaskID).Str("varName", varName).Msg("Error when trying to read the user global variable")
 			return err
 		}
-		globalVar.RLock()
-		// If all it's ok, replace the content of the argument (wich is the variable name basically)
+
+		// If all it's ok, replace the content of the argument (which is the variable name basically)
 		// with the content of the desired user global variable.
+		globalVar.RLock()
 		arg.Content = globalVar.Content
 		globalVar.RUnlock()
+
 		// If the arg not contains a user global variable, then check if contains a user local variable instead.
 	} else if uservariables.ContainLocalVariable(&arg.Content) {
 		// If yes, then get the name of the variable by using regex
 		varName := uservariables.GetLocalVariableName(arg.Content)
+
 		// Get the variable from the name
 		localVariable, err := uservariables.GetLocalVariable(varName, parentTaskID)
 		if err != nil {
 			log.Error().Err(err).Str("taskID", parentTaskID).Str("varName", varName).Msg("Error when trying to read the user local variable")
 			return err
 		}
-		localVariable.RLock()
+
 		// If all it's ok, replace the content of the argument (which is the variable name basically)
 		// with the content of the desired user local variable.
+		localVariable.RLock()
 		arg.Content = localVariable.Content
 		localVariable.RUnlock()
 	}
@@ -350,10 +390,12 @@ func replaceArgByCR(chainedResult *actionsModel.ChainedResult, userAction *data.
 				if err != nil {
 					return nil, err
 				}
+
 				if chainedResult.ResultType != userArgType && userArgType != types.Any {
 					return nil, fmt.Errorf("Can't replace the arg with the ID '%s' of type '%s' with the previous ChainedResult of type '%s'", userArg.ID, userArgType, chainedResult.ResultType)
 
 				}
+
 				// If all is ok, replace the content
 				userArg.Content = chainedResult.Result
 			}
@@ -369,6 +411,7 @@ func getUserArgType(userActionID string, userArgID string) (types.PWType, error)
 	for _, action := range actionsList.ACTIONS {
 		if action.ID == userActionID {
 			actionFound = true
+
 			for _, arg := range action.Args {
 				if arg.ID == userArgID {
 					return arg.ContentType, nil

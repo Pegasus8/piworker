@@ -1,10 +1,12 @@
 package websocket
 
 import (
+	"time"
 	"encoding/json"
 	"net/http"
 
 	"github.com/Pegasus8/piworker/core/stats"
+
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 )
@@ -35,26 +37,31 @@ func Upgrade(w http.ResponseWriter, request *http.Request) (*websocket.Conn, err
 }
 
 // Writer func sends data into WebSocket to the client
-func Writer(conn *websocket.Conn, statsChannel chan stats.Statistic) {
-
-	// Other way to do that
-	// // for {
-	// // 	ticker := time.NewTicker(5 * time.Second)
-	// // 	for t := range ticker.C { ... }
-	// // }
+func Writer(conn *websocket.Conn) {
+	type d struct {
+		*stats.TasksStats
+		*stats.RaspberryStats
+	}
+	ticker := time.NewTicker(time.Second * 1)
+	defer ticker.Stop()
 
 	log.Info().Str("remoteAddr", conn.RemoteAddr().String()).Msg("Sending data into WebSocket")
 	// Send data to client every 1 sec
-	for {
+	for range ticker.C{
 
-		// Get data
-		data := <-statsChannel
+		stats.Current.RLock()
+		data := d{
+			&stats.Current.TasksStats,
+			&stats.Current.RaspberryStats,
+		}
 
 		jsonData, err := json.Marshal(data)
 		if err != nil {
 			log.Error().Err(err).Msg("")
+			stats.Current.RUnlock()
 			return
 		}
+		stats.Current.RUnlock()
 
 		// Send data
 		err = conn.WriteMessage(websocket.TextMessage, jsonData)

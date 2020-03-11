@@ -2,18 +2,8 @@ package data
 
 import "time"
 
-// UserData is the general struct for parsing data
-type UserData struct {
-	Tasks []UserTask `json:"user-data"`
-}
-
-// UserTask is the structure used for parsing all the tasks
+// UserTask is a struct for parse each task.
 type UserTask struct {
-	TaskInfo TaskInfo `json:"task"`
-}
-
-// TaskInfo is a struct for parsing every task
-type TaskInfo struct {
 	Name             string       `json:"name"`
 	State            TaskState    `json:"state"`
 	Trigger          UserTrigger  `json:"trigger"`
@@ -37,11 +27,33 @@ type UserAction struct {
 	Timestamp             string    `json:"timestamp"`
 	Chained               bool      `json:"chained"`
 	ArgumentToReplaceByCR string    `json:"argumentToReplaceByCR"`
-	Order                 int8       `json:"order"`
+	Order                 uint8     `json:"order"`
 }
 
 // UserArg is a struct for arg parsing
 type UserArg struct {
 	ID      string `json:"ID"`
 	Content string `json:"content"`
+}
+
+// EventType represents the different situations in which a task can be involved when the user
+// data file has been modified.
+type EventType uint8
+
+const (
+	// Modified represents a task that has variated some of its fields.
+	Modified EventType = iota
+	// Deleted represents a task that has been removed.
+	Deleted
+	// Added represents a new task.
+	Added
+	// Failed represents a task that failed during execution.
+	Failed
+)
+
+// Event is the struct used to know which action must be executed by the engine
+// with the given task.
+type Event struct {
+	Type   EventType
+	TaskID string
 }

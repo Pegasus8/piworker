@@ -211,13 +211,13 @@ export default {
     if (this.$route.query.id) {
       // Coming from `Management` view.
 
-      const userTask = this.$store.getters['userTasks/tasks'].find(t => t.task.ID === this.$route.query.id)
+      const userTask = this.$store.getters['userTasks/tasks'].find(t => t.ID === this.$route.query.id)
 
-      this.taskName = userTask.task.name
-      this.setActions(userTask.task.actions)
-      this.setTrigger(userTask.task.trigger)
-      this.setTaskState(userTask.task.state)
-      this.stateSelected = userTask.task.state === 'Active'
+      this.taskName = userTask.name
+      this.setActions(userTask.actions)
+      this.setTrigger(userTask.trigger)
+      this.setTaskState(userTask.state)
+      this.stateSelected = userTask.state === 'active'
     } else {
       // New Task view
       this.clearFields()

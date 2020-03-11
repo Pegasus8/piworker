@@ -6,9 +6,9 @@
 
         <v-expansion-panels inset>
 
-          <v-expansion-panel v-for="userTask in userTasks" :key="userTask.task.ID">
+          <v-expansion-panel v-for="userTask in userTasks" :key="userTask.ID">
             <v-expansion-panel-header>
-              {{ userTask.task.name }}
+              {{ userTask.name }}
             </v-expansion-panel-header>
             <v-expansion-panel-content>
               <div class="d-flex justify-center">
@@ -17,7 +17,7 @@
                     <v-btn
                       class="mx-4"
                       color='red darken-2'
-                      @click="deleteTask(userTask.task.ID)"
+                      @click="deleteTask(userTask.ID)"
                       text
                       icon
                     >
@@ -26,7 +26,7 @@
                     <v-btn
                       class="mx-4"
                       color='blue darken-2'
-                      @click="editTask(userTask.task.ID)"
+                      @click="editTask(userTask.ID)"
                       text
                       icon
                     >
@@ -35,7 +35,7 @@
                     <v-btn
                       class="mx-4"
                       :color='
-                        userTask.task.state === "Active" ? "green darken-2" : "red darken-2"
+                        userTask.state === "active" ? "green darken-2" : "red darken-2"
                       '
                       text
                       icon

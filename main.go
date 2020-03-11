@@ -9,7 +9,6 @@ import (
 	"github.com/Pegasus8/piworker/core/signals"
 
 	"github.com/Pegasus8/piworker/core/configs"
-	"github.com/Pegasus8/piworker/core/data"
 	"github.com/Pegasus8/piworker/core/engine"
 	"github.com/Pegasus8/piworker/core/logs"
 	"github.com/Pegasus8/piworker/core/uservariables"
@@ -32,8 +31,6 @@ func start() {
 	setLogSettings()
 
 	log.Info().Msg("Starting PiWorker...")
-	// Set user data filename
-	data.Filename = "user_data.json" //TODO: assign the name dinamically
 
 	signals.Shutdown = make(chan os.Signal)
 	signal.Notify(signals.Shutdown, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)

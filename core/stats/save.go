@@ -1,6 +1,8 @@
 package stats
 
 import (
+	"encoding/json"
+	"time"
 	"database/sql"
 	"os"
 
@@ -22,7 +24,7 @@ func init() {
 *	2) defer db.Close()
 *	3) CreateTable
 *	4) StoreRasberryStatistics/ReadRaspberryStatistics
- */
+*/
 
 // InitDB is the function used to initialize the sqlite3 database.
 func InitDB(filepath string) (*sql.DB, error) {
@@ -40,87 +42,191 @@ func InitDB(filepath string) (*sql.DB, error) {
 // CreateTable is the function used to create the default tables into
 // the sqlite3 database.
 func CreateTable(db *sql.DB) error {
-	sqlStatement := `
-	CREATE TABLE IF NOT EXISTS RaspberryStats(
-		Temperature REAL NOT NULL,
-		CPULoad TEXT NOT NULL,
-		FreeStorage TEXT NOT NULL,
-		RAMUsage TEXT NOT NULL, 
+	sqlStatement1 := `
+	CREATE TABLE IF NOT EXISTS TasksStats(
+		ActiveTasks INTEGER NOT NULL,
+		InactiveTasks INTEGER NOT NULL,
+		OnExecutionTasks INTEGER NOT NULL,
+		FailedTasks INTEGER NOT NULL,
+		AverageExecutionTime REAL NOT NULL, 
 		Timestamp DATETIME
 	);
 	`
-	_, err := db.Exec(sqlStatement)
-	if err != nil {
-		return err
-	}
-	return nil
-}
 
-// StoreRasberryStatistics is the function used to save a slice of
-// `RaspberryStats` struct into the sqlite3 database.
-func StoreRasberryStatistics(db *sql.DB, items ...RaspberryStats) error {
-	sqlStatement := `
-	INSERT INTO RaspberryStats(
-		Temperature,
-		CPULoad,
-		FreeStorage,
-		RAMUsage,
-		Timestamp
-	) values (?,?,?,?,?)
-	` // CURRENT_TIMESTAMP
-
-	stmt, err := db.Prepare(sqlStatement)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	for _, item := range items {
-		_, err = stmt.Exec(
-			item.Temperature,
-			item.CPULoad,
-			item.FreeStorage,
-			item.RAMUsage,
-			item.Timestamp,
-		)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// ReadRaspberryStatistics is the function used to read the raspberry's
-// statistics stored in the sqlite3 database.
-func ReadRaspberryStatistics(db *sql.DB) ([]RaspberryStats, error) {
-	sqlStatement := `
-	SELECT * FROM RaspberryStats
-	ORDER BY datetime(Timestamp) DESC
+	sqlStatement2 := `
+	CREATE TABLE IF NOT EXISTS RaspberryStats(
+		Host TEXT NOT NULL,
+		CPULoad REAL NOT NULL,
+		Storage TEXT NOT NULL,
+		RAM TEXT NOT NULL, 
+		Timestamp DATETIME
+	);
 	`
 
-	rows, err := db.Query(sqlStatement)
+	_, err := db.Exec(sqlStatement1)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	defer rows.Close()
 
-	var result []RaspberryStats
-	for rows.Next() {
-		var item RaspberryStats
-		err = rows.Scan(
-			&item.Temperature,
-			&item.CPULoad,
-			&item.FreeStorage,
-			&item.RAMUsage,
+	_, err = db.Exec(sqlStatement2)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// StoreStats is the function used to save a slice of
+// `RaspberryStats` struct into the sqlite3 database.
+func StoreStats(db *sql.DB, ts *TasksStats, rs *RaspberryStats) error {
+	sqlStatement1 := `
+	INSERT INTO TasksStats(
+		ActiveTasks,
+		InactiveTasks,
+		OnExecutionTasks,
+		FailedTasks,
+		AverageExecutionTime,
+		Timestamp
+	) values (?,?,?,?,?,?)
+	` // CURRENT_TIMESTAMP
+
+	sqlStatement2 := `
+	INSERT INTO RaspberryStats(
+		Host,
+		CPULoad,
+		Storage,
+		RAM,
+		Timestamp
+	) values (?,?,?,?,?)
+	`
+
+	now := time.Now()
+
+	_, err := db.Exec(sqlStatement1,
+		ts.ActiveTasks,
+		ts.InactiveTasks,
+		ts.OnExecutionTasks,
+		ts.FailedTasks,
+		ts.AverageExecutionTime,
+		now,
+	)
+	if err != nil {
+		return err
+	}
+
+	host, err := json.Marshal(rs.Host)
+	if err != nil {
+		return err
+	}
+	storage, err := json.Marshal(rs.Storage)
+	if err != nil {
+		return err
+	}
+	ram, err := json.Marshal(rs.RAM)
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec(sqlStatement2,
+		string(host),
+		rs.CPULoad,
+		string(storage),
+		string(ram),
+		now,
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+
+// ReadStats reads the statistics stored in the stats database on a specific period of time.
+func ReadStats(db *sql.DB, from, to string) (*[]TasksStats, *[]RaspberryStats, error) {
+	// sqlStatement := `
+	// SELECT * FROM RaspberryStats
+	// ORDER BY datetime(Timestamp) DESC
+	// `
+	sqlStatement1 := `
+		SELECT * FROM TasksStats
+		WHERE date(Timestamp) BETWEEN ? AND ?;
+	`
+	sqlStatement2 := `
+		SELECT * FROM RaspberryStats
+		WHERE date(Timestamp) BETWEEN ? AND ?;
+	`
+	var ts []TasksStats
+	var rs []RaspberryStats
+
+	tsRows, err := db.Query(sqlStatement1, from, to)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer tsRows.Close()
+
+	
+	for tsRows.Next() {
+		var item TasksStats
+		var avg float64
+
+		err = tsRows.Scan(
+			&item.ActiveTasks,
+			&item.InactiveTasks,
+			&item.OnExecutionTasks,
+			&item.FailedTasks,
+			&avg,
 			&item.Timestamp,
 		)
 		if err != nil {
-			return nil, err
+			return &ts, &rs, err
 		}
 
-		result = append(result, item)
+		item.AverageExecutionTime = time.Duration(avg)
+
+		ts = append(ts, item)
 	}
 
-	return result, nil
+	rsRows, err := db.Query(sqlStatement2, from, to)
+	if err != nil {
+		return &ts, &rs, err
+	}
+	defer rsRows.Close()
+
+	for rsRows.Next() {
+		var item RaspberryStats
+		var host string
+		var storage string
+		var ram string
+
+		err = rsRows.Scan(
+			&host,
+			&item.CPULoad,
+			&storage,
+			&ram,
+			&item.Timestamp,
+		)
+		if err != nil {
+			return &ts, &rs, err
+		}
+
+		err = json.Unmarshal([]byte(host), &item.Host)
+		if err != nil {
+			return &ts, &rs, err
+		}
+
+		err = json.Unmarshal([]byte(storage), &item.Storage)
+		if err != nil {
+			return &ts, &rs, err
+		}
+
+		err = json.Unmarshal([]byte(ram), &item.RAM)
+		if err != nil {
+			return &ts, &rs, err
+		}
+
+		rs = append(rs, item)
+	}
+
+	return &ts, &rs, nil
 }
