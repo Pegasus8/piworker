@@ -566,9 +566,23 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 			Dur("executionTime", execTime).
 			Msg("Well, maybe I exaggerated. It wasn't 54 years, but it was close! Or maybe not...")
 
-		json.NewEncoder(w).Encode(recreatedUserData)
+		err = json.NewEncoder(w).Encode(recreatedUserData)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("api", "getTasks").
+				Str("remoteAddr", request.RemoteAddr).
+				Msg("Error when trying to encode the JSON response (with data recreated)")
+		}
 	} else {
-		json.NewEncoder(w).Encode(tasks)
+		err = json.NewEncoder(w).Encode(tasks)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("api", "getTasks").
+				Str("remoteAddr", request.RemoteAddr).
+				Msg("Error when trying to encode the JSON response")
+		}
 	}
 }
 
