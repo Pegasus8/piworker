@@ -83,11 +83,8 @@ func StartEngine() {
 
 	// Start the stats recollection.
 	log.Info().Msg("Starting the stats loop...")
-	statsDB := stats.StartLoop()
-	defer func() {
-		statsDB.Close()
-		log.Info().Msg("Stats db closed")
-	}()
+	go stats.StartLoop()
+	defer stats.DB.Close()
 
 	go func() {
 		for {

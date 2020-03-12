@@ -1,6 +1,9 @@
 package stats
 
-import "sync"
+import (
+	"database/sql"
+	"sync"
+)
 
 const (
 	// DatabaseName is the name of the sqlite3 database used for storage of some statistics
@@ -17,3 +20,6 @@ var Current struct {
 	RaspberryStats RaspberryStats
 	sync.RWMutex
 }
+
+// DB is the instance of the stats SQLite3 database.
+var DB *sql.DB

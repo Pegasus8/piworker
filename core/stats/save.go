@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"path/filepath"
 	"encoding/json"
 	"time"
 	"database/sql"
@@ -15,6 +16,20 @@ func init() {
 	err := os.MkdirAll(StatisticsPath, os.ModePerm)
 	if err != nil {
 		log.Fatal().Err(err).Str("path", StatisticsPath).Msg("Cannot initialize the directory to store statistics")
+	}
+
+	path := filepath.Join(StatisticsPath, DatabaseName)
+
+	DB, err = InitDB(path)
+	if err != nil {
+		log.Panic().Err(err).Str("path", path).Msg("Error when initializing the statistics database")
+	}
+
+	err = CreateTable()
+	if err != nil {
+		log.Panic().
+			Err(err).
+			Msg("Error when trying to create the table on the statistics database")
 	}
 }
 
@@ -40,8 +55,8 @@ func InitDB(filepath string) (*sql.DB, error) {
 }
 
 // CreateTable is the function used to create the default tables into
-// the sqlite3 database.
-func CreateTable(db *sql.DB) error {
+// the SQLite3 database.
+func CreateTable() error {
 	sqlStatement1 := `
 	CREATE TABLE IF NOT EXISTS TasksStats(
 		ActiveTasks INTEGER NOT NULL,
@@ -63,12 +78,12 @@ func CreateTable(db *sql.DB) error {
 	);
 	`
 
-	_, err := db.Exec(sqlStatement1)
+	_, err := DB.Exec(sqlStatement1)
 	if err != nil {
 		return err
 	}
 
-	_, err = db.Exec(sqlStatement2)
+	_, err = DB.Exec(sqlStatement2)
 	if err != nil {
 		return err
 	}
@@ -77,8 +92,8 @@ func CreateTable(db *sql.DB) error {
 }
 
 // StoreStats is the function used to save a slice of
-// `RaspberryStats` struct into the sqlite3 database.
-func StoreStats(db *sql.DB, ts *TasksStats, rs *RaspberryStats) error {
+// `RaspberryStats` struct into the SQLite3 database.
+func StoreStats(ts *TasksStats, rs *RaspberryStats) error {
 	sqlStatement1 := `
 	INSERT INTO TasksStats(
 		ActiveTasks,
@@ -102,7 +117,7 @@ func StoreStats(db *sql.DB, ts *TasksStats, rs *RaspberryStats) error {
 
 	now := time.Now()
 
-	_, err := db.Exec(sqlStatement1,
+	_, err := DB.Exec(sqlStatement1,
 		ts.ActiveTasks,
 		ts.InactiveTasks,
 		ts.OnExecutionTasks,
@@ -127,7 +142,7 @@ func StoreStats(db *sql.DB, ts *TasksStats, rs *RaspberryStats) error {
 		return err
 	}
 
-	_, err = db.Exec(sqlStatement2,
+	_, err = DB.Exec(sqlStatement2,
 		string(host),
 		rs.CPULoad,
 		string(storage),
@@ -143,7 +158,7 @@ func StoreStats(db *sql.DB, ts *TasksStats, rs *RaspberryStats) error {
 
 
 // ReadStats reads the statistics stored in the stats database on a specific period of time.
-func ReadStats(db *sql.DB, from, to string) (*[]TasksStats, *[]RaspberryStats, error) {
+func ReadStats(from, to string) (*[]TasksStats, *[]RaspberryStats, error) {
 	// sqlStatement := `
 	// SELECT * FROM RaspberryStats
 	// ORDER BY datetime(Timestamp) DESC
@@ -159,7 +174,7 @@ func ReadStats(db *sql.DB, from, to string) (*[]TasksStats, *[]RaspberryStats, e
 	var ts []TasksStats
 	var rs []RaspberryStats
 
-	tsRows, err := db.Query(sqlStatement1, from, to)
+	tsRows, err := DB.Query(sqlStatement1, from, to)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -187,7 +202,7 @@ func ReadStats(db *sql.DB, from, to string) (*[]TasksStats, *[]RaspberryStats, e
 		ts = append(ts, item)
 	}
 
-	rsRows, err := db.Query(sqlStatement2, from, to)
+	rsRows, err := DB.Query(sqlStatement2, from, to)
 	if err != nil {
 		return &ts, &rs, err
 	}
