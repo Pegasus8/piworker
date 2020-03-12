@@ -6,16 +6,16 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"sort"
-	// "strings"
 	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/Pegasus8/piworker/core/configs"
 	"github.com/Pegasus8/piworker/core/data"
 	actionsList "github.com/Pegasus8/piworker/core/elements/actions/models"
 	triggersList "github.com/Pegasus8/piworker/core/elements/triggers/models"
+	"github.com/Pegasus8/piworker/core/stats"
+
 	// pwLogs "github.com/Pegasus8/piworker/core/logs"
 	"github.com/Pegasus8/piworker/core/types"
 	"github.com/Pegasus8/piworker/webui/backend/auth"
@@ -23,6 +23,7 @@ import (
 
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/gobuffalo/packr/v2"
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 )
@@ -415,7 +416,7 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 	// fromWebUI = true
 	if keys[0] == "true" {
 		startTime := time.Now()
-		
+
 		log.Info().
 			Str("api", "getTasks").
 			Str("remoteAddr", request.RemoteAddr).
@@ -443,7 +444,7 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 			ID                    string        `json:"ID"`
 			Timestamp             string        `json:"timestamp"`
 			Args                  []argForWebUI `json:"args"`
-			Order                 uint8          `json:"order"`
+			Order                 uint8         `json:"order"`
 			Chained               bool          `json:"chained"`
 			ArgumentToReplaceByCR string        `json:"argumentToReplaceByCR"`
 		}
@@ -661,7 +662,74 @@ func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GE
 		return
 	}
 
-	w.WriteHeader(http.StatusNotImplemented)
+	w.Header().Set("Content-Type", "application/json")
+
+	rgx := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+
+	from, ok := request.URL.Query()["from"]
+	if !ok || len(from[0]) < 1 {
+		log.Error().
+			Err(errors.New("Url Param 'from' is missing")).
+			Str("api", "statisticsAPI").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Rejecting request because absence of 'from' param")
+
+		w.WriteHeader(http.StatusBadRequest)
+
+		return
+	}
+
+	to, ok := request.URL.Query()["to"]
+	if !ok || len(to[0]) < 1 {
+		log.Error().
+			Err(errors.New("Url Param 'to' is missing")).
+			Str("api", "statisticsAPI").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Rejecting request because absence of 'to' param")
+
+		w.WriteHeader(http.StatusBadRequest)
+
+		return
+	}
+
+	if !rgx.MatchString(from[0]) || !rgx.MatchString(to[0]) {
+		log.Error().
+			Err(errors.New("Incorrect format")).
+			Str("api", "statisticsAPI").
+			Str("remoteAddr", request.RemoteAddr).
+			Str("fromParam", from[0]).
+			Str("toParam", to[0]).
+			Msg("Rejecting request because a wrong format on the parameters")
+
+		w.WriteHeader(http.StatusBadRequest)
+
+		return
+	}
+
+	ts, rs, err := stats.ReadStats(from[0], to[0])
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("api", "statisticsAPI").
+			Str("remoteAddr", request.RemoteAddr).
+			Str("fromParam", from[0]).
+			Str("toParam", to[0]).
+			Msg("Error when trying to read the statistics from the db")
+
+		w.WriteHeader(http.StatusInternalServerError)
+
+		return
+	}
+
+	r := struct {
+		TasksStats *[]stats.TasksStats     `json:"tasksStats"`
+		RpiStats   *[]stats.RaspberryStats `json:"rpiStats"`
+	}{
+		ts,
+		rs,
+	}
+
+	err = json.NewEncoder(w).Encode(r)
 }
 
 func triggersInfoAPI(w http.ResponseWriter, request *http.Request) {
@@ -675,11 +743,11 @@ func triggersInfoAPI(w http.ResponseWriter, request *http.Request) {
 	err := json.NewEncoder(w).Encode(triggersList.TRIGGERS)
 	if err != nil {
 		log.Error().
-		Err(err).
-		Str("api", "triggersInfo").
-		Str("remoteAddr", request.RemoteAddr).
-		Msg("")
-		
+			Err(err).
+			Str("api", "triggersInfo").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("")
+
 		w.WriteHeader(http.StatusInternalServerError)
 	}
 }
