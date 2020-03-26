@@ -1,11 +1,13 @@
 package stats
 
 import (
-	"path/filepath"
-	"encoding/json"
-	"time"
+	"fmt"
+	"strconv"
 	"database/sql"
+	"encoding/json"
 	"os"
+	"path/filepath"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite3 package
 	"github.com/rs/zerolog/log"
@@ -39,7 +41,7 @@ func init() {
 *	2) defer db.Close()
 *	3) CreateTable
 *	4) StoreRasberryStatistics/ReadRaspberryStatistics
-*/
+ */
 
 // InitDB is the function used to initialize the sqlite3 database.
 func InitDB(filepath string) (*sql.DB, error) {
@@ -156,9 +158,8 @@ func StoreStats(ts *TasksStats, rs *RaspberryStats) error {
 	return nil
 }
 
-
-// ReadStats reads the statistics stored in the stats database on a specific period of time.
-func ReadStats(from, to string) (*[]TasksStats, *[]RaspberryStats, error) {
+// ReadStatsByDate returns the statistics of a specific date.
+func ReadStatsByDate(date string) (*[]TasksStats, *[]RaspberryStats, error) {
 	// sqlStatement := `
 	// SELECT * FROM RaspberryStats
 	// ORDER BY datetime(Timestamp) DESC
@@ -174,13 +175,28 @@ func ReadStats(from, to string) (*[]TasksStats, *[]RaspberryStats, error) {
 	var ts []TasksStats
 	var rs []RaspberryStats
 
+	// Parse the given date. The stats will be obtained from this date.
+	f, err := time.Parse("2006-01-02", date)
+	if err != nil {
+		return &ts, &rs, err
+	}
+
+	// Add a day to the date used as start point. The stats will be obtained until
+	// this date.
+	t := f.Add(24 * time.Hour)
+
+	// Get the strings of the dates with the format YYYY-MM-DD.
+	from := f.Format("2006-01-02")
+	to := t.Format("2006-01-02")
+
+	// Database query of tasks stats.
 	tsRows, err := DB.Query(sqlStatement1, from, to)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer tsRows.Close()
 
-	
+	// Parse the obtained rows.
 	for tsRows.Next() {
 		var item TasksStats
 		var avg float64
@@ -202,12 +218,126 @@ func ReadStats(from, to string) (*[]TasksStats, *[]RaspberryStats, error) {
 		ts = append(ts, item)
 	}
 
+	// Database query of raspberry stats.
 	rsRows, err := DB.Query(sqlStatement2, from, to)
 	if err != nil {
 		return &ts, &rs, err
 	}
 	defer rsRows.Close()
 
+	// Parse the obtained rows.
+	for rsRows.Next() {
+		var item RaspberryStats
+		var host string
+		var storage string
+		var ram string
+
+		err = rsRows.Scan(
+			&host,
+			&item.CPULoad,
+			&storage,
+			&ram,
+			&item.Timestamp,
+		)
+		if err != nil {
+			return &ts, &[]RaspberryStats{}, err
+		}
+
+		err = json.Unmarshal([]byte(host), &item.Host)
+		if err != nil {
+			return &ts, &[]RaspberryStats{}, err
+		}
+
+		err = json.Unmarshal([]byte(storage), &item.Storage)
+		if err != nil {
+			return &ts, &[]RaspberryStats{}, err
+		}
+
+		err = json.Unmarshal([]byte(ram), &item.RAM)
+		if err != nil {
+			return &ts, &[]RaspberryStats{}, err
+		}
+
+		rs = append(rs, item)
+	}
+
+	// Only return one RaspberryState per hour, avoiding a big amount of data (entire day running = 1440 entries).
+	// This limitation is especially for the performance of the chart on the WebUI.
+	r, err := rsPerHour(&rs)
+	if err != nil {
+		// Why do not return `rs` instead? Because if for some reason, the filtering cannot
+		// be executed, a big amount of data will be sended. To avoid that strange but
+		// possible situation, directly return a new empty instance.
+		return &ts, &[]RaspberryStats{}, err
+	}
+
+	return &ts, r, nil
+}
+
+// ReadStatsByHour returns the statistics of a specific date and hour.
+func ReadStatsByHour(date, hour string) (*[]TasksStats, *[]RaspberryStats, error) {
+	sqlStatement1 := `
+		SELECT * FROM TasksStats
+		WHERE Timestamp >= ? AND Timestamp <= ?;
+	`
+	sqlStatement2 := `
+		SELECT * FROM RaspberryStats
+		WHERE Timestamp >= ? AND Timestamp <= ?;
+	`
+	var ts []TasksStats
+	var rs []RaspberryStats
+
+	// Parse the given date and hour. Like the function `ReadStatsByDate`, this will be used
+	// as a start point.
+	f, err := time.Parse("2006-01-02 15:04", date+" "+hour)
+	if err != nil {
+		return &ts, &rs, err
+	}
+
+	// Add an hour to the parsed time. As before, this will be used as a limit date.
+	t := f.Add(1 * time.Hour)
+
+	// Get the strings of the dates with the format YYYY-MM-DD HH:MM.
+	from := f.Format("2006-01-02 15:04")
+	to := t.Format("2006-01-02 15:04")
+
+	// Database query.
+	tsRows, err := DB.Query(sqlStatement1, from, to)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer tsRows.Close()
+
+	// Parse the obtained rows.
+	for tsRows.Next() {
+		var item TasksStats
+		var avg float64
+
+		err = tsRows.Scan(
+			&item.ActiveTasks,
+			&item.InactiveTasks,
+			&item.OnExecutionTasks,
+			&item.FailedTasks,
+			&avg,
+			&item.Timestamp,
+		)
+		if err != nil {
+			return &ts, &rs, err
+		}
+
+		item.AverageExecutionTime = time.Duration(avg)
+
+		ts = append(ts, item)
+	}
+
+	// Database query.
+	rsRows, err := DB.Query(sqlStatement2, from, to)
+	if err != nil {
+		return &ts, &rs, err
+	}
+	defer rsRows.Close()
+
+	// Parse the obtained rows.
 	for rsRows.Next() {
 		var item RaspberryStats
 		var host string
@@ -244,4 +374,48 @@ func ReadStats(from, to string) (*[]TasksStats, *[]RaspberryStats, error) {
 	}
 
 	return &ts, &rs, nil
+}
+
+func rsPerHour (rs *[]RaspberryStats) (*[]RaspberryStats, error) {
+	if len(*rs) == 0 {
+		return rs, nil
+	}
+
+	var ns []RaspberryStats
+	var h uint64
+	var hStr string
+
+	// The first element of the slice is the first record of the day, so must be 
+	// the start point.
+	h, err := strconv.ParseUint((*rs)[0].Timestamp.Format("15"), 10, 64)
+	if err != nil {
+		return &ns, err
+	}
+
+	for _, s := range *rs {
+		if h > 9 {
+			hStr = fmt.Sprintf("%d", h)
+		} else {
+			hStr = fmt.Sprintf("0%d", h)
+		}
+
+		// Check if the hour of the timestamp is the required, if not, skip the iteration.
+		if s.Timestamp.Format("15") != hStr {
+			continue
+		}
+
+		// If the hour of the timestamp is the one that we've been searching for,
+		// append the statistic to the `ns` slice.
+		ns = append(ns, s)
+
+		// If the variable used identify the hours equals to 23, there is no need of keep
+		// iterating (unless days of more than 24 hours exist...).
+		if h == 23 {
+			break
+		}
+
+		h++
+	}
+
+	return &ns, nil
 }
