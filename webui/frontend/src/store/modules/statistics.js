@@ -1,4 +1,79 @@
+import axios from 'axios'
+
+const groupRS = (rs) => {
+  const stats = {
+    timestamps: [],
+    cpuLoad: [],
+    hsBootTime: [],
+    hsUpTime: [],
+    hsTemperatures: [],
+    sFree: [],
+    sUsed: [],
+    sUsedPercent: [],
+    rAvailable: [],
+    rUsed: []
+  }
+
+  if (rs == null || !rs.length > 0) {
+    return stats
+  }
+
+  rs.forEach(s => {
+    stats.timestamps.push(formatTimestamp(s.timestamp))
+    stats.cpuLoad.push(s.cpuLoad)
+    stats.hsBootTime.push(s.hostStats.bootTime)
+    stats.hsUpTime.push(s.hostStats.uptime)
+    stats.hsTemperatures.push(s.hostStats.temperatures)
+    stats.sFree.push(s.storage.free)
+    stats.sUsed.push(s.storage.used)
+    stats.sUsedPercent.push(s.storage.usedPercent)
+    stats.rAvailable.push(s.ram.available)
+    stats.rUsed.push(s.ram.used)
+  })
+
+  return stats
+}
+
+const groupTS = (ts) => {
+  const stats = {
+    timestamps: [],
+    activeTasks: [],
+    inactiveTasks: [],
+    onExecutionTasks: [],
+    failedTasks: []
+  }
+
+  if (ts == null || !ts.length > 0) {
+    return stats
+  }
+
+  ts.forEach(s => {
+    stats.timestamps.push(formatTimestamp(s.timestamp))
+    stats.activeTasks.push(s.activeTasks)
+    stats.inactiveTasks.push(s.inactiveTasks)
+    stats.onExecutionTasks.push(s.onExecutionTasks)
+    stats.failedTasks.push(s.failedTasks)
+  })
+
+  return stats
+}
+
+const formatTimestamp = (timestamp) => {
+  const regex = /^.+T(\d{2}:\d{2}:\d{2})\..+$/
+  let m
+
+  if ((m = regex.exec(timestamp)) !== null) {
+    return m[1].match().input
+  }
+
+  return ''
+}
+
 const state = {
+  date: '',
+  hour: null,
+  viewMode: 'day',
+
   activeTasksCounter: 0,
   onExecutionTasksCounter: 0,
   inactiveTasksCounter: 0,
@@ -14,7 +89,10 @@ const state = {
     freeStorage: '',
     ramUsage: '',
     timestamp: null
-  }
+  },
+
+  ts: [],
+  rs: []
 }
 
 const mutations = {
@@ -43,6 +121,23 @@ const mutations = {
 
   setRaspberryStatistics: (state, rpistats) => {
     state.raspberryStats = rpistats
+  },
+
+  setTasksStats: (state, ts) => {
+    state.ts = ts
+  },
+  setRPiStats: (state, rs) => {
+    state.rs = rs
+  },
+
+  setDate: (state, date) => {
+    state.date = date
+  },
+  setHour: (state, hour) => {
+    state.hour = hour
+  },
+  setViewMode: (state, mode) => {
+    state.viewMode = mode
   }
 }
 
@@ -72,6 +167,46 @@ const actions = {
 
   setRaspberryStatistics: ({ commit }, rpistats) => {
     commit('setRaspberryStatistics', rpistats)
+  },
+
+  setDate: ({ commit }, date) => {
+    commit('setDate', date)
+  },
+  setHour: ({ commit }, hour) => {
+    commit('setHour', hour)
+  },
+  setViewMode: ({ commit }, viewMode) => {
+    commit('setViewMode', viewMode)
+  },
+
+  getStats: ({ commit }, payload) => {
+    const configs = {
+      params: {
+        date: payload.date
+      }
+    }
+
+    if (payload.hour != null) {
+      let h
+      if (payload.hour > 9) {
+        h = payload.hour + ':00'
+      } else {
+        h = '0' + payload.hour + ':00'
+      }
+
+      configs.params.hour = h
+    }
+
+    axios.get('/api/info/statistics', configs)
+      .then(response => {
+        const rs = groupRS(response.data.rpiStats)
+        const ts = groupTS(response.data.tasksStats)
+        commit('setRPiStats', rs)
+        commit('setTasksStats', ts)
+      })
+      .catch(err => {
+        console.error(err)
+      })
   }
 }
 
@@ -103,6 +238,21 @@ const getters = {
   // RPi statistics
   raspberryStats: (state) => {
     return state.raspberryStats
+  },
+  ts: (state) => {
+    return state.ts
+  },
+  rs: (state) => {
+    return state.rs
+  },
+  date: (state) => {
+    return state.date
+  },
+  hour: (state) => {
+    return state.hour
+  },
+  viewMode: (state) => {
+    return state.viewMode
   }
 }
 
