@@ -23,7 +23,7 @@ type TasksStats struct {
 
 // RaspberryStats is the struct that contains the statistics related with the Host (generally it will be a Raspberry Pi).
 type RaspberryStats struct {
-	Host      HostStats    `json:"temperature"`
+	Host      HostStats    `json:"hostStats"`
 	CPULoad   float64      `json:"cpuLoad"`
 	Storage   StorageStats `json:"storage"`
 	RAM       RAMStats     `json:"ram"`
@@ -47,9 +47,9 @@ type StorageStats struct {
 
 // HostStats is the struct used to parse some additional statistics about the Host.
 type HostStats struct {
-	BootTime     uint64 `json:"bootTime"`
-	UpTime       uint64 `json:"uptime"`
-	Temperatures []host.TemperatureStat
+	BootTime     uint64                 `json:"bootTime"`
+	UpTime       uint64                 `json:"uptime"`
+	Temperatures []host.TemperatureStat `json:"temperatures"`
 }
 
 // NewAvgObs is a method with the purpose of add new data to be calculated into the
