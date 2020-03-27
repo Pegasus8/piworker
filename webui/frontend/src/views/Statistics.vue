@@ -1,5 +1,10 @@
 <template>
   <div>
+    <div class='d-flex flex-row-reverse'>
+      <v-btn :to='{ name: "detailed-statistics" }' small text>
+        Detailed statistics >>
+      </v-btn>
+    </div>
     <app-boxes></app-boxes>
     <app-panels></app-panels>
   </div>
