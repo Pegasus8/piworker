@@ -75,7 +75,7 @@ func setupRoutes() {
 
 	if configs.CurrentConfigs.WebUI.Enabled {
 		// ─── WEBSOCKET ──────────────────────────────────────────────────────────────────
-		router.Handle("/ws", auth.IsAuthorized(statsWS))
+		router.HandleFunc("/ws", statsWS)
 		// ────────────────────────────────────────────────────────────────────────────────
 
 		// ─── SINGLE PAGE APP ────────────────────────────────────────────────────────────
