@@ -45,6 +45,7 @@ VueWebSocket.install = (Vue, options) => {
     }
 
     ws.onerror = (err) => {
+      console.error(err)
       ws.close()
     }
   }
@@ -66,12 +67,19 @@ VueWebSocket.install = (Vue, options) => {
     if (data.type !== 'stat') {
       return
     }
+    console.log(data)
     options.store.dispatch('statistics/setActiveTasksCounter', data.payload.activeTasks)
     options.store.dispatch('statistics/setOnExecutionTasksCounter', data.payload.onExecutionTasks)
     options.store.dispatch('statistics/setInactiveTasksCounter', data.payload.inactiveTasks)
 
     options.store.dispatch('statistics/setAverageExecutionTime', data.payload.averageExecutionTime)
     options.store.dispatch('statistics/setRunningTime', data.payload.operatingTime)
+    options.store.dispatch('statistics/setRaspberryStatistics', {
+      temperature: 0.0, // TODO
+      cpuLoad: data.payload.cpuLoad.toFixed(2),
+      freeStorage: formatBytes(data.payload.storage.free),
+      ramUsage: formatBytes(data.payload.ram.used)
+    })
   }
 
   const authenticateConnection = () => {
@@ -82,6 +90,18 @@ VueWebSocket.install = (Vue, options) => {
       }
     }
     ws.send(JSON.stringify(authData))
+  }
+
+  const formatBytes = (bytes, decimals = 2) => {
+    if (bytes === 0) return '0 Bytes'
+
+    const k = 1024
+    const dm = decimals < 0 ? 0 : decimals
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
+
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i]
   }
 }
 
