@@ -21,6 +21,9 @@ export default {
   },
   mounted () {
     this.$websocket.connect()
+  },
+  beforeDestroy () {
+    this.$websocket.disconnect()
   }
 }
 </script>
