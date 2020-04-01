@@ -3,28 +3,41 @@ const VueWebSocket = {}
 
 /* --- Options ---
 
-  - url - Required
-  - store - Required
-  - reconnectInterval
-  - maxReconnectInterval
+  - url                  - Required
+  - store                - Required
+  - reconnectInterval    - Default: 1000ms
+  - maxReconnectInterval - Default: 3000ms
+  - connectManually      - Default: false
 */
 
 VueWebSocket.install = (Vue, options) => {
-  let ws = new WebSocket(options.url)
+  let ws
   let reconnectInterval = options.reconnectInterval || 1000
+  const maxReconnectInterval = options.maxReconnectInterval || 3000
+  const connectManually = options.connectManually || false
+
+  if (!connectManually) {
+    ws = new WebSocket(options.url)
+  }
 
   Vue.prototype.$websocket = {}
 
   Vue.prototype.$websocket.connect = () => {
-    ws = new WebSocket(options.url)
+    if (ws == null) {
+      // Initialize the websocket
+      ws = new WebSocket(options.url)
+    } else {
+      // Close the current connection and replace the previous instance of WebSocket.
+      ws.close(1000)
+      ws = new WebSocket(options.url)
+    }
 
     ws.onopen = () => {
-      reconnectInterval = options.reconnectInterval || 1000
       authenticateConnection()
     }
 
     ws.onmessage = (event) => {
-      // handle the message from the backend
+      // Handle the messages from the backend.
       handleMessage(JSON.parse(event.data))
     }
 
@@ -32,7 +45,6 @@ VueWebSocket.install = (Vue, options) => {
       if (event) {
         // Event.code 1000 is our normal close event
         if (event.code !== 1000) {
-          const maxReconnectInterval = options.maxReconnectInterval || 3000
           setTimeout(() => {
             if (reconnectInterval < maxReconnectInterval) {
               // Reconnect interval can't be > x seconds
@@ -67,7 +79,6 @@ VueWebSocket.install = (Vue, options) => {
     if (data.type !== 'stat') {
       return
     }
-    console.log(data)
     options.store.dispatch('statistics/setActiveTasksCounter', data.payload.activeTasks)
     options.store.dispatch('statistics/setOnExecutionTasksCounter', data.payload.onExecutionTasks)
     options.store.dispatch('statistics/setInactiveTasksCounter', data.payload.inactiveTasks)
