@@ -15,11 +15,17 @@ const (
 
 // Current is the variable that holds the different statistics of the tasks's execution and the
 // Raspberry Pi running PiWorker.
-var Current struct {
+var Current = struct {
 	TasksStats     TasksStats
 	RaspberryStats RaspberryStats
 	sync.RWMutex
-}
+}{}
+
+// WSConns (WebSocket connections) contains a real-time counter of the amount of users with an active websocket connection.
+var WSConns = struct {
+	N uint8
+	sync.RWMutex
+}{}
 
 // DB is the instance of the stats SQLite3 database.
 var DB *sql.DB

@@ -75,7 +75,7 @@ func setupRoutes() {
 
 	if configs.CurrentConfigs.WebUI.Enabled {
 		// ─── WEBSOCKET ──────────────────────────────────────────────────────────────────
-		router.Handle("/ws", auth.IsAuthorized(statsWS))
+		router.HandleFunc("/ws", statsWS)
 		// ────────────────────────────────────────────────────────────────────────────────
 
 		// ─── SINGLE PAGE APP ────────────────────────────────────────────────────────────
@@ -666,39 +666,34 @@ func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GE
 
 	rgx := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 
-	from, ok := request.URL.Query()["from"]
-	if !ok || len(from[0]) < 1 {
+	date, ok := request.URL.Query()["date"]
+	if !ok || len(date[0]) < 1 {
 		log.Error().
-			Err(errors.New("Url Param 'from' is missing")).
+			Err(errors.New("Url Param 'date' is missing")).
 			Str("api", "statisticsAPI").
 			Str("remoteAddr", request.RemoteAddr).
-			Msg("Rejecting request because absence of 'from' param")
+			Msg("Rejecting request because absence of 'date' param")
 
 		w.WriteHeader(http.StatusBadRequest)
 
 		return
 	}
 
-	to, ok := request.URL.Query()["to"]
-	if !ok || len(to[0]) < 1 {
-		log.Error().
-			Err(errors.New("Url Param 'to' is missing")).
+	hour, byHour := request.URL.Query()["hour"]
+	if !byHour || len(hour[0]) < 1 {
+		log.Info().
 			Str("api", "statisticsAPI").
 			Str("remoteAddr", request.RemoteAddr).
-			Msg("Rejecting request because absence of 'to' param")
-
-		w.WriteHeader(http.StatusBadRequest)
-
-		return
+			Msg("Param 'hour' not found, that's not a problem")
 	}
 
-	if !rgx.MatchString(from[0]) || !rgx.MatchString(to[0]) {
+	if !rgx.MatchString(date[0]) {
 		log.Error().
 			Err(errors.New("Incorrect format")).
 			Str("api", "statisticsAPI").
 			Str("remoteAddr", request.RemoteAddr).
-			Str("fromParam", from[0]).
-			Str("toParam", to[0]).
+			Str("dateParam", date[0]).
+			Str("hourParam", hour[0]).
 			Msg("Rejecting request because a wrong format on the parameters")
 
 		w.WriteHeader(http.StatusBadRequest)
@@ -706,30 +701,75 @@ func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GE
 		return
 	}
 
-	ts, rs, err := stats.ReadStats(from[0], to[0])
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("api", "statisticsAPI").
-			Str("remoteAddr", request.RemoteAddr).
-			Str("fromParam", from[0]).
-			Str("toParam", to[0]).
-			Msg("Error when trying to read the statistics from the db")
-
-		w.WriteHeader(http.StatusInternalServerError)
-
-		return
+	if byHour {
+		ts, rs, err := stats.ReadStatsByHour(date[0], hour[0])
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("api", "statisticsAPI").
+				Str("remoteAddr", request.RemoteAddr).
+				Str("dateParam", date[0]).
+				Str("hourParam", hour[0]).
+				Msg("Error when trying to read the statistics from the db")
+	
+			w.WriteHeader(http.StatusInternalServerError)
+	
+			return
+		}
+	
+		r := struct {
+			TasksStats *[]stats.TasksStats     `json:"tasksStats"`
+			RpiStats   *[]stats.RaspberryStats `json:"rpiStats"`
+		}{
+			ts,
+			rs,
+		}
+	
+		err = json.NewEncoder(w).Encode(r)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("api", "statisticsAPI").
+				Str("remoteAddr", request.RemoteAddr).
+				Msg("")
+	
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	} else {
+		ts, rs, err := stats.ReadStatsByDate(date[0])
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("api", "statisticsAPI").
+				Str("remoteAddr", request.RemoteAddr).
+				Str("dateParam", date[0]).
+				Str("hourParam", hour[0]).
+				Msg("Error when trying to read the statistics from the db")
+	
+			w.WriteHeader(http.StatusInternalServerError)
+	
+			return
+		}
+	
+		r := struct {
+			TasksStats *[]stats.TasksStats     `json:"tasksStats"`
+			RpiStats   *[]stats.RaspberryStats `json:"rpiStats"`
+		}{
+			ts,
+			rs,
+		}
+	
+		err = json.NewEncoder(w).Encode(r)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("api", "statisticsAPI").
+				Str("remoteAddr", request.RemoteAddr).
+				Msg("")
+	
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 	}
-
-	r := struct {
-		TasksStats *[]stats.TasksStats     `json:"tasksStats"`
-		RpiStats   *[]stats.RaspberryStats `json:"rpiStats"`
-	}{
-		ts,
-		rs,
-	}
-
-	err = json.NewEncoder(w).Encode(r)
 }
 
 func triggersInfoAPI(w http.ResponseWriter, request *http.Request) {
@@ -762,7 +802,6 @@ func actionsInfoAPI(w http.ResponseWriter, request *http.Request) {
 
 	err := json.NewEncoder(w).Encode(actionsList.ACTIONS)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
 		log.Error().
 			Err(err).
 			Str("api", "actionsInfo").

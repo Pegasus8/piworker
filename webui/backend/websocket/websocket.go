@@ -1,9 +1,14 @@
 package websocket
 
 import (
-	"time"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"time"
+
+	"github.com/Pegasus8/piworker/core/configs"
+	"github.com/Pegasus8/piworker/webui/backend/auth"
+	"github.com/dgrijalva/jwt-go"
 
 	"github.com/Pegasus8/piworker/core/stats"
 
@@ -42,23 +47,160 @@ func Writer(conn *websocket.Conn) {
 		*stats.TasksStats
 		*stats.RaspberryStats
 	}
+	type msg struct {
+		Type    string `json:"type"`
+		Payload d      `json:"payload"`
+	}
+	type payload struct {
+		Token string `json:"token"`
+	}
+	type authMessage struct {
+		Type    string  `json:"type"`
+		Payload payload `json:"payload"`
+	}
+	var authMsg authMessage
+
+	// The first message must be read because it contains the authentication.
+	_, content, err := conn.ReadMessage()
+	if err != nil {
+		conn.Close()
+		log.Error().
+			Err(err).
+			Str("remoteAddr", conn.RemoteAddr().String()).
+			Msg("Cannot read the content of the WebSocket message")
+
+		return
+	}
+
+	err = json.Unmarshal(content, &authMsg)
+	if err != nil {
+		conn.Close()
+		log.Error().
+			Err(err).
+			Str("remoteAddr", conn.RemoteAddr().String()).
+			Msg("Cannot parse the content of the WebSocket message on the authMessage struct")
+
+		return
+	}
+
+	if authMsg.Type != "authentication" || len(authMsg.Payload.Token) == 0 {
+		log.Warn().
+			Str("remoteAddr", conn.RemoteAddr().String()).
+			Msg("Token empty, closing connection")
+		conn.Close()
+		return
+	}
+
+	// --- Authentication ---
+
+	log.Info().
+		Str("remoteAddr", conn.RemoteAddr().String()).
+		Msg("Checking token authenticity")
+	token, err := jwt.ParseWithClaims(authMsg.Payload.Token, &auth.CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("The token is using an incorrect signing method")
+		}
+		return []byte(configs.CurrentConfigs.APIConfigs.SigningKey), nil
+	})
+
+	if err != nil {
+		if err == jwt.ErrSignatureInvalid {
+			// Unauthorized
+			conn.Close()
+			return
+		}
+		conn.Close()
+		log.Error().
+			Err(err).Str("remoteAddr", conn.RemoteAddr().String()).
+			Msg("Error when parsing the token")
+		return
+	}
+
+	if !token.Valid {
+		log.Warn().
+			Str("remoteAddr", conn.RemoteAddr().String()).
+			Str("token", token.Raw).
+			Msg("A client has tried to use a not valid token")
+		conn.Close()
+
+		return
+	}
+
+	claims := token.Claims.(*auth.CustomClaims)
+	log.Info().
+		Str("remoteAddr", conn.RemoteAddr().String()).
+		Str("tokenOwner", claims.Subject).
+		Msg("Token used")
+
+	userAuthInfo, err := auth.ReadLastToken(claims.Subject)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("tokenOwner", claims.Subject).
+			Str("remoteAddr", conn.RemoteAddr().String()).
+			Msg("Cannot check the authenticity of the token")
+		conn.Close()
+
+		return
+	}
+
+	if userAuthInfo.TokenID != claims.Id {
+		log.Warn().
+			Str("tokenOwner", claims.Subject).
+			Str("receivedTokenID", claims.Id).
+			Str("expectedTokenID", userAuthInfo.TokenID).
+			Str("remoteAddr", conn.RemoteAddr().String()).
+			Msg("The token used is not the same as the last one registered in the database")
+		conn.Close()
+
+		return
+	}
+	log.Info().
+		Str("tokenOwner", claims.Subject).
+		Str("remoteAddr", conn.RemoteAddr().String()).
+		Msg("WebSocket connection authenticated")
+
+	err = auth.UpdateLastTimeUsed(userAuthInfo.ID, time.Now())
+	if err != nil {
+		log.Panic().
+			Err(err).
+			Str("tokenOwner", claims.Subject).
+			Str("remoteAddr", conn.RemoteAddr().String()).
+			Int64("id", userAuthInfo.ID).
+			Msg("Error when updating the last time used register")
+	}
+
+	// --- End of authentication ---
+
+	// Increment the counter of connections
+	stats.WSConns.Lock()
+	stats.WSConns.N++
+	stats.WSConns.Unlock()
+
 	ticker := time.NewTicker(time.Second * 1)
 	defer ticker.Stop()
 
-	log.Info().Str("remoteAddr", conn.RemoteAddr().String()).Msg("Sending data into WebSocket")
+	log.Info().Str("remoteAddr", conn.RemoteAddr().String()).Msg("Sending statistics through the WebSocket")
 	// Send data to client every 1 sec
-	for range ticker.C{
-
+	for range ticker.C {
 		stats.Current.RLock()
-		data := d{
-			&stats.Current.TasksStats,
-			&stats.Current.RaspberryStats,
+		data := msg{
+			Type: "stat",
+			Payload: d{
+				&stats.Current.TasksStats,
+				&stats.Current.RaspberryStats,
+			},
 		}
 
 		jsonData, err := json.Marshal(data)
 		if err != nil {
 			log.Error().Err(err).Msg("")
 			stats.Current.RUnlock()
+
+			// Decrease the counter of connections
+			stats.WSConns.Lock()
+			stats.WSConns.N--
+			stats.WSConns.Unlock()
 			return
 		}
 		stats.Current.RUnlock()
@@ -68,11 +210,21 @@ func Writer(conn *websocket.Conn) {
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
 				log.Error().Err(err).Msg("")
+
+				// Decrease the counter of connections
+				stats.WSConns.Lock()
+				stats.WSConns.N--
+				stats.WSConns.Unlock()
 				return
 			}
+
 			log.Warn().
 				Str("remoteAddr", conn.RemoteAddr().String()).
 				Msg("The client has closed the WebSocket connection")
+			// Decrease the counter of connections
+			stats.WSConns.Lock()
+			stats.WSConns.N--
+			stats.WSConns.Unlock()
 			return
 		}
 	}

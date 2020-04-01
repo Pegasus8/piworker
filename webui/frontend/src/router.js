@@ -11,6 +11,7 @@ const ManagementView = () => import(/* webpackChunkName: "group-foo" */ './views
 const SettingsView = () => import(/* webpackChunkName: "group-foo" */ './views/Settings.vue')
 const LoginView = () => import(/* webpackChunkName: "group-foo" */ './views/Login.vue')
 const NewTaskView = () => import(/* webpackChunkName: "group-foo" */ './views/NewTask.vue')
+const StatisticsDetailedView = () => import('./views/StatisticsDetailed.vue')
 
 Vue.use(Router)
 
@@ -46,6 +47,30 @@ export default new Router({
       path: '/statistics',
       component: StatisticsView,
       name: 'statistics',
+      beforeEnter: (_to, _from, next) => {
+        // NOTE Only is needed try autologin here (and on the login view) because is the path by default.
+        // Check if the user is already authenticated.
+        if (!store.getters['auth/isAuthenticated']) {
+          // If not authenticated, try an autologin. It will recover (if exists) credentials stored
+          // on local storage.
+          store.dispatch('auth/tryAutologin')
+          // Check if the autologin was successful.
+          if (store.getters['auth/isAuthenticated']) {
+            // If successful, continue to statistics view.
+            next()
+          } else {
+            // If not, redirect to login view.
+            next({ name: 'login' })
+          }
+        } else {
+          next()
+        }
+      }
+    },
+    {
+      path: '/statistics/details',
+      component: StatisticsDetailedView,
+      name: 'detailed-statistics',
       beforeEnter: (_to, _from, next) => {
         // NOTE Only is needed try autologin here (and on the login view) because is the path by default.
         // Check if the user is already authenticated.

@@ -4,12 +4,18 @@ import router from './router'
 import store from './store/store'
 import axios from 'axios'
 import UUID from 'vue-uuid'
+import VueWebSocket from './services/websocket'
 
 import vuetify from './plugins/vuetify'
 require('typeface-roboto')
 
 Vue.config.productionTip = false
 Vue.use(UUID)
+Vue.use(VueWebSocket, {
+  url: 'ws://' + location.host + '/ws',
+  store: store,
+  connectManually: true
+})
 
 // Use the protocol used to access the WebUI (HTTP/S)
 axios.defaults.baseURL = `${location.protocol}//${location.host}`
