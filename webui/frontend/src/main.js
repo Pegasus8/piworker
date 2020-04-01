@@ -13,7 +13,8 @@ Vue.config.productionTip = false
 Vue.use(UUID)
 Vue.use(VueWebSocket, {
   url: 'ws://' + location.host + '/ws',
-  store: store
+  store: store,
+  connectManually: true
 })
 
 // Use the protocol used to access the WebUI (HTTP/S)
