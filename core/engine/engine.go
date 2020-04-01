@@ -18,12 +18,14 @@ func StartEngine() {
 	defer os.RemoveAll(TempDir)
 	defer data.DB.Close()
 
+	var stopSignal = make(chan struct{})
 	var tasksGoroutines = make(map[string]chan data.UserTask)
 	// 0 = stopped by the system. For example, on a system shutdown.
 	// 1 = stopped by the user. For example, changing the state of the task.
 	// 2 = task deleted by the user.
 	var managementChannels = make(map[string]chan uint8)
 	defer func() {
+		stopSignal <- struct{}{}
 		// Stop each loop when the engine is going to shutdown. This is with the intention
 		// of handle some post execution operations.
 		for c := range managementChannels {
@@ -83,8 +85,7 @@ func StartEngine() {
 
 	// Start the stats recollection.
 	log.Info().Msg("Starting the stats loop...")
-	go stats.StartLoop()
-	defer stats.DB.Close()
+	go stats.StartLoop(stopSignal)
 
 	go func() {
 		for {
@@ -130,12 +131,12 @@ func StartEngine() {
 
 					if t.State != data.StateTaskActive {
 						// Check if the task has been running before the event.
-						if _, ok := tasksGoroutines[event.TaskID]; ok{
+						if _, ok := tasksGoroutines[event.TaskID]; ok {
 							// Send the signal to indicate the change of the state, and thus, the detention of the task loop.
 							// Note: here we haven't checked if the management channel for this task exists, this
 							// is unnecessary because both channels are initialized simultaneously, so if one exists, the other too.
 							managementChannels[event.TaskID] <- 1
-							
+
 							// Close the channels and delete them from their maps.
 							close(tasksGoroutines[event.TaskID])
 							close(managementChannels[event.TaskID])
@@ -153,10 +154,10 @@ func StartEngine() {
 						// If the channel already exists, the previous state of the task was the same (active), so
 						// there is no necessity to send a signal thought the management channel, just send the updated
 						// data.
-						if _, ok := tasksGoroutines[event.TaskID]; ok{
+						if _, ok := tasksGoroutines[event.TaskID]; ok {
 							tasksGoroutines[t.ID] <- *t
 						} else {
-							// If the channel doesn't exists, the previously state of the task was another than 'active', 
+							// If the channel doesn't exists, the previously state of the task was another than 'active',
 							// so the task must be managed as a new one.
 							tasksGoroutines[t.ID] = make(chan data.UserTask)
 							managementChannels[t.ID] = make(chan uint8)
@@ -175,7 +176,7 @@ func StartEngine() {
 			case data.Deleted:
 				{
 					// If the task is not running (state != 'active'), skip the iteration.
-					if _, ok := tasksGoroutines[event.TaskID]; !ok{
+					if _, ok := tasksGoroutines[event.TaskID]; !ok {
 						stats.Current.Lock()
 						stats.Current.TasksStats.InactiveTasks--
 						stats.Current.Unlock()
@@ -184,7 +185,7 @@ func StartEngine() {
 
 					// Send a signal of detention (2 = task deleted).
 					managementChannels[event.TaskID] <- 2
-					
+
 					// And finally close the channels and delete them from the maps.
 					close(tasksGoroutines[event.TaskID])
 					close(managementChannels[event.TaskID])
@@ -201,7 +202,7 @@ func StartEngine() {
 				close(managementChannels[event.TaskID])
 				delete(tasksGoroutines, event.TaskID)
 				delete(managementChannels, event.TaskID)
-				
+
 				// Decrease the active tasks counter.
 				stats.Current.Lock()
 				stats.Current.TasksStats.ActiveTasks--
