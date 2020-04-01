@@ -172,13 +172,17 @@ func Writer(conn *websocket.Conn) {
 
 	// --- End of authentication ---
 
+	// Increment the counter of connections
+	stats.WSConns.Lock()
+	stats.WSConns.N++
+	stats.WSConns.Unlock()
+
 	ticker := time.NewTicker(time.Second * 1)
 	defer ticker.Stop()
 
 	log.Info().Str("remoteAddr", conn.RemoteAddr().String()).Msg("Sending statistics through the WebSocket")
 	// Send data to client every 1 sec
 	for range ticker.C {
-
 		stats.Current.RLock()
 		data := msg{
 			Type: "stat",
@@ -192,6 +196,11 @@ func Writer(conn *websocket.Conn) {
 		if err != nil {
 			log.Error().Err(err).Msg("")
 			stats.Current.RUnlock()
+
+			// Decrease the counter of connections
+			stats.WSConns.Lock()
+			stats.WSConns.N--
+			stats.WSConns.Unlock()
 			return
 		}
 		stats.Current.RUnlock()
@@ -201,11 +210,21 @@ func Writer(conn *websocket.Conn) {
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
 				log.Error().Err(err).Msg("")
+
+				// Decrease the counter of connections
+				stats.WSConns.Lock()
+				stats.WSConns.N--
+				stats.WSConns.Unlock()
 				return
 			}
+
 			log.Warn().
 				Str("remoteAddr", conn.RemoteAddr().String()).
 				Msg("The client has closed the WebSocket connection")
+			// Decrease the counter of connections
+			stats.WSConns.Lock()
+			stats.WSConns.N--
+			stats.WSConns.Unlock()
 			return
 		}
 	}
