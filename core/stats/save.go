@@ -93,10 +93,9 @@ func CreateTable() error {
 	return nil
 }
 
-// StoreStats is the function used to save a slice of
-// `RaspberryStats` struct into the SQLite3 database.
-func StoreStats(ts *TasksStats, rs *RaspberryStats) error {
-	sqlStatement1 := `
+// StoreTStats stores a instance of the struct `TasksStats` into the table `TasksStats` of the SQLite3 database.
+func StoreTStats(ts *TasksStats) error {
+	sqlStatement := `
 	INSERT INTO TasksStats(
 		ActiveTasks,
 		InactiveTasks,
@@ -105,21 +104,10 @@ func StoreStats(ts *TasksStats, rs *RaspberryStats) error {
 		AverageExecutionTime,
 		Timestamp
 	) values (?,?,?,?,?,?)
-	` // CURRENT_TIMESTAMP
-
-	sqlStatement2 := `
-	INSERT INTO RaspberryStats(
-		Host,
-		CPULoad,
-		Storage,
-		RAM,
-		Timestamp
-	) values (?,?,?,?,?)
 	`
-
 	now := time.Now()
 
-	_, err := DB.Exec(sqlStatement1,
+	_, err := DB.Exec(sqlStatement,
 		ts.ActiveTasks,
 		ts.InactiveTasks,
 		ts.OnExecutionTasks,
@@ -130,6 +118,25 @@ func StoreStats(ts *TasksStats, rs *RaspberryStats) error {
 	if err != nil {
 		return err
 	}
+
+	return nil
+}
+
+// StoreRStats stores a instance of the struct `RaspberryStats` into the table `RaspberryStats` of the SQLite3 database.
+func StoreRStats(rs *RaspberryStats) error {
+	 // CURRENT_TIMESTAMP
+
+	sqlStatement := `
+	INSERT INTO RaspberryStats(
+		Host,
+		CPULoad,
+		Storage,
+		RAM,
+		Timestamp
+	) values (?,?,?,?,?)
+	`
+
+	now := time.Now()
 
 	host, err := json.Marshal(rs.Host)
 	if err != nil {
@@ -144,7 +151,7 @@ func StoreStats(ts *TasksStats, rs *RaspberryStats) error {
 		return err
 	}
 
-	_, err = DB.Exec(sqlStatement2,
+	_, err = DB.Exec(sqlStatement,
 		string(host),
 		rs.CPULoad,
 		string(storage),
