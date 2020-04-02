@@ -105,6 +105,7 @@ func StartEngine() {
 						stats.Current.Lock()
 						stats.Current.TasksStats.InactiveTasks++
 						stats.Current.Unlock()
+						updateTStatsDB()
 
 						continue
 					}
@@ -120,6 +121,7 @@ func StartEngine() {
 					stats.Current.Lock()
 					stats.Current.TasksStats.ActiveTasks++
 					stats.Current.Unlock()
+					updateTStatsDB()
 				}
 			case data.Modified:
 				{
@@ -147,6 +149,7 @@ func StartEngine() {
 							stats.Current.TasksStats.ActiveTasks--
 							stats.Current.TasksStats.InactiveTasks++
 							stats.Current.Unlock()
+							updateTStatsDB()
 						}
 						// If the task was not running, there is nothing to do.
 
@@ -170,6 +173,7 @@ func StartEngine() {
 							stats.Current.TasksStats.ActiveTasks++
 							stats.Current.TasksStats.InactiveTasks--
 							stats.Current.Unlock()
+							updateTStatsDB()
 						}
 					}
 				}
@@ -180,6 +184,7 @@ func StartEngine() {
 						stats.Current.Lock()
 						stats.Current.TasksStats.InactiveTasks--
 						stats.Current.Unlock()
+						updateTStatsDB()
 						continue
 					}
 
@@ -195,6 +200,7 @@ func StartEngine() {
 					stats.Current.Lock()
 					stats.Current.TasksStats.ActiveTasks--
 					stats.Current.Unlock()
+					updateTStatsDB()
 				}
 			case data.Failed:
 				// Close the channels of the failed task and delete them of the maps.
@@ -208,9 +214,16 @@ func StartEngine() {
 				stats.Current.TasksStats.ActiveTasks--
 				stats.Current.TasksStats.FailedTasks++
 				stats.Current.Unlock()
+				updateTStatsDB()
 			}
 		}
 	}()
 
 	<-signals.Shutdown
+}
+
+func updateTStatsDB() {
+	stats.Current.RLock()
+	stats.StoreTStats(&stats.Current.TasksStats)
+	stats.Current.RUnlock()
 }
