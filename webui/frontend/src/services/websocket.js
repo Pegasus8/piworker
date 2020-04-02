@@ -28,7 +28,7 @@ VueWebSocket.install = (Vue, options) => {
       ws = new WebSocket(options.url)
     } else {
       // Close the current connection and replace the previous instance of WebSocket.
-      ws.close(1000)
+      ws.close()
       ws = new WebSocket(options.url)
     }
 
@@ -56,8 +56,8 @@ VueWebSocket.install = (Vue, options) => {
       }
     }
 
-    ws.onerror = (err) => {
-      console.error(err)
+    ws.onerror = (_err) => {
+      // TODO Store the error on vuex, for a posterior notification on the frontend.
       ws.close()
     }
   }
