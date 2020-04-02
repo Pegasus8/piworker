@@ -38,8 +38,11 @@ func StartLoop(stopSignal chan struct{}) {
 		}
 
 		Current.RLock()
-		if err := StoreStats(&Current.TasksStats, &Current.RaspberryStats); err != nil {
-			log.Panic().Err(err).Msg("Error when trying to store stats on the db")
+		if err := StoreRStats(&Current.RaspberryStats); err != nil {
+			log.Panic().Err(err).Msg("Error when trying to store raspberry stats on the db")
+		}
+		if err := StoreTStats(&Current.TasksStats); err != nil {
+			log.Panic().Err(err).Msg("Error when trying to store tasks stats on the db")
 		}
 		Current.RUnlock()
 	}
