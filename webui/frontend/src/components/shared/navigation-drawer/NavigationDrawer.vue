@@ -42,7 +42,7 @@
 
       <v-list-item :to="{ name: 'settings' }" @click="expandNavDrawer = false" class="view-item">
         <v-list-item-icon>
-          <v-icon>mdi-settings</v-icon>
+          <v-icon>mdi-cog-outline</v-icon>
         </v-list-item-icon>
         <v-list-item-content>
           <v-list-item-title>
