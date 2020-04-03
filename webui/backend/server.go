@@ -76,6 +76,7 @@ func setupRoutes() {
 	if configs.CurrentConfigs.WebUI.Enabled {
 		// ─── WEBSOCKET ──────────────────────────────────────────────────────────────────
 		router.HandleFunc("/ws", statsWS)
+		router.Handle("/api/ws-auth", auth.IsAuthorized(wsAuthAPI)).Methods("GET")
 		// ────────────────────────────────────────────────────────────────────────────────
 
 		// ─── SINGLE PAGE APP ────────────────────────────────────────────────────────────
@@ -138,6 +139,33 @@ func statsWS(w http.ResponseWriter, request *http.Request) {
 	// Execution of data sending to the client
 	// into another goroutine
 	go websocket.Writer(ws)
+}
+
+func wsAuthAPI(w http.ResponseWriter, request *http.Request) {
+	if request.Method != "GET" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	var response = struct {
+		Ticket string `json:"ticket"`
+	}{}
+
+	ticket := auth.NewWSTicket(request.RemoteAddr)
+	response.Ticket = ticket
+
+	err := json.NewEncoder(w).Encode(response)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("api", "wsAuthAPI").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Error when trying to encode the JSON response")
+		
+		w.WriteHeader(http.StatusInternalServerError)
+	}
 }
 
 func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
