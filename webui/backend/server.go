@@ -130,6 +130,32 @@ func Run() {
 //
 
 func statsWS(w http.ResponseWriter, request *http.Request) {
+	keys, ok := request.URL.Query()["auth"]
+	if !ok || len(keys[0]) < 1 {
+		log.Error().
+			Err(errors.New("Url Param 'auth' is missing")).
+			Bool("wsAuthenticated", false).
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Rejecting request because absence of 'auth' param")
+
+		w.WriteHeader(http.StatusBadRequest)
+
+		return
+	}
+
+	authTicket := keys[0]
+
+	if authorized := auth.IsWSAuthorized(request.RemoteAddr, authTicket); !authorized {
+		log.Warn().
+			Bool("wsAuthenticated", false).
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Authorization failed")
+		
+		w.WriteHeader(http.StatusUnauthorized)
+		
+		return
+	}
+	
 	// Upgrade the connection from standard HTTP connection to WebSocket connection
 	ws, err := websocket.Upgrade(w, request)
 	if err != nil {
