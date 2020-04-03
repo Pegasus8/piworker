@@ -8,7 +8,7 @@ import (
 
 // CustomClaims is the struct used to parse the claims from the JWT token
 type CustomClaims struct {
-	Admin bool   `json:"admin"`
+	Admin bool `json:"admin"`
 	jwt.StandardClaims
 }
 
@@ -17,8 +17,13 @@ type CustomClaims struct {
 type UserInfo struct {
 	ID               int64
 	User             string
-	TokenID            string
+	TokenID          string
 	ExpiresAt        time.Time
 	LastTimeUsed     time.Time
 	InsertedDatetime time.Time
+}
+
+type client struct {
+	ClientAddr string
+	Ticket     string
 }
