@@ -15,6 +15,7 @@ import (
 )
 
 var signingKey []byte
+var authorizedWSConns []client
 
 // NewJWT is a function to generate a new JWT tokken
 func NewJWT(claim CustomClaims) (jwtToken string, err error) {
@@ -138,6 +139,34 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 			w.WriteHeader(http.StatusUnauthorized)
 		}
 	})
+}
+
+// NewWSTicket generates a new ticket, which will be used to authorize the WebSocket connection.
+// Note: each ticket can be used only one time.
+func NewWSTicket(clientAddr string) (ticket string) {
+	ticket = uuid.New().String()
+	c := client{
+		ClientAddr: clientAddr,
+		Ticket: ticket,
+	}
+	authorizedWSConns = append(authorizedWSConns, c)
+
+	return ticket
+}
+
+// IsWSAuthorized checks if the provided ticket exists on the slice of authorized WebSocket connections.
+func IsWSAuthorized(clientAddr, ticket string) bool {
+	for i, c := range authorizedWSConns {
+		if c.ClientAddr == clientAddr && c.Ticket == ticket {
+			// Remove the ticket from the slice. We don't care the order, so let's do it by the fastest way.
+			authorizedWSConns[i] = authorizedWSConns[len(authorizedWSConns) - 1]
+			authorizedWSConns = authorizedWSConns[:len(authorizedWSConns) - 1]
+
+			return true
+		}
+	}
+
+	return false
 }
 
 // CheckSigningKey checks if the SigningKey on the configs already exists. If not, it will be
