@@ -1,3 +1,5 @@
+import axios from 'axios'
+
 // Credits: https://github.com/latovicalmin/vuejs-websockets-example
 const VueWebSocket = {}
 
@@ -16,25 +18,46 @@ VueWebSocket.install = (Vue, options) => {
   const maxReconnectInterval = options.maxReconnectInterval || 3000
   const connectManually = options.connectManually || false
 
+  const authenticateConnection = () => {
+    return new Promise((resolve, reject) => {
+      axios.get('/api/ws-auth')
+        .then(response => {
+          resolve(response.data)
+        })
+        .catch(err => {
+          reject(err)
+        })
+    })
+  }
+
+  const connectWS = async () => {
+    await authenticateConnection()
+        .then(data => {
+          ws = new WebSocket(options.url + '?auth=' + data.ticket)
+        })
+        .catch(err => {
+          console.error('Cannot authenticate the websocket connection', err)
+        })
+  }
+
   if (!connectManually) {
-    ws = new WebSocket(options.url)
+    connectWS()
   }
 
   Vue.prototype.$websocket = {}
 
-  Vue.prototype.$websocket.connect = () => {
+  Vue.prototype.$websocket.connect = async () => {
     if (ws == null) {
       // Initialize the websocket
-      ws = new WebSocket(options.url)
+      await connectWS()
     } else {
       // Close the current connection and replace the previous instance of WebSocket.
       ws.close()
-      ws = new WebSocket(options.url)
+      await connectWS()
     }
 
-    ws.onopen = () => {
-      authenticateConnection()
-    }
+    // ws.onopen = () => {
+    // }
 
     ws.onmessage = (event) => {
       // Handle the messages from the backend.
@@ -91,16 +114,6 @@ VueWebSocket.install = (Vue, options) => {
       freeStorage: formatBytes(data.payload.storage.free),
       ramUsage: formatBytes(data.payload.ram.used)
     })
-  }
-
-  const authenticateConnection = () => {
-    const authData = {
-      type: 'authentication',
-      payload: {
-        token: options.store.getters['auth/token']
-      }
-    }
-    ws.send(JSON.stringify(authData))
   }
 
   const formatBytes = (bytes, decimals = 2) => {
