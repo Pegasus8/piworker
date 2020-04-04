@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"regexp"
@@ -145,7 +146,13 @@ func statsWS(w http.ResponseWriter, request *http.Request) {
 
 	authTicket := keys[0]
 
-	if authorized := auth.IsWSAuthorized(request.RemoteAddr, authTicket); !authorized {
+	host, _, err := net.SplitHostPort(request.RemoteAddr)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	if authorized := auth.IsWSAuthorized(host, authTicket); !authorized {
 		log.Warn().
 			Bool("wsAuthenticated", false).
 			Str("remoteAddr", request.RemoteAddr).
@@ -179,10 +186,16 @@ func wsAuthAPI(w http.ResponseWriter, request *http.Request) {
 		Ticket string `json:"ticket"`
 	}{}
 
-	ticket := auth.NewWSTicket(request.RemoteAddr)
+	host, _, err := net.SplitHostPort(request.RemoteAddr)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	
+	ticket := auth.NewWSTicket(host)
 	response.Ticket = ticket
 
-	err := json.NewEncoder(w).Encode(response)
+	err = json.NewEncoder(w).Encode(response)
 	if err != nil {
 		log.Error().
 			Err(err).
