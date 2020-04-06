@@ -86,6 +86,14 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 					Str("tokenOwner", claims.Subject).
 					Msg("Token used")
 				
+				if r.UserAgent() != claims.UserAgent {
+					log.Warn().
+						Str("remoteAddr", r.RemoteAddr).
+						Str("tokenOwner", claims.Subject).
+						Msg("Token's UserAgent does not match with the UserAgent of the request. Rejecting request")
+					return
+				}
+
 				userAuthInfo, err := ReadLastToken(claims.Subject)
 				if err != nil {
 					log.Error().
