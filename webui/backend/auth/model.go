@@ -8,7 +8,8 @@ import (
 
 // CustomClaims is the struct used to parse the claims from the JWT token
 type CustomClaims struct {
-	Admin bool `json:"admin"`
+	Admin     bool   `json:"admin"`
+	UserAgent string `json:"userAgent"`
 	jwt.StandardClaims
 }
 
