@@ -16,6 +16,8 @@ Installation (**Untested**):
 * [Anime.js](https://animejs.com/)
 * [typeface-roboto (Google Roboto)](https://github.com/KyleAMathews/typefaces/tree/master/packages/roboto)
 * [Material Design Icons](https://materialdesignicons.com/)
+* [Chart.js](https://www.chartjs.org/)
+* [Vue-chartjs](https://vue-chartjs.org)
 
 ### Backend (Go)
 * [Websocket by Gorilla](https://github.com/gorilla/websocket)
@@ -25,3 +27,5 @@ Installation (**Untested**):
 * [Jwt-go](https://github.com/dgrijalva/jwt-go)
 * [Lumberjack](https://github.com/natefinch/lumberjack)
 * [UUID by Google](https://github.com/google/uuid)
+* [Service](https://github.com/kardianos/service)
+* [Zerolog](https://github.com/rs/zerolog)
