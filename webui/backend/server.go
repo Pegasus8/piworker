@@ -157,12 +157,12 @@ func statsWS(w http.ResponseWriter, request *http.Request) {
 			Bool("wsAuthenticated", false).
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Authorization failed")
-		
+
 		w.WriteHeader(http.StatusUnauthorized)
-		
+
 		return
 	}
-	
+
 	// Upgrade the connection from standard HTTP connection to WebSocket connection
 	ws, err := websocket.Upgrade(w, request)
 	if err != nil {
@@ -191,7 +191,7 @@ func wsAuthAPI(w http.ResponseWriter, request *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	
+
 	ticket := auth.NewWSTicket(host)
 	response.Ticket = ticket
 
@@ -202,7 +202,7 @@ func wsAuthAPI(w http.ResponseWriter, request *http.Request) {
 			Str("api", "wsAuthAPI").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Error when trying to encode the JSON response")
-		
+
 		w.WriteHeader(http.StatusInternalServerError)
 	}
 }
@@ -250,7 +250,8 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 		tokenID := uuid.New().String()
 		token, err := auth.NewJWT(
 			auth.CustomClaims{
-				Admin: u.Admin,
+				Admin:     u.Admin,
+				UserAgent: request.UserAgent(),
 				StandardClaims: jwt.StandardClaims{
 					Subject:   u.Username,
 					Issuer:    "PiWorker",
@@ -663,63 +664,63 @@ func logsAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 	w.WriteHeader(http.StatusNotImplemented)
 
 	/*
-	w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Content-Type", "application/json")
 
-	// TODO Use the ID of the task as a param
+			// TODO Use the ID of the task as a param
 
-	var response = struct {
-		Successful bool     `json:"successful"`
-		Error      string   `json:"error"`
-		Logs       []string `json:"logs"`
-	}{}
-	var reqData = struct {
-		Taskname string `json:"taskname"`
-		Date     string `json:"date"`
-	}{}
-	var logsContent string
+			var response = struct {
+				Successful bool     `json:"successful"`
+				Error      string   `json:"error"`
+				Logs       []string `json:"logs"`
+			}{}
+			var reqData = struct {
+				Taskname string `json:"taskname"`
+				Date     string `json:"date"`
+			}{}
+			var logsContent string
 
-	defer func() {
-		if r := recover(); r != nil {
-			log.Warn().
-				Str("api", "logs").
-				Str("remoteAddr", request.RemoteAddr).
-				Msg("Recovering from panic triggered when getting logs")
-		}
-	}()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Warn().
+						Str("api", "logs").
+						Str("remoteAddr", request.RemoteAddr).
+						Msg("Recovering from panic triggered when getting logs")
+				}
+			}()
 
-	err := json.NewDecoder(request.Body).Decode(&reqData)
-	if err != nil {
-		response.Error = err.Error()
-		goto resp
-	}
+			err := json.NewDecoder(request.Body).Decode(&reqData)
+			if err != nil {
+				response.Error = err.Error()
+				goto resp
+			}
 
-	logsContent, err = pwLogs.GetLogs()
-	if err != nil {
-		log.Panic().
-			Err(err).
-			Str("api", "logs").
-			Str("remoteAddr", request.RemoteAddr).
-			Msg("Cannot get the logs")
-	}
+			logsContent, err = pwLogs.GetLogs()
+			if err != nil {
+				log.Panic().
+					Err(err).
+					Str("api", "logs").
+					Str("remoteAddr", request.RemoteAddr).
+					Msg("Cannot get the logs")
+			}
 
-	reqData.Date = strings.TrimSpace(reqData.Date)
-	response.Logs, err = pwLogs.GetTaskLogs(&logsContent, reqData.Taskname, reqData.Date)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("api", "logs").
-			Str("remoteAddr", request.RemoteAddr).
-			Str("taskID", reqData.Taskname). //TODO Change for ID
-			Msg("")
+			reqData.Date = strings.TrimSpace(reqData.Date)
+			response.Logs, err = pwLogs.GetTaskLogs(&logsContent, reqData.Taskname, reqData.Date)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("api", "logs").
+					Str("remoteAddr", request.RemoteAddr).
+					Str("taskID", reqData.Taskname). //TODO Change for ID
+					Msg("")
 
-		response.Error = err.Error()
-	} else {
-		response.Successful = true
-	}
+				response.Error = err.Error()
+			} else {
+				response.Successful = true
+			}
 
-resp:
+		resp:
 
-	json.NewEncoder(w).Encode(response)
+			json.NewEncoder(w).Encode(response)
 	*/
 }
 
@@ -778,12 +779,12 @@ func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GE
 				Str("dateParam", date[0]).
 				Str("hourParam", hour[0]).
 				Msg("Error when trying to read the statistics from the db")
-	
+
 			w.WriteHeader(http.StatusInternalServerError)
-	
+
 			return
 		}
-	
+
 		r := struct {
 			TasksStats *[]stats.TasksStats     `json:"tasksStats"`
 			RpiStats   *[]stats.RaspberryStats `json:"rpiStats"`
@@ -791,7 +792,7 @@ func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GE
 			ts,
 			rs,
 		}
-	
+
 		err = json.NewEncoder(w).Encode(r)
 		if err != nil {
 			log.Error().
@@ -799,7 +800,7 @@ func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GE
 				Str("api", "statisticsAPI").
 				Str("remoteAddr", request.RemoteAddr).
 				Msg("")
-	
+
 			w.WriteHeader(http.StatusInternalServerError)
 		}
 	} else {
@@ -812,12 +813,12 @@ func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GE
 				Str("dateParam", date[0]).
 				Str("hourParam", hour[0]).
 				Msg("Error when trying to read the statistics from the db")
-	
+
 			w.WriteHeader(http.StatusInternalServerError)
-	
+
 			return
 		}
-	
+
 		r := struct {
 			TasksStats *[]stats.TasksStats     `json:"tasksStats"`
 			RpiStats   *[]stats.RaspberryStats `json:"rpiStats"`
@@ -825,7 +826,7 @@ func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GE
 			ts,
 			rs,
 		}
-	
+
 		err = json.NewEncoder(w).Encode(r)
 		if err != nil {
 			log.Error().
@@ -833,7 +834,7 @@ func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GE
 				Str("api", "statisticsAPI").
 				Str("remoteAddr", request.RemoteAddr).
 				Msg("")
-	
+
 			w.WriteHeader(http.StatusInternalServerError)
 		}
 	}
