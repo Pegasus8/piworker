@@ -12,6 +12,8 @@ import (
 	"github.com/Pegasus8/piworker/core/engine"
 	"github.com/Pegasus8/piworker/core/logs"
 	"github.com/Pegasus8/piworker/core/uservariables"
+	"github.com/Pegasus8/piworker/core/stats"
+	"github.com/Pegasus8/piworker/core/data"
 	"github.com/Pegasus8/piworker/utilities/files"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -31,6 +33,10 @@ func start() {
 	setLogSettings()
 
 	log.Info().Msg("Starting PiWorker...")
+	
+	uservariables.Init()
+	stats.Init()
+	data.Init()
 
 	signals.Shutdown = make(chan os.Signal)
 	signal.Notify(signals.Shutdown, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)

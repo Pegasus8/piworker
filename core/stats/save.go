@@ -13,7 +13,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func init() {
+// Init initializes the directory where the statistics will be stored (if not exists).
+func Init() {
 	// Create statistics path if not exists
 	err := os.MkdirAll(StatisticsPath, os.ModePerm)
 	if err != nil {

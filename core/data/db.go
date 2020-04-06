@@ -10,7 +10,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func init() {
+// Init initializes the directory where the tasks will be stored (if not exists).
+func Init() {
 	// Create path if not exists.
 	err := os.MkdirAll(DataPath, os.ModePerm)
 	if err != nil {

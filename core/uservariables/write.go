@@ -8,7 +8,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func init() {
+// Init initializes the directory where the user variables will be stored (if not exists).
+func Init() {
 	// Create data path if not exists
 	err := os.MkdirAll(UserVariablesPath, os.ModePerm)
 	if err != nil {
