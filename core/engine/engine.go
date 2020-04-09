@@ -6,6 +6,7 @@ import (
 
 	// "github.com/Pegasus8/piworker/core/configs"
 	"github.com/Pegasus8/piworker/core/data"
+	"github.com/Pegasus8/piworker/core/engine/queue"
 	"github.com/Pegasus8/piworker/core/signals"
 	"github.com/Pegasus8/piworker/core/stats"
 	"github.com/Pegasus8/piworker/webui/backend"
@@ -33,6 +34,7 @@ func StartEngine() {
 		}
 	}()
 	data.EventBus = make(chan data.Event)
+	actionsQ := queue.NewQueue()
 
 	log.Info().Msg("Reading the user data for first time...")
 
@@ -69,7 +71,7 @@ func StartEngine() {
 		// Create the channel for each task (with active state).
 		tasksGoroutines[task.ID] = make(chan data.UserTask)
 		managementChannels[task.ID] = make(chan uint8)
-		go runTaskLoop(task.ID, tasksGoroutines[task.ID], managementChannels[task.ID])
+		go runTaskLoop(task.ID, tasksGoroutines[task.ID], managementChannels[task.ID], actionsQ)
 
 		tasksGoroutines[task.ID] <- task
 
@@ -113,7 +115,7 @@ func StartEngine() {
 					// Because the task is new, the proper channel and loop must be initialized.
 					tasksGoroutines[t.ID] = make(chan data.UserTask)
 					managementChannels[t.ID] = make(chan uint8)
-					go runTaskLoop(t.ID, tasksGoroutines[t.ID], managementChannels[t.ID])
+					go runTaskLoop(t.ID, tasksGoroutines[t.ID], managementChannels[t.ID], actionsQ)
 
 					// Once the loop and the channels are initialized is time to send the new task.
 					tasksGoroutines[t.ID] <- *t
@@ -164,7 +166,7 @@ func StartEngine() {
 							// so the task must be managed as a new one.
 							tasksGoroutines[t.ID] = make(chan data.UserTask)
 							managementChannels[t.ID] = make(chan uint8)
-							go runTaskLoop(t.ID, tasksGoroutines[t.ID], managementChannels[t.ID])
+							go runTaskLoop(t.ID, tasksGoroutines[t.ID], managementChannels[t.ID], actionsQ)
 
 							// Once the loop and the channels are initialized is time to send the new task.
 							tasksGoroutines[t.ID] <- *t

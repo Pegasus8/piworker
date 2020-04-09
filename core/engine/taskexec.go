@@ -7,18 +7,20 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/Pegasus8/piworker/core/stats"
+	"github.com/Pegasus8/piworker/core/engine/queue"
+
 	"github.com/Pegasus8/piworker/core/configs"
 	"github.com/Pegasus8/piworker/core/data"
 	actionsModel "github.com/Pegasus8/piworker/core/elements/actions"
 	actionsList "github.com/Pegasus8/piworker/core/elements/actions/models"
 	triggersList "github.com/Pegasus8/piworker/core/elements/triggers/models"
+	"github.com/Pegasus8/piworker/core/stats"
 	"github.com/Pegasus8/piworker/core/types"
 	"github.com/Pegasus8/piworker/core/uservariables"
 	"github.com/rs/zerolog/log"
 )
 
-func runTaskLoop(taskID string, taskChannel chan data.UserTask, managementChannel chan uint8) {
+func runTaskLoop(taskID string, taskChannel chan data.UserTask, managementChannel chan uint8, actionsQueue *queue.Queue) {
 	log.Info().Str("taskID", taskID).Msg("Task running, waiting for data...")
 
 	// Receive the task for first time.
@@ -98,7 +100,7 @@ func runTaskLoop(taskID string, taskChannel chan data.UserTask, managementChanne
 				Str("triggerID", taskReceived.Trigger.ID).
 				Msg("[%s] Trigger with the ID '%s' activated, running actions...")
 
-			err = runActions(&taskReceived)
+			err = runActions(&taskReceived, actionsQueue)
 			if err != nil {
 				log.Error().
 					Str("taskID", taskReceived.ID).
@@ -166,7 +168,7 @@ func runTrigger(trigger data.UserTrigger, parentTaskID string) (bool, error) {
 	return false, fmt.Errorf("The trigger with the ID '%s' cannot be found", trigger.ID)
 }
 
-func runActions(task *data.UserTask) error {
+func runActions(task *data.UserTask, actionsQueue *queue.Queue) error {
 	log.Info().Str("taskID", task.ID).Msg("Running actions...")
 	startTime := time.Now()
 
@@ -228,11 +230,14 @@ func runActions(task *data.UserTask) error {
 						}
 						userAction = *ua
 
-						result, chr, err := action.Run(chainedResult, &userAction, task.ID)
+						// Send the action execution to the queue
+						execResult := actionsQueue.AddJob(task.ID, action, &userAction, *chainedResult)
+						r := <-execResult
+
 						// Set the returned chr (chained result) to our main instance of the ChainedResult struct (`chainedResult`).
 						// This will be given to the next action (if exists).
-						chainedResult = chr
-						if err != nil {
+						chainedResult = &r.RetournedCR
+						if r.Err != nil {
 							log.Error().
 								Str("taskID", task.ID).
 								Str("actionID", userAction.ID).
@@ -241,7 +246,7 @@ func runActions(task *data.UserTask) error {
 								Msg("Error when running the action")
 							return err
 						}
-						if result {
+						if r.Successful {
 							log.Info().
 								Str("taskID", task.ID).
 								Str("actionID", userAction.ID).
