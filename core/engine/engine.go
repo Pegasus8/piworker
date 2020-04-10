@@ -205,18 +205,20 @@ func StartEngine() {
 					updateTStatsDB()
 				}
 			case data.Failed:
-				// Close the channels of the failed task and delete them of the maps.
-				close(tasksGoroutines[event.TaskID])
-				close(managementChannels[event.TaskID])
-				delete(tasksGoroutines, event.TaskID)
-				delete(managementChannels, event.TaskID)
+				{
+					// Close the channels of the failed task and delete them of the maps.
+					close(tasksGoroutines[event.TaskID])
+					close(managementChannels[event.TaskID])
+					delete(tasksGoroutines, event.TaskID)
+					delete(managementChannels, event.TaskID)
 
-				// Decrease the active tasks counter.
-				stats.Current.Lock()
-				stats.Current.TasksStats.ActiveTasks--
-				stats.Current.TasksStats.FailedTasks++
-				stats.Current.Unlock()
-				updateTStatsDB()
+					// Decrease the active tasks counter.
+					stats.Current.Lock()
+					stats.Current.TasksStats.ActiveTasks--
+					stats.Current.TasksStats.FailedTasks++
+					stats.Current.Unlock()
+					updateTStatsDB()
+				}
 			}
 		}
 	}()
