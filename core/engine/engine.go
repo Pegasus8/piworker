@@ -16,8 +16,16 @@ import (
 // StartEngine is the function used to start the Dynamic Engine
 func StartEngine() {
 	log.Info().Msg("Starting the Dynamic Engine...")
-	defer os.RemoveAll(TempDir)
-	defer data.DB.Close()
+	defer func() {
+		err := os.RemoveAll(TempDir)
+		if err != nil {
+			log.Error().Err(err).Msg("Error when trying to remove temp dir")
+		}
+		err = data.DB.Close()
+		if err != nil {
+			log.Error().Err(err).Msg("Error when closing the SQLite3 database of user tasks")
+		}
+	}()
 
 	var stopSignal = make(chan struct{})
 	var tasksGoroutines = make(map[string]chan data.UserTask)
