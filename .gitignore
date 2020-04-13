@@ -3,6 +3,7 @@ keys.go
 /logs/
 /statistics/
 .vscode
+.idea
 node_modules/
 /configs
 tokens.db
