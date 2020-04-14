@@ -1,10 +1,10 @@
-package models
+package hour
 
 import (
 	"time"
 
 	"github.com/Pegasus8/piworker/core/data"
-	"github.com/Pegasus8/piworker/core/elements/triggers"
+	"github.com/Pegasus8/piworker/core/elements/triggers/shared"
 	"github.com/Pegasus8/piworker/core/types"
 )
 
@@ -13,21 +13,21 @@ import (
 // ID's
 const (
 	// Trigger
-	byHourID = "T1"
+	triggerID = "T1"
 
 	// Args
-	hourByHourArgID = "T1-1"
+	arg1ID = triggerID + "-1"
 )
 
 // ByHour - Trigger
-var ByHour = triggers.Trigger{
-	ID:          byHourID,
+var ByHour = shared.Trigger{
+	ID:          triggerID,
 	Name:        "By Hour",
 	Description: "",
 	Run:         byHourTrigger,
-	Args: []triggers.Arg{
-		triggers.Arg{
-			ID:   hourByHourArgID,
+	Args: []shared.Arg{
+		shared.Arg{
+			ID:   arg1ID,
 			Name: "Hour",
 			Description: "The hour to launch the  trigger. The format used is HH:mm." +
 				" Example: 13:45",
@@ -45,7 +45,7 @@ func byHourTrigger(args *[]data.UserArg, parentTaskID string) (result bool, err 
 	for _, arg := range *args {
 		switch arg.ID {
 		// Hour arg
-		case hourByHourArgID:
+		case arg1ID:
 			{
 				hour, err = time.Parse("15:04", arg.Content)
 				if err != nil {
@@ -55,7 +55,7 @@ func byHourTrigger(args *[]data.UserArg, parentTaskID string) (result bool, err 
 
 		default:
 			{
-				return false, ErrUnrecognizedArgID
+				return false, shared.ErrUnrecognizedArgID
 			}
 		}
 	}

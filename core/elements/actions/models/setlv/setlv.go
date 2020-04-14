@@ -1,9 +1,9 @@
-package models
+package setlv
 
 import (
 	"errors"
 	"github.com/Pegasus8/piworker/core/data"
-	"github.com/Pegasus8/piworker/core/elements/actions"
+	"github.com/Pegasus8/piworker/core/elements/actions/shared"
 	"github.com/Pegasus8/piworker/core/types"
 	"github.com/Pegasus8/piworker/core/uservariables"
 	"strings"
@@ -11,22 +11,22 @@ import (
 
 const (
 	// Action
-	setLocalVariableID = "A5"
+	actionID = "A5"
 
 	// Args
-	variableNameSetLocalVariableID    = setLocalVariableID + "-1"
-	variableContentSetLocalVariableID = setLocalVariableID + "-2"
+	arg1ID    = actionID + "-1"
+	arg2ID = actionID + "-2"
 )
 
 // SetLocalVariable - Action
-var SetLocalVariable = actions.Action{
-	ID:          setLocalVariableID,
+var SetLocalVariable = shared.Action{
+	ID:          actionID,
 	Name:        "Set Local Variable",
 	Description: "Sets the content of a local variable. If the variable does not exist, it will be created.",
 	Run:         setLocalVariableAction,
-	Args: []actions.Arg{
-		actions.Arg{
-			ID:   variableNameSetLocalVariableID,
+	Args: []shared.Arg{
+		shared.Arg{
+			ID:   arg1ID,
 			Name: "Name",
 			Description: "The name of the variable. Must be lowercase, without spaces or special characters. " +
 				"The unique special character allowed is the underscore ('_'). Remind that local variables are only " +
@@ -34,8 +34,8 @@ var SetLocalVariable = actions.Action{
 				" instead. Example of variable: some_random_local_var",
 			ContentType: types.Text,
 		},
-		actions.Arg{
-			ID:   variableContentSetLocalVariableID,
+		shared.Arg{
+			ID:   arg2ID,
 			Name: "Variable content",
 			Description: "The content of the variable. Optionally can be: a result of a previous action, " +
 				"another variable or static content (setted by you).",
@@ -46,7 +46,7 @@ var SetLocalVariable = actions.Action{
 	ReturnedChainResultType:        types.Any,
 }
 
-func setLocalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *actions.ChainedResult, err error) {
+func setLocalVariableAction(previousResult *shared.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *shared.ChainedResult, err error) {
 	var args *[]data.UserArg
 
 	// The name of the variable
@@ -58,21 +58,21 @@ func setLocalVariableAction(previousResult *actions.ChainedResult, parentAction 
 
 	for _, arg := range *args {
 		switch arg.ID {
-		case variableNameSetGlobalVariableID:
+		case arg1ID:
 			{
 				variableName = strings.TrimSpace(arg.Content)
 			}
-		case variableContentSetGlobalVariableID:
+		case arg2ID:
 			variableContent = arg.Content
 		default:
 			{
-				return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
+				return false, &shared.ChainedResult{}, shared.ErrUnrecognizedArgID
 			}
 		}
 	}
 
 	if variableName == "" || variableContent == "" {
-		return false, &actions.ChainedResult{}, errors.New("Error: variableName or variableContent empty")
+		return false, &shared.ChainedResult{}, errors.New("Error: variableName or variableContent empty")
 	}
 
 	variableType := types.GetType(variableContent)
@@ -85,7 +85,7 @@ func setLocalVariableAction(previousResult *actions.ChainedResult, parentAction 
 	}
 	err = lv.WriteToFile()
 	if err != nil {
-		return false, &actions.ChainedResult{}, err
+		return false, &shared.ChainedResult{}, err
 	}
 
 	var varExists bool
@@ -106,5 +106,5 @@ func setLocalVariableAction(previousResult *actions.ChainedResult, parentAction 
 		uservariables.LocalVariablesSlice = &newLVS
 	}
 
-	return true, &actions.ChainedResult{Result: variableContent, ResultType: variableType}, nil
+	return true, &shared.ChainedResult{Result: variableContent, ResultType: variableType}, nil
 }

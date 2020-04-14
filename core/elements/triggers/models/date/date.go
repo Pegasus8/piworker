@@ -1,10 +1,10 @@
-package models
+package date
 
 import (
 	"time"
 
 	"github.com/Pegasus8/piworker/core/data"
-	"github.com/Pegasus8/piworker/core/elements/triggers"
+	"github.com/Pegasus8/piworker/core/elements/triggers/shared"
 	"github.com/Pegasus8/piworker/core/types"
 )
 
@@ -13,21 +13,21 @@ import (
 // ID's
 const (
 	// Trigger
-	byDateID = "T2"
+	triggerID = "T2"
 
 	// Args
-	dateByDateArgID = "T2-1"
+	arg1ID = triggerID + "-1"
 )
 
 // ByDate - Trigger
-var ByDate = triggers.Trigger{
-	ID:          byDateID,
+var ByDate = shared.Trigger{
+	ID:          triggerID,
 	Name:        "By Date",
 	Description: "",
 	Run:         byDateTrigger,
-	Args: []triggers.Arg{
-		triggers.Arg{
-			ID:   dateByDateArgID,
+	Args: []shared.Arg{
+		shared.Arg{
+			ID:   arg1ID,
 			Name: "Date",
 			Description: "The date to launch the trigger. The format used is dd/MM/YYYY." +
 				" Example: 15/11/2019",
@@ -44,7 +44,7 @@ func byDateTrigger(args *[]data.UserArg, parentTaskID string) (result bool, err 
 	for _, arg := range *args {
 		switch arg.ID {
 		// Date arg
-		case dateByDateArgID:
+		case arg1ID:
 			{
 				date, err = time.Parse("02/01/2006", arg.Content)
 				if err != nil {
@@ -54,7 +54,7 @@ func byDateTrigger(args *[]data.UserArg, parentTaskID string) (result bool, err 
 
 		default:
 			{
-				return false, ErrUnrecognizedArgID
+				return false, shared.ErrUnrecognizedArgID
 			}
 		}
 	}

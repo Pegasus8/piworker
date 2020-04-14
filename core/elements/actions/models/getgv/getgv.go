@@ -1,9 +1,9 @@
-package models
+package getgv
 
 import (
 	"errors"
 	"github.com/Pegasus8/piworker/core/data"
-	"github.com/Pegasus8/piworker/core/elements/actions"
+	"github.com/Pegasus8/piworker/core/elements/actions/shared"
 	"github.com/Pegasus8/piworker/core/types"
 	"github.com/Pegasus8/piworker/core/uservariables"
 	"strings"
@@ -11,22 +11,22 @@ import (
 
 const (
 	// Action
-	getGlobalVariableID = "A7"
+	actionID = "A7"
 
 	// Args
-	variableNameGetGlobalVariableID = "-1"
+	arg1ID = actionID + "-1"
 )
 
 // GetGlobalVariable - Action
-var GetGlobalVariable = actions.Action{
-	ID:   getGlobalVariableID,
+var GetGlobalVariable = shared.Action{
+	ID:   actionID,
 	Name: "Get Global Variable",
 	Description: "Obtains the content of a specific global variable and the same is passed to the next action. " +
 		"Note: remind activate the 'Chained' option in the next action to receive this content.",
 	Run: getGlobalVariableAction,
-	Args: []actions.Arg{
-		actions.Arg{
-			ID:          variableNameGetGlobalVariableID,
+	Args: []shared.Arg{
+		shared.Arg{
+			ID:          arg1ID,
 			Name:        "Name",
 			Description: "The name of the desired variable.",
 			ContentType: types.Text,
@@ -36,7 +36,7 @@ var GetGlobalVariable = actions.Action{
 	ReturnedChainResultType:        types.Any,
 }
 
-func getGlobalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *actions.ChainedResult, err error) {
+func getGlobalVariableAction(previousResult *shared.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *shared.ChainedResult, err error) {
 	var args *[]data.UserArg
 
 	// The name of the variable
@@ -46,25 +46,25 @@ func getGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 
 	for _, arg := range *args {
 		switch arg.ID {
-		case variableNameGetGlobalVariableID:
+		case arg1ID:
 			{
 				variableName = strings.TrimSpace(arg.Content)
 			}
 		default:
 			{
-				return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
+				return false, &shared.ChainedResult{}, shared.ErrUnrecognizedArgID
 			}
 		}
 	}
 
 	if variableName == "" {
-		return false, &actions.ChainedResult{}, errors.New("Error: variableName empty")
+		return false, &shared.ChainedResult{}, errors.New("Error: variableName empty")
 	}
 
 	globalVariable, err := uservariables.GetGlobalVariable(variableName)
 	if err != nil {
-		return false, &actions.ChainedResult{}, err
+		return false, &shared.ChainedResult{}, err
 	}
 
-	return true, &actions.ChainedResult{Result: globalVariable.Content, ResultType: types.Any}, nil
+	return true, &shared.ChainedResult{Result: globalVariable.Content, ResultType: types.Any}, nil
 }

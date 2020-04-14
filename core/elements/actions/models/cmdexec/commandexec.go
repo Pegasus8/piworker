@@ -1,4 +1,4 @@
-package models
+package cmdexec
 
 import (
 	"errors"
@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/Pegasus8/piworker/core/data"
-	"github.com/Pegasus8/piworker/core/elements/actions"
+	"github.com/Pegasus8/piworker/core/elements/actions/shared"
 	"github.com/Pegasus8/piworker/core/types"
 	"github.com/Pegasus8/piworker/utilities/files"
 )
@@ -15,29 +15,29 @@ import (
 // ID's
 const (
 	// Action
-	executeCommandID = "A3"
+	actionID = "A3"
 
 	// Args
-	commandExecuteCommandID   = "A3-1"
-	argumentsExecuteCommandID = "A3-2"
+	arg1ID   = actionID + "-1"
+	arg2ID = actionID + "-2"
 )
 
 // ExecuteCommand - Action
-var ExecuteCommand = actions.Action{
-	ID:          executeCommandID,
+var ExecuteCommand = shared.Action{
+	ID:          actionID,
 	Name:        "",
 	Description: "",
 	Run:         executeCommand,
-	Args: []actions.Arg{
-		actions.Arg{
-			ID:          commandExecuteCommandID,
+	Args: []shared.Arg{
+		shared.Arg{
+			ID:          arg1ID,
 			Name:        "Command",
 			Description: "The command to execute.",
 			// Content:     "",
 			ContentType: types.Text,
 		},
-		actions.Arg{
-			ID:   argumentsExecuteCommandID,
+		shared.Arg{
+			ID:   arg2ID,
 			Name: "Arguments",
 			Description: "The arguments of the command provided, separated" +
 				" by a comma.",
@@ -49,7 +49,7 @@ var ExecuteCommand = actions.Action{
 	ReturnedChainResultType:        types.Text,
 }
 
-func executeCommand(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *actions.ChainedResult, err error) {
+func executeCommand(previousResult *shared.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *shared.ChainedResult, err error) {
 	var args *[]data.UserArg
 
 	// Command
@@ -61,23 +61,23 @@ func executeCommand(previousResult *actions.ChainedResult, parentAction *data.Us
 
 	for _, arg := range *args {
 		switch arg.ID {
-		case commandExecuteCommandID:
+		case arg1ID:
 			command = strings.TrimSpace(arg.Content)
-		case argumentsExecuteCommandID:
+		case arg2ID:
 			commandArgs = strings.Split(arg.Content, ",")
 		default:
-			return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
+			return false, &shared.ChainedResult{}, shared.ErrUnrecognizedArgID
 		}
 	}
 
 	if command == "" || len(commandArgs) == 0 {
-		return false, &actions.ChainedResult{}, errors.New("Error: command or commandArgs empty")
+		return false, &shared.ChainedResult{}, errors.New("Error: command or commandArgs empty")
 	}
 
 	cmd := exec.Command(command, commandArgs...)
 	output, err := cmd.Output()
 	if err != nil {
-		return false, &actions.ChainedResult{}, err
+		return false, &shared.ChainedResult{}, err
 	}
 
 	now := time.Now().String()
@@ -85,8 +85,8 @@ func executeCommand(previousResult *actions.ChainedResult, parentAction *data.Us
 
 	_, err = files.WriteFile(".", "cmd_"+now+".txt", output)
 	if err != nil {
-		return false, &actions.ChainedResult{}, err
+		return false, &shared.ChainedResult{}, err
 	}
 
-	return true, &actions.ChainedResult{Result: string(output), ResultType: types.Text}, nil
+	return true, &shared.ChainedResult{Result: string(output), ResultType: types.Text}, nil
 }

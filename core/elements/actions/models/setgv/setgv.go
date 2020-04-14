@@ -1,9 +1,9 @@
-package models
+package setgv
 
 import (
 	"errors"
 	"github.com/Pegasus8/piworker/core/data"
-	"github.com/Pegasus8/piworker/core/elements/actions"
+	"github.com/Pegasus8/piworker/core/elements/actions/shared"
 	"github.com/Pegasus8/piworker/core/types"
 	"github.com/Pegasus8/piworker/core/uservariables"
 	"strings"
@@ -11,29 +11,29 @@ import (
 
 const (
 	// Action
-	setGlobalVariableID = "A4"
+	actionID = "A4"
 
 	// Args
-	variableNameSetGlobalVariableID    = setGlobalVariableID + "-1"
-	variableContentSetGlobalVariableID = setGlobalVariableID + "-2"
+	arg1ID    = actionID + "-1"
+	arg2ID = actionID + "-2"
 )
 
 // SetGlobalVariable - Action
-var SetGlobalVariable = actions.Action{
-	ID:          setGlobalVariableID,
+var SetGlobalVariable = shared.Action{
+	ID:          actionID,
 	Name:        "Set Global Variable",
 	Description: "Sets the content of a global variable. If the variable does not exist, it will be created.",
 	Run:         setGlobalVariableAction,
-	Args: []actions.Arg{
-		actions.Arg{
-			ID:   variableNameSetGlobalVariableID,
+	Args: []shared.Arg{
+		shared.Arg{
+			ID:   arg1ID,
 			Name: "Name",
 			Description: "The name of the variable. Must be uppercase, without spaces or special characters. " +
 				"The unique special character allowed is the underscore ('_'). Example: THIS_IS_AN_EXAMPLE",
 			ContentType: types.Text,
 		},
-		actions.Arg{
-			ID:   variableContentSetGlobalVariableID,
+		shared.Arg{
+			ID:   arg2ID,
 			Name: "Variable content",
 			Description: "The content of the variable. Optionally can be: a result of a previous action, " +
 				"another variable or static content (setted by you).",
@@ -44,7 +44,7 @@ var SetGlobalVariable = actions.Action{
 	ReturnedChainResultType:        types.Any,
 }
 
-func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *actions.ChainedResult, err error) {
+func setGlobalVariableAction(previousResult *shared.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *shared.ChainedResult, err error) {
 	var args *[]data.UserArg
 
 	// The name of the variable
@@ -56,21 +56,21 @@ func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 
 	for _, arg := range *args {
 		switch arg.ID {
-		case variableNameSetGlobalVariableID:
+		case arg1ID:
 			{
 				variableName = strings.TrimSpace(arg.Content)
 			}
-		case variableContentSetGlobalVariableID:
+		case arg2ID:
 			variableContent = arg.Content
 		default:
 			{
-				return false, &actions.ChainedResult{}, ErrUnrecognizedArgID
+				return false, &shared.ChainedResult{}, shared.ErrUnrecognizedArgID
 			}
 		}
 	}
 
 	if variableName == "" || variableContent == "" {
-		return false, &actions.ChainedResult{}, errors.New("Error: variableName or variableContent empty")
+		return false, &shared.ChainedResult{}, errors.New("Error: variableName or variableContent empty")
 	}
 
 	variableType := types.GetType(variableContent)
@@ -82,7 +82,7 @@ func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 	}
 	err = gv.WriteToFile()
 	if err != nil {
-		return false, &actions.ChainedResult{}, err
+		return false, &shared.ChainedResult{}, err
 	}
 
 	var varExists bool
@@ -103,5 +103,5 @@ func setGlobalVariableAction(previousResult *actions.ChainedResult, parentAction
 		uservariables.GlobalVariablesSlice = &newGVS
 	}
 
-	return true, &actions.ChainedResult{Result: variableContent, ResultType: variableType}, nil
+	return true, &shared.ChainedResult{Result: variableContent, ResultType: variableType}, nil
 }

@@ -11,7 +11,7 @@ import (
 
 	"github.com/Pegasus8/piworker/core/configs"
 	"github.com/Pegasus8/piworker/core/data"
-	actionsModel "github.com/Pegasus8/piworker/core/elements/actions"
+	actionsModel "github.com/Pegasus8/piworker/core/elements/actions/shared"
 	actionsList "github.com/Pegasus8/piworker/core/elements/actions/models"
 	triggersList "github.com/Pegasus8/piworker/core/elements/triggers/models"
 	"github.com/Pegasus8/piworker/core/stats"
@@ -386,7 +386,7 @@ func replaceArgByCR(chainedResult *actionsModel.ChainedResult, userAction *data.
 	}
 	if userAction.Chained {
 		if chainedResult.Result == "" {
-			return nil, actionsList.ErrEmptyChainedResult
+			return nil, actionsModel.ErrEmptyChainedResult
 		}
 
 		for _, userArg := range userAction.Args {

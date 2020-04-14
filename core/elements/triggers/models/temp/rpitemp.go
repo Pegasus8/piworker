@@ -1,4 +1,4 @@
-package models
+package temp
 
 import (
 	"os/exec"
@@ -6,7 +6,7 @@ import (
 	"strconv"
 
 	"github.com/Pegasus8/piworker/core/data"
-	"github.com/Pegasus8/piworker/core/elements/triggers"
+	"github.com/Pegasus8/piworker/core/elements/triggers/shared"
 	"github.com/Pegasus8/piworker/core/stats"
 	"github.com/Pegasus8/piworker/core/types"
 )
@@ -14,21 +14,21 @@ import (
 // ID's
 const (
 	// Trigger
-	raspberryTempID = "T3"
+	triggerID = "T3"
 
 	// Args
-	tempRaspberryTempArgID = "T3-1"
+	arg1ID = triggerID + "-1"
 )
 
 // RaspberryTemperature - Trigger
-var RaspberryTemperature = triggers.Trigger{
-	ID:          raspberryTempID,
+var RaspberryTemperature = shared.Trigger{
+	ID:          triggerID,
 	Name:        "Raspberry's Temperature",
 	Description: "",
 	Run:         raspberryTempTrigger,
-	Args: []triggers.Arg{
-		triggers.Arg{
-			ID:   tempRaspberryTempArgID,
+	Args: []shared.Arg{
+		shared.Arg{
+			ID:   arg1ID,
 			Name: "Expected Temperature",
 			Description: "The expected temperature of the Raspberry Pi. Must be in" +
 				" float format and without the 'ºC'. Example: 55.1.",
@@ -46,7 +46,7 @@ func raspberryTempTrigger(args *[]data.UserArg, parentTaskID string) (result boo
 	for _, arg := range *args {
 		switch arg.ID {
 		// Temperature arg
-		case tempRaspberryTempArgID:
+		case arg1ID:
 			{
 				expectedTemp, err = strconv.ParseFloat(arg.Content, 64)
 				if err != nil {
@@ -56,7 +56,7 @@ func raspberryTempTrigger(args *[]data.UserArg, parentTaskID string) (result boo
 
 		default:
 			{
-				return false, ErrUnrecognizedArgID
+				return false, shared.ErrUnrecognizedArgID
 			}
 		}
 	}

@@ -1,32 +1,32 @@
-package models
+package fsvariation
 
 import (
 	"os"
 	"path/filepath"
 
 	"github.com/Pegasus8/piworker/core/data"
-	"github.com/Pegasus8/piworker/core/elements/triggers"
+	"github.com/Pegasus8/piworker/core/elements/triggers/shared"
 	"github.com/Pegasus8/piworker/core/types"
 )
 
 // ID's
 const (
 	// Trigger
-	variationOfFileSizeID = "T5"
+	triggerID = "T5"
 
 	// Args
-	filepathVariationOfFileSizeID = "T5-1"
+	arg1ID = triggerID + "-1"
 )
 
 // VariationOfFileSize - Trigger
-var VariationOfFileSize = triggers.Trigger{
-	ID:          variationOfFileSizeID,
+var VariationOfFileSize = shared.Trigger{
+	ID:          triggerID,
 	Name:        "Variation of a File's Size",
 	Description: "",
 	Run:         variationOfFileSize,
-	Args: []triggers.Arg{
-		triggers.Arg{
-			ID:          filepathVariationOfFileSizeID,
+	Args: []shared.Arg{
+		shared.Arg{
+			ID:          arg1ID,
 			Name:        "Path of the Objective File",
 			Description: "Must be on the format 'path/of/the/file.txt'.",
 			// Content:     "",
@@ -44,11 +44,11 @@ func variationOfFileSize(args *[]data.UserArg, parentTaskID string) (result bool
 
 	for _, arg := range *args {
 		switch arg.ID {
-		case filepathVariationOfFileSizeID:
+		case arg1ID:
 			filePath = filepath.Clean(arg.Content)
 		default:
 			{
-				return false, ErrUnrecognizedArgID
+				return false, shared.ErrUnrecognizedArgID
 			}
 		}
 	}
