@@ -2,8 +2,7 @@ package models
 
 import (
 	"github.com/Pegasus8/piworker/core/elements/triggers/shared"
-	"github.com/Pegasus8/piworker/core/elements/triggers/models/date"
-	"github.com/Pegasus8/piworker/core/elements/triggers/models/hour"
+	"github.com/Pegasus8/piworker/core/elements/triggers/models/time"
 	// "github.com/Pegasus8/piworker/core/elements/triggers/models/everyxtime"
 	"github.com/Pegasus8/piworker/core/elements/triggers/models/temp"
 	"github.com/Pegasus8/piworker/core/elements/triggers/models/fsvariation"
@@ -12,8 +11,7 @@ import (
 
 // TRIGGERS is the main variable used to store all the triggers of PiWorker
 var TRIGGERS = []shared.Trigger{
-	hour.ByHour,
-	date.ByDate,
+	time.ByTime,
 	temp.RaspberryTemperature,
 	fsvariation.VariationOfFileSize,
 }
