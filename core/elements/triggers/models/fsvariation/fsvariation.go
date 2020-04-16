@@ -23,7 +23,7 @@ var VariationOfFileSize = shared.Trigger{
 	ID:          triggerID,
 	Name:        "Variation of a File's Size",
 	Description: "",
-	Run:         variationOfFileSize,
+	Run:         trigger,
 	Args: []shared.Arg{
 		shared.Arg{
 			ID:          arg1ID,
@@ -35,9 +35,9 @@ var VariationOfFileSize = shared.Trigger{
 	},
 }
 
-var previousFileSize int64
+var previousFileSize = make(map[string]int64)
 
-func variationOfFileSize(args *[]data.UserArg, parentTaskID string) (result bool, err error) {
+func trigger(args *[]data.UserArg, parentTaskID string) (result bool, err error) {
 
 	// Filepath
 	var filePath string
@@ -59,12 +59,14 @@ func variationOfFileSize(args *[]data.UserArg, parentTaskID string) (result bool
 	}
 
 	// First execution
-	if previousFileSize == 0 {
-		previousFileSize = info.Size()
+	if _, exists := previousFileSize[parentTaskID]; !exists {
+		previousFileSize[parentTaskID] = info.Size()
 		return false, nil
 	}
 
-	if info.Size() == previousFileSize {
+	if info.Size() != previousFileSize[parentTaskID] {
+		// Update the stored size
+		previousFileSize[parentTaskID] = info.Size()
 		return true, nil
 	}
 
