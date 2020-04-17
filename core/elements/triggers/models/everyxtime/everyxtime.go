@@ -18,7 +18,7 @@ const (
 )
 
 // EveryXTime - Trigger - NOT IMPLEMENTED
-var _EveryXTime = shared.Trigger{
+var EveryXTime = shared.Trigger{
 	ID:          triggerID,
 	Name:        "Every X Time",
 	Description: "",
@@ -35,7 +35,7 @@ var _EveryXTime = shared.Trigger{
 	},
 }
 
-var nextExecution time.Time
+var nextExecution = make(map[string]time.Time)
 
 func everyXTimeTrigger(args *[]data.UserArg, parentTaskID string) (result bool, err error) {
 	// Time
@@ -55,12 +55,18 @@ func everyXTimeTrigger(args *[]data.UserArg, parentTaskID string) (result bool, 
 		}
 	}
 
-	if nextExecution.IsZero() {
-		nextExecution = time.Now().Add(timeToWait)
+	// First execution
+	if _, exists := nextExecution[parentTaskID]; !exists {
+		nextExecution[parentTaskID] = time.Now().Add(timeToWait)
+
 		return false, nil
 	}
 
-	//TODO
+	if nextExecution[parentTaskID].Unix() <= time.Now().Unix() {
+		nextExecution[parentTaskID] = time.Now().Add(timeToWait)
+
+		return true, nil
+	}
 
 	return false, nil
 }
