@@ -1,14 +1,14 @@
 package temp
 
 import (
-	"os/exec"
-	"regexp"
+	"errors"
 	"strconv"
 
 	"github.com/Pegasus8/piworker/core/data"
 	"github.com/Pegasus8/piworker/core/elements/triggers/shared"
-	"github.com/Pegasus8/piworker/core/stats"
 	"github.com/Pegasus8/piworker/core/types"
+
+	"github.com/shirou/gopsutil/host"
 )
 
 // ID's
@@ -25,7 +25,7 @@ var RaspberryTemperature = shared.Trigger{
 	ID:          triggerID,
 	Name:        "Raspberry's Temperature",
 	Description: "",
-	Run:         raspberryTempTrigger,
+	Run:         trigger,
 	Args: []shared.Arg{
 		shared.Arg{
 			ID:   arg1ID,
@@ -38,7 +38,7 @@ var RaspberryTemperature = shared.Trigger{
 	},
 }
 
-func raspberryTempTrigger(args *[]data.UserArg, parentTaskID string) (result bool, err error) {
+func trigger(args *[]data.UserArg, parentTaskID string) (result bool, err error) {
 
 	// Expected temperature received
 	var expectedTemp float64
@@ -60,28 +60,28 @@ func raspberryTempTrigger(args *[]data.UserArg, parentTaskID string) (result boo
 			}
 		}
 	}
-	rgx := regexp.MustCompile(`(?m)^\w+=([0-9]+\.[0-9]).+$`)
 
-	cmd := exec.Command("vcgencmd", "measure_temp")
-	output, err := cmd.Output()
+	st, err := host.SensorsTemperatures()
 	if err != nil {
 		return false, err
 	}
 
-	if rgx.MatchString(string(output)) {
-		match := rgx.FindStringSubmatch(string(output))
-		if match != nil {
-			temp, err := strconv.ParseFloat(match[1], 64)
-			if err != nil {
-				return false, err
+	temperature := func() float64 {
+		for _, t := range st {
+			if t.SensorKey == "coretemp_packageid0_input" {
+				return t.Temperature
 			}
-
-			if expectedTemp == temp {
-				return true, nil
-			}
-			return false, nil
 		}
+		return 0.0
+	}()
+
+	if temperature == 0.0 {
+		return false, errors.New("SensorKey incompatible with host")
 	}
 
-	return false, stats.ErrBadTemperatureParse
+	if temperature == expectedTemp {
+		return true, nil
+	}
+
+	return false, nil
 }
