@@ -3,7 +3,7 @@ package models
 import (
 	"github.com/Pegasus8/piworker/core/elements/triggers/shared"
 	"github.com/Pegasus8/piworker/core/elements/triggers/models/time"
-	// "github.com/Pegasus8/piworker/core/elements/triggers/models/everyxtime"
+	"github.com/Pegasus8/piworker/core/elements/triggers/models/everyxtime"
 	"github.com/Pegasus8/piworker/core/elements/triggers/models/temp"
 	"github.com/Pegasus8/piworker/core/elements/triggers/models/fsvariation"
 
@@ -14,6 +14,7 @@ var TRIGGERS = []shared.Trigger{
 	time.ByTime,
 	temp.RaspberryTemperature,
 	fsvariation.VariationOfFileSize,
+	everyxtime.EveryXTime,
 }
 
 // Get is a function that finds and returns a specific trigger.
