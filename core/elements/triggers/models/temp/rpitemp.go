@@ -14,7 +14,7 @@ import (
 // ID's
 const (
 	// Trigger
-	triggerID = "T3"
+	triggerID = "T2"
 
 	// Args
 	arg1ID = triggerID + "-1"
