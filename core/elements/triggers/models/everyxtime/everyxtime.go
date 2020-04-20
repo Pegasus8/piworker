@@ -17,12 +17,12 @@ const (
 	arg1ID = triggerID + "-1"
 )
 
-// EveryXTime - Trigger - NOT IMPLEMENTED
+// EveryXTime - Trigger
 var EveryXTime = shared.Trigger{
 	ID:          triggerID,
 	Name:        "Every X Time",
 	Description: "",
-	Run:         everyXTimeTrigger,
+	Run:         trigger,
 	Args: []shared.Arg{
 		shared.Arg{
 			ID:   arg1ID,
@@ -37,7 +37,7 @@ var EveryXTime = shared.Trigger{
 
 var nextExecution = make(map[string]time.Time)
 
-func everyXTimeTrigger(args *[]data.UserArg, parentTaskID string) (result bool, err error) {
+func trigger(args *[]data.UserArg, parentTaskID string) (result bool, err error) {
 	// Time
 	var timeToWait time.Duration
 
