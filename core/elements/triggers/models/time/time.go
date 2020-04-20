@@ -28,8 +28,8 @@ var ByTime = shared.Trigger{
 		shared.Arg{
 			ID:   arg1ID,
 			Name: "Date",
-			Description: "The date to launch the trigger. The format used is dd/MM/YYYY." +
-				" Example: 15/11/2019",
+			Description: "The date to launch the trigger. The format used is YYYY-MM-dd." +
+				" Example: 2019-11-15.",
 			ContentType: types.Date,
 		},
 		shared.Arg{
@@ -59,12 +59,12 @@ func trigger(args *[]data.UserArg, parentTaskID string) (result bool, err error)
 		}
 	}
 
-	t, err = time.Parse("02/01/2006 15:04", date + " " + hour)
+	t, err = time.Parse("2006-01-02 15:04", date + " " + hour)
 	if err != nil {
 		return false, err
 	}
 
-	if time.Now().Format("02/01/2006 15:04") == t.Format("02/01/2006 15:04") {
+	if time.Now().Format("2006-01-02 15:04") == t.Format("2006-01-02 15:04") {
 		return true, nil
 	}
 
