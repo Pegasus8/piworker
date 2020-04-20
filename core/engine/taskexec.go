@@ -88,10 +88,6 @@ func runTaskLoop(taskID string, taskChannel chan data.UserTask, managementChanne
 
 		if triggered {
 			if wasRecentlyExecuted(taskReceived.ID) {
-				log.Debug().
-					Str("taskID", taskReceived.ID).
-					Msg("The task was recently executed, the trigger stills active. Skipping it...")
-
 				goto skipTaskExecution
 			}
 
@@ -185,7 +181,7 @@ func runActions(task *data.UserTask, actionsQueue *queue.Queue) error {
 		return err
 	}
 
-	var chainedResult *actionsModel.ChainedResult
+	var chainedResult = &actionsModel.ChainedResult{}
 	var orderN uint8 = 0
 	for range *userActions {
 
@@ -300,16 +296,10 @@ func runActions(task *data.UserTask, actionsQueue *queue.Queue) error {
 }
 
 func setAsRecentlyExecuted(ID string) error {
-	dir, err := ioutil.TempDir(TempDir, "")
+	err := ioutil.WriteFile(filepath.Join(TempDir, ID), []byte{}, 0644)
 	if err != nil {
 		return err
 	}
-
-	file, err := ioutil.TempFile(filepath.Join(dir, ID), "")
-	if err != nil {
-		return err
-	}
-	file.Close()
 
 	return nil
 }
