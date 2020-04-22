@@ -138,6 +138,11 @@ func runTaskLoop(taskID string, taskChannel chan data.UserTask, managementChanne
 		TaskID: taskReceived.ID,
 	}
 	data.EventBus <- event
+	// And finally, update the state of the task on the database.
+	err := data.UpdateTaskState(taskReceived.ID, data.StateTaskFailed)
+	if err != nil {
+		log.Panic().Err(err).Str("taskID", taskReceived.ID).Msg("Error when trying to update the state of the task to 'failed'")
+	}
 }
 
 func runTrigger(trigger data.UserTrigger, parentTaskID string) (bool, error) {
