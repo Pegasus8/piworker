@@ -15,8 +15,20 @@ var (
 		"Error with the writing mode: unrecognized mode",
 	)
 
-	// ErrEmptyChainedResult is the error used when a `ChainedResult.Result` is empty.
-	ErrEmptyChainedResult = errors.New(
+	// ErrEmptyCRResult is the error used when the field `ChainedResult.Result` is empty.
+	ErrEmptyCRResult = errors.New(
 		"Data from received chained result empty",
+	)
+	// ErrEmptyCRResultType is the error used when the field `ChainedResult.ResultType` is empty.
+	ErrEmptyCRResultType = errors.New(
+		"The type of the chained result is empty",
+	)
+	// ErrEmptyArgToReplace is the error that represents an empty `UserAction.ArgumentToReplaceByCR` field. 
+	ErrEmptyArgToReplace = errors.New(
+		"The argument to replace by the ChainedResult is empty",
+	)
+	// ErrCRTypeDiffers represents an incompatibility between a ChainedResult and an action argument.
+	ErrCRTypeDiffers = errors.New(
+		"The type of the arg is not compatible with the ChainedResult",
 	)
 )
