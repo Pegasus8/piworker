@@ -381,7 +381,7 @@ func replaceArgByCR(chainedResult *actionsModel.ChainedResult, userAction *data.
 	}
 	if userAction.Chained {
 		if chainedResult.Result == "" {
-			return nil, actionsModel.ErrEmptyChainedResult
+			return nil, actionsModel.ErrEmptyCRResult
 		}
 
 		for _, userArg := range userAction.Args {
