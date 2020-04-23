@@ -2,49 +2,45 @@ package setgv
 
 import (
 	"errors"
+	"strings"
+
 	"github.com/Pegasus8/piworker/core/data"
 	"github.com/Pegasus8/piworker/core/elements/actions/shared"
 	"github.com/Pegasus8/piworker/core/types"
 	"github.com/Pegasus8/piworker/core/uservariables"
-	"strings"
 )
 
-const (
-	// Action
-	actionID = "A4"
+const actionID = "A4"
 
-	// Args
-	arg1ID    = actionID + "-1"
-	arg2ID = actionID + "-2"
-)
+var actionArgs = []shared.Arg{
+	shared.Arg{
+		ID:   actionID + "-1",
+		Name: "Name",
+		Description: "The name of the variable. Must be uppercase, without spaces or special characters. " +
+			"The unique special character allowed is the underscore ('_'). Example: THIS_IS_AN_EXAMPLE",
+		ContentType: types.Text,
+	},
+	shared.Arg{
+		ID:   actionID + "-2",
+		Name: "Variable content",
+		Description: "The content of the variable. Optionally can be: a result of a previous action, " +
+			"another variable or static content (setted by you).",
+		ContentType: types.Any,
+	},
+}
 
 // SetGlobalVariable - Action
 var SetGlobalVariable = shared.Action{
-	ID:          actionID,
-	Name:        "Set Global Variable",
-	Description: "Sets the content of a global variable. If the variable does not exist, it will be created.",
-	Run:         setGlobalVariableAction,
-	Args: []shared.Arg{
-		shared.Arg{
-			ID:   arg1ID,
-			Name: "Name",
-			Description: "The name of the variable. Must be uppercase, without spaces or special characters. " +
-				"The unique special character allowed is the underscore ('_'). Example: THIS_IS_AN_EXAMPLE",
-			ContentType: types.Text,
-		},
-		shared.Arg{
-			ID:   arg2ID,
-			Name: "Variable content",
-			Description: "The content of the variable. Optionally can be: a result of a previous action, " +
-				"another variable or static content (setted by you).",
-			ContentType: types.Any,
-		},
-	},
+	ID:                             actionID,
+	Name:                           "Set Global Variable",
+	Description:                    "Sets the content of a global variable. If the variable does not exist, it will be created.",
+	Run:                            action,
+	Args:                           actionArgs,
 	ReturnedChainResultDescription: "The content setted to the variable.",
 	ReturnedChainResultType:        types.Any,
 }
 
-func setGlobalVariableAction(previousResult *shared.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *shared.ChainedResult, err error) {
+func action(previousResult *shared.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *shared.ChainedResult, err error) {
 	var args *[]data.UserArg
 
 	// The name of the variable
@@ -54,18 +50,19 @@ func setGlobalVariableAction(previousResult *shared.ChainedResult, parentAction 
 
 	args = &parentAction.Args
 
+	err = shared.HandleCR(parentAction, actionArgs, previousResult)
+	if err != nil {
+		return false, &shared.ChainedResult{}, err
+	}
+
 	for _, arg := range *args {
 		switch arg.ID {
-		case arg1ID:
-			{
-				variableName = strings.TrimSpace(arg.Content)
-			}
-		case arg2ID:
+		case actionArgs[0].ID:
+			variableName = strings.TrimSpace(arg.Content)
+		case actionArgs[1].ID:
 			variableContent = arg.Content
 		default:
-			{
-				return false, &shared.ChainedResult{}, shared.ErrUnrecognizedArgID
-			}
+			return false, &shared.ChainedResult{}, shared.ErrUnrecognizedArgID
 		}
 	}
 
