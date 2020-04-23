@@ -242,7 +242,7 @@ func runActions(task *data.UserTask, actionsQueue *queue.Queue) error {
 							log.Error().
 								Str("taskID", task.ID).
 								Str("actionID", userAction.ID).
-								Err(err).
+								Err(r.Err).
 								Uint8("actionOrder", userAction.Order).
 								Msg("Error when running the action")
 							return err
