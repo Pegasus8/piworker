@@ -13,3 +13,4 @@ server.crt
 server.key
 .variables/
 run.sh
+.tmp/
