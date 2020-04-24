@@ -2,7 +2,6 @@ package shared
 
 import (
 	"github.com/Pegasus8/piworker/core/data"
-
 )
 
 // HandleCR checks if the usage of the `ChainedResult` it's enabled and, if it is,
@@ -33,8 +32,12 @@ func HandleCR(userAction *data.UserAction, actionArgs []Arg, cr *ChainedResult) 
 					} else {
 						return ErrCRTypeDiffers
 					}
+
+					break
 				}
 			}
+
+			break
 		}
 	}
 
