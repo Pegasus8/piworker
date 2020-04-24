@@ -118,6 +118,10 @@ func action(previousResult *shared.ChainedResult, parentAction *data.UserAction,
 	}
 	defer file.Close()
 
+	if writingMode == "a" {
+		content = content + "\n"
+	}
+
 	_, err = file.WriteString(content)
 	if err != nil {
 		return false, &shared.ChainedResult{}, err
