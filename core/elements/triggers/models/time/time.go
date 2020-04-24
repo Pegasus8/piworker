@@ -8,15 +8,24 @@ import (
 	"github.com/Pegasus8/piworker/core/types"
 )
 
-// ID's
-const (
-	// Trigger
-	triggerID = "T1"
+const triggerID = "T1"
 
-	// Args
-	arg1ID = triggerID + "-1"
-	arg2ID = triggerID + "-2"
-)
+var triggerArgs = []shared.Arg{
+	shared.Arg{
+		ID:   triggerID + "-1",
+		Name: "Date",
+		Description: "The date to launch the trigger. The format used is YYYY-MM-dd." +
+			" Example: 2019-11-15.",
+		ContentType: types.Date,
+	},
+	shared.Arg{
+		ID:   triggerID + "-2",
+		Name: "Hour",
+		Description: "The hour to launch the  trigger. The format used is HH:mm." +
+			" Example: 13:45",
+		ContentType: types.Time,
+	},
+}
 
 // ByTime - Trigger
 var ByTime = shared.Trigger{
@@ -24,22 +33,7 @@ var ByTime = shared.Trigger{
 	Name:        "By Time",
 	Description: "",
 	Run:         trigger,
-	Args: []shared.Arg{
-		shared.Arg{
-			ID:   arg1ID,
-			Name: "Date",
-			Description: "The date to launch the trigger. The format used is YYYY-MM-dd." +
-				" Example: 2019-11-15.",
-			ContentType: types.Date,
-		},
-		shared.Arg{
-			ID:   arg2ID,
-			Name: "Hour",
-			Description: "The hour to launch the  trigger. The format used is HH:mm." +
-				" Example: 13:45",
-			ContentType: types.Time,
-		},
-	},
+	Args:        triggerArgs,
 }
 
 func trigger(args *[]data.UserArg, parentTaskID string) (result bool, err error) {
@@ -50,16 +44,16 @@ func trigger(args *[]data.UserArg, parentTaskID string) (result bool, err error)
 
 	for _, arg := range *args {
 		switch arg.ID {
-		case arg1ID:
+		case triggerArgs[0].ID:
 			date = arg.Content
-		case arg2ID:
+		case triggerArgs[1].ID:
 			hour = arg.Content
 		default:
 			return false, shared.ErrUnrecognizedArgID
 		}
 	}
 
-	t, err = time.Parse("2006-01-02 15:04", date + " " + hour)
+	t, err = time.Parse("2006-01-02 15:04", date+" "+hour)
 	if err != nil {
 		return false, err
 	}

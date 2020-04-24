@@ -9,14 +9,16 @@ import (
 	"github.com/Pegasus8/piworker/core/types"
 )
 
-// ID's
-const (
-	// Trigger
-	triggerID = "T3"
+const triggerID = "T3"
 
-	// Args
-	arg1ID = triggerID + "-1"
-)
+var triggerArgs = []shared.Arg{
+	shared.Arg{
+		ID:          triggerID + "-1",
+		Name:        "Path of the Objective File",
+		Description: "Must be on the format 'path/of/the/file.txt'.",
+		ContentType: types.Path,
+	},
+}
 
 // VariationOfFileSize - Trigger
 var VariationOfFileSize = shared.Trigger{
@@ -24,15 +26,7 @@ var VariationOfFileSize = shared.Trigger{
 	Name:        "Variation of a File's Size",
 	Description: "",
 	Run:         trigger,
-	Args: []shared.Arg{
-		shared.Arg{
-			ID:          arg1ID,
-			Name:        "Path of the Objective File",
-			Description: "Must be on the format 'path/of/the/file.txt'.",
-			// Content:     "",
-			ContentType: types.Path,
-		},
-	},
+	Args:        triggerArgs,
 }
 
 var previousFileSize = make(map[string]int64)
@@ -44,12 +38,10 @@ func trigger(args *[]data.UserArg, parentTaskID string) (result bool, err error)
 
 	for _, arg := range *args {
 		switch arg.ID {
-		case arg1ID:
+		case triggerArgs[0].ID:
 			filePath = filepath.Clean(arg.Content)
 		default:
-			{
-				return false, shared.ErrUnrecognizedArgID
-			}
+			return false, shared.ErrUnrecognizedArgID
 		}
 	}
 

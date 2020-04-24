@@ -11,14 +11,17 @@ import (
 	"github.com/shirou/gopsutil/host"
 )
 
-// ID's
-const (
-	// Trigger
-	triggerID = "T2"
+const triggerID = "T2"
 
-	// Args
-	arg1ID = triggerID + "-1"
-)
+var triggerArgs = []shared.Arg{
+	shared.Arg{
+		ID:   triggerID + "-1",
+		Name: "Expected Temperature",
+		Description: "The expected temperature of the Raspberry Pi. Must be in" +
+			" float format and without the 'ºC'. Example: 55.1.",
+		ContentType: types.Float,
+	},
+}
 
 // RaspberryTemperature - Trigger
 var RaspberryTemperature = shared.Trigger{
@@ -26,16 +29,7 @@ var RaspberryTemperature = shared.Trigger{
 	Name:        "Raspberry's Temperature",
 	Description: "",
 	Run:         trigger,
-	Args: []shared.Arg{
-		shared.Arg{
-			ID:   arg1ID,
-			Name: "Expected Temperature",
-			Description: "The expected temperature of the Raspberry Pi. Must be in" +
-				" float format and without the 'ºC'. Example: 55.1.",
-			// Content: "",
-			ContentType: types.Float,
-		},
-	},
+	Args:        triggerArgs,
 }
 
 func trigger(args *[]data.UserArg, parentTaskID string) (result bool, err error) {
@@ -46,7 +40,7 @@ func trigger(args *[]data.UserArg, parentTaskID string) (result bool, err error)
 	for _, arg := range *args {
 		switch arg.ID {
 		// Temperature arg
-		case arg1ID:
+		case triggerArgs[0].ID:
 			{
 				expectedTemp, err = strconv.ParseFloat(arg.Content, 64)
 				if err != nil {
@@ -55,9 +49,7 @@ func trigger(args *[]data.UserArg, parentTaskID string) (result bool, err error)
 			}
 
 		default:
-			{
-				return false, shared.ErrUnrecognizedArgID
-			}
+			return false, shared.ErrUnrecognizedArgID
 		}
 	}
 

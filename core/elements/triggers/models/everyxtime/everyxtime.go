@@ -8,14 +8,17 @@ import (
 	"github.com/Pegasus8/piworker/core/types"
 )
 
-// ID's
-const (
-	// Trigger
-	triggerID = "T4"
+const triggerID = "T4"
 
-	// Args
-	arg1ID = triggerID + "-1"
-)
+var triggerArgs = []shared.Arg{
+	shared.Arg{
+		ID:   triggerID + "-1",
+		Name: "Time",
+		Description: "Time of repetition. Format must be '1h10m10s' where" +
+			" 'h' = hours, 'm' = minutes and 's' = seconds.",
+		ContentType: types.Text,
+	},
+}
 
 // EveryXTime - Trigger
 var EveryXTime = shared.Trigger{
@@ -23,16 +26,7 @@ var EveryXTime = shared.Trigger{
 	Name:        "Every X Time",
 	Description: "",
 	Run:         trigger,
-	Args: []shared.Arg{
-		shared.Arg{
-			ID:   arg1ID,
-			Name: "Time",
-			Description: "Time of repetition. Format must be '1h10m10s' where" +
-				" 'h' = hours, 'm' = minutes and 's' = seconds.",
-			// Content:     "",
-			ContentType: types.Text,
-		},
-	},
+	Args:        triggerArgs,
 }
 
 var nextExecution = make(map[string]time.Time)
@@ -43,15 +37,15 @@ func trigger(args *[]data.UserArg, parentTaskID string) (result bool, err error)
 
 	for _, arg := range *args {
 		switch arg.ID {
-		case arg1ID:
-			timeToWait, err = time.ParseDuration(arg.Content)
-			if err != nil {
-				return false, err
+		case triggerArgs[0].ID:
+			{
+				timeToWait, err = time.ParseDuration(arg.Content)
+				if err != nil {
+					return false, err
+				}
 			}
 		default:
-			{
-				return false, shared.ErrUnrecognizedArgID
-			}
+			return false, shared.ErrUnrecognizedArgID
 		}
 	}
 
