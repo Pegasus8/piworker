@@ -12,44 +12,36 @@ import (
 	"github.com/Pegasus8/piworker/utilities/files"
 )
 
-// ID's
-const (
-	// Action
-	actionID = "A3"
+const actionID = "A3"
 
-	// Args
-	arg1ID   = actionID + "-1"
-	arg2ID = actionID + "-2"
-)
+var actionArgs = []shared.Arg{
+	shared.Arg{
+		ID:          actionID + "-1",
+		Name:        "Command",
+		Description: "The command to execute. For example: 'touch'.",
+		ContentType: types.Text,
+	},
+	shared.Arg{
+		ID:   actionID + "-2",
+		Name: "Arguments",
+		Description: "The arguments of the command provided, separated" +
+			" by a comma. For example (arg to command 'touch'): 'test.txt'.",
+		ContentType: types.Text,
+	},
+}
 
 // ExecuteCommand - Action
 var ExecuteCommand = shared.Action{
-	ID:          actionID,
-	Name:        "",
-	Description: "",
-	Run:         executeCommand,
-	Args: []shared.Arg{
-		shared.Arg{
-			ID:          arg1ID,
-			Name:        "Command",
-			Description: "The command to execute.",
-			// Content:     "",
-			ContentType: types.Text,
-		},
-		shared.Arg{
-			ID:   arg2ID,
-			Name: "Arguments",
-			Description: "The arguments of the command provided, separated" +
-				" by a comma.",
-			// Content:     "",
-			ContentType: types.Text,
-		},
-	},
+	ID:                             actionID,
+	Name:                           "Execute a command",
+	Description:                    "",
+	Run:                            action,
+	Args:                           actionArgs,
 	ReturnedChainResultDescription: "The command to execute.",
 	ReturnedChainResultType:        types.Text,
 }
 
-func executeCommand(previousResult *shared.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *shared.ChainedResult, err error) {
+func action(previousResult *shared.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *shared.ChainedResult, err error) {
 	var args *[]data.UserArg
 
 	// Command
@@ -59,11 +51,16 @@ func executeCommand(previousResult *shared.ChainedResult, parentAction *data.Use
 
 	args = &parentAction.Args
 
+	err = shared.HandleCR(parentAction, actionArgs, previousResult)
+	if err != nil {
+		return false, &shared.ChainedResult{}, err
+	}
+
 	for _, arg := range *args {
 		switch arg.ID {
-		case arg1ID:
+		case actionArgs[0].ID:
 			command = strings.TrimSpace(arg.Content)
-		case arg2ID:
+		case actionArgs[1].ID:
 			commandArgs = strings.Split(arg.Content, ",")
 		default:
 			return false, &shared.ChainedResult{}, shared.ErrUnrecognizedArgID
