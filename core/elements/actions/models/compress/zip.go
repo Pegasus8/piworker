@@ -57,7 +57,10 @@ func addFiles(w *zip.Writer, basePath, baseInZip string) error {
 		} else {
 			// If it's a directory, execute the function recursively.
 			newBase := filepath.Join(basePath, file.Name())
-			addFiles(w, newBase, baseInZip+file.Name()+"/")
+			err := addFiles(w, newBase, baseInZip+file.Name()+"/")
+			if err != nil {
+				return err
+			}
 		}
 	}
 
