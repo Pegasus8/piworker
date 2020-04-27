@@ -17,7 +17,7 @@ var triggerArgs = []shared.Arg{
 	shared.Arg{
 		ID:   triggerID + "-1",
 		Name: "Expected Temperature",
-		Description: "The expected temperature of the Raspberry Pi. Must be in" +
+		Description: "The expected temperature of the host. Must be in" +
 			" float format and without the 'ºC'. Example: 55.1.",
 		ContentType: types.Float,
 	},
@@ -27,7 +27,7 @@ var triggerArgs = []shared.Arg{
 var RaspberryTemperature = shared.Trigger{
 	ID:          triggerID,
 	Name:        "Raspberry's Temperature",
-	Description: "",
+	Description: "If the temperature of the host equals or exceeds the given number, the trigger will be activated.",
 	Run:         trigger,
 	Args:        triggerArgs,
 }
@@ -71,7 +71,7 @@ func trigger(args *[]data.UserArg, parentTaskID string) (result bool, err error)
 		return false, errors.New("SensorKey incompatible with host")
 	}
 
-	if temperature == expectedTemp {
+	if temperature >= expectedTemp {
 		return true, nil
 	}
 
