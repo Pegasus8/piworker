@@ -3,6 +3,7 @@ package setgv
 import (
 	"errors"
 	"strings"
+	"sync"
 
 	"github.com/Pegasus8/piworker/core/data"
 	"github.com/Pegasus8/piworker/core/elements/actions/shared"
@@ -76,6 +77,7 @@ func action(previousResult *shared.ChainedResult, parentAction *data.UserAction,
 		Name:    variableName,
 		Content: variableContent,
 		Type:    variableType,
+		RWMutex: &sync.RWMutex{},
 	}
 	err = gv.WriteToFile()
 	if err != nil {

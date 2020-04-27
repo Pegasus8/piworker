@@ -3,6 +3,7 @@ package setlv
 import (
 	"errors"
 	"strings"
+	"sync"
 
 	"github.com/Pegasus8/piworker/core/data"
 	"github.com/Pegasus8/piworker/core/elements/actions/shared"
@@ -81,6 +82,7 @@ func action(previousResult *shared.ChainedResult, parentAction *data.UserAction,
 		Content:      variableContent,
 		Type:         variableType,
 		ParentTaskID: parentTaskID,
+		RWMutex:      &sync.RWMutex{},
 	}
 	err = lv.WriteToFile()
 	if err != nil {
