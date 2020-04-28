@@ -21,14 +21,14 @@ func HandleCR(userAction *data.UserAction, actionArgs []Arg, cr *ChainedResult) 
 	}
 
 	var argFound bool
-	for _, arg := range userAction.Args {
+	for i, arg := range userAction.Args {
 		if arg.ID == userAction.ArgumentToReplaceByCR {
 			argFound = true
 			for _, pwArg := range actionArgs {
 				if arg.ID == pwArg.ID {
 					// Only use the content of the CR if the type is compatible.
 					if pwArg.ContentType == cr.ResultType {
-						arg.Content = cr.Result
+						userAction.Args[i].Content = cr.Result
 					} else {
 						return ErrCRTypeDiffers
 					}
