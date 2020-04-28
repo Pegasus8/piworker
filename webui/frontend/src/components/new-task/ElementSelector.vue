@@ -3,7 +3,7 @@
     <v-dialog v-model='showDialog' max-width="600px" scrollable>
       <v-card>
         <v-card-title>
-          Choose a {{ elementType }}
+          Choose a{{ elementType === 'action'? 'n':'' }} {{ elementType }}
         </v-card-title>
         <v-card-text>
           <v-expansion-panels inset>
