@@ -33,6 +33,23 @@ func zipWriter(targetPath, outputPath string) error {
 }
 
 func addFiles(w *zip.Writer, basePath, baseInZip string) error {
+	// Check if is a file.
+	f, err := os.Stat(basePath)
+	if err != nil {
+		return err
+	}
+
+	// If is a file, compress it and return.
+	if !f.IsDir() {
+		err := compressFile(basePath, w, baseInZip + f.Name())
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	// If is not a file, read the directory (if necessary, recursively), and compress each file.
 	files, err := ioutil.ReadDir(basePath)
 	if err != nil {
 		return err
@@ -40,17 +57,7 @@ func addFiles(w *zip.Writer, basePath, baseInZip string) error {
 
 	for _, file := range files {
 		if !file.IsDir() {
-			content, err := ioutil.ReadFile(filepath.Join(basePath, file.Name()))
-			if err != nil {
-				return err
-			}
-
-			f, err := w.Create(baseInZip + file.Name())
-			if err != nil {
-				return err
-			}
-
-			_, err = f.Write(content)
+			err := compressFile(filepath.Join(basePath, file.Name()), w, baseInZip + file.Name())
 			if err != nil {
 				return err
 			}
@@ -62,6 +69,25 @@ func addFiles(w *zip.Writer, basePath, baseInZip string) error {
 				return err
 			}
 		}
+	}
+
+	return nil
+}
+
+func compressFile(path string, w *zip.Writer, nameOnZip string) error {
+	content, err := ioutil.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	f, err := w.Create(nameOnZip)
+	if err != nil {
+		return err
+	}
+
+	_, err = f.Write(content)
+	if err != nil {
+		return err
 	}
 
 	return nil
