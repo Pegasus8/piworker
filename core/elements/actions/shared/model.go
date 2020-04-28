@@ -1,4 +1,4 @@
-package actions
+package shared
 
 import (
 	"github.com/Pegasus8/piworker/core/data"

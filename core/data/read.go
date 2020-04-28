@@ -48,7 +48,7 @@ func GetTasks() (*[]UserTask, error) {
 		if err != nil {
 			return &tasks, err
 		}
-		
+
 		tasks = append(tasks, task)
 	}
 

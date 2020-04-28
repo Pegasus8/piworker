@@ -1,12 +1,12 @@
 package stats
 
 import (
-	"fmt"
-	"strconv"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite3 package
@@ -125,7 +125,7 @@ func StoreTStats(ts *TasksStats) error {
 
 // StoreRStats stores a instance of the struct `RaspberryStats` into the table `RaspberryStats` of the SQLite3 database.
 func StoreRStats(rs *RaspberryStats) error {
-	 // CURRENT_TIMESTAMP
+	// CURRENT_TIMESTAMP
 
 	sqlStatement := `
 	INSERT INTO RaspberryStats(
@@ -384,7 +384,7 @@ func ReadStatsByHour(date, hour string) (*[]TasksStats, *[]RaspberryStats, error
 	return &ts, &rs, nil
 }
 
-func rsPerHour (rs *[]RaspberryStats) (*[]RaspberryStats, error) {
+func rsPerHour(rs *[]RaspberryStats) (*[]RaspberryStats, error) {
 	if len(*rs) == 0 {
 		return rs, nil
 	}
@@ -393,7 +393,7 @@ func rsPerHour (rs *[]RaspberryStats) (*[]RaspberryStats, error) {
 	var h uint64
 	var hStr string
 
-	// The first element of the slice is the first record of the day, so must be 
+	// The first element of the slice is the first record of the day, so must be
 	// the start point.
 	h, err := strconv.ParseUint((*rs)[0].Timestamp.Format("15"), 10, 64)
 	if err != nil {

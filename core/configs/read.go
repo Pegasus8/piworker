@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-    "github.com/rs/zerolog/log"
+	"github.com/rs/zerolog/log"
 )
 
 // ReadFromFile is a method used to read the configs file and parse the content into

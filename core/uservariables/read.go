@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sync"
 )
 
 // ReadLocalVariablesFromFiles reads the local variables stored on the files. Useful to restore the contents of the variables
@@ -40,6 +41,9 @@ func ReadLocalVariablesFromFiles() (*[]LocalVariable, error) {
 		if err != nil {
 			return &localVariables, err
 		}
+
+		// Initialize the mutex.
+		lv.RWMutex = &sync.RWMutex{}
 
 		localVariables = append(localVariables, lv)
 	}
@@ -80,6 +84,9 @@ func ReadGlobalVariablesFromFiles() (*[]GlobalVariable, error) {
 			return &globalVariables, err
 		}
 
+		// Initialize the mutex.
+		gv.RWMutex = &sync.RWMutex{}
+
 		globalVariables = append(globalVariables, gv)
 	}
 
@@ -99,7 +106,7 @@ func ContainGlobalVariable(argument *string) bool {
 // GetLocalVariableName returns the name of the variable used on an argument.
 func GetLocalVariableName(argument string) string {
 	// No needed usage of a pointer because we already know that there
-	// is a variable name, wich is a few bytes on memory.
+	// is a variable name, which is a few bytes on memory.
 	match := localVariableRgx.FindStringSubmatch(argument)
 	var variableName string
 	if match != nil {
@@ -112,7 +119,7 @@ func GetLocalVariableName(argument string) string {
 // GetGlobalVariableName returns the name of the variable used on an argument.
 func GetGlobalVariableName(argument string) string {
 	// No needed usage of a pointer because we already know that there
-	// is a variable name, wich is a few bytes on memory.
+	// is a variable name, which is a few bytes on memory.
 	match := globalVariableRgx.FindStringSubmatch(argument)
 	var variableName string
 	if match != nil {

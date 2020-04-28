@@ -11,12 +11,13 @@ import (
 
 	"github.com/Pegasus8/piworker/core/configs"
 	"github.com/Pegasus8/piworker/core/data"
-	actionsModel "github.com/Pegasus8/piworker/core/elements/actions"
 	actionsList "github.com/Pegasus8/piworker/core/elements/actions/models"
+	actionsModel "github.com/Pegasus8/piworker/core/elements/actions/shared"
 	triggersList "github.com/Pegasus8/piworker/core/elements/triggers/models"
 	"github.com/Pegasus8/piworker/core/stats"
 	"github.com/Pegasus8/piworker/core/types"
 	"github.com/Pegasus8/piworker/core/uservariables"
+
 	"github.com/rs/zerolog/log"
 )
 
@@ -88,10 +89,6 @@ func runTaskLoop(taskID string, taskChannel chan data.UserTask, managementChanne
 
 		if triggered {
 			if wasRecentlyExecuted(taskReceived.ID) {
-				log.Debug().
-					Str("taskID", taskReceived.ID).
-					Msg("The task was recently executed, the trigger stills active. Skipping it...")
-
 				goto skipTaskExecution
 			}
 
@@ -142,6 +139,11 @@ func runTaskLoop(taskID string, taskChannel chan data.UserTask, managementChanne
 		TaskID: taskReceived.ID,
 	}
 	data.EventBus <- event
+	// And finally, update the state of the task on the database.
+	err := data.UpdateTaskState(taskReceived.ID, data.StateTaskFailed)
+	if err != nil {
+		log.Panic().Err(err).Str("taskID", taskReceived.ID).Msg("Error when trying to update the state of the task to 'failed'")
+	}
 }
 
 func runTrigger(trigger data.UserTrigger, parentTaskID string) (bool, error) {
@@ -185,7 +187,7 @@ func runActions(task *data.UserTask, actionsQueue *queue.Queue) error {
 		return err
 	}
 
-	var chainedResult *actionsModel.ChainedResult
+	var chainedResult = &actionsModel.ChainedResult{}
 	var orderN uint8 = 0
 	for range *userActions {
 
@@ -241,7 +243,7 @@ func runActions(task *data.UserTask, actionsQueue *queue.Queue) error {
 							log.Error().
 								Str("taskID", task.ID).
 								Str("actionID", userAction.ID).
-								Err(err).
+								Err(r.Err).
 								Uint8("actionOrder", userAction.Order).
 								Msg("Error when running the action")
 							return err
@@ -300,16 +302,10 @@ func runActions(task *data.UserTask, actionsQueue *queue.Queue) error {
 }
 
 func setAsRecentlyExecuted(ID string) error {
-	dir, err := ioutil.TempDir(TempDir, "")
+	err := ioutil.WriteFile(filepath.Join(TempDir, ID), []byte{}, 0644)
 	if err != nil {
 		return err
 	}
-
-	file, err := ioutil.TempFile(filepath.Join(dir, ID), "")
-	if err != nil {
-		return err
-	}
-	file.Close()
 
 	return nil
 }
@@ -386,7 +382,7 @@ func replaceArgByCR(chainedResult *actionsModel.ChainedResult, userAction *data.
 	}
 	if userAction.Chained {
 		if chainedResult.Result == "" {
-			return nil, actionsList.ErrEmptyChainedResult
+			return nil, actionsModel.ErrEmptyCRResult
 		}
 
 		for _, userArg := range userAction.Args {

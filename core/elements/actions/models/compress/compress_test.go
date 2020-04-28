@@ -1,4 +1,4 @@
-package models
+package compress
 
 import (
 	"fmt"
@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/Pegasus8/piworker/core/data"
-	"github.com/Pegasus8/piworker/core/elements/actions"
+	"github.com/Pegasus8/piworker/core/elements/actions/shared"
 )
 
 func TestCompressFilesOfDir(t *testing.T) {
@@ -39,11 +39,11 @@ func TestCompressFilesOfDir(t *testing.T) {
 			fakeData: data.UserAction{
 				ID: "A1",
 				Args: []data.UserArg{
-					data.UserArg{
+					{
 						ID:      "A2-1",
 						Content: filesDir,
 					},
-					data.UserArg{
+					{
 						ID:      "A2-2",
 						Content: outputDir,
 					},
@@ -59,11 +59,11 @@ func TestCompressFilesOfDir(t *testing.T) {
 			fakeData: data.UserAction{
 				ID: "A1",
 				Args: []data.UserArg{
-					data.UserArg{
+					{
 						ID:      "A2-1",
 						Content: filesDir,
 					},
-					data.UserArg{
+					{
 						ID:      "A2-2",
 						Content: outputDir,
 					},
@@ -115,7 +115,7 @@ func TestCompressFilesOfDir(t *testing.T) {
 		}
 
 		fmt.Println("Running CompressFilesOfDir.Run...")
-		result, _, err := CompressFilesOfDir.Run(&actions.ChainedResult{}, &info.fakeData, "TEST")
+		result, _, err := CompressFilesOfDir.Run(&shared.ChainedResult{}, &info.fakeData, "TEST")
 		if err != nil {
 			t.Error(err)
 			continue

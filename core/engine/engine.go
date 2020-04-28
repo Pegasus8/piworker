@@ -44,6 +44,11 @@ func StartEngine() {
 	data.EventBus = make(chan data.Event)
 	actionsQ := queue.NewQueue()
 
+	err := checkTempDir()
+	if err != nil {
+		log.Panic().Err(err).Msg("Error when trying to create the temp dir")
+	}
+
 	log.Info().Msg("Reading the user data for first time...")
 
 	activeTasks, err := data.GetActiveTasks()
@@ -238,4 +243,14 @@ func updateTStatsDB() {
 	stats.Current.RLock()
 	stats.StoreTStats(&stats.Current.TasksStats)
 	stats.Current.RUnlock()
+}
+
+func checkTempDir() error {
+	// Create temp dir if not exists
+	err := os.MkdirAll(TempDir, 0755)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

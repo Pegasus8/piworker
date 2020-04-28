@@ -15,6 +15,16 @@
     :disabled='disabled'
     required
   />
+  <v-text-field
+    v-if="argType == 'number-float'"
+    type='number'
+    v-model.lazy='argContent'
+    :rules='[
+      rules.emptyNotAllowed
+    ]'
+    :disabled='disabled'
+    required
+  />
   <v-textarea
     v-if="
       argType == 'text' ||

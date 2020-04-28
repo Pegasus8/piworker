@@ -17,14 +17,14 @@ func UpdateTask(ID string, updatedTask *UserTask) error {
 	var actions string
 
 	log.Info().Str("taskID", ID).Msg("Updating task...")
-	
+
 	// Marshal the UserTrigger struct
 	t, err := json.Marshal(updatedTask.Trigger)
 	if err != nil {
 		return err
 	}
 	trigger = string(t)
-	
+
 	// Marshal the []UserAction slice
 	a, err := json.Marshal(updatedTask.Actions)
 	if err != nil {

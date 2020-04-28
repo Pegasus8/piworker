@@ -2,7 +2,7 @@ package queue
 
 import (
 	"github.com/Pegasus8/piworker/core/data"
-	"github.com/Pegasus8/piworker/core/elements/actions"
+	actions "github.com/Pegasus8/piworker/core/elements/actions/shared"
 
 	"github.com/rs/zerolog/log"
 )

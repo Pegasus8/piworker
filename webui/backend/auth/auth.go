@@ -3,8 +3,8 @@ package auth
 import (
 	"fmt"
 	"net/http"
-	"time"
 	"strings"
+	"time"
 
 	// "github.com/Pegasus8/piworker/utilities/files"
 	"github.com/Pegasus8/piworker/core/configs"
@@ -85,7 +85,7 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 					Str("remoteAddr", r.RemoteAddr).
 					Str("tokenOwner", claims.Subject).
 					Msg("Token used")
-				
+
 				if r.UserAgent() != claims.UserAgent {
 					log.Warn().
 						Str("remoteAddr", r.RemoteAddr).
@@ -155,7 +155,7 @@ func NewWSTicket(clientAddr string) (ticket string) {
 	ticket = uuid.New().String()
 	c := client{
 		ClientAddr: clientAddr,
-		Ticket: ticket,
+		Ticket:     ticket,
 	}
 	authorizedWSConns = append(authorizedWSConns, c)
 
@@ -167,8 +167,8 @@ func IsWSAuthorized(clientAddr, ticket string) bool {
 	for i, c := range authorizedWSConns {
 		if c.ClientAddr == clientAddr && c.Ticket == ticket {
 			// Remove the ticket from the slice. We don't care the order, so let's do it by the fastest way.
-			authorizedWSConns[i] = authorizedWSConns[len(authorizedWSConns) - 1]
-			authorizedWSConns = authorizedWSConns[:len(authorizedWSConns) - 1]
+			authorizedWSConns[i] = authorizedWSConns[len(authorizedWSConns)-1]
+			authorizedWSConns = authorizedWSConns[:len(authorizedWSConns)-1]
 
 			return true
 		}
