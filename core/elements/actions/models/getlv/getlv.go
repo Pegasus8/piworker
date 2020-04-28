@@ -10,7 +10,7 @@ import (
 	"github.com/Pegasus8/piworker/core/uservariables"
 )
 
-const actionID = "A8"
+const actionID = "A7"
 
 var actionArgs = []shared.Arg{
 	shared.Arg{
