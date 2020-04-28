@@ -1,8 +1,8 @@
 package data
 
 import (
-	"sync"
 	"database/sql"
+	"sync"
 )
 
 //					** Data storage **					//

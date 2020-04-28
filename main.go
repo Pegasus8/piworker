@@ -7,14 +7,14 @@ import (
 	"syscall"
 
 	"github.com/Pegasus8/piworker/core/signals"
-
 	"github.com/Pegasus8/piworker/core/configs"
+	"github.com/Pegasus8/piworker/core/data"
 	"github.com/Pegasus8/piworker/core/engine"
 	"github.com/Pegasus8/piworker/core/logs"
-	"github.com/Pegasus8/piworker/core/uservariables"
 	"github.com/Pegasus8/piworker/core/stats"
-	"github.com/Pegasus8/piworker/core/data"
+	"github.com/Pegasus8/piworker/core/uservariables"
 	"github.com/Pegasus8/piworker/utilities/files"
+
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -33,7 +33,7 @@ func start() {
 	setLogSettings()
 
 	log.Info().Msg("Starting PiWorker...")
-	
+
 	uservariables.Init()
 	stats.Init()
 	data.Init()

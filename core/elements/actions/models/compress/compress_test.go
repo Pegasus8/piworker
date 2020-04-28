@@ -39,11 +39,11 @@ func TestCompressFilesOfDir(t *testing.T) {
 			fakeData: data.UserAction{
 				ID: "A1",
 				Args: []data.UserArg{
-					data.UserArg{
+					{
 						ID:      "A2-1",
 						Content: filesDir,
 					},
-					data.UserArg{
+					{
 						ID:      "A2-2",
 						Content: outputDir,
 					},
@@ -59,11 +59,11 @@ func TestCompressFilesOfDir(t *testing.T) {
 			fakeData: data.UserAction{
 				ID: "A1",
 				Args: []data.UserArg{
-					data.UserArg{
+					{
 						ID:      "A2-1",
 						Content: filesDir,
 					},
-					data.UserArg{
+					{
 						ID:      "A2-2",
 						Content: outputDir,
 					},

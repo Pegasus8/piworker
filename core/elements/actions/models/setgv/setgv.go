@@ -14,14 +14,14 @@ import (
 const actionID = "A4"
 
 var actionArgs = []shared.Arg{
-	shared.Arg{
+	{
 		ID:   actionID + "-1",
 		Name: "Name",
 		Description: "The name of the variable. Must be uppercase, without spaces or special characters. " +
 			"The unique special character allowed is the underscore ('_'). Example: THIS_IS_AN_EXAMPLE",
 		ContentType: types.Text,
 	},
-	shared.Arg{
+	{
 		ID:   actionID + "-2",
 		Name: "Variable content",
 		Description: "The content of the variable. Optionally can be: a result of a previous action, " +

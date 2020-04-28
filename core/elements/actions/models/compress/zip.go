@@ -41,7 +41,7 @@ func addFiles(w *zip.Writer, basePath, baseInZip string) error {
 
 	// If is a file, compress it and return.
 	if !f.IsDir() {
-		err := compressFile(basePath, w, baseInZip + f.Name())
+		err := compressFile(basePath, w, baseInZip+f.Name())
 		if err != nil {
 			return err
 		}
@@ -57,7 +57,7 @@ func addFiles(w *zip.Writer, basePath, baseInZip string) error {
 
 	for _, file := range files {
 		if !file.IsDir() {
-			err := compressFile(filepath.Join(basePath, file.Name()), w, baseInZip + file.Name())
+			err := compressFile(filepath.Join(basePath, file.Name()), w, baseInZip+file.Name())
 			if err != nil {
 				return err
 			}

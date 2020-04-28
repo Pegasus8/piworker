@@ -14,7 +14,7 @@ import (
 const triggerID = "T2"
 
 var triggerArgs = []shared.Arg{
-	shared.Arg{
+	{
 		ID:   triggerID + "-1",
 		Name: "Expected Temperature",
 		Description: "The expected temperature of the host. Must be in" +

@@ -15,13 +15,13 @@ import (
 const actionID = "A3"
 
 var actionArgs = []shared.Arg{
-	shared.Arg{
+	{
 		ID:          actionID + "-1",
 		Name:        "Command",
 		Description: "The command to execute. For example: 'touch'.",
 		ContentType: types.Text,
 	},
-	shared.Arg{
+	{
 		ID:   actionID + "-2",
 		Name: "Arguments",
 		Description: "The arguments of the command provided, separated" +

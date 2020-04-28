@@ -11,12 +11,13 @@ import (
 
 	"github.com/Pegasus8/piworker/core/configs"
 	"github.com/Pegasus8/piworker/core/data"
-	actionsModel "github.com/Pegasus8/piworker/core/elements/actions/shared"
 	actionsList "github.com/Pegasus8/piworker/core/elements/actions/models"
+	actionsModel "github.com/Pegasus8/piworker/core/elements/actions/shared"
 	triggersList "github.com/Pegasus8/piworker/core/elements/triggers/models"
 	"github.com/Pegasus8/piworker/core/stats"
 	"github.com/Pegasus8/piworker/core/types"
 	"github.com/Pegasus8/piworker/core/uservariables"
+
 	"github.com/rs/zerolog/log"
 )
 

@@ -14,7 +14,7 @@ import (
 const actionID = "A5"
 
 var actionArgs = []shared.Arg{
-	shared.Arg{
+	{
 		ID:   actionID + "-1",
 		Name: "Name",
 		Description: "The name of the variable. Must be lowercase, without spaces or special characters. " +
@@ -23,7 +23,7 @@ var actionArgs = []shared.Arg{
 			" instead. Example of variable: some_random_local_var",
 		ContentType: types.Text,
 	},
-	shared.Arg{
+	{
 		ID:   actionID + "-2",
 		Name: "Variable content",
 		Description: "The content of the variable. Optionally can be: a result of a previous action, " +

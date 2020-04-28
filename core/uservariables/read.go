@@ -1,12 +1,12 @@
 package uservariables
 
 import (
-	"sync"
 	"encoding/json"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sync"
 )
 
 // ReadLocalVariablesFromFiles reads the local variables stored on the files. Useful to restore the contents of the variables

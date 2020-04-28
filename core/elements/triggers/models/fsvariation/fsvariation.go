@@ -12,7 +12,7 @@ import (
 const triggerID = "T3"
 
 var triggerArgs = []shared.Arg{
-	shared.Arg{
+	{
 		ID:          triggerID + "-1",
 		Name:        "Path of the Objective File",
 		Description: "Must be on the format 'path/of/the/file.txt'.",

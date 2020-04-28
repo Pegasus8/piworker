@@ -13,19 +13,19 @@ import (
 const actionID = "A1"
 
 var actionArgs = []shared.Arg{
-	shared.Arg{
+	{
 		ID:          actionID + "-1",
 		Name:        "Content",
 		Description: "Content to write into the file.",
 		ContentType: types.Any,
 	},
-	shared.Arg{
+	{
 		ID:          actionID + "-2",
 		Name:        "File Name",
 		Description: "Name of the file that will be written. Remember to add the extension of the file, for example: 'my_file.txt'.",
 		ContentType: types.Text,
 	},
-	shared.Arg{
+	{
 		ID:   actionID + "-3",
 		Name: "Writing Mode",
 		Description: "Mode used to write the file. Can be: 'a' = append and 'w' = write" +
@@ -34,7 +34,7 @@ var actionArgs = []shared.Arg{
 			"\nNote: just write the letter, not the quotation marks.",
 		ContentType: types.Text,
 	},
-	shared.Arg{
+	{
 		ID:          actionID + "-4",
 		Name:        "Path",
 		Description: "Path where the file will be saved. Example: /home/pegasus8/Desktop/",

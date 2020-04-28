@@ -11,14 +11,14 @@ import (
 const triggerID = "T1"
 
 var triggerArgs = []shared.Arg{
-	shared.Arg{
+	{
 		ID:   triggerID + "-1",
 		Name: "Date",
 		Description: "The date to launch the trigger. The format used is YYYY-MM-dd." +
 			" Example: 2019-11-15.",
 		ContentType: types.Date,
 	},
-	shared.Arg{
+	{
 		ID:   triggerID + "-2",
 		Name: "Hour",
 		Description: "The hour to launch the  trigger. The format used is HH:mm." +

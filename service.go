@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"syscall"
 	"os"
+	"syscall"
 
 	"github.com/Pegasus8/piworker/core/signals"
 

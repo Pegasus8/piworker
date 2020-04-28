@@ -23,7 +23,7 @@ var (
 	ErrEmptyCRResultType = errors.New(
 		"The type of the chained result is empty",
 	)
-	// ErrEmptyArgToReplace is the error that represents an empty `UserAction.ArgumentToReplaceByCR` field. 
+	// ErrEmptyArgToReplace is the error that represents an empty `UserAction.ArgumentToReplaceByCR` field.
 	ErrEmptyArgToReplace = errors.New(
 		"The argument to replace by the ChainedResult is empty",
 	)

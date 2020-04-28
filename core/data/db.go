@@ -3,8 +3,8 @@ package data
 import (
 	"database/sql"
 	"fmt"
-	"path/filepath"
 	"os"
+	"path/filepath"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite3 package
 	"github.com/rs/zerolog/log"
@@ -37,7 +37,7 @@ func Init() {
 *	2) defer db.Close()
 *	3) CreateTable
 *	4) StoreRasberryStatistics/ReadRaspberryStatistics
-*/
+ */
 
 // InitDB is the function used to initialize the SQLite3 database.
 func InitDB(filepath string) (*sql.DB, error) {

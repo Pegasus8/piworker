@@ -13,7 +13,7 @@ import (
 const actionID = "A7"
 
 var actionArgs = []shared.Arg{
-	shared.Arg{
+	{
 		ID:          actionID + "-1",
 		Name:        "Name",
 		Description: "The name of the desired variable.",

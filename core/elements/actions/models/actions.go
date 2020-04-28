@@ -1,7 +1,6 @@
 package shared
 
 import (
-	"github.com/Pegasus8/piworker/core/elements/actions/shared"
 	"github.com/Pegasus8/piworker/core/elements/actions/models/cmdexec"
 	"github.com/Pegasus8/piworker/core/elements/actions/models/compress"
 	"github.com/Pegasus8/piworker/core/elements/actions/models/getgv"
@@ -9,6 +8,7 @@ import (
 	"github.com/Pegasus8/piworker/core/elements/actions/models/setgv"
 	"github.com/Pegasus8/piworker/core/elements/actions/models/setlv"
 	"github.com/Pegasus8/piworker/core/elements/actions/models/writetf"
+	"github.com/Pegasus8/piworker/core/elements/actions/shared"
 )
 
 // ACTIONS is the main variable used to store all the actions of PiWorker

@@ -11,7 +11,7 @@ import (
 const triggerID = "T4"
 
 var triggerArgs = []shared.Arg{
-	shared.Arg{
+	{
 		ID:   triggerID + "-1",
 		Name: "Time",
 		Description: "Time of repetition. Format must be '1h10m10s' where" +

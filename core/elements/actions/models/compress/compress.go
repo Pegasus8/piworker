@@ -13,21 +13,21 @@ import (
 const actionID = "A2"
 
 var actionArgs = []shared.Arg{
-	shared.Arg{
+	{
 		ID:   actionID + "-1",
 		Name: "Directory/file target",
 		Description: "The directory where the files to compress are located." +
 			" Example: '/home/pegasus8/Images/'",
 		ContentType: types.Path,
 	},
-	shared.Arg{
+	{
 		ID:   actionID + "-2",
 		Name: "Directory where to store the compressed file",
 		Description: "Directory where save the compressed file, if not exists " +
 			"it will be created. Example: '/home/'",
 		ContentType: types.Path,
 	},
-	shared.Arg{
+	{
 		ID:          actionID + "-3",
 		Name:        "Name of the output file",
 		Description: "The name of the zip file (without the extension). For example: 'my_files'",
