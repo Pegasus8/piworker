@@ -41,7 +41,7 @@
   />
   <v-date-picker
     v-if="argType == 'date'"
-    v-model.lazy="argContent"
+    v-model="argContent"
     :min='getDate()'
     :rules='[
       rules.emptyNotAllowed
