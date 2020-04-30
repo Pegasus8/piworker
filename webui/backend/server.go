@@ -23,9 +23,9 @@ import (
 	"github.com/Pegasus8/piworker/webui/backend/websocket"
 
 	jwt "github.com/dgrijalva/jwt-go"
-	"github.com/gobuffalo/packr/v2"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/markbates/pkger"
 	"github.com/rs/zerolog/log"
 )
 
@@ -40,7 +40,7 @@ var tlsSupport bool
 func setupRoutes() {
 	defer auth.Database.Close()
 
-	box := packr.New("WebUI", "../frontend/dist")
+	_ = pkger.Include("/webui/frontend/dist")
 
 	auth.CheckSigningKey()
 
