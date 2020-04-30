@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"time"
@@ -30,6 +31,36 @@ import (
 )
 
 var tlsSupport bool
+
+// -- Using (partially) example from https://github.com/gorilla/mux#serving-single-page-applications --.
+// spaHandler implements the http.Handler interface, so we can use it
+// to respond to HTTP requests. The path to the static directory and
+// path to the index file within that static directory are used to
+// serve the SPA in the given static directory.
+type spaHandler struct {
+	staticPath string
+	indexPath  string
+}
+
+// ServeHTTP inspects the URL path to locate a file within the static dir
+// on the SPA handler. If a file is found, it will be served. If not, the
+// request will be redirected to the root path ("/").
+func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Prepend the path with the path to the static directory.
+	path := filepath.Join(h.staticPath, r.URL.Path)
+
+	// Check whether a file exists at the given path.
+	_, err := pkger.Stat(path)
+	if err != nil {
+		// If there is an error, the file does not exist, so we must redirect to the root path.
+		http.Redirect(w, r, "/", http.StatusPermanentRedirect)
+
+		return
+	}
+
+	// Otherwise, use http.FileServer to serve the static dir.
+	http.FileServer(pkger.Dir(h.staticPath)).ServeHTTP(w, r)
+}
 
 //
 // ──────────────────────────────────────────────────── I ──────────
@@ -81,7 +112,8 @@ func setupRoutes() {
 		// ────────────────────────────────────────────────────────────────────────────────
 
 		// ─── SINGLE PAGE APP ────────────────────────────────────────────────────────────
-		router.PathPrefix("/").Handler(http.FileServer(box))
+		spa := spaHandler{staticPath: "/webui/frontend/dist", indexPath: "index.html"}
+		router.PathPrefix("/").Handler(spa)
 		// ────────────────────────────────────────────────────────────────────────────────
 	}
 
