@@ -1,9 +1,17 @@
-# piworker
+# PiWorker
 
-Installation (**Untested**):
+***On development** / **En desarrollo***
+
+*In the next days I will add objectives, documentation, characteristics, captures, etc; everything necessary to understand how it works (or how it will).*
+
+*En los próximos días agregaré objetivos, documentación, características, capturas, etc; todo lo necesario para comprender cómo es el funcionamiento (o como lo será).*
+
+Installation (**Untested, maybe it doesn't work**):
 ```
     curl -sSL https://github.com/Pegasus8/PiWorker/raw/master/install.sh | sudo bash
 ```
+
+
 
 ## Acknowledgments
 ### Frontend (JS - VueJS)
