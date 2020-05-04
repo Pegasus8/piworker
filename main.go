@@ -21,10 +21,12 @@ import (
 )
 
 func main() {
-	if len(os.Args) > 1 {
-		handleFlags()
-		os.Exit(0)
+	err := initConfigs()
+	if err != nil {
+		fmt.Println("Error when reading configs:", err)
+		os.Exit(1)
 	}
+	handleFlags()
 	start()
 }
 
@@ -40,11 +42,6 @@ func start() {
 
 	signals.Shutdown = make(chan os.Signal)
 	signal.Notify(signals.Shutdown, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
-
-	err := initConfigs()
-	if err != nil {
-		log.Fatal().Err(err).Msg("Error when initializing configs")
-	}
 
 	log.Info().Str("path", uservariables.UserVariablesPath).Msg("Getting and reading user's global variables from files...")
 	globalVariables, err := uservariables.ReadGlobalVariablesFromFiles()
