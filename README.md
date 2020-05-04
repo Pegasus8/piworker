@@ -6,10 +6,9 @@
 
 *En los próximos días agregaré objetivos, documentación, características, capturas, etc; todo lo necesario para comprender cómo es el funcionamiento (o como lo será).*
 
-Installation (**Untested, maybe it doesn't work**):
-```
-    curl -sSL https://github.com/Pegasus8/PiWorker/raw/master/install.sh | sudo bash
-```
+Installation:
+    
+~`curl -sSL https://github.com/Pegasus8/PiWorker/raw/master/install.sh | sudo bash`~
 
 
 
