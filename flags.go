@@ -3,8 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/Pegasus8/piworker/core/configs"
 	"os"
+
+	"github.com/Pegasus8/piworker/core/configs"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 func handleFlags() {
@@ -14,16 +18,24 @@ func handleFlags() {
 	admin := flag.Bool("admin", false, "if the user will be admin")
 
 	changeUserPasswordFlag := flag.Bool("change-password", false, "change the password of an existent user")
-	// Uses the flag "username" too
+	// Uses the "username" flag too
 	newPassword := flag.String("new-password", "", "the new password to the user")
 
 	serviceFlag := flag.Bool("service", false, "manage PiWorker's service")
+
+	logToConsoleFlag := flag.Bool("log-to-console", false, "log to the console instead of to a file")
 
 	flag.Parse()
 
 	if *newUserFlag && *changeUserPasswordFlag && *serviceFlag {
 		fmt.Println("You can't use the flags 'new-user', 'change-password' and 'service' at the same time.")
 		os.Exit(1)
+	}
+
+	if *logToConsoleFlag {
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
+	} else {
+		setLogSettings()
 	}
 
 	if *serviceFlag {
@@ -38,14 +50,17 @@ func handleFlags() {
 			os.Exit(1)
 		}
 		serviceFlagHandler(os.Args[2])
+		os.Exit(0)
 	}
 
 	if *newUserFlag {
 		newUserFlagHandler(*username, *password, *admin)
+		os.Exit(0)
 	}
 
 	if *changeUserPasswordFlag {
 		changeUserPasswordFlagHandler(*username, *newPassword)
+		os.Exit(0)
 	}
 }
 
@@ -54,13 +69,14 @@ func newUserFlagHandler(username, password string, admin bool) {
 		fmt.Println("Some of the flags used to create a new user are empty (username and/or password) which is not allowed.")
 		os.Exit(1)
 	}
+
 	err := configs.NewUser(username, password, admin)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
-	} else {
-		fmt.Println("New user created correctly")
 	}
+
+	fmt.Println("New user created correctly")
 }
 
 func changeUserPasswordFlagHandler(username, newPassword string) {
@@ -68,14 +84,14 @@ func changeUserPasswordFlagHandler(username, newPassword string) {
 		fmt.Println("Some of the flags used to change the password of a user are empty (username and/or new password) which is not allowed.")
 		os.Exit(1)
 	}
+
 	err := configs.ChangeUserPassword(username, newPassword)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
-	} else {
-		fmt.Printf("Password of the user '%s' changed correctly!\n", username)
 	}
 
+	fmt.Printf("Password of the user '%s' changed correctly!\n", username)
 }
 
 func serviceFlagHandler(action string) {

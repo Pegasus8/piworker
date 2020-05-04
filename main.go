@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -31,9 +32,6 @@ func main() {
 }
 
 func start() {
-	// Logs settings
-	setLogSettings()
-
 	log.Info().Msg("Starting PiWorker...")
 
 	uservariables.Init()
