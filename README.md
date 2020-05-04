@@ -6,11 +6,21 @@
 
 *En los próximos días agregaré objetivos, documentación, características, capturas, etc; todo lo necesario para comprender cómo es el funcionamiento (o como lo será).*
 
-Installation:
+## Installation:
     
 ~`curl -sSL https://github.com/Pegasus8/PiWorker/raw/master/install.sh | sudo bash`~
 
-
+## Installation from source:
+1. Make sure you have `golang` installed and configured. If not, check [this](https://golang.org/doc/install).
+2. Make sure you have `nodejs` and `npm` installed. If you don't, install them from [here](https://nodejs.org/en/) or [here](https://github.com/nodesource/distributions) (if you use linux maybe the last option will be more easy).
+3. Check if you have `git` installed. If not (again), get it from [here](https://git-scm.com/downloads).
+4. Install [pkger](https://github.com/markbates/pkger) in your `GOPATH` running `go get github.com/markbates/pkger/cmd/pkger`.
+5. Download the source code: `git clone https://github.com/Pegasus8/PiWorker`.
+6. Once downloaded, go inside the directory `cd PiWorker/`.
+7. Go to the dir of the frontend `cd webui/frontend/`, install the dependencies `npm install`, and compile it `npm run build`.
+8. Go back to the root PiWorker directory `cd ../..`.
+9. Execute `pkger` to include the frontend inside the binary.
+10. Finally, compile the entire project, where `output_dir` is the path where the executable will be saved: `go build -o <output_dir>`
 
 ## Acknowledgments
 ### Frontend (JS - VueJS)
