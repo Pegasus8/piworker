@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/Pegasus8/piworker/core/signals"
 	"github.com/Pegasus8/piworker/core/configs"
 	"github.com/Pegasus8/piworker/core/data"
 	"github.com/Pegasus8/piworker/core/engine"
 	"github.com/Pegasus8/piworker/core/logs"
+	"github.com/Pegasus8/piworker/core/signals"
 	"github.com/Pegasus8/piworker/core/stats"
 	"github.com/Pegasus8/piworker/core/uservariables"
 	"github.com/Pegasus8/piworker/utilities/files"
@@ -22,16 +22,17 @@ import (
 )
 
 func main() {
+	start()
+}
+
+func start() {
 	err := initConfigs()
 	if err != nil {
 		fmt.Println("Error when reading configs:", err)
 		os.Exit(1)
 	}
 	handleFlags()
-	start()
-}
 
-func start() {
 	log.Info().Msg("Starting PiWorker...")
 
 	uservariables.Init()
