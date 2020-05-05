@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"sync"
 	"fmt"
 	"net/http"
 	"strings"
@@ -15,7 +16,10 @@ import (
 )
 
 var signingKey []byte
-var authorizedWSConns []client
+var authorizedWSConns = struct {
+	clients []client
+	sync.RWMutex
+}{}
 
 // NewJWT is a function to generate a new JWT tokken
 func NewJWT(claim CustomClaims) (jwtToken string, err error) {
@@ -157,23 +161,32 @@ func NewWSTicket(clientAddr string) (ticket string) {
 		ClientAddr: clientAddr,
 		Ticket:     ticket,
 	}
-	authorizedWSConns = append(authorizedWSConns, c)
+	
+	authorizedWSConns.Lock()
+	authorizedWSConns.clients = append(authorizedWSConns.clients, c)
+	authorizedWSConns.Unlock()
 
 	return ticket
 }
 
 // IsWSAuthorized checks if the provided ticket exists on the slice of authorized WebSocket connections.
 func IsWSAuthorized(clientAddr, ticket string) bool {
-	for i, c := range authorizedWSConns {
+	authorizedWSConns.RLock()
+	for i, c := range authorizedWSConns.clients {
 		if c.ClientAddr == clientAddr && c.Ticket == ticket {
+			authorizedWSConns.RUnlock()
+
 			// Remove the ticket from the slice. We don't care the order, so let's do it by the fastest way.
-			authorizedWSConns[i] = authorizedWSConns[len(authorizedWSConns)-1]
-			authorizedWSConns = authorizedWSConns[:len(authorizedWSConns)-1]
+			authorizedWSConns.Lock()
+			authorizedWSConns.clients[i] = authorizedWSConns.clients[len(authorizedWSConns.clients)-1]
+			authorizedWSConns.clients = authorizedWSConns.clients[:len(authorizedWSConns.clients)-1]
+			authorizedWSConns.Unlock()
 
 			return true
 		}
 	}
 
+	authorizedWSConns.RUnlock()
 	return false
 }
 
