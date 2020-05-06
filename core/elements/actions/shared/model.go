@@ -5,7 +5,8 @@ import (
 	"github.com/Pegasus8/piworker/core/types"
 )
 
-// Action is a struct used in every Action
+// Action represents an action of a task. Each task can have multiple actions
+// and they will be executed according to the order given by the user (see data.UserAction.Order).
 type Action struct {
 	ID                             string                                                                                                                `json:"ID"`
 	Name                           string                                                                                                                `json:"name"`
@@ -16,7 +17,7 @@ type Action struct {
 	Args                           []Arg                                                                                                                 `json:"args"`
 }
 
-// Arg is the struct that defines every argument received by any Action.
+// Arg is the struct that defines each argument received by an Action.
 type Arg struct {
 	ID          string       `json:"ID"`
 	Name        string       `json:"name"`
