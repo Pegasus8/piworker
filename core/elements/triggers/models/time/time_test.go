@@ -1,13 +1,13 @@
 package time
 
 import (
-	"github.com/google/uuid"
-	"time"
-	"github.com/Pegasus8/piworker/core/data"
 	"testing"
+	"time"
 
+	"github.com/Pegasus8/piworker/core/data"
 	test "github.com/Pegasus8/piworker/utilities/testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -23,11 +23,11 @@ func TestByTime(t *testing.T) {
 		// Expected result: Should return no errors and a true result.
 		[]data.UserArg{
 			data.UserArg{
-				ID: ByTime.Args[0].ID,
+				ID:      ByTime.Args[0].ID,
 				Content: time.Now().Format("2006-01-02"),
 			},
 			data.UserArg{
-				ID: ByTime.Args[1].ID,
+				ID:      ByTime.Args[1].ID,
 				Content: time.Now().Format("15:04"),
 			},
 		},
@@ -37,11 +37,11 @@ func TestByTime(t *testing.T) {
 		// Expected result: Should return an error and a false result.
 		[]data.UserArg{
 			data.UserArg{
-				ID: ByTime.Args[0].ID,
+				ID:      ByTime.Args[0].ID,
 				Content: time.Now().Format("02/01/2006"), // Let's use a wrong format.
 			},
 			data.UserArg{
-				ID: ByTime.Args[1].ID,
+				ID:      ByTime.Args[1].ID,
 				Content: time.Now().Format("15:04"),
 			},
 		},
@@ -51,11 +51,11 @@ func TestByTime(t *testing.T) {
 		// Expected result: Should return an error and a false result.
 		[]data.UserArg{
 			data.UserArg{
-				ID: ByTime.Args[0].ID,
+				ID:      ByTime.Args[0].ID,
 				Content: time.Now().Format("2006-01-02"),
 			},
 			data.UserArg{
-				ID: ByTime.Args[1].ID,
+				ID:      ByTime.Args[1].ID,
 				Content: time.Now().Format("15-04"), // Let's use a wrong format.
 			},
 		},
@@ -65,11 +65,11 @@ func TestByTime(t *testing.T) {
 		// Expected result: Should return an error and a false result.
 		[]data.UserArg{
 			data.UserArg{
-				ID: ByTime.Args[0].ID,
+				ID:      ByTime.Args[0].ID,
 				Content: time.Now().Format("2006/01/02"),
 			},
 			data.UserArg{
-				ID: ByTime.Args[1].ID,
+				ID:      ByTime.Args[1].ID,
 				Content: time.Now().Format("15m 04s"), // Let's use a wrong format.
 			},
 		},
@@ -79,11 +79,11 @@ func TestByTime(t *testing.T) {
 		// Expected result: Should return an error and a false result.
 		[]data.UserArg{
 			data.UserArg{
-				ID: "", // Empty ID
+				ID:      "", // Empty ID
 				Content: time.Now().Format("2006/01/02"),
 			},
 			data.UserArg{
-				ID: ByTime.Args[1].ID,
+				ID:      ByTime.Args[1].ID,
 				Content: time.Now().Format("15:04"), // Let's use a wrong format.
 			},
 		},
@@ -93,11 +93,11 @@ func TestByTime(t *testing.T) {
 		// Expected result: Should return an error and a false result.
 		[]data.UserArg{
 			data.UserArg{
-				ID: ByTime.Args[0].ID,
+				ID:      ByTime.Args[0].ID,
 				Content: time.Now().Format("2006/01/02"),
 			},
 			data.UserArg{
-				ID: ByTime.ID + "-5", // Non-existent ID
+				ID:      ByTime.ID + "-5",             // Non-existent ID
 				Content: time.Now().Format("15m 04s"), // Let's use a wrong format.
 			},
 		},
@@ -107,7 +107,7 @@ func TestByTime(t *testing.T) {
 		// Expected result: Should return an error and a false result.
 		[]data.UserArg{
 			data.UserArg{
-				ID: ByTime.Args[0].ID,
+				ID:      ByTime.Args[0].ID,
 				Content: time.Now().Format("2006-01-02"),
 			},
 		},
@@ -117,11 +117,11 @@ func TestByTime(t *testing.T) {
 		// Expected result: Should return an error and a false result.
 		[]data.UserArg{
 			data.UserArg{
-				ID: ByTime.Args[0].ID,
+				ID:      ByTime.Args[0].ID,
 				Content: "",
 			},
 			data.UserArg{
-				ID: ByTime.Args[1].ID, // Non-existent ID
+				ID:      ByTime.Args[1].ID,          // Non-existent ID
 				Content: time.Now().Format("15:04"), // Let's use a wrong format.
 			},
 		},
