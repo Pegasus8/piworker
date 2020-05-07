@@ -66,11 +66,11 @@ func TestByTime(t *testing.T) {
 		[]data.UserArg{
 			data.UserArg{
 				ID:      ByTime.Args[0].ID,
-				Content: time.Now().Format("2006/01/02"),
+				Content: time.Now().Format("2006/01/02"), // Wrong format here
 			},
 			data.UserArg{
 				ID:      ByTime.Args[1].ID,
-				Content: time.Now().Format("15m 04s"), // Let's use a wrong format.
+				Content: time.Now().Format("15m 04s"), // Wrong format here
 			},
 		},
 
@@ -80,11 +80,11 @@ func TestByTime(t *testing.T) {
 		[]data.UserArg{
 			data.UserArg{
 				ID:      "", // Empty ID
-				Content: time.Now().Format("2006/01/02"),
+				Content: time.Now().Format("2006-01-02"),
 			},
 			data.UserArg{
 				ID:      ByTime.Args[1].ID,
-				Content: time.Now().Format("15:04"), // Let's use a wrong format.
+				Content: time.Now().Format("15:04"),
 			},
 		},
 
@@ -94,11 +94,11 @@ func TestByTime(t *testing.T) {
 		[]data.UserArg{
 			data.UserArg{
 				ID:      ByTime.Args[0].ID,
-				Content: time.Now().Format("2006/01/02"),
+				Content: time.Now().Format("2006-01-02"),
 			},
 			data.UserArg{
 				ID:      ByTime.ID + "-5",             // Non-existent ID
-				Content: time.Now().Format("15m 04s"), // Let's use a wrong format.
+				Content: time.Now().Format("15:04"),
 			},
 		},
 
@@ -118,11 +118,11 @@ func TestByTime(t *testing.T) {
 		[]data.UserArg{
 			data.UserArg{
 				ID:      ByTime.Args[0].ID,
-				Content: "",
+				Content: "", // Empty content
 			},
 			data.UserArg{
-				ID:      ByTime.Args[1].ID,          // Non-existent ID
-				Content: time.Now().Format("15:04"), // Let's use a wrong format.
+				ID:      ByTime.Args[1].ID,
+				Content: time.Now().Format("15:04"),
 			},
 		},
 	}
