@@ -44,7 +44,9 @@ openssl req \
 15. Start the service: `sudo ./piworker --service start`.
 
 
-## Acknowledgments
+## Built With
+Thanks to all the developers who made each dependency used by PiWorker! They made the things much more easier for others devs like me, really.
+
 ### Frontend (JS - VueJS)
 Dependency | License
 --- | ---
@@ -74,3 +76,4 @@ Dependency | License
 [Service](https://github.com/kardianos/service) | [![GitHub license](https://img.shields.io/github/license/kardianos/service)](https://github.com/kardianos/service/blob/master/LICENSE)
 [Zerolog](https://github.com/rs/zerolog) | [![GitHub license](https://img.shields.io/github/license/rs/zerolog)](https://github.com/rs/zerolog/blob/master/LICENSE)
 [Gopsutil](https://github.com/shirou/gopsutil) | [![GitHub license](https://img.shields.io/badge/license-BSD-green)](https://github.com/shirou/gopsutil/blob/master/LICENSE)
+[Testify](https://github.com/stretchr/testify) | [![GitHub license](https://img.shields.io/github/license/stretchr/testify)](https://github.com/stretchr/testify/blob/master/LICENSE)
