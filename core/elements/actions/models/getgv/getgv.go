@@ -2,6 +2,7 @@ package getgv
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/Pegasus8/piworker/core/data"
@@ -34,6 +35,10 @@ var GetGlobalVariable = shared.Action{
 }
 
 func action(previousResult *shared.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *shared.ChainedResult, err error) {
+	if len(parentAction.Args) != len(actionArgs) {
+		return false, &shared.ChainedResult{}, fmt.Errorf("%d arguments were expected and %d were obtained", len(actionArgs), len(parentAction.Args))
+	}
+
 	var args *[]data.UserArg
 
 	// The name of the variable
@@ -46,7 +51,11 @@ func action(previousResult *shared.ChainedResult, parentAction *data.UserAction,
 		return false, &shared.ChainedResult{}, err
 	}
 
-	for _, arg := range *args {
+	for i, arg := range *args {
+		if arg.Content == "" {
+			return false, &shared.ChainedResult{}, fmt.Errorf("argument %d (ID: %s) is empty", i, arg.ID)
+		}
+
 		switch arg.ID {
 		case actionArgs[0].ID:
 			variableName = strings.TrimSpace(arg.Content)

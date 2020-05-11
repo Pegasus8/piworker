@@ -1,6 +1,7 @@
 package fsvariation
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -32,11 +33,18 @@ var VariationOfFileSize = shared.Trigger{
 var previousFileSize = make(map[string]int64)
 
 func trigger(args *[]data.UserArg, parentTaskID string) (result bool, err error) {
+	if len(*args) != len(triggerArgs) {
+		return false, fmt.Errorf("%d arguments were expected and %d were obtained", len(triggerArgs), len(*args))
+	}
 
 	// Filepath
 	var filePath string
 
-	for _, arg := range *args {
+	for i, arg := range *args {
+		if arg.Content == "" {
+			return false, fmt.Errorf("argument %d (ID: %s) is empty", i, arg.ID)
+		}
+
 		switch arg.ID {
 		case triggerArgs[0].ID:
 			filePath = filepath.Clean(arg.Content)

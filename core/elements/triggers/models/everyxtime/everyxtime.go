@@ -1,6 +1,7 @@
 package everyxtime
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/Pegasus8/piworker/core/data"
@@ -32,10 +33,18 @@ var EveryXTime = shared.Trigger{
 var nextExecution = make(map[string]time.Time)
 
 func trigger(args *[]data.UserArg, parentTaskID string) (result bool, err error) {
+	if len(*args) != len(triggerArgs) {
+		return false, fmt.Errorf("%d arguments were expected and %d were obtained", len(triggerArgs), len(*args))
+	}
+
 	// Time
 	var timeToWait time.Duration
 
-	for _, arg := range *args {
+	for i, arg := range *args {
+		if arg.Content == "" {
+			return false, fmt.Errorf("argument %d (ID: %s) is empty", i, arg.ID)
+		}
+
 		switch arg.ID {
 		case triggerArgs[0].ID:
 			{

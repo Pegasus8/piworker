@@ -2,6 +2,7 @@ package temp
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 
 	"github.com/Pegasus8/piworker/core/data"
@@ -33,11 +34,18 @@ var RaspberryTemperature = shared.Trigger{
 }
 
 func trigger(args *[]data.UserArg, parentTaskID string) (result bool, err error) {
+	if len(*args) != len(triggerArgs) {
+		return false, fmt.Errorf("%d arguments were expected and %d were obtained", len(triggerArgs), len(*args))
+	}
 
 	// Expected temperature received
 	var expectedTemp float64
 
-	for _, arg := range *args {
+	for i, arg := range *args {
+		if arg.Content == "" {
+			return false, fmt.Errorf("argument %d (ID: %s) is empty", i, arg.ID)
+		}
+
 		switch arg.ID {
 		// Temperature arg
 		case triggerArgs[0].ID:
