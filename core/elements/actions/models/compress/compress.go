@@ -3,6 +3,7 @@ package compress
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -84,6 +85,16 @@ func action(previousResult *shared.ChainedResult, parentAction *data.UserAction,
 
 	if targetDir == "" || outputDir == "" || outputFilename == "" {
 		return false, &shared.ChainedResult{}, errors.New("Error: targetDir, outputDir or outputFilename empty")
+	}
+
+	// Check if the target dir exists
+	if _, err := os.Stat(targetDir); err != nil {
+		return false, &shared.ChainedResult{}, err
+	}
+
+	// Check if the output dir exists
+	if _, err := os.Stat(outputDir); err != nil {
+		return false, &shared.ChainedResult{}, err
 	}
 
 	outputDir = filepath.Join(outputDir, outputFilename+".zip")

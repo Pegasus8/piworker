@@ -6,7 +6,7 @@ import (
 )
 
 // UserVariablesPath is the directory where the files of the variables are saved.
-const UserVariablesPath = data.DataPath + ".variables"
+var UserVariablesPath = data.DataPath + ".variables"
 
 // LocalVariablesSlice is the global variable where the local variables defined by the user are saved.
 var LocalVariablesSlice *[]LocalVariable

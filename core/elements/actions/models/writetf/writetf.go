@@ -117,8 +117,10 @@ func action(previousResult *shared.ChainedResult, parentAction *data.UserAction,
 	sharedFlags := os.O_WRONLY | os.O_CREATE
 	if writingMode == "a" {
 		flags = sharedFlags | os.O_APPEND
-	} else {
+	} else if writingMode == "w" {
 		flags = sharedFlags | os.O_TRUNC
+	} else {
+		return false, &shared.ChainedResult{}, fmt.Errorf("unrecognized mode '%s'", writingMode)
 	}
 
 	file, err := os.OpenFile(fullpath, flags, 0666)
