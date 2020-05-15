@@ -43,12 +43,12 @@ func (suite *ActionTestSuite) SetupTest() {
 	for _, name := range suite.Files {
 		path := filepath.Join(suite.TargetDir, name)
 
-		os.Create(path)
+		_,err := os.Create(path)
 		if err != nil {
 			panic(err)
 		}
 
-		os.Truncate(path, rand.Int63n(200))
+		err = os.Truncate(path, rand.Int63n(200))
 		if err != nil {
 			panic(err)
 		}
