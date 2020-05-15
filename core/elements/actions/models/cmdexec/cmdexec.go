@@ -35,12 +35,14 @@ var actionArgs = []shared.Arg{
 var ExecuteCommand = shared.Action{
 	ID:                             actionID,
 	Name:                           "Execute a command",
-	Description:                    "",
+	Description:                    "Execute a command with the given arguments.",
 	Run:                            action,
 	Args:                           actionArgs,
 	ReturnedChainResultDescription: "The command to execute.",
 	ReturnedChainResultType:        types.Text,
 }
+
+var outputPath = "."
 
 func action(previousResult *shared.ChainedResult, parentAction *data.UserAction, parentTaskID string) (result bool, chainedResult *shared.ChainedResult, err error) {
 	if len(parentAction.Args) != len(actionArgs) {
@@ -86,10 +88,9 @@ func action(previousResult *shared.ChainedResult, parentAction *data.UserAction,
 		return false, &shared.ChainedResult{}, err
 	}
 
-	now := time.Now().String()
-	now = strings.ReplaceAll(now, " ", "_")
+	now := time.Now().Format("2006-01-02_15:04")
 
-	_, err = files.WriteFile(".", "cmd_"+now+".txt", output)
+	_, err = files.WriteFile(outputPath, "cmd_"+command+"_"+now+".txt", output)
 	if err != nil {
 		return false, &shared.ChainedResult{}, err
 	}
