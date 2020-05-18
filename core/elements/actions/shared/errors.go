@@ -31,4 +31,9 @@ var (
 	ErrCRTypeDiffers = errors.New(
 		"The type of the arg is not compatible with the ChainedResult",
 	)
+
+	// ErrWrongUVFormat is the error that represents a incorrect format on the name of a user variable.
+	ErrWrongUVFormat = errors.New(
+		"The format of the user variable is incorrect",
+	)
 )

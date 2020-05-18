@@ -1,8 +1,8 @@
 package setlv
 
 import (
-	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -55,6 +55,7 @@ func action(previousResult *shared.ChainedResult, parentAction *data.UserAction,
 	var variableName string
 	// The content of the variable
 	var variableContent string
+	rgx := regexp.MustCompile(`^[a-z_0-9]+$`)
 
 	args = &parentAction.Args
 
@@ -80,8 +81,8 @@ func action(previousResult *shared.ChainedResult, parentAction *data.UserAction,
 		}
 	}
 
-	if variableName == "" || variableContent == "" {
-		return false, &shared.ChainedResult{}, errors.New("Error: variableName or variableContent empty")
+	if !rgx.MatchString(variableName) {
+		return false, &shared.ChainedResult{}, shared.ErrWrongUVFormat
 	}
 
 	variableType := types.GetType(variableContent)
