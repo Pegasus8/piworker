@@ -11,7 +11,7 @@ require (
 	github.com/gorilla/mux v1.7.4
 	github.com/gorilla/websocket v1.4.2
 	github.com/kardianos/service v1.0.0
-	github.com/markbates/pkger v0.15.1
+	github.com/markbates/pkger v0.16.0
 	github.com/mattn/go-sqlite3 v2.0.3+incompatible
 	github.com/rs/zerolog v1.18.0
 	github.com/shirou/gopsutil v2.20.4+incompatible
