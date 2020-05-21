@@ -66,14 +66,28 @@ func trigger(args *[]data.UserArg, parentTaskID string) (result bool, err error)
 		return false, err
 	}
 
-	temperature := func() float64 {
+	// Are we on a Raspberry Pi? Let's check it.
+	hostInfo, err := host.Info()
+	if err != nil {
+		return false, err
+	}
+
+	var temperature float64
+
+	// Architecture of a Raspberry Pi.
+	if hostInfo.KernelArch == "armv7l" {
+		// If it's a Raspberry Pi then the slice of sensors should be only one.
+		temperature = st[0].Temperature
+	} else {
+		// Not a Raspberry Pi, let's use our known key to find the temperature of the entire CPU.
+		// Note: I'm not sure if this will work on all the machines but unless someone reports that is not
+		// working I can't do anything else.
 		for _, t := range st {
 			if t.SensorKey == "coretemp_packageid0_input" {
-				return t.Temperature
+				temperature = t.Temperature
 			}
 		}
-		return 0.0
-	}()
+	}
 
 	if temperature == 0.0 {
 		return false, errors.New("SensorKey incompatible with host")
