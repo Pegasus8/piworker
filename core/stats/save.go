@@ -11,6 +11,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3" // SQLite3 package
 	"github.com/rs/zerolog/log"
+	"github.com/shirou/gopsutil/host"
 )
 
 // Init initializes the directory where the statistics will be stored (if not exists).
@@ -33,6 +34,15 @@ func Init() {
 		log.Panic().
 			Err(err).
 			Msg("Error when trying to create the table on the statistics database")
+	}
+
+	// Get the architecture of the host to elucidate which key should we use when trying to get the temperature of the sensors.
+	if arch == "" {
+		hostInfo, err := host.Info()
+		if err != nil {
+			log.Error().Err(err).Msg("Error when trying to get the architecture of the kernel")
+		}
+		arch = hostInfo.KernelArch
 	}
 }
 

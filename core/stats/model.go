@@ -2,8 +2,6 @@ package stats
 
 import (
 	"time"
-
-	"github.com/shirou/gopsutil/host"
 )
 
 // TasksStats is the struct used to parse each statistic related with the tasks.
@@ -47,9 +45,9 @@ type StorageStats struct {
 
 // HostStats is the struct used to parse some additional statistics about the Host.
 type HostStats struct {
-	BootTime     uint64                 `json:"bootTime"`
-	UpTime       uint64                 `json:"uptime"`
-	Temperatures []host.TemperatureStat `json:"temperatures"`
+	BootTime    uint64  `json:"bootTime"`
+	UpTime      uint64  `json:"uptime"`
+	Temperature float64 `json:"temperature"`
 }
 
 // NewAvgObs is a method with the purpose of add new data to be calculated into the

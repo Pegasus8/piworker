@@ -7,6 +7,8 @@ import (
 	"github.com/shirou/gopsutil/mem"
 )
 
+var arch string
+
 // UpdateRPiStats is a function update the statistics related with the host (usually a Raspberry Pi), on the variable `Current`.
 func UpdateRPiStats() error {
 	Current.Lock()
@@ -51,9 +53,25 @@ func UpdateRPiStats() error {
 	if err != nil {
 		return err
 	}
-	Current.RaspberryStats.Host.Temperatures = st
 	Current.RaspberryStats.Host.BootTime = bt
 	Current.RaspberryStats.Host.UpTime = ut
+	
+	var temperature float64
+	// Architecture of a Raspberry Pi.
+	if arch == "armv7l" {
+		// If it's a Raspberry Pi then the slice of sensors should be only one.
+		temperature = st[0].Temperature
+	} else {
+		// Not a Raspberry Pi, let's use our known key to find the temperature of the entire CPU.
+		// Note: I'm not sure if this will work on all the machines but unless someone reports that is not
+		// working I can't do anything else.
+		for _, t := range st {
+			if t.SensorKey == "coretemp_packageid0_input" {
+				temperature = t.Temperature
+			}
+		}
+	}
+	Current.RaspberryStats.Host.Temperature = temperature
 
 	return nil
 }
