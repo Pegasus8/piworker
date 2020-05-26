@@ -33,6 +33,8 @@ var RaspberryTemperature = shared.Trigger{
 	Args:        triggerArgs,
 }
 
+var arch string
+
 func trigger(args *[]data.UserArg, parentTaskID string) (result bool, err error) {
 	if len(*args) != len(triggerArgs) {
 		return false, fmt.Errorf("%d arguments were expected and %d were obtained", len(triggerArgs), len(*args))
@@ -67,15 +69,18 @@ func trigger(args *[]data.UserArg, parentTaskID string) (result bool, err error)
 	}
 
 	// Are we on a Raspberry Pi? Let's check it.
-	hostInfo, err := host.Info()
-	if err != nil {
-		return false, err
+	if arch == "" {
+		hostInfo, err := host.Info()
+		if err != nil {
+			return false, err
+		}
+		arch = hostInfo.KernelArch
 	}
 
 	var temperature float64
 
 	// Architecture of a Raspberry Pi.
-	if hostInfo.KernelArch == "armv7l" {
+	if arch == "armv7l" {
 		// If it's a Raspberry Pi then the slice of sensors should be only one.
 		temperature = st[0].Temperature
 	} else {
