@@ -32,12 +32,12 @@ VueWebSocket.install = (Vue, options) => {
 
   const connectWS = async () => {
     await authenticateConnection()
-        .then(data => {
-          ws = new WebSocket(options.url + '?auth=' + data.ticket)
-        })
-        .catch(err => {
-          console.error('Cannot authenticate the websocket connection', err)
-        })
+      .then(data => {
+        ws = new WebSocket(options.url + '?auth=' + data.ticket)
+      })
+      .catch(err => {
+        console.error('Cannot authenticate the websocket connection', err)
+      })
   }
 
   if (!connectManually) {
@@ -109,7 +109,7 @@ VueWebSocket.install = (Vue, options) => {
     options.store.dispatch('statistics/setAverageExecutionTime', data.payload.averageExecutionTime)
     options.store.dispatch('statistics/setRunningTime', data.payload.operatingTime)
     options.store.dispatch('statistics/setRaspberryStatistics', {
-      temperature: 0.0, // TODO
+      temperature: data.payload.hostStats.temperature,
       cpuLoad: data.payload.cpuLoad.toFixed(2),
       freeStorage: formatBytes(data.payload.storage.free),
       ramUsage: formatBytes(data.payload.ram.used)
