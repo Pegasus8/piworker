@@ -61,17 +61,13 @@ type Updates struct {
 
 // WebUI is the struct used to store web user interface configs of PiWorker.
 type WebUI struct {
-	Enabled            bool   `json:"enabled"`
-	RequireCredentials bool   `json:"require-credentials"`
-	ListeningPort      string `json:"listening-port"`
+	Enabled       bool   `json:"enabled"`
+	ListeningPort string `json:"listening-port"`
 }
 
 // User is used to store each user's credentials.
 type User struct {
-	Username string `json:"username"`
-	// NOTE It would be safer to store the hash instead of the password
-	// in plain text, but if the user lost the password he could not
-	// retrieve it.
+	Username     string `json:"username"`
 	PasswordHash string `json:"password-hash"`
 	Admin        bool   `json:"admin"`
 }

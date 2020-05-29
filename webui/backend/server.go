@@ -117,9 +117,16 @@ func setupRoutes() {
 		// ────────────────────────────────────────────────────────────────────────────────
 	}
 
+	// If the setting `.Security.LocalNetworkAccess` is disabled, set the server's addr to localhost, preventing
+	// external connections.
+	var addr string
+	if !configs.CurrentConfigs.Security.LocalNetworkAccess {
+		addr = "127.0.0.1"
+	}
+
 	srv := &http.Server{
 		Handler:      router,
-		Addr:         ":" + configs.CurrentConfigs.WebUI.ListeningPort,
+		Addr:         addr + ":" + configs.CurrentConfigs.WebUI.ListeningPort,
 		WriteTimeout: 15 * time.Second,
 		ReadTimeout:  15 * time.Second,
 	}
