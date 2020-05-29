@@ -44,9 +44,8 @@ var DefaultConfigs = Configs{
 		BugsPrevention: true,
 	},
 	WebUI: WebUI{
-		Enabled:            true,
-		RequireCredentials: true,
-		ListeningPort:      "8080",
+		Enabled:       true,
+		ListeningPort: "8080",
 	},
 	Users: []User{},
 }
