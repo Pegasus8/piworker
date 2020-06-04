@@ -200,8 +200,10 @@ DefinePackageManager() {
     info "Trying to diferentiate the package manager of the system..."
     if hash apt-get 2>/dev/null; then
         PKG_MNGR="apt-get"
+        info "$PKG_MNGR identified"
     elif hash pacman 2>/dev/null; then
         PKG_MNGR="pacman"
+        info "$PKG_MNGR identified"
     else
         err "Cannot identify the package manager of the system."
         read -r -p "Should I continue without checking the dependencies? (Y/N): " confirm && [[ $confirm == [yY] || $confirm == [yY][eE][sS] ]] || exit 1
@@ -299,6 +301,7 @@ PrepareDirectory
 DownloadLatest
 
 if [[ $CONFIG_AUTO_INSTALL_DEPENDENCIES -ne 0 ]]; then
+    DefinePackageManager
     if InstallDependencies; then
         if [[ $CONFIG_SSL -ne 0 ]]; then
             GenerateOpenSSLCertificate
