@@ -197,7 +197,7 @@ GenerateOpenSSLCertificate() {
 }
 
 DefinePackageManager() {
-    info "Trying to diferentiate the package manager of the system..."
+    info "Trying to differentiate the package manager of the system..."
     if hash apt-get 2>/dev/null; then
         PKG_MNGR="apt-get"
         info "$PKG_MNGR identified"
@@ -205,7 +205,7 @@ DefinePackageManager() {
         PKG_MNGR="pacman"
         info "$PKG_MNGR identified"
     else
-        err "Cannot identify the package manager of the system."
+        err "Cannot identify the package manager of the system"
         read -r -p "Should I continue without checking the dependencies? (Y/N): " confirm && [[ $confirm == [yY] || $confirm == [yY][eE][sS] ]] || exit 1
     fi
 }
