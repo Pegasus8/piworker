@@ -13,8 +13,9 @@ I'm working hard to make PiWorker stable and robust, but for now, it's not even 
 -----
 
 ## Installation:
-    
-~`curl -sSL https://github.com/Pegasus8/PiWorker/raw/master/install.sh | sudo bash`~
+```bash
+bash -c "$(curl -sSL https://github.com/Pegasus8/piworker/raw/master/install.sh)"
+```
 
 ## Installation from source:
 1. Make sure you have `golang` installed and configured. If not, check [this](https://golang.org/doc/install).
