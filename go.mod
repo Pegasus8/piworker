@@ -13,7 +13,7 @@ require (
 	github.com/kardianos/service v1.0.0
 	github.com/markbates/pkger v0.17.0
 	github.com/mattn/go-sqlite3 v2.0.3+incompatible
-	github.com/rs/zerolog v1.18.0
+	github.com/rs/zerolog v1.19.0
 	github.com/shirou/gopsutil v2.20.4+incompatible
 	github.com/stretchr/testify v1.6.0
 	golang.org/x/crypto v0.0.0-20200427165652-729f1e841bcc
