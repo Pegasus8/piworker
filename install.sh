@@ -261,13 +261,13 @@ InstallDependencies() {
         else
             info "$dependency not installed, installing it (with superuser permissions)..."
             if [[ $PKG_MNGR -eq "$aptget_pkgmngr" ]]; then
-                if [[ $aptget_updated -ne 0 ]]; then
+                if [[ $aptget_updated -eq 0 ]]; then
                     info "Updating apt-get cache for first time (with superuser permissions)..."
-                    if ! sudo -u root apt-get update; then
-                        err "Cannot update the cache of apt-get"
-                    else
+                    if sudo -u root apt-get update; then
                         aptget_updated=1
                         info "apt-get cache updated!"
+                    else
+                        err "Cannot update the cache of apt-get"
                     fi
                 fi
 
