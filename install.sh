@@ -105,15 +105,48 @@ DownloadLatest() {
     workdir="$(mktemp -d)"
     trap 'rm -fr "$workdir"' RETURN
     local pwfile="pw.tar.gz"
-    info "Downloading PiWorker..."
+    info "Starting the download..."
 
+    local data
+    local filename
+    local url
+    data="$(curl -sL "$LATEST_URL")"
+    filename="$(echo "$data" | grep piworker-"$OS"_"$ARCH"- | grep name | head -1 | cut -d \" -f 4)"
+    url="$(echo "$data" | grep piworker-"$OS"_"$ARCH"- | grep browser_download_url | head -1 | cut -d \" -f 4)"
+
+    info "Downloading '$filename'..."
     if ! curl \
         --request GET \
         -sL \
-        --url "$(curl -sL "$LATEST_URL" | grep piworker-"$OS"_"$ARCH"- | grep browser_download_url | head -1 | cut -d \" -f 4)" \
+        --url "$url" \
         --output "$workdir/$pwfile"
     then
-        err "Download failed"
+        err "Download of '$filename' failed"
+        exit 1
+    fi
+    info "'$filename' downloaded!"
+
+    info "Downloading the sha256sum of '$filename'..."
+    if ! curl \
+        --request GET \
+        -sL \
+        --url "$url.sha256sum" \
+        --output "$workdir/$pwfile.sha256sum"
+    then
+        err "Download of '$filename.sha256sum' failed"
+        exit 1
+    fi
+    info "'$filename.sha256sum' downloaded!"
+
+    local sha256sum_downloaded
+    local sha256sum_calc
+    sha256sum_downloaded="$(< "$workdir/$pwfile.sha256sum" awk '{print $1}')"
+    sha256sum_calc="$(sha256sum "$workdir/$pwfile" | awk '{print $1}')"
+
+    if [[ $sha256sum_downloaded == "$sha256sum_calc" ]]; then
+        info "sha256sum of the file '$filename' verified correctly! ($sha256sum_downloaded)"
+    else
+        err "The downloaded sha256sum ($sha256sum_downloaded) of the file '$filename' does not match with the calculated one ($sha256sum_calc)"
         exit 1
     fi
 
@@ -281,6 +314,10 @@ NewUser() {
 #
 # ─── EXECUTION ──────────────────────────────────────────────────────────────────
 #
+
+echo "PiWorker installer"
+echo "------------------"
+echo -e "GitHub repo: https://github.com/Pegasus8/piworker\n"
 
 # Identify the characteristics of the host to choose the apropiate binary.
 GetOS
