@@ -176,7 +176,7 @@ DownloadLatest() {
 }
 
 InstallService() {
-    info "Requesting superuser permissions to install the service..."
+    info "Installing the service (with superuser permissions)..."
     
     if sudo -u root "$CONFIG_INSTALL_DIR/piworker" --service install; then 
         info "Service installed!"
@@ -224,8 +224,10 @@ GenerateOpenSSLCertificate() {
         -out "$CONFIG_INSTALL_DIR/server.crt"
     then
         info "SSL certificates generated successfully"
+        return 0
     else
         err "The generation of SSL certificates has failed with status $?"
+        return 1
     fi
 }
 
@@ -245,31 +247,50 @@ DefinePackageManager() {
 
 InstallDependencies() {
     info "Checking dependencies..."
-
-    if hash openssl 2>/dev/null; then
-        info "OpenSSL installed!"
-
-        return 0
-    else
-        local aptget_pkgmngr="apt-get"
-        local pacman_pkgmngr="pacman"
-        info "OpenSSL not installed, installing it..."
-        if [[ $PKG_MNGR -eq "$aptget_pkgmngr" ]]; then
-            if apt-get update && apt-get install -y openssl; then
-                return 0
-            fi
-
-            return 1
-        elif [[ $PKG_MNGR -eq "$pacman_pkgmngr" ]]; then
-            if pacman -Syu --noconfirm openssl; then
-                return 0
-            fi
-
-            return 1
-        else
-            return 1
-        fi
+    deps=("curl" "grep")
+    if [[ $CONFIG_SSL -ne 0 ]]; then
+        deps+=("openssl")
     fi
+    local aptget_pkgmngr="apt-get"
+    local pacman_pkgmngr="pacman"
+    local aptget_updated=0
+
+    for dependency in "${deps[@]}"; do
+        if hash "$dependency" 2>/dev/null; then
+            info "$dependency already installed!"
+        else
+            info "$dependency not installed, installing it (with superuser permissions)..."
+            if [[ $PKG_MNGR -eq "$aptget_pkgmngr" ]]; then
+                if [[ $aptget_updated -ne 0 ]]; then
+                    info "Updating apt-get cache for first time (with superuser permissions)..."
+                    if ! sudo -u root apt-get update; then
+                        err "Cannot update the cache of apt-get"
+                    else
+                        aptget_updated=1
+                        info "apt-get cache updated!"
+                    fi
+                fi
+
+                if ! sudo -u root apt-get install -y "$dependency"; then
+                    err "Error when trying to install $dependency"
+                    return 1
+                fi
+
+                info "$dependency installed!"
+            elif [[ $PKG_MNGR -eq "$pacman_pkgmngr" ]]; then
+                if ! sudo -u root pacman -Sy --noconfirm "$dependency"; then
+                    err "Error when trying to install $dependency"
+                    return 1
+                fi
+
+                info "$dependency installed!"
+            else
+                return 1
+            fi
+        fi
+    done
+
+    return 0
 }
 
 NewUser() {
@@ -335,18 +356,21 @@ echo "Nice, let's continue!"
 # fi
 
 PrepareDirectory
-DownloadLatest
 
 if [[ $CONFIG_AUTO_INSTALL_DEPENDENCIES -ne 0 ]]; then
     DefinePackageManager
     if InstallDependencies; then
         if [[ $CONFIG_SSL -ne 0 ]]; then
-            GenerateOpenSSLCertificate
+            if ! GenerateOpenSSLCertificate; then
+                read -r -p "Cannot generate a self signed SSL certificate, should I continue? (Y/N): " confirm && [[ $confirm == [yY] || $confirm == [yY][eE][sS] ]] || exit 1
+            fi
         fi
     else
-        read -r -p "Cannot generate a self signed SSL certificate, should I continue? (Y/N): " confirm && [[ $confirm == [yY] || $confirm == [yY][eE][sS] ]] || exit 1
+        exit 1
     fi
 fi
+
+DownloadLatest
 
 if [[ $CONFIG_ADD_TO_PATH -ne 0 ]]; then
     AddPath
