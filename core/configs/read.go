@@ -10,7 +10,7 @@ import (
 // ReadFromFile is a method used to read the configs file and parse the content into
 // the `Configs` struct.
 func ReadFromFile() error {
-	fullpath := filepath.Join(ConfigsPath, Filename)
+	fullpath := filepath.Join(Path, Filename)
 
 	mutex.Lock()
 	defer mutex.Unlock()

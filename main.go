@@ -90,7 +90,7 @@ func setLogSettings() {
 }
 
 func initConfigs() error {
-	configsPath := filepath.Join(configs.ConfigsPath, configs.Filename)
+	configsPath := filepath.Join(configs.Path, configs.Filename)
 	exists, err := files.Exists(configsPath)
 	if err != nil {
 		return err

@@ -19,7 +19,7 @@ func WriteToFile() error {
 		return err
 	}
 
-	_, err = files.WriteFile(ConfigsPath, Filename, byteData)
+	_, err = files.WriteFile(Path, Filename, byteData)
 	if err != nil {
 		return err
 	}
