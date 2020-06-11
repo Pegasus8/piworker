@@ -2,12 +2,12 @@ package configs
 
 import (
 	"encoding/json"
-
-	"github.com/Pegasus8/piworker/utilities/files"
+	"io/ioutil"
+	"path/filepath"
 )
 
 // WriteToFile is a method used to write the configs into the configs file,
-// overwritting the previous content if exists. Use carefully.
+// overwriting the previous content if exists. Use carefully.
 func WriteToFile() error {
 	mutex.Lock()
 	defer mutex.Unlock()
@@ -19,7 +19,7 @@ func WriteToFile() error {
 		return err
 	}
 
-	_, err = files.WriteFile(Path, Filename, byteData)
+	err = ioutil.WriteFile(filepath.Join(Path, Filename), byteData, 0644)
 	if err != nil {
 		return err
 	}
