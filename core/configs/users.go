@@ -93,7 +93,7 @@ func ChangeUserPassword(username, newPassword string) error {
 		}
 	}
 
-	CurrentConfigs.Unlock()
+	CurrentConfigs.RUnlock()
 	return ErrUserNotFound
 }
 
