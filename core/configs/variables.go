@@ -7,8 +7,8 @@ import (
 // Filename is the name of the configs file.
 const Filename string = "configs.json"
 
-// ConfigsPath is the path where the configs file wanna be saved
-const ConfigsPath string = "./configs/"
+// Path is the path where the configs file wanna be saved
+var Path string = "./configs/"
 
 // DefaultConfigs is the variable that contains the default configs generally
 // used when the config file not exists.
