@@ -95,10 +95,7 @@ func (suite *UMTestSuite) TestNewUser() {
 			for _, u := range CurrentConfigs.Users {
 				if u.Username == user.Username {
 					err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(user.Password))
-					if err != nil {
-						return false
-					}
-					return true
+					return err == nil
 				}
 			}
 
