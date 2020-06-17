@@ -68,7 +68,7 @@ func backup() error {
 	backupFilename := Filename + "_" + time.Now().String() + ".backup"
 	backupFilename = strings.ReplaceAll(backupFilename, " ", "_")
 
-	_, err = files.WriteFile(DataPath, backupFilename, byteData)
+	_, err = files.WriteFile(Path, backupFilename, byteData)
 	if err != nil {
 		return err
 	}

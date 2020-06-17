@@ -12,13 +12,17 @@ func GetTasks() (*[]UserTask, error) {
 
 	var tasks []UserTask
 
-	log.Info().Str("path", DataPath).Msg("Reading user data...")
+	log.Info().Str("path", Path).Msg("Reading user data...")
 
 	row, err := DB.Query(sqlStatement)
 	if err != nil {
 		return &tasks, err
 	}
-	defer row.Close()
+
+	defer func() {
+		err := row.Close()
+		log.Error().Err(err).Str("db", Filename).Msg("Error when trying to close rows")
+	}()
 
 	for row.Next() {
 		var task UserTask

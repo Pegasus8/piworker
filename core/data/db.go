@@ -13,13 +13,13 @@ import (
 // Init initializes the directory where the tasks will be stored (if not exists).
 func Init() {
 	// Create path if not exists.
-	err := os.MkdirAll(DataPath, os.ModePerm)
+	err := os.MkdirAll(Path, os.ModePerm)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Error when trying to create data directory")
 	}
 
 	// Initialize the database.
-	DB, err = InitDB(filepath.Join(DataPath, DataFilename))
+	DB, err = InitDB(filepath.Join(Path, Filename))
 	if err != nil {
 		log.Panic().Err(err).Msg("Error on tasks db initialization")
 	}
@@ -40,13 +40,20 @@ func Init() {
  */
 
 // InitDB is the function used to initialize the SQLite3 database.
-func InitDB(filepath string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", filepath)
+func InitDB(path string) (*sql.DB, error) {
+	// First check if the directory is accessible.
+	dir := filepath.Dir(path)
+	_, err := os.Stat(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		return nil, err
 	}
 	if db == nil {
-		return nil, fmt.Errorf("The db on the path '%s' is nil", filepath)
+		return nil, fmt.Errorf("the db on the path '%s' is nil", path)
 	}
 
 	return db, nil
