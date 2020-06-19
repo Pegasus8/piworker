@@ -9,6 +9,10 @@ import (
 
 // NewTask is a function used to add a new task to the table 'Tasks', on the SQLite3 database.
 func NewTask(task *UserTask) error {
+	if c := checkIntegrity(task); !c {
+		return ErrIntegrity
+	}
+
 	sqlStatement := `
 	INSERT INTO Tasks(
 		ID,
@@ -30,7 +34,12 @@ func NewTask(task *UserTask) error {
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer func() {
+		err := stmt.Close()
+		if err != nil {
+			log.Error().Err(err).Str("taskID", task.ID).Msg("")
+		}
+	}()
 
 	trigger, err := json.Marshal(task.Trigger)
 	if err != nil {
@@ -55,7 +64,7 @@ func NewTask(task *UserTask) error {
 		return err
 	}
 
-	log.Info().Str("taskID", task.ID).Msg("Task successfully added, emiting the event...")
+	log.Info().Str("taskID", task.ID).Msg("Task successfully added, emitting the event...")
 
 	event := Event{
 		Type:   Added,
@@ -64,4 +73,43 @@ func NewTask(task *UserTask) error {
 	EventBus <- event
 
 	return nil
+}
+
+func checkIntegrity(t *UserTask) bool {
+	if t.Name == "" {
+		return false
+	}
+
+	// These are the admitted states. `StateTaskOnExecution` and `StateTaskFailed` can be used only by PW itself.
+	if !(t.State == StateTaskActive || t.State == StateTaskInactive) {
+		return false
+	}
+
+	// *--- Trigger check ---*
+	if t.Trigger.ID == "" {
+		return false
+	}
+
+	for _, tArg := range t.Trigger.Args {
+		if tArg.ID == "" {
+			return false
+		}
+	}
+	// --- End of Trigger check ---
+
+	// *--- Actions check ---*
+	for _, action := range t.Actions {
+		if action.ID == "" {
+			return false
+		}
+
+		for _, aArg := range action.Args {
+			if aArg.ID == "" {
+				return false
+			}
+		}
+	}
+	// --- End of Actions check ---
+
+	return true
 }
