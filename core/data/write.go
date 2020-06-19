@@ -2,7 +2,6 @@ package data
 
 import (
 	"encoding/json"
-
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 )
@@ -27,8 +26,6 @@ func NewTask(task *UserTask) error {
 
 	// Set the task ID
 	task.ID = uuid.New().String()
-
-	log.Info().Str("taskID", task.ID).Msg("Adding a new task into SQLite3 db...")
 
 	stmt, err := DB.Prepare(sqlStatement)
 	if err != nil {
@@ -63,8 +60,6 @@ func NewTask(task *UserTask) error {
 	if err != nil {
 		return err
 	}
-
-	log.Info().Str("taskID", task.ID).Msg("Task successfully added, emitting the event...")
 
 	event := Event{
 		Type:   Added,
