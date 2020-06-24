@@ -3,6 +3,7 @@ package data
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // UpdateTask is a function used to update an existing task from the JSON data file.
@@ -32,6 +33,8 @@ func UpdateTask(ID string, updatedTask *UserTask) error {
 		return err
 	}
 	actions = string(a)
+
+	updatedTask.LastTimeModified = time.Now()
 
 	r, err := DB.Exec(sqlStatement,
 		updatedTask.Name,
@@ -76,12 +79,21 @@ func UpdateTaskState(ID string, newState TaskState) error {
 		WHERE ID = ?;
 	`
 
-	_, err := DB.Exec(sqlStatement,
+	r, err := DB.Exec(sqlStatement,
 		newState,
 		ID,
 	)
 	if err != nil {
 		return err
+	}
+
+	rowsAffected, err := r.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("the task with the ID '%s' does not exist", ID)
 	}
 
 	return nil
