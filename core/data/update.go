@@ -65,6 +65,11 @@ func UpdateTask(ID string, updatedTask *UserTask) error {
 
 // UpdateTaskState is a function used to change the state of a task.
 func UpdateTaskState(ID string, newState TaskState) error {
+	if !(newState == StateTaskActive || newState == StateTaskInactive || newState == StateTaskFailed ||
+		newState == StateTaskOnExecution) {
+		return ErrIntegrity
+	}
+
 	sqlStatement := `
 		UPDATE Tasks 
 		SET State = ?
