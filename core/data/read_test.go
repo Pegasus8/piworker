@@ -930,11 +930,7 @@ func foundTask(origin *[]UserTask, toFind *UserTask) bool {
 		}
 	}
 
-	if !taskFound {
-		return false
-	}
-
-	return true
+	return taskFound
 }
 
 func equalActions(originActions, foundTaskActions *[]UserAction) bool {
