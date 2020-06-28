@@ -9,10 +9,7 @@ import (
 // GetTasks is a func that returns all the user tasks from the table `Tasks`, from the SQLite3 database.
 func GetTasks() (*[]UserTask, error) {
 	sqlStatement := "SELECT * FROM Tasks;"
-
 	var tasks []UserTask
-
-	log.Info().Str("path", Path).Msg("Reading user data...")
 
 	row, err := DB.Query(sqlStatement)
 	if err != nil {
@@ -60,7 +57,6 @@ func GetTasks() (*[]UserTask, error) {
 		tasks = append(tasks, task)
 	}
 
-	log.Info().Msg("User data loaded")
 	return &tasks, nil
 }
 
