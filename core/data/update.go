@@ -2,12 +2,16 @@ package data
 
 import (
 	"encoding/json"
-
-	"github.com/rs/zerolog/log"
+	"fmt"
+	"time"
 )
 
 // UpdateTask is a function used to update an existing task from the JSON data file.
 func UpdateTask(ID string, updatedTask *UserTask) error {
+	if c := checkIntegrity(updatedTask); !c {
+		return ErrIntegrity
+	}
+
 	sqlStatement := `
 		UPDATE Tasks 
 		SET Name = ?, State = ?, Trigger = ?, Actions = ?, LastTimeModified = ? 
@@ -15,8 +19,6 @@ func UpdateTask(ID string, updatedTask *UserTask) error {
 	`
 	var trigger string
 	var actions string
-
-	log.Info().Str("taskID", ID).Msg("Updating task...")
 
 	// Marshal the UserTrigger struct
 	t, err := json.Marshal(updatedTask.Trigger)
@@ -32,7 +34,9 @@ func UpdateTask(ID string, updatedTask *UserTask) error {
 	}
 	actions = string(a)
 
-	_, err = DB.Exec(sqlStatement,
+	updatedTask.LastTimeModified = time.Now()
+
+	r, err := DB.Exec(sqlStatement,
 		updatedTask.Name,
 		updatedTask.State,
 		trigger,
@@ -44,7 +48,14 @@ func UpdateTask(ID string, updatedTask *UserTask) error {
 		return err
 	}
 
-	log.Info().Str("taskID", ID).Msg("Task updated successfully, emiting the event...")
+	rowsAffected, err := r.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("the task with the ID '%s' does not exist", ID)
+	}
 
 	event := Event{
 		Type:   Modified,
@@ -57,16 +68,18 @@ func UpdateTask(ID string, updatedTask *UserTask) error {
 
 // UpdateTaskState is a function used to change the state of a task.
 func UpdateTaskState(ID string, newState TaskState) error {
-	log.Info().Str("taskID", ID).Msg("Updating task state...")
+	if !(newState == StateTaskActive || newState == StateTaskInactive || newState == StateTaskFailed ||
+		newState == StateTaskOnExecution) {
+		return ErrIntegrity
+	}
 
 	sqlStatement := `
 		UPDATE Tasks 
 		SET State = ?
 		WHERE ID = ?;
 	`
-	log.Info().Str("taskID", ID).Msg("Updating task...")
 
-	_, err := DB.Exec(sqlStatement,
+	r, err := DB.Exec(sqlStatement,
 		newState,
 		ID,
 	)
@@ -74,6 +87,14 @@ func UpdateTaskState(ID string, newState TaskState) error {
 		return err
 	}
 
-	log.Info().Str("taskID", ID).Msg("Task state updated successfully")
+	rowsAffected, err := r.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("the task with the ID '%s' does not exist", ID)
+	}
+
 	return nil
 }

@@ -2,22 +2,18 @@ package data
 
 import (
 	"database/sql"
-	"sync"
 )
 
 //					** Data storage **					//
 
 // BackupLoopState is the boolean variable used to show the state of the backup loop.
-var BackupLoopState = false
+//var BackupLoopState = false
 
-const (
-	// DataPath is the path of the user SQLite database.
-	DataPath string = "./data/"
-	// DataFilename is the name of the SQLite file.
-	DataFilename string = "tasks.db"
-)
+// Path is the path of the user SQLite database.
+var Path string = "./data/"
 
-var mutex = sync.Mutex{}
+// Filename is the name of the SQLite file.
+const Filename string = "tasks.db"
 
 //					** Tasks's States **					//
 

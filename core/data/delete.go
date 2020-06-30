@@ -1,8 +1,6 @@
 package data
 
-import (
-	"github.com/rs/zerolog/log"
-)
+import "fmt"
 
 // DeleteTask is a function used to delete a specific task from the table 'Tasks', on the SQLite3 database.
 func DeleteTask(ID string) error {
@@ -10,14 +8,22 @@ func DeleteTask(ID string) error {
 		DELETE FROM Tasks
 		WHERE ID = ?;
 	`
-	log.Info().Str("taskID", ID).Msg("Deleting task...")
 
-	_, err := DB.Exec(sqlStatement, ID)
+	r, err := DB.Exec(sqlStatement, ID)
 	if err != nil {
 		return err
 	}
 
-	log.Info().Str("taskID", ID).Msg("Task deleted successfully")
+	rowsAffected, err := r.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	// If the task with the given ID does not exist the rows affected in the database
+	// should be zero.
+	if rowsAffected == 0 {
+		return fmt.Errorf("the task with the ID '%s' does not exist", ID)
+	}
 
 	event := Event{
 		Type:   Deleted,

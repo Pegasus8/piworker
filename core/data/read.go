@@ -2,23 +2,28 @@ package data
 
 import (
 	"encoding/json"
-
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
 // GetTasks is a func that returns all the user tasks from the table `Tasks`, from the SQLite3 database.
 func GetTasks() (*[]UserTask, error) {
 	sqlStatement := "SELECT * FROM Tasks;"
-
 	var tasks []UserTask
-
-	log.Info().Str("path", DataPath).Msg("Reading user data...")
 
 	row, err := DB.Query(sqlStatement)
 	if err != nil {
 		return &tasks, err
 	}
-	defer row.Close()
+
+	defer func() {
+		err := row.Close()
+		if err != nil {
+			log.Error().Err(err).Str("db", Filename).
+				Caller(zerolog.CallerSkipFrameCount).
+				Msg("Error when trying to close rows")
+		}
+	}()
 
 	for row.Next() {
 		var task UserTask
@@ -52,7 +57,6 @@ func GetTasks() (*[]UserTask, error) {
 		tasks = append(tasks, task)
 	}
 
-	log.Info().Msg("User data loaded")
 	return &tasks, nil
 }
 
@@ -71,7 +75,17 @@ func GetTaskByName(name string) (taskFound *UserTask, err error) {
 	if err != nil {
 		return &task, err
 	}
-	defer row.Close()
+
+	defer func() {
+		err := row.Close()
+		if err != nil {
+			log.Error().Err(err).Caller(zerolog.CallerSkipFrameCount).Msg("Error when closing rows")
+		}
+	}()
+
+	if !row.Next() {
+		return &task, ErrBadTaskID
+	}
 
 	err = row.Scan(
 		&task.ID,
@@ -116,7 +130,13 @@ func GetTaskByID(ID string) (taskFound *UserTask, err error) {
 	if err != nil {
 		return &task, err
 	}
-	defer row.Close()
+
+	defer func() {
+		err := row.Close()
+		if err != nil {
+			log.Error().Err(err).Caller(zerolog.CallerSkipFrameCount).Msg("Error when closing rows")
+		}
+	}()
 
 	if !row.Next() {
 		return &task, ErrBadTaskID
@@ -185,7 +205,13 @@ func getTasksByState(state TaskState) (matchedTasks *[]UserTask, err error) {
 	if err != nil {
 		return &tasks, err
 	}
-	defer row.Close()
+
+	defer func() {
+		err := row.Close()
+		if err != nil {
+			log.Error().Err(err).Caller(zerolog.CallerSkipFrameCount).Msg("Error when closing rows")
+		}
+	}()
 
 	for row.Next() {
 		var task UserTask

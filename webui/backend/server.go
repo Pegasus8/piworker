@@ -429,8 +429,6 @@ func updateTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PU
 		return
 	}
 
-	task.LastTimeModified = time.Now()
-
 	err = data.UpdateTask(taskID, &task)
 	if err != nil {
 		log.Error().
