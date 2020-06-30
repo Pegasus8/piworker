@@ -785,19 +785,19 @@ func (suite *ReadTestSuite) BeforeTest(_, _ string) {
 		}
 	}()
 
-	for _, ts := range suite.TestTasks {
-		for _, t := range ts {
+	for i, ts := range suite.TestTasks {
+		for i2 := range ts {
 			var currentState TaskState
 
 			// If the status is not one of the admitted (which are `StateTaskActive` and `StateTaskInactive`), it will be
 			// changed to an admitted one and then, updated to the original value. This is to avoid the restriction in the
 			// function `NewTask`.
-			if !(t.State == StateTaskActive || t.State == StateTaskInactive) {
-				currentState = t.State
-				t.State = StateTaskInactive
+			if !(suite.TestTasks[i][i2].State == StateTaskActive || suite.TestTasks[i][i2].State == StateTaskInactive) {
+				currentState = suite.TestTasks[i][i2].State
+				suite.TestTasks[i][i2].State = StateTaskInactive
 			}
 
-			err = NewTask(&t)
+			err = NewTask(&suite.TestTasks[i][i2])
 			if err != nil {
 				panic(err)
 			}
@@ -806,12 +806,9 @@ func (suite *ReadTestSuite) BeforeTest(_, _ string) {
 				continue
 			}
 
-			task, err := getTask(t.Name)
-			if err != nil {
-				panic(err)
-			}
-
-			err = UpdateTaskState(task.ID, currentState)
+			// Restore the state of the task.
+			suite.TestTasks[i][i2].State = currentState
+			err = UpdateTaskState(suite.TestTasks[i][i2].ID, currentState)
 			if err != nil {
 				panic(err)
 			}
@@ -827,22 +824,13 @@ func (suite *ReadTestSuite) TestGetTasks() {
 	assert.NoError(err, "The tasks should be obtained without errors")
 	if !assert.Len(*tasks, suite.TotalLen, "The number of returned tasks is not what it should be") {
 		assert.FailNow("Test can't continue if tasks can't be read correctly", "To continue"+
-			" the tests all tasks should be read from the database without any issue")
+			", all tasks should be read from the database without any issue")
 	}
 
 	// Set IDs and add tasks to a common slice.
 	var tasksSlice []*UserTask
 	for i := range suite.TestTasks {
 		for i2 := range suite.TestTasks[i] {
-			// Obtain the entire task from the database to get the ID.
-			t2, err := getTask(suite.TestTasks[i][i2].Name)
-			if err != nil {
-				panic(err)
-			}
-
-			// Set the ID.
-			suite.TestTasks[i][i2].ID = t2.ID
-
 			tasksSlice = append(tasksSlice, &suite.TestTasks[i][i2])
 		}
 	}
@@ -851,33 +839,99 @@ func (suite *ReadTestSuite) TestGetTasks() {
 	// We will iterate over the slice of our original data to check if each task is in the returned slice read from the
 	// database.
 	for i, t := range tasksSlice {
-		assert.Equalf(true, foundTask(tasks, t), "The task %d should be read correctly from the"+
+		assert.True(foundTask(tasks, t), "The task %d should be read correctly from the"+
 			" database", i)
 	}
 }
 
 func (suite *ReadTestSuite) TestGetTaskByName() {
+	assert := assert2.New(suite.T())
 
+	t, err := GetTaskByName(suite.TestTasks[0][0].Name)
+	assert.NoError(err, "The task should be obtained by its name without errors")
+	assert.True(foundTask(&suite.TestTasks[0], t), "The task returned should be the same that the one we have")
+
+	_, err = GetTaskByName(suite.TestTasks[0][0].Name + "hello")
+	assert.Error(err, "If the name of the requested task does not exist, an error should be returned")
 }
 
 func (suite *ReadTestSuite) TestGetTaskByID() {
+	assert := assert2.New(suite.T())
 
+	t, err := GetTaskByID(suite.TestTasks[0][1].ID)
+	assert.NoError(err, "The task should be returned without errors")
+	assert.True(foundTask(&suite.TestTasks[0], t), "The task returned should be the same that the one we have")
+
+	_, err = GetTaskByID(suite.TestTasks[0][1].ID + "a")
+	assert.Error(err, "If the ID of the requested task does not exist, an error should be returned")
 }
 
 func (suite *ReadTestSuite) TestGetActiveTasks() {
+	assert := assert2.New(suite.T())
+	atLen := len(suite.TestTasks[0])
 
+	at, err := GetActiveTasks()
+	assert.NoError(err, "Active tasks should be returned without errors")
+	if !assert.Lenf(*at, atLen, "The number of returned tasks should be %d", atLen) {
+		assert.FailNow("The test can't continue if tasks can't be read correctly", "To continue,"+
+			" active tasks should be read from the database without any issue")
+	}
+
+	for i, t := range *at {
+		assert.Truef(foundTask(&suite.TestTasks[0], &t), "The active task %d should be read correctly from the"+
+			" database", i)
+	}
 }
 
 func (suite *ReadTestSuite) TestGetInactiveTasks() {
+	assert := assert2.New(suite.T())
+	itLen := len(suite.TestTasks[1])
 
+	it, err := GetInactiveTasks()
+	assert.NoError(err, "Inactive tasks should be returned without errors")
+	if !assert.Lenf(*it, itLen, "The number of returned tasks should be %d", itLen) {
+		assert.FailNow("The test can't continue if tasks can't be read correctly", "To continue,"+
+			" inactive tasks should be read from the database without any issue")
+	}
+
+	for i, t := range *it {
+		assert.Truef(foundTask(&suite.TestTasks[1], &t), "The inactive task %d should be read correctly from the"+
+			" database", i)
+	}
 }
 
 func (suite *ReadTestSuite) TestGetFailedTasks() {
+	assert := assert2.New(suite.T())
+	ftLen := len(suite.TestTasks[2])
 
+	ft, err := GetFailedTasks()
+	assert.NoError(err, "Failed tasks should be returned without errors")
+	if !assert.Lenf(*ft, ftLen, "The number of returned tasks should be %d", ftLen) {
+		assert.FailNow("The test can't continue if tasks can't be read correctly", "To continue,"+
+			" failed tasks should be read from the database without any issue")
+	}
+
+	for i, t := range *ft {
+		assert.Truef(foundTask(&suite.TestTasks[2], &t), "The failed task %d should be read correctly from the"+
+			" database", i)
+	}
 }
 
 func (suite *ReadTestSuite) TestGetOnExecutionTasks() {
+	assert := assert2.New(suite.T())
+	oetLen := len(suite.TestTasks[3])
 
+	oet, err := GetOnExecutionTasks()
+	assert.NoError(err, "On-execution tasks should be returned without errors")
+	if !assert.Lenf(*oet, oetLen, "The number of returned tasks should be %d", oetLen) {
+		assert.FailNow("The test can't continue if tasks can't be read correctly", "To continue,"+
+			" on-execution tasks for testing should be read from the database without any issue")
+	}
+
+	for i, t := range *oet {
+		assert.Truef(foundTask(&suite.TestTasks[3], &t), "The task on-execution %d should be read correctly from the"+
+			" database", i)
+	}
 }
 
 func (suite *ReadTestSuite) TearDownTest() {
@@ -891,38 +945,38 @@ func TestReadSuite(t *testing.T) {
 	suite.Run(t, new(ReadTestSuite))
 }
 
-func foundTask(origin *[]UserTask, toFind *UserTask) bool {
+func foundTask(origin *[]UserTask, taskToCheck *UserTask) bool {
 	var taskFound bool
 
 	for _, t := range *origin {
-		if t.ID == toFind.ID {
+		if t.ID == taskToCheck.ID {
 			taskFound = true
 
-			if t.Name != toFind.Name {
+			if t.Name != taskToCheck.Name {
 				return false
 			}
 
-			if t.State != toFind.State {
+			if t.State != taskToCheck.State {
 				return false
 			}
 
-			if !t.Created.Equal(toFind.Created) {
+			if !t.Created.Equal(taskToCheck.Created) {
 				return false
 			}
 
-			if !t.LastTimeModified.Equal(toFind.LastTimeModified) {
+			if !t.LastTimeModified.Equal(taskToCheck.LastTimeModified) {
 				return false
 			}
 
-			if len(t.Actions) != len(toFind.Actions) {
+			if len(t.Actions) != len(taskToCheck.Actions) {
 				return false
 			}
 
-			if !equalTrigger(&t.Trigger, &toFind.Trigger) {
+			if !equalTrigger(&t.Trigger, &taskToCheck.Trigger) {
 				return false
 			}
 
-			if !equalActions(&t.Actions, &toFind.Actions) {
+			if !equalActions(&t.Actions, &taskToCheck.Actions) {
 				return false
 			}
 
@@ -933,15 +987,15 @@ func foundTask(origin *[]UserTask, toFind *UserTask) bool {
 	return taskFound
 }
 
-func equalActions(originActions, foundTaskActions *[]UserAction) bool {
-	if len(*originActions) != len(*foundTaskActions) {
+func equalActions(originActions, actionsToCheck *[]UserAction) bool {
+	if len(*originActions) != len(*actionsToCheck) {
 		return false
 	}
 
 	for _, oa := range *originActions {
 		var actionFound bool
 
-		for _, fta := range *foundTaskActions {
+		for _, fta := range *actionsToCheck {
 			if fta.ID == oa.ID {
 				actionFound = true
 
@@ -996,19 +1050,19 @@ func equalActions(originActions, foundTaskActions *[]UserAction) bool {
 	return true
 }
 
-func equalTrigger(originTrigger, foundTaskTrigger *UserTrigger) bool {
-	if foundTaskTrigger.ID != originTrigger.ID {
+func equalTrigger(originTrigger, triggerToCheck *UserTrigger) bool {
+	if triggerToCheck.ID != originTrigger.ID {
 		return false
 	}
 
-	if foundTaskTrigger.Timestamp != originTrigger.Timestamp {
+	if triggerToCheck.Timestamp != originTrigger.Timestamp {
 		return false
 	}
 
 	for _, ota := range originTrigger.Args {
 		var argFound bool
 
-		for _, fttArg := range foundTaskTrigger.Args {
+		for _, fttArg := range triggerToCheck.Args {
 			if ota.ID == fttArg.ID {
 				argFound = true
 
