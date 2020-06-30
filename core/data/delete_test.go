@@ -132,16 +132,11 @@ func (suite *DeleteTestSuite) TestDeleteTask() {
 	assert := assert2.New(suite.T())
 	var end = make(chan struct{})
 
-	t, err := getTask(suite.TestTasks[0].Name)
-	if err != nil {
-		panic(err)
-	}
-
 	go func() {
 		event := <-EventBus
 
 		assert.Equal(Deleted, event.Type, "The emitted event should be of type `Deleted`")
-		assert.Equal(t.ID, event.TaskID, "The TaskID emitted in the event must be the same of the deleted task")
+		assert.Equal(suite.TestTasks[0].ID, event.TaskID, "The TaskID emitted in the event must be the same of the deleted task")
 
 		for {
 			// Avoid blocking just in case that other tests fail and create new tasks.
@@ -154,16 +149,16 @@ func (suite *DeleteTestSuite) TestDeleteTask() {
 	}()
 
 	// Task should be deleted correctly.
-	err = DeleteTask(t.ID)
+	err := DeleteTask(suite.TestTasks[0].ID)
 	assert.NoError(err, "The task should be deleted correctly")
 
-	t, err = getTask(suite.TestTasks[0].Name)
+	t, err := getTask(suite.TestTasks[0].Name)
 	//noinspection GoNilness
 	assert.Equal(UserTask{}, *t, "The task should be deleted from the database")
 	assert.Error(err, "The task should be deleted from the database")
 
 	// Try to delete an already deleted task should return an error.
-	err = DeleteTask(t.ID)
+	err = DeleteTask(suite.TestTasks[0].ID)
 	assert.Error(err, "Try to delete an already deleted task should return an error")
 
 	// Try to delete a non-existent task should return an error.

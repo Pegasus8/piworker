@@ -167,8 +167,8 @@ func (suite *UpdateTestSuite) BeforeTest(_, _ string) {
 		}
 	}()
 
-	for _, t := range suite.TestTasks {
-		err = NewTask(&t)
+	for i := range suite.TestTasks {
+		err = NewTask(&suite.TestTasks[i])
 		if err != nil {
 			panic(err)
 		}
@@ -184,19 +184,13 @@ func (suite *UpdateTestSuite) UpdateTask() {
 	assert := assert2.New(suite.T())
 	var end = make(chan struct{})
 
-	task, err := getTask(suite.TestTasks[0].Name)
-	if err != nil {
-		panic(err)
-	}
-	suite.TestTasks[0].ID = task.ID
-
 	go func() {
 		for {
 			select {
 			case event := <-EventBus:
 				assert.Equal(Modified, event.Type, "When a task is updated the emitted event should be of"+
 					" type `Modified`")
-				assert.Equal(task.ID, event.TaskID, "The ID in the event must be the same that the ID of the"+
+				assert.Equal(suite.TestTasks[0].ID, event.TaskID, "The ID in the event must be the same that the ID of the"+
 					" task affected")
 			case <-end:
 				break
@@ -209,7 +203,7 @@ func (suite *UpdateTestSuite) UpdateTask() {
 	updatedTask := suite.TestTasks[0]
 	updatedTask.State = StateTaskInactive
 	updatedTask.Name = "Task 12345"
-	err = UpdateTask(task.ID, &updatedTask)
+	err := UpdateTask(suite.TestTasks[0].ID, &updatedTask)
 	assert.NoError(err, "The task should be updated without errors")
 
 	updatedTaskFromDB, err := getTask(updatedTask.Name)
@@ -235,13 +229,13 @@ func (suite *UpdateTestSuite) UpdateTask() {
 
 	// --- Test 2 ---
 	// The usage of an non-existent ID must return an error.
-	err = UpdateTask(task.ID+"a", &suite.TestTasks[0])
+	err = UpdateTask(suite.TestTasks[0].ID+"a", &suite.TestTasks[0])
 	assert.Error(err, "Try to use an ID that does not exist should return an error")
 	// --- End of Test 2 ---
 
 	// --- Test 3 ---
 	// The usage of an empty critical field must return an error.
-	err = UpdateTask(task.ID, &UserTask{})
+	err = UpdateTask(suite.TestTasks[0].ID, &UserTask{})
 	assert.Error(err, "If some critical field (the ID of an action for example) is empty, the "+
 		"function should return an error")
 	// --- End of Test 3 ---
@@ -253,19 +247,13 @@ func (suite *UpdateTestSuite) UpdateTaskState() {
 	assert := assert2.New(suite.T())
 	var end = make(chan struct{})
 
-	task, err := getTask(suite.TestTasks[1].Name)
-	if err != nil {
-		panic(err)
-	}
-	suite.TestTasks[1].ID = task.ID
-
 	go func() {
 		for {
 			select {
 			case event := <-EventBus:
 				assert.Equal(Modified, event.Type, "When a task is updated the emitted event should be of"+
 					" type `Modified`")
-				assert.Equal(task.ID, event.TaskID, "The ID in the event must be the same that the ID of"+
+				assert.Equal(suite.TestTasks[1].ID, event.TaskID, "The ID in the event must be the same that the ID of"+
 					" the task affected")
 			case <-end:
 				break
@@ -275,7 +263,7 @@ func (suite *UpdateTestSuite) UpdateTaskState() {
 
 	// --- Test 1 ---
 	// Task state should be updated without problems.
-	err = UpdateTaskState(task.ID, StateTaskActive)
+	err := UpdateTaskState(suite.TestTasks[1].ID, StateTaskActive)
 	assert.NoError(err, "The task should be updated without errors")
 
 	updatedTaskFromDB, err := getTask(suite.TestTasks[1].Name)
@@ -289,13 +277,13 @@ func (suite *UpdateTestSuite) UpdateTaskState() {
 
 	// --- Test 2 ---
 	// The usage of an non-existent ID must return an error.
-	err = UpdateTaskState(task.ID+"a", StateTaskActive)
+	err = UpdateTaskState(suite.TestTasks[1].ID+"a", StateTaskActive)
 	assert.Error(err, "Try to use an ID that does not exist should return an error")
 	// --- End of Test 2 ---
 
 	// --- Test 3 ---
 	// The usage of an non-existent state must return an error.
-	err = UpdateTaskState(task.ID, "random-state")
+	err = UpdateTaskState(suite.TestTasks[1].ID, "random-state")
 	assert.Error(err, "Try to use an state that does not exist should return an error")
 	// --- End of Test 3 ---
 

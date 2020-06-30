@@ -202,14 +202,16 @@ func (suite *WriteTestSuite) TestNewTask() {
 
 		for i := 0; i <= nEvents; i++ {
 			event := <-EventBus
-			assert.Equal(Added, event.Type, "The emitted event when a task is created successfully must be of type `Added`")
-			assert.NotNil(event.TaskID, "The event should contain the ID of the recently created task")
+			assert.Equal(Added, event.Type, "The emitted event when a task is created successfully must "+
+				"be of type `Added`")
+			assert.Equal(suite.TestTasks[i].ID, event.TaskID, "The task ID emitted with the event must be "+
+				"the same that the ID of the recently added task")
 		}
 	}()
 
 	// Tasks should be added without problems.
-	for _, t := range suite.TestTasks {
-		err := NewTask(&t)
+	for i := range suite.TestTasks {
+		err := NewTask(&suite.TestTasks[i])
 		assert.NoError(err, "The task should be added without problems")
 	}
 
