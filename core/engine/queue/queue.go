@@ -1,6 +1,8 @@
 package queue
 
 import (
+	"runtime"
+
 	"github.com/Pegasus8/piworker/core/data"
 	actions "github.com/Pegasus8/piworker/core/elements/actions/shared"
 
@@ -9,7 +11,13 @@ import (
 
 // NewQueue initializes the pool of actions execution.
 func NewQueue() *Queue {
-	const maxWorkers = 8
+	var maxWorkers = runtime.NumCPU()
+
+	// Is this possible?
+	if maxWorkers <= 0 {
+		maxWorkers = 2
+	}
+
 	queue := &Queue{
 		q: make(chan Job),
 	}
