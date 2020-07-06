@@ -15,7 +15,6 @@ import (
 	actionsModel "github.com/Pegasus8/piworker/core/elements/actions/shared"
 	triggersList "github.com/Pegasus8/piworker/core/elements/triggers/models"
 	"github.com/Pegasus8/piworker/core/stats"
-	"github.com/Pegasus8/piworker/core/types"
 	"github.com/Pegasus8/piworker/core/uservariables"
 
 	"github.com/rs/zerolog/log"
@@ -167,7 +166,7 @@ func runTrigger(trigger data.UserTrigger, parentTaskID string) (bool, error) {
 		}
 	}
 
-	return false, fmt.Errorf("The trigger with the ID '%s' cannot be found", trigger.ID)
+	return false, fmt.Errorf("the trigger with the ID '%s' cannot be found", trigger.ID)
 }
 
 func runActions(task *data.UserTask, actionsQueue *queue.Queue) error {
@@ -248,7 +247,7 @@ func runActions(task *data.UserTask, actionsQueue *queue.Queue) error {
 								Str("actionID", userAction.ID).
 								Uint8("actionOrder", userAction.Order).
 								Msg("Action wasn't executed correctly. Aborting task for prevention of future errors...")
-							return fmt.Errorf("Action returned an unsuccessful result")
+							return fmt.Errorf("action returned an unsuccessful result")
 						}
 
 						// No need to keep iterating
@@ -361,29 +360,4 @@ func searchAndReplaceVariable(arg *data.UserArg, parentTaskID string) error {
 	}
 
 	return nil
-}
-
-func getUserArgType(userActionID string, userArgID string) (types.PWType, error) {
-	var actionFound bool
-
-	for _, action := range actionsList.ACTIONS {
-		if action.ID == userActionID {
-			actionFound = true
-
-			for _, arg := range action.Args {
-				if arg.ID == userArgID {
-					return arg.ContentType, nil
-				}
-			}
-		}
-	}
-
-	var err error
-	if actionFound {
-		err = fmt.Errorf("Unrecognized argument ID '%s' of the action '%s'", userArgID, userActionID)
-	} else {
-		err = fmt.Errorf("Unrecognized action ID '%s'", userActionID)
-	}
-
-	return types.Any, err
 }
