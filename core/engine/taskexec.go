@@ -220,18 +220,6 @@ func runActions(task *data.UserTask, actionsQueue *queue.Queue) error {
 							}
 						}
 
-						ua, err := replaceArgByCR(chainedResult, &userAction)
-						if err != nil {
-							log.Error().
-								Str("taskID", task.ID).
-								Str("actionID", userAction.ID).
-								Err(err).
-								Uint8("actionOrder", userAction.Order).
-								Msg("Error when trying to replace an argument for a variable")
-							return err
-						}
-						userAction = *ua
-
 						// Send the action execution to the queue
 						execResult := actionsQueue.AddJob(task.ID, action, &userAction, *chainedResult)
 						r := <-execResult
@@ -373,37 +361,6 @@ func searchAndReplaceVariable(arg *data.UserArg, parentTaskID string) error {
 	}
 
 	return nil
-}
-
-func replaceArgByCR(chainedResult *actionsModel.ChainedResult, userAction *data.UserAction) (*data.UserAction, error) {
-	if userAction.Order == 0 {
-		// Prevent the usage of ChainedResult because there are no previous actions.
-		userAction.Chained = false
-	}
-	if userAction.Chained {
-		if chainedResult.Result == "" {
-			return nil, actionsModel.ErrEmptyCRResult
-		}
-
-		for _, userArg := range userAction.Args {
-			if userArg.ID == userAction.ArgumentToReplaceByCR {
-				userArgType, err := getUserArgType(userAction.ID, userArg.ID)
-				if err != nil {
-					return nil, err
-				}
-
-				if chainedResult.ResultType != userArgType && userArgType != types.Any {
-					return nil, fmt.Errorf("Can't replace the arg with the ID '%s' of type '%s' with the previous ChainedResult of type '%s'", userArg.ID, userArgType, chainedResult.ResultType)
-
-				}
-
-				// If all is ok, replace the content
-				userArg.Content = chainedResult.Result
-			}
-		}
-	}
-
-	return userAction, nil
 }
 
 func getUserArgType(userActionID string, userArgID string) (types.PWType, error) {
