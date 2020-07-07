@@ -101,8 +101,9 @@ func setupRoutes() {
 	if apiConfigs.StatisticsAPI {
 		router.Handle("/api/info/statistics", auth.IsAuthorized(statisticsAPI)).Methods("GET")
 	}
-	router.Handle("/api/webui/triggers-structs", auth.IsAuthorized(triggersInfoAPI)).Methods("GET")
-	router.Handle("/api/webui/actions-structs", auth.IsAuthorized(actionsInfoAPI)).Methods("GET")
+	if apiConfigs.TypesCompatAPI {
+		router.Handle("/api/info/types-compat/{pwType}", auth.IsAuthorized(typesCompatAPI)).Methods("GET")
+	}
 	// ────────────────────────────────────────────────────────────────────────────────
 
 	if configs.CurrentConfigs.WebUI.Enabled {
@@ -114,6 +115,11 @@ func setupRoutes() {
 		// ─── SINGLE PAGE APP ────────────────────────────────────────────────────────────
 		spa := spaHandler{staticPath: "/webui/frontend/dist", indexPath: "index.html"}
 		router.PathPrefix("/").Handler(spa)
+		// ────────────────────────────────────────────────────────────────────────────────
+
+		// ─── MODELS INFO ────────────────────────────────────────────────────────────────
+		router.Handle("/api/webui/triggers-structs", auth.IsAuthorized(triggersInfoAPI)).Methods("GET")
+		router.Handle("/api/webui/actions-structs", auth.IsAuthorized(actionsInfoAPI)).Methods("GET")
 		// ────────────────────────────────────────────────────────────────────────────────
 	}
 
@@ -340,6 +346,39 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(response)
+}
+
+func typesCompatAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
+	if request.Method != "GET" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	v := mux.Vars(request)
+
+	if v["pwType"] == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	t := types.PWType(v["pwType"])
+
+	if !(t == types.Any || t == types.Text || t == types.Int || t == types.Float || t == types.Bool || t == types.Path ||
+		t == types.JSON || t == types.URL || t == types.Date || t == types.Time) {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	err := json.NewEncoder(w).Encode(types.CompatList(t))
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("api", "typesCompatAPI").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Error when trying to encode the JSON response")
+
+		w.WriteHeader(http.StatusInternalServerError)
+	}
 }
 
 func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
