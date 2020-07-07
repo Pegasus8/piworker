@@ -38,13 +38,14 @@ type Backups struct {
 
 // APIConfigs is the struct used to store API configs of PiWorker.
 type APIConfigs struct {
-	// API's States
+	// APIs States
 	NewTaskAPI     bool `json:"new-task-api"`
 	EditTaskAPI    bool `json:"edit-task-api"`
 	DeleteTaskAPI  bool `json:"delete-task-api"`
 	GetAllTasksAPI bool `json:"get-all-tasks-api"`
 	StatisticsAPI  bool `json:"statistics-api"`
 	LogsAPI        bool `json:"logs-api"`
+	TypesCompatAPI bool `json:"types-compat-api"`
 
 	// Authentication
 	RequireToken  bool   `json:"require-token"`
