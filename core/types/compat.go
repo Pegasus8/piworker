@@ -81,7 +81,7 @@ func (t PWType) CompatWith(typeTarget PWType) bool {
 	return false
 }
 
-// CompatList returns a list of types that is compatible with the given type `t`.
-func CompatList(t PWType) []PWType {
-	return c[t]
+// CompatList returns a map with the types and their compatible pairs.
+func CompatList() map[PWType][]PWType {
+	return c
 }

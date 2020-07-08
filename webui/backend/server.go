@@ -102,7 +102,7 @@ func setupRoutes() {
 		router.Handle("/api/info/statistics", auth.IsAuthorized(statisticsAPI)).Methods("GET")
 	}
 	if apiConfigs.TypesCompatAPI {
-		router.Handle("/api/info/types-compat/{pwType}", auth.IsAuthorized(typesCompatAPI)).Methods("GET")
+		router.Handle("/api/info/types-compat", auth.IsAuthorized(typesCompatAPI)).Methods("GET")
 	}
 	// ────────────────────────────────────────────────────────────────────────────────
 
@@ -112,15 +112,16 @@ func setupRoutes() {
 		router.Handle("/api/ws-auth", auth.IsAuthorized(wsAuthAPI)).Methods("GET")
 		// ────────────────────────────────────────────────────────────────────────────────
 
+		// ─── MODELS INFO ────────────────────────────────────────────────────────────────
+		router.Handle("/api/webui/triggers-structs", auth.IsAuthorized(triggersInfoAPI)).Methods("GET")
+		router.Handle("/api/webui/actions-structs", auth.IsAuthorized(actionsInfoAPI)).Methods("GET")
+		// ────────────────────────────────────────────────────────────────────────────────
+
 		// ─── SINGLE PAGE APP ────────────────────────────────────────────────────────────
 		spa := spaHandler{staticPath: "/webui/frontend/dist", indexPath: "index.html"}
 		router.PathPrefix("/").Handler(spa)
 		// ────────────────────────────────────────────────────────────────────────────────
 
-		// ─── MODELS INFO ────────────────────────────────────────────────────────────────
-		router.Handle("/api/webui/triggers-structs", auth.IsAuthorized(triggersInfoAPI)).Methods("GET")
-		router.Handle("/api/webui/actions-structs", auth.IsAuthorized(actionsInfoAPI)).Methods("GET")
-		// ────────────────────────────────────────────────────────────────────────────────
 	}
 
 	// If the setting `.Security.LocalNetworkAccess` is disabled, set the server's addr to localhost, preventing
@@ -354,22 +355,9 @@ func typesCompatAPI(w http.ResponseWriter, request *http.Request) { // Method: G
 		return
 	}
 
-	v := mux.Vars(request)
+	w.Header().Set("Content-Type", "application/json")
 
-	if v["pwType"] == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	t := types.PWType(v["pwType"])
-
-	if !(t == types.Any || t == types.Text || t == types.Int || t == types.Float || t == types.Bool || t == types.Path ||
-		t == types.JSON || t == types.URL || t == types.Date || t == types.Time) {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	err := json.NewEncoder(w).Encode(types.CompatList(t))
+	err := json.NewEncoder(w).Encode(types.CompatList())
 	if err != nil {
 		log.Error().
 			Err(err).
