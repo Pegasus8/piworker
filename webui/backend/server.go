@@ -31,6 +31,7 @@ import (
 )
 
 var tlsSupport bool
+var devMode bool
 
 // -- Using (partially) example from https://github.com/gorilla/mux#serving-single-page-applications --.
 // spaHandler implements the http.Handler interface, so we can use it
@@ -56,6 +57,13 @@ func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusPermanentRedirect)
 
 		return
+	}
+
+	if devMode {
+		// Avoid cache if we are in development.
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 	}
 
 	// Otherwise, use http.FileServer to serve the static dir.
@@ -166,6 +174,11 @@ func setupRoutes() {
 // Run - start the server
 func Run() {
 	log.Info().Msg("Starting server...")
+
+	if d := os.Getenv("DEV"); d != "" {
+		log.Warn().Msg("Server on development mode activated")
+		devMode = true
+	}
 
 	setupRoutes()
 }
