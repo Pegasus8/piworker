@@ -90,7 +90,7 @@ func setupRoutes() {
 	apiConfigs := &configs.CurrentConfigs.APIConfigs
 
 	// ─── APIS ───────────────────────────────────────────────────────────────────────
-	router.HandleFunc("/api/login", loginAPI)
+	router.HandleFunc("/api/login", makeGzipHandler(loginAPI))
 	if apiConfigs.NewTaskAPI {
 		router.Handle("/api/tasks/new", auth.IsAuthorized(newTaskAPI)).Methods("POST")
 	}
@@ -101,28 +101,28 @@ func setupRoutes() {
 		router.Handle("/api/tasks/delete", auth.IsAuthorized(deleteTaskAPI)).Methods("DELETE")
 	}
 	if apiConfigs.GetAllTasksAPI {
-		router.Handle("/api/tasks/get-all", auth.IsAuthorized(getTasksAPI)).Methods("GET")
+		router.Handle("/api/tasks/get-all", auth.IsAuthorized(makeGzipHandler(getTasksAPI))).Methods("GET")
 	}
 	if apiConfigs.LogsAPI {
-		router.Handle("/api/tasks/logs", auth.IsAuthorized(logsAPI)).Methods("GET")
+		router.Handle("/api/tasks/logs", auth.IsAuthorized(makeGzipHandler(logsAPI))).Methods("GET")
 	}
 	if apiConfigs.StatisticsAPI {
-		router.Handle("/api/info/statistics", auth.IsAuthorized(statisticsAPI)).Methods("GET")
+		router.Handle("/api/info/statistics", auth.IsAuthorized(makeGzipHandler(statisticsAPI))).Methods("GET")
 	}
 	if apiConfigs.TypesCompatAPI {
-		router.Handle("/api/info/types-compat", auth.IsAuthorized(typesCompatAPI)).Methods("GET")
+		router.Handle("/api/info/types-compat", auth.IsAuthorized(makeGzipHandler(typesCompatAPI))).Methods("GET")
 	}
 	// ────────────────────────────────────────────────────────────────────────────────
 
 	if configs.CurrentConfigs.WebUI.Enabled {
 		// ─── WEBSOCKET ──────────────────────────────────────────────────────────────────
 		router.HandleFunc("/ws", statsWS)
-		router.Handle("/api/ws-auth", auth.IsAuthorized(wsAuthAPI)).Methods("GET")
+		router.Handle("/api/ws-auth", auth.IsAuthorized(makeGzipHandler(wsAuthAPI))).Methods("GET")
 		// ────────────────────────────────────────────────────────────────────────────────
 
 		// ─── MODELS INFO ────────────────────────────────────────────────────────────────
-		router.Handle("/api/webui/triggers-structs", auth.IsAuthorized(triggersInfoAPI)).Methods("GET")
-		router.Handle("/api/webui/actions-structs", auth.IsAuthorized(actionsInfoAPI)).Methods("GET")
+		router.Handle("/api/webui/triggers-structs", auth.IsAuthorized(makeGzipHandler(triggersInfoAPI))).Methods("GET")
+		router.Handle("/api/webui/actions-structs", auth.IsAuthorized(makeGzipHandler(actionsInfoAPI))).Methods("GET")
 		// ────────────────────────────────────────────────────────────────────────────────
 
 		// ─── SINGLE PAGE APP ────────────────────────────────────────────────────────────
