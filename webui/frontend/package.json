@@ -12,6 +12,7 @@
     "axios": "^0.19.2",
     "chart.js": "^2.9.3",
     "core-js": "^3.6.5",
+    "lodash.isempty": "^4.4.0",
     "typeface-roboto": "0.0.75",
     "vue": "^2.6.11",
     "vue-chartjs": "^3.5.0",
