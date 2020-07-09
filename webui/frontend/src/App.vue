@@ -8,13 +8,13 @@
     <app-navbar
       @expandDrawer='expandNavDrawer = !expandNavDrawer'
     />
-    <v-content>
+    <v-main>
       <v-fade-transition
         mode="out-in"
       >
         <router-view style="animation-duration: 0.3s"/>
       </v-fade-transition>
-    </v-content>
+    </v-main>
   </v-app>
 </template>
 
