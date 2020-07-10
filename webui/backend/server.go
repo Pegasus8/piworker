@@ -31,6 +31,7 @@ import (
 )
 
 var tlsSupport bool
+var devMode bool
 
 // -- Using (partially) example from https://github.com/gorilla/mux#serving-single-page-applications --.
 // spaHandler implements the http.Handler interface, so we can use it
@@ -58,6 +59,13 @@ func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if devMode {
+		// Avoid cache if we are in development.
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+	}
+
 	// Otherwise, use http.FileServer to serve the static dir.
 	http.FileServer(pkger.Dir(h.staticPath)).ServeHTTP(w, r)
 }
@@ -82,7 +90,7 @@ func setupRoutes() {
 	apiConfigs := &configs.CurrentConfigs.APIConfigs
 
 	// ─── APIS ───────────────────────────────────────────────────────────────────────
-	router.HandleFunc("/api/login", loginAPI)
+	router.HandleFunc("/api/login", makeGzipHandler(loginAPI))
 	if apiConfigs.NewTaskAPI {
 		router.Handle("/api/tasks/new", auth.IsAuthorized(newTaskAPI)).Methods("POST")
 	}
@@ -93,28 +101,35 @@ func setupRoutes() {
 		router.Handle("/api/tasks/delete", auth.IsAuthorized(deleteTaskAPI)).Methods("DELETE")
 	}
 	if apiConfigs.GetAllTasksAPI {
-		router.Handle("/api/tasks/get-all", auth.IsAuthorized(getTasksAPI)).Methods("GET")
+		router.Handle("/api/tasks/get-all", auth.IsAuthorized(makeGzipHandler(getTasksAPI))).Methods("GET")
 	}
 	if apiConfigs.LogsAPI {
-		router.Handle("/api/tasks/logs", auth.IsAuthorized(logsAPI)).Methods("GET")
+		router.Handle("/api/tasks/logs", auth.IsAuthorized(makeGzipHandler(logsAPI))).Methods("GET")
 	}
 	if apiConfigs.StatisticsAPI {
-		router.Handle("/api/info/statistics", auth.IsAuthorized(statisticsAPI)).Methods("GET")
+		router.Handle("/api/info/statistics", auth.IsAuthorized(makeGzipHandler(statisticsAPI))).Methods("GET")
 	}
-	router.Handle("/api/webui/triggers-structs", auth.IsAuthorized(triggersInfoAPI)).Methods("GET")
-	router.Handle("/api/webui/actions-structs", auth.IsAuthorized(actionsInfoAPI)).Methods("GET")
+	if apiConfigs.TypesCompatAPI {
+		router.Handle("/api/info/types-compat", auth.IsAuthorized(makeGzipHandler(typesCompatAPI))).Methods("GET")
+	}
 	// ────────────────────────────────────────────────────────────────────────────────
 
 	if configs.CurrentConfigs.WebUI.Enabled {
 		// ─── WEBSOCKET ──────────────────────────────────────────────────────────────────
 		router.HandleFunc("/ws", statsWS)
-		router.Handle("/api/ws-auth", auth.IsAuthorized(wsAuthAPI)).Methods("GET")
+		router.Handle("/api/ws-auth", auth.IsAuthorized(makeGzipHandler(wsAuthAPI))).Methods("GET")
+		// ────────────────────────────────────────────────────────────────────────────────
+
+		// ─── MODELS INFO ────────────────────────────────────────────────────────────────
+		router.Handle("/api/webui/triggers-structs", auth.IsAuthorized(makeGzipHandler(triggersInfoAPI))).Methods("GET")
+		router.Handle("/api/webui/actions-structs", auth.IsAuthorized(makeGzipHandler(actionsInfoAPI))).Methods("GET")
 		// ────────────────────────────────────────────────────────────────────────────────
 
 		// ─── SINGLE PAGE APP ────────────────────────────────────────────────────────────
 		spa := spaHandler{staticPath: "/webui/frontend/dist", indexPath: "index.html"}
 		router.PathPrefix("/").Handler(spa)
 		// ────────────────────────────────────────────────────────────────────────────────
+
 	}
 
 	// If the setting `.Security.LocalNetworkAccess` is disabled, set the server's addr to localhost, preventing
@@ -159,6 +174,11 @@ func setupRoutes() {
 // Run - start the server
 func Run() {
 	log.Info().Msg("Starting server...")
+
+	if d := os.Getenv("DEV"); d != "" {
+		log.Warn().Msg("Server on development mode activated")
+		devMode = true
+	}
 
 	setupRoutes()
 }
@@ -340,6 +360,26 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(response)
+}
+
+func typesCompatAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
+	if request.Method != "GET" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	err := json.NewEncoder(w).Encode(types.CompatList())
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("api", "typesCompatAPI").
+			Str("remoteAddr", request.RemoteAddr).
+			Msg("Error when trying to encode the JSON response")
+
+		w.WriteHeader(http.StatusInternalServerError)
+	}
 }
 
 func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST

@@ -6,8 +6,11 @@ The objective of this is basically have a centralized way of represent different
 */
 
 import (
+	"encoding/json"
+	"net/url"
 	"regexp"
 	"strconv"
+	"time"
 )
 
 // PWType represents the standard types used on different parts of PiWorker. The objective of this is have a centralized way of represent the content with a specific format for a better management of it.
@@ -21,15 +24,15 @@ const (
 	Text PWType = "text"
 	// Int is the constant used to represent the content of type integer.
 	Int PWType = "number"
-	// Float is the constant used to reperesent the content of type float.
+	// Float is the constant used to represent the content of type float.
 	Float PWType = "number-float"
-	// Bool is the constant used to reperesent the content of type boolean.
+	// Bool is the constant used to represent the content of type boolean.
 	Bool PWType = "boolean"
-	// Path is the constant used to reperesent the content of type path (example: "/home/pi/random/folder").
+	// Path is the constant used to represent the content of type path (example: "/home/pi/random/folder").
 	Path PWType = "path"
-	// JSON is the constant used to reperesent the content of type JSON (example: "{"foo": "bar"}").
+	// JSON is the constant used to represent the content of type JSON (example: "{"foo": "bar"}").
 	JSON PWType = "json"
-	// URL is the constant used to reperesent the content of type URL. For example: "https://golang.org".
+	// URL is the constant used to represent the content of type URL. For example: "https://golang.org".
 	URL PWType = "url"
 	// Date is the constant used to represent the content with the format of a date. For example: "10/11/2020".
 	Date PWType = "date"
@@ -38,7 +41,7 @@ const (
 )
 
 // IsInt is a function used to check if a string value can be converted to integer or not.
-// Aditionally makes a conversion on the case of positive result.
+// Additionally makes a conversion on the case of positive result.
 func IsInt(value string) (bool, int64) {
 	v, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
@@ -48,7 +51,7 @@ func IsInt(value string) (bool, int64) {
 }
 
 // IsFloat is a function used to check if a string value can be converted to float or not.
-// Aditionally makes a conversion on the case of positive result.
+// Additionally makes a conversion on the case of positive result.
 func IsFloat(value string) (bool, float64) {
 	v, err := strconv.ParseFloat(value, 64)
 	if err != nil {
@@ -58,7 +61,7 @@ func IsFloat(value string) (bool, float64) {
 }
 
 // IsBool is a function used to check if a string value can be converted to boolean or not.
-// Aditionally makes a conversion on the case of positive result.
+// Additionally makes a conversion on the case of positive result.
 func IsBool(value string) (isBool bool, convertedValue bool) {
 	v, err := strconv.ParseBool(value)
 	if err != nil {
@@ -70,11 +73,66 @@ func IsBool(value string) (isBool bool, convertedValue bool) {
 // IsPath is a function used to check if a string value haves the format of a path or not.
 // On case of positive result, returns the same value.
 func IsPath(value string) (bool, string) {
-	pathRgx := regexp.MustCompile(`^(:?\/)[\/+\w-?]+(\.[a-z]+)?$`)
+	pathRgx := regexp.MustCompile(`^(:?/)[/+\w-?]+(\.[a-z]+)?$`)
 	if pathRgx.MatchString(value) {
 		return false, ""
 	}
 	return true, value
+}
+
+// IsJSON checks if the passed value has a JSON format or not.
+func IsJSON(value string) bool {
+	var s string
+	err := json.Unmarshal([]byte(value), &s)
+
+	return err == nil
+}
+
+func IsURL(value string) bool {
+	_, err := url.ParseRequestURI(value)
+	if err != nil {
+		return false
+	}
+
+	u, err := url.Parse(value)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false
+	}
+
+	return true
+}
+
+func IsDate(value string) (r bool, parsedDate time.Time) {
+	// Possible layouts
+	opts := []string{
+		"2006-01-02",
+		"02-01-2006",
+		"02/01/2006",
+	}
+
+	for _, l := range opts {
+		if p, err := time.Parse(l, value); err == nil {
+			return true, p
+		}
+	}
+
+	return false, time.Time{}
+}
+
+func IsTime(value string) (r bool, parsedTime time.Time) {
+	// Possible layouts
+	opts := []string{
+		"15:04:05",
+		"15:04",
+	}
+
+	for _, l := range opts {
+		if p, err := time.Parse(l, value); err == nil {
+			return true, p
+		}
+	}
+
+	return false, time.Time{}
 }
 
 // GetType identifies the type of the specified `value` (string). UNFINISHED.
@@ -87,6 +145,14 @@ func GetType(value string) PWType {
 		return Bool
 	} else if isPath, _ := IsPath(value); isPath {
 		return Path
+	} else if isJSON := IsJSON(value); isJSON {
+		return JSON
+	} else if isURL := IsURL(value); isURL {
+		return URL
+	} else if isDate, _ := IsDate(value); isDate {
+		return Date
+	} else if isTime, _ := IsTime(value); isTime {
+		return Time
 	} else {
 		return Text
 	}

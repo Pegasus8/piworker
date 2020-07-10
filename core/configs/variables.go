@@ -34,6 +34,7 @@ var DefaultConfigs = Configs{
 		GetAllTasksAPI: true,
 		StatisticsAPI:  true,
 		LogsAPI:        true,
+		TypesCompatAPI: true,
 		RequireToken:   true,
 		SigningKey:     "",
 		TokenDuration:  168, // 7 days

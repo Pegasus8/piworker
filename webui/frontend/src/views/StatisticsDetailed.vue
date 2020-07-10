@@ -290,22 +290,6 @@ export default {
   },
   components: {
     appLineChart: LineChart
-  },
-  beforeCreate () {
-    if (this.$store.getters['statistics/date'] !== '') {
-      return
-    }
-
-    let today = new Date()
-    const dd = String(today.getDate()).padStart(2, '0')
-    const mm = String(today.getMonth() + 1).padStart(2, '0')
-    const yyyy = today.getFullYear()
-
-    today = yyyy + '-' + mm + '-' + dd
-
-    this.$store.dispatch('statistics/setDate', today)
-
-    this.$store.dispatch('statistics/getStats', { date: today })
   }
 }
 </script>

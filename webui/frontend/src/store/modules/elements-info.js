@@ -2,7 +2,8 @@ import axios from 'axios'
 
 const state = {
   triggers: [],
-  actions: []
+  actions: [],
+  typesCompat: {}
 }
 
 const mutations = {
@@ -11,6 +12,9 @@ const mutations = {
   },
   setActions: (state, newActions) => {
     state.actions = newActions
+  },
+  setTypesCompatList: (state, payload) => {
+    state.typesCompat = payload
   }
 }
 
@@ -44,6 +48,18 @@ const actions = {
           reject(err)
         })
     })
+  },
+  getTypesCompatList: ({ commit }) => {
+    return new Promise((resolve, reject) => {
+      axios.get('/api/info/types-compat')
+        .then(response => {
+          commit('setTypesCompatList', response.data)
+          resolve(response)
+        })
+        .catch(err => {
+          reject(err)
+        })
+    })
   }
 }
 
@@ -53,6 +69,9 @@ const getters = {
   },
   actions: (state) => {
     return state.actions
+  },
+  typesCompat: (state) => {
+    return state.typesCompat
   }
 }
 

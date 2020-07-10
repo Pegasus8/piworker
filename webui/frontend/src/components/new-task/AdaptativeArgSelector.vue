@@ -2,12 +2,12 @@
 <div>
   <v-text-field
     v-if="
-      argType == 'url' ||
-      argType == 'path' ||
-      argType == 'number' ||
-      argType == 'any'
+      argType === 'url' ||
+      argType === 'path' ||
+      argType === 'number' ||
+      argType === 'any'
     "
-    :type='argType == "number"? "number":"text"'
+    :type='argType === "number"? "number":"text"'
     v-model.lazy='argContent'
     :rules='[
       rules.emptyNotAllowed
@@ -16,7 +16,7 @@
     required
   />
   <v-text-field
-    v-if="argType == 'number-float'"
+    v-if="argType === 'number-float'"
     type='number'
     v-model.lazy='argContent'
     :rules='[
@@ -27,8 +27,8 @@
   />
   <v-textarea
     v-if="
-      argType == 'text' ||
-      argType == 'json'
+      argType === 'text' ||
+      argType === 'json'
     "
     v-model.lazy='argContent'
     :rules='[
@@ -40,7 +40,7 @@
     clearable
   />
   <v-date-picker
-    v-if="argType == 'date'"
+    v-if="argType === 'date'"
     v-model="argContent"
     :min='getDate()'
     :rules='[
@@ -49,7 +49,7 @@
     :disabled='disabled'
   />
   <v-time-picker
-    v-if='argType == "time"'
+    v-if='argType === "time"'
     v-model.lazy="argContent"
     :rules='[
       rules.emptyNotAllowed
@@ -57,7 +57,7 @@
     :disabled='disabled'
   />
   <v-checkbox
-    v-if='argType == "boolean"'
+    v-if='argType === "boolean"'
     v-model="argContent"
     :rules='[
       rules.emptyNotAllowed
