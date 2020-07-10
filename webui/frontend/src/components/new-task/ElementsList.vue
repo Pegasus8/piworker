@@ -42,7 +42,7 @@
                             !open &&
                             cardTitle === 'Actions' &&
                             userElement.order !== 0 &&
-                            userElementsComputed[index - 1].returnedChainResultType === arg.contentType
+                            isTypeCompat(userElementsComputed[index - 1].returnedChainResultType, arg.contentType)
                           "
                           style='font-size: 8px;'
                           class="mx-2"
@@ -71,7 +71,9 @@
                       v-if='userElement.order !== 0 && cardTitle === "Actions"'
                       class="d-flex flex-row-reverse"
                     >
-                      <div v-if='userElementsComputed[index - 1].returnedChainResultType === arg.contentType'>
+                      <!-- Display the icon to chain the result of the previous action with the compatible argument. If
+                       the argument is not compatible an indicator will be shown. -->
+                      <div v-if='isTypeCompat(userElementsComputed[index - 1].returnedChainResultType, arg.contentType)'>
                         <v-btn
                           v-if="userElement.argumentToReplaceByCR !== arg.ID"
                           color='blue lighten-1'
@@ -97,6 +99,7 @@
                           <span>This argument is not compatible with the previous result.</span>
                         </v-tooltip>
                       </div>
+                      <!-- End of chain btn/indicator logic -->
                     </div>
                   </v-expansion-panel-content>
                 </v-expansion-panel>
@@ -191,6 +194,13 @@ export default {
       // Change the key of the component to force an update of the UI. Otherwise,
       // the UI won't be updated until the next event.
       action.internalID = this.$uuid.v4()
+    },
+    isTypeCompat (previousType, argType) {
+      if (previousType === argType) {
+        return true
+      }
+      const compatList = this.$store.getters['elementsInfo/typesCompat'][argType]
+      return compatList.includes(previousType)
     }
   },
   watch: {
