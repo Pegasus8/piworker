@@ -81,3 +81,12 @@ Dependency | License
 [Zerolog](https://github.com/rs/zerolog) | [![GitHub license](https://img.shields.io/github/license/rs/zerolog)](https://github.com/rs/zerolog/blob/master/LICENSE)
 [Gopsutil](https://github.com/shirou/gopsutil) | [![GitHub license](https://img.shields.io/badge/license-BSD-green)](https://github.com/shirou/gopsutil/blob/master/LICENSE)
 [Testify](https://github.com/stretchr/testify) | [![GitHub license](https://img.shields.io/github/license/stretchr/testify)](https://github.com/stretchr/testify/blob/master/LICENSE)
+
+## Acknowledgments
+
+<p align="center">
+<img src="https://user-images.githubusercontent.com/43992893/87373742-a096ef80-c560-11ea-9f2c-497a91213b77.png">
+</p>
+
+To **JetBrains**, for providing me with their wonderful tools for free. Thank you guys! <br>
+If you have a little of time, please consider take a look to [their website](https://www.jetbrains.com/?from=PiWorker).
