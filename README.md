@@ -85,8 +85,10 @@ Dependency | License
 ## Acknowledgments
 
 <p align="center">
-<img src="https://user-images.githubusercontent.com/43992893/87373742-a096ef80-c560-11ea-9f2c-497a91213b77.png">
+        <img src="https://user-images.githubusercontent.com/43992893/87373742-a096ef80-c560-11ea-9f2c-497a91213b77.png">
 </p>
 
-To **JetBrains**, for providing me with their wonderful tools for free. Thank you guys! <br>
-If you have a little of time, please consider take a look to [their website](https://www.jetbrains.com/?from=PiWorker).
+<p align="center">
+        To <strong>JetBrains</strong>, for providing me with their wonderful tools for free. Thank you guys! <br>
+        If you have a little of time, please consider take a look to <a href="https://www.jetbrains.com/?from=PiWorker">their website</a>.
+</p>
