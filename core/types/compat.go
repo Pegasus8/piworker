@@ -1,5 +1,10 @@
 package types
 
+import (
+	"fmt"
+	"github.com/rs/zerolog/log"
+)
+
 var c = map[PWType][]PWType{
 	Any: {
 		Text,
@@ -72,6 +77,10 @@ var c = map[PWType][]PWType{
 
 // CompatWith checks if a type is compatible with other type (`targetType`).
 func (t PWType) CompatWith(typeTarget PWType) bool {
+	if _, exists := c[t]; !exists {
+		log.Panic().Err(fmt.Errorf("unrecognized type '%v'", t)).Caller(1).Msg("")
+	}
+
 	for _, v := range c[t] {
 		if v == typeTarget {
 			return true
