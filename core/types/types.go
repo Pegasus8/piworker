@@ -88,18 +88,18 @@ func IsJSON(value string) bool {
 	return err == nil
 }
 
-func IsURL(value string) bool {
+func IsURL(value string) (bool, *url.URL) {
 	_, err := url.ParseRequestURI(value)
 	if err != nil {
-		return false
+		return false, nil
 	}
 
 	u, err := url.Parse(value)
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return false
+		return false, nil
 	}
 
-	return true
+	return true, u
 }
 
 func IsDate(value string) (r bool, parsedDate time.Time) {
@@ -147,7 +147,7 @@ func GetType(value string) PWType {
 		return Path
 	} else if isJSON := IsJSON(value); isJSON {
 		return JSON
-	} else if isURL := IsURL(value); isURL {
+	} else if isURL, _ := IsURL(value); isURL {
 		return URL
 	} else if isDate, _ := IsDate(value); isDate {
 		return Date
