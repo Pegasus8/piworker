@@ -73,11 +73,17 @@ func IsBool(value string) (isBool bool, convertedValue bool) {
 // IsPath is a function used to check if a string value haves the format of a path or not.
 // On case of positive result, returns the same value.
 func IsPath(value string) (bool, string) {
-	pathRgx := regexp.MustCompile(`^(:?/)[/+\w-?]+(\.[a-z]+)?$`)
-	if pathRgx.MatchString(value) {
+	_, err := os.Stat(value)
+
+	if os.IsNotExist(err) {
+		return true, path.Clean(value)
+	}
+
+	if err != nil {
 		return false, ""
 	}
-	return true, value
+
+	return true, path.Clean(value)
 }
 
 // IsJSON checks if the passed value has a JSON format or not.
