@@ -3,6 +3,7 @@ package types
 import (
 	assert2 "github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
+	"math/rand"
 	"strconv"
 	"testing"
 )
@@ -42,8 +43,6 @@ func (suite *TypesTestSuite) SetupTest() {
 			"FALSE",
 			"True",
 			"False",
-			"tRUE",
-			"fALSE",
 		},
 		Path: {
 			".",
@@ -151,8 +150,10 @@ func (suite *TypesTestSuite) TestIsInt() {
 			continue
 		}
 
+		r := rand.Intn(len(suite.TestCases[v]))
+
 		// Should return false and no convert the value.
-		isInt, i := IsInt(suite.TestCases[v][0])
+		isInt, i := IsInt(suite.TestCases[v][r])
 		assert.Falsef(isInt, "the value of type '%s' should not be considered as an 'Int'", string(v))
 		assert.Equal(int64(0), i, "if the value is not of type 'Int' the conversion should not be executed")
 	}
@@ -179,23 +180,89 @@ func (suite *TypesTestSuite) TestIsFloat() {
 			continue
 		}
 
+		r := rand.Intn(len(suite.TestCases[v]))
+
 		// Should return false and no convert the value.
-		isFloat, i := IsFloat(suite.TestCases[v][0])
+		isFloat, i := IsFloat(suite.TestCases[v][r])
 		assert.Falsef(isFloat, "the value of type '%s' should not be considered as a 'Float'", string(v))
 		assert.Equal(0.0, i, "if the value is not of type 'Float' the conversion should not be executed")
 	}
 }
 
 func (suite *TypesTestSuite) TestIsBool() {
+	assert := assert2.New(suite.T())
 
+	for i, boolStr := range suite.TestCases[Bool] {
+		isBool, boolV := IsBool(boolStr)
+
+		value, err := strconv.ParseBool(boolStr)
+		if err != nil {
+			panic("[suite.TestCases[Bool][" + string(i) + "]: " + err.Error())
+		}
+
+		assert.True(isBool, "the value should be recognized as a boolean")
+		assert.Equal(value, boolV, "value not converted correctly")
+	}
+
+	for v := range suite.TestCases {
+		if v == Bool {
+			continue
+		}
+
+		r := rand.Intn(len(suite.TestCases[v]))
+
+		// Should return false and no convert the value.
+		isBool, i := IsBool(suite.TestCases[v][r])
+		assert.Falsef(isBool, "the value of type '%s' should not be considered as a 'Bool'", string(v))
+		assert.Equal(false, i, "if the value is not of type 'Bool' the conversion should not be executed")
+	}
 }
 
 func (suite *TypesTestSuite) TestIsPath() {
+	assert := assert2.New(suite.T())
 
+	for i, pathStr := range suite.TestCases[Path] {
+		isPath, _ := IsPath(pathStr)
+
+		assert.Truef(isPath, "[%d] the value '%s' should be recognized as a path", i, pathStr)
+	}
+
+	// There is a bit complicated situation: a lot of values can be considered as a valid path.
+	// For example, if the input is "1" (type `Int`), there can be a directory called "1" or a file called with the same name.
+	// The same happens with other types like `Time`, `Float`, `Bool`, etc. That won't be a problem, but to make sure
+	// that a type is not confused with another, the function `GetType` should implement `IsPath` at the end. On other
+	// side, maybe you are wondering "what if the user want to use a number as the name of a directory?" well, that's
+	// why the method `PWType.CompatWith` exists.
 }
 
 func (suite *TypesTestSuite) TestIsJSON() {
+	assert := assert2.New(suite.T())
 
+	for i, jsonStr := range suite.TestCases[JSON] {
+		isJSON := IsJSON(jsonStr)
+
+		assert.Truef(isJSON, "[%d] the value '%s' should be recognized as json", i, jsonStr)
+	}
+
+	for v := range suite.TestCases {
+		// All those values will be parsed correctly as JSON, something that we don't want here.
+		if v == JSON || v == Int || v == Float {
+			continue
+		}
+
+		// Avoid the values "true" (0) or "false" (1) which are considered as valid JSON objects.
+		var r int
+		for {
+			r = rand.Intn(len(suite.TestCases[v]))
+			if !(v == Bool && r < 2) {
+				break
+			}
+		}
+
+		// Should return false.
+		isJSON := IsJSON(suite.TestCases[v][r])
+		assert.Falsef(isJSON, "[%s][%d] the value of type '%s' should not be considered as 'JSON'", v, r, string(v))
+	}
 }
 
 func (suite *TypesTestSuite) TestIsURL() {
