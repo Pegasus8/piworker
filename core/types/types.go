@@ -8,7 +8,8 @@ The objective of this is basically have a centralized way of represent different
 import (
 	"encoding/json"
 	"net/url"
-	"regexp"
+	"os"
+	"path"
 	"strconv"
 	"time"
 )
@@ -88,10 +89,7 @@ func IsPath(value string) (bool, string) {
 
 // IsJSON checks if the passed value has a JSON format or not.
 func IsJSON(value string) bool {
-	var s string
-	err := json.Unmarshal([]byte(value), &s)
-
-	return err == nil
+	return json.Valid([]byte(value))
 }
 
 func IsURL(value string) (bool, *url.URL) {
