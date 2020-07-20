@@ -1,9 +1,11 @@
 package types
 
 import (
+	"fmt"
 	assert2 "github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"math/rand"
+	"net/url"
 	"strconv"
 	"testing"
 )
@@ -91,15 +93,9 @@ func (suite *TypesTestSuite) SetupTest() {
 			"https://github.com/ohmyzsh/ohmyzsh/tree/master/plugins/golang",
 		},
 		Date: {
-			"15-7-2020",
-			"15/7/2020",
-			"2020-7-15",
 			"15-07-2020",
 			"15/07/2020",
 			"2020-07-15",
-			"1-1-2021",
-			"1/1/2021",
-			"2021-1-1",
 			"01-01-2021",
 			"01/01/2021",
 			"2021-01-01",
@@ -110,17 +106,11 @@ func (suite *TypesTestSuite) SetupTest() {
 		Time: {
 			"12:12:56",
 			"12:12",
-			"9:24:34",
 			"09:24:34",
-			"9:24",
 			"09:24",
-			"13:9:10",
 			"13:09:10",
-			"13:9",
 			"13:09",
-			"16:23:1",
 			"16:23:01",
-			"9:1",
 			"09:01",
 			"23:59:59",
 			"23:59",
@@ -138,11 +128,11 @@ func (suite *TypesTestSuite) TestIsInt() {
 
 		value, err := strconv.ParseInt(intStr, 10, 64)
 		if err != nil {
-			panic("[suite.TestCases[Int][" + string(i) + "]: " + err.Error())
+			panic(fmt.Errorf("[suite.TestCases[Int][%d]]: %s", i, err.Error()))
 		}
 
-		assert.True(isInt, "the value should be recognized as an integer")
-		assert.Equal(value, intV, "value not converted correctly")
+		assert.Truef(isInt, "[suite.TestCases[Int][%d]]: the value should be recognized as an integer", i)
+		assert.Equalf(value, intV, "[suite.TestCases[Int][%d]]: value not converted correctly", i)
 	}
 
 	for v := range suite.TestCases {
@@ -154,8 +144,8 @@ func (suite *TypesTestSuite) TestIsInt() {
 
 		// Should return false and no convert the value.
 		isInt, i := IsInt(suite.TestCases[v][r])
-		assert.Falsef(isInt, "the value of type '%s' should not be considered as an 'Int'", string(v))
-		assert.Equal(int64(0), i, "if the value is not of type 'Int' the conversion should not be executed")
+		assert.Falsef(isInt, "[suite.TestCases[%s][%d]]: the value of type '%s' should not be considered as an 'Int'", string(v), r, string(v))
+		assert.Equalf(int64(0), i, "[suite.TestCases[%s][%d]]: if the value is not of type 'Int' the conversion should not be executed", string(v), r)
 	}
 }
 
@@ -167,11 +157,11 @@ func (suite *TypesTestSuite) TestIsFloat() {
 
 		value, err := strconv.ParseFloat(floatStr, 64)
 		if err != nil {
-			panic("[suite.TestCases[Float][" + string(i) + "]: " + err.Error())
+			panic(fmt.Errorf("[suite.TestCases[Float][%d]]: %s", i, err.Error()))
 		}
 
-		assert.True(isFloat, "the value should be recognized as a float")
-		assert.Equal(value, floatV, "value not converted correctly")
+		assert.Truef(isFloat, "[suite.TestCases[Float][%d]]: the value should be recognized as a float", i)
+		assert.Equalf(value, floatV, "[suite.TestCases[Float][%d]]: value not converted correctly", i)
 	}
 
 	for v := range suite.TestCases {
@@ -184,8 +174,8 @@ func (suite *TypesTestSuite) TestIsFloat() {
 
 		// Should return false and no convert the value.
 		isFloat, i := IsFloat(suite.TestCases[v][r])
-		assert.Falsef(isFloat, "the value of type '%s' should not be considered as a 'Float'", string(v))
-		assert.Equal(0.0, i, "if the value is not of type 'Float' the conversion should not be executed")
+		assert.Falsef(isFloat, "[suite.TestCases[%s][%d]]: the value of type '%s' should not be considered as a 'Float'", string(v), r, string(v))
+		assert.Equalf(0.0, i, "[suite.TestCases[%s][%d]]: if the value is not of type 'Float' the conversion should not be executed", string(v), r)
 	}
 }
 
@@ -197,11 +187,11 @@ func (suite *TypesTestSuite) TestIsBool() {
 
 		value, err := strconv.ParseBool(boolStr)
 		if err != nil {
-			panic("[suite.TestCases[Bool][" + string(i) + "]: " + err.Error())
+			panic(fmt.Errorf("[suite.TestCases[Bool][%d]]: %s", i, err.Error()))
 		}
 
-		assert.True(isBool, "the value should be recognized as a boolean")
-		assert.Equal(value, boolV, "value not converted correctly")
+		assert.Truef(isBool, "[suite.TestCases[Bool][%d]]: the value should be recognized as a boolean", i)
+		assert.Equalf(value, boolV, "[suite.TestCases[Bool][%d]]: value not converted correctly", i)
 	}
 
 	for v := range suite.TestCases {
@@ -213,8 +203,8 @@ func (suite *TypesTestSuite) TestIsBool() {
 
 		// Should return false and no convert the value.
 		isBool, i := IsBool(suite.TestCases[v][r])
-		assert.Falsef(isBool, "the value of type '%s' should not be considered as a 'Bool'", string(v))
-		assert.Equal(false, i, "if the value is not of type 'Bool' the conversion should not be executed")
+		assert.Falsef(isBool, "[suite.TestCases[%s][%d]]: the value of type '%s' should not be considered as a 'Bool'", string(v), r, string(v))
+		assert.Equalf(false, i, "[suite.TestCases[%s][%d]]: if the value is not of type 'Bool' the conversion should not be executed", string(v), r)
 	}
 }
 
@@ -224,7 +214,7 @@ func (suite *TypesTestSuite) TestIsPath() {
 	for i, pathStr := range suite.TestCases[Path] {
 		isPath, _ := IsPath(pathStr)
 
-		assert.Truef(isPath, "[%d] the value '%s' should be recognized as a path", i, pathStr)
+		assert.Truef(isPath, "[suite.TestCases[Path][%d]]: the value '%s' should be recognized as a path", i, pathStr)
 	}
 
 	// There is a bit complicated situation: a lot of values can be considered as a valid path.
@@ -241,7 +231,7 @@ func (suite *TypesTestSuite) TestIsJSON() {
 	for i, jsonStr := range suite.TestCases[JSON] {
 		isJSON := IsJSON(jsonStr)
 
-		assert.Truef(isJSON, "[%d] the value '%s' should be recognized as json", i, jsonStr)
+		assert.Truef(isJSON, "[suite.TestCases[JSON][%d]]: the value '%s' should be recognized as json", i, jsonStr)
 	}
 
 	for v := range suite.TestCases {
@@ -261,20 +251,83 @@ func (suite *TypesTestSuite) TestIsJSON() {
 
 		// Should return false.
 		isJSON := IsJSON(suite.TestCases[v][r])
-		assert.Falsef(isJSON, "[%s][%d] the value of type '%s' should not be considered as 'JSON'", v, r, string(v))
+		assert.Falsef(isJSON, "[suite.TestCases[%s][%d]]: the value of type '%s' should not be considered as 'JSON'", string(v), r, string(v))
 	}
 }
 
 func (suite *TypesTestSuite) TestIsURL() {
+	assert := assert2.New(suite.T())
 
+	for i, urlStr := range suite.TestCases[URL] {
+		isURL, urlV := IsURL(urlStr)
+
+		value, err := url.Parse(urlStr)
+		if err != nil {
+			panic(fmt.Errorf("[suite.TestCases[URL][%d]]: %s", i, err.Error()))
+		}
+
+		assert.Truef(isURL, "[suite.TestCases[URL][%d]]: the value should be recognized as a url", i)
+		assert.Equalf(value, urlV, "[suite.TestCases[URL][%d]]: value not converted correctly", i)
+	}
+
+	for v := range suite.TestCases {
+		if v == URL {
+			continue
+		}
+
+		r := rand.Intn(len(suite.TestCases[v]))
+
+		// Should return false and no convert the value.
+		isURL, i := IsURL(suite.TestCases[v][r])
+		assert.Falsef(isURL, "[suite.TestCases[%s][%d]]: the value of type '%s' should not be considered as a 'URL'", string(v), r, string(v))
+		assert.Nilf(i, "[suite.TestCases[%s][%d]]: if the value is not of type 'URL' the conversion should not be executed", string(v), r)
+	}
 }
 
 func (suite *TypesTestSuite) TestIsDate() {
+	assert := assert2.New(suite.T())
 
+	for i, dateStr := range suite.TestCases[Date] {
+		isDate, _ := IsDate(dateStr)
+
+		assert.Truef(isDate, "[suite.TestCases[Date][%d]]: the value should be recognized as a date", i)
+	}
+
+	for v := range suite.TestCases {
+		if v == Date {
+			continue
+		}
+
+		r := rand.Intn(len(suite.TestCases[v]))
+
+		// Should return false and no convert the value.
+		isDate, i := IsDate(suite.TestCases[v][r])
+		assert.Falsef(isDate, "[suite.TestCases[%s][%d]]: the value of type '%s' should not be considered as a 'Date'", string(v), r, string(v))
+		assert.Truef(i.IsZero(), "[suite.TestCases[%s][%d]]: if the value is not of type 'Date' the conversion should not be executed", string(v), r)
+	}
 }
 
 func (suite *TypesTestSuite) TestIsTime() {
+	assert := assert2.New(suite.T())
 
+	for i, timeStr := range suite.TestCases[Time] {
+		isTime, _ := IsTime(timeStr)
+
+		assert.Truef(isTime, "[suite.TestCases[Time][%d]]:the value should be recognized as a time", i)
+	}
+
+	for v := range suite.TestCases {
+		if v == Time {
+			continue
+		}
+
+		r := rand.Intn(len(suite.TestCases[v]))
+
+		// Should return false and no convert the value.
+		isTime, i := IsTime(suite.TestCases[v][r])
+		assert.Falsef(isTime, "[suite.TestCases[%s][%d]]: the value of type '%s' should not be considered as a 'Time'", string(v), r, string(v))
+		assert.Truef(i.IsZero(), "[suite.TestCases[%s][%d]]: if the value is not of type 'Time' the conversion should not be executed", string(v), r)
+	}
 }
 
 func (suite *TypesTestSuite) TestGetType() {
