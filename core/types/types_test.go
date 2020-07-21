@@ -331,7 +331,14 @@ func (suite *TypesTestSuite) TestIsTime() {
 }
 
 func (suite *TypesTestSuite) TestGetType() {
+	assert := assert2.New(suite.T())
 
+	for t, s := range suite.TestCases {
+		for i, st := range s {
+			returnedType := GetType(st)
+			assert.Equalf(t, returnedType, "[%d] the returned type is not which is supposed to be", i)
+		}
+	}
 }
 
 func (suite *TypesTestSuite) TearDownTest() {}
