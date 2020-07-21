@@ -8,7 +8,8 @@ The objective of this is basically have a centralized way of represent different
 import (
 	"encoding/json"
 	"net/url"
-	"regexp"
+	"os"
+	"path"
 	"strconv"
 	"time"
 )
@@ -73,33 +74,36 @@ func IsBool(value string) (isBool bool, convertedValue bool) {
 // IsPath is a function used to check if a string value haves the format of a path or not.
 // On case of positive result, returns the same value.
 func IsPath(value string) (bool, string) {
-	pathRgx := regexp.MustCompile(`^(:?/)[/+\w-?]+(\.[a-z]+)?$`)
-	if pathRgx.MatchString(value) {
+	_, err := os.Stat(value)
+
+	if os.IsNotExist(err) {
+		return true, path.Clean(value)
+	}
+
+	if err != nil {
 		return false, ""
 	}
-	return true, value
+
+	return true, path.Clean(value)
 }
 
 // IsJSON checks if the passed value has a JSON format or not.
 func IsJSON(value string) bool {
-	var s string
-	err := json.Unmarshal([]byte(value), &s)
-
-	return err == nil
+	return json.Valid([]byte(value))
 }
 
-func IsURL(value string) bool {
+func IsURL(value string) (bool, *url.URL) {
 	_, err := url.ParseRequestURI(value)
 	if err != nil {
-		return false
+		return false, nil
 	}
 
 	u, err := url.Parse(value)
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return false
+		return false, nil
 	}
 
-	return true
+	return true, u
 }
 
 func IsDate(value string) (r bool, parsedDate time.Time) {
@@ -143,16 +147,16 @@ func GetType(value string) PWType {
 		return Float
 	} else if isBool, _ := IsBool(value); isBool {
 		return Bool
-	} else if isPath, _ := IsPath(value); isPath {
-		return Path
 	} else if isJSON := IsJSON(value); isJSON {
 		return JSON
-	} else if isURL := IsURL(value); isURL {
+	} else if isURL, _ := IsURL(value); isURL {
 		return URL
 	} else if isDate, _ := IsDate(value); isDate {
 		return Date
 	} else if isTime, _ := IsTime(value); isTime {
 		return Time
+	} else if isPath, _ := IsPath(value); isPath {
+		return Path
 	} else {
 		return Text
 	}
