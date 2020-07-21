@@ -147,8 +147,6 @@ func GetType(value string) PWType {
 		return Float
 	} else if isBool, _ := IsBool(value); isBool {
 		return Bool
-	} else if isPath, _ := IsPath(value); isPath {
-		return Path
 	} else if isJSON := IsJSON(value); isJSON {
 		return JSON
 	} else if isURL, _ := IsURL(value); isURL {
@@ -157,6 +155,8 @@ func GetType(value string) PWType {
 		return Date
 	} else if isTime, _ := IsTime(value); isTime {
 		return Time
+	} else if isPath, _ := IsPath(value); isPath {
+		return Path
 	} else {
 		return Text
 	}
