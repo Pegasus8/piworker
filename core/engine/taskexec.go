@@ -20,7 +20,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func runTaskLoop(taskID string, taskChannel chan data.UserTask, managementChannel chan uint8, actionsQueue *queue.Queue) {
+func (engine *Engine) runTaskLoop(taskID string, taskChannel chan data.UserTask, managementChannel chan uint8, actionsQueue *queue.Queue) {
 	log.Info().Str("taskID", taskID).Msg("Task running, waiting for data...")
 
 	// Receive the task for first time.
@@ -36,6 +36,11 @@ func runTaskLoop(taskID string, taskChannel chan data.UserTask, managementChanne
 	defer ticker.Stop()
 
 	log.Info().Str("taskID", taskID).Int64("tickDuration", d).Msg("Tick duration obtained, starting task loop")
+
+	// Hook
+	if !engine.OnTaskLoopInit(taskID) {
+		return
+	}
 
 	for range ticker.C {
 		select {
@@ -77,7 +82,10 @@ func runTaskLoop(taskID string, taskChannel chan data.UserTask, managementChanne
 			// the task running the loop) is received on the engine.
 		}
 
-		triggered, err := runTrigger(taskReceived.Trigger, taskReceived.ID)
+		var beforeRunActions time.Time
+		var actionsExecutionDuration time.Duration
+
+		triggered, err := engine.runTrigger(taskReceived.Trigger, taskReceived.ID)
 		if err != nil {
 			log.Error().
 				Err(err).
@@ -91,18 +99,35 @@ func runTaskLoop(taskID string, taskChannel chan data.UserTask, managementChanne
 				goto skipTaskExecution
 			}
 
+			// Hook
+			if !engine.OnTriggerActivation(taskReceived.ID, &taskReceived.Trigger) {
+				return
+			}
+
 			log.Info().
 				Str("taskID", taskReceived.ID).
 				Str("triggerID", taskReceived.Trigger.ID).
 				Msg("[%s] Trigger with the ID '%s' activated, running actions...")
 
-			err = runActions(&taskReceived, actionsQueue)
+			beforeRunActions = time.Now()
+			err = engine.runActions(&taskReceived, actionsQueue)
+			actionsExecutionDuration = time.Since(beforeRunActions)
+
 			if err != nil {
 				log.Error().
 					Str("taskID", taskReceived.ID).
 					Err(err).
 					Msg("Error when running the actions of the task")
+
+				// Hook
+				engine.OnTaskExecutionFail(taskReceived.ID, err)
+
 				break
+			}
+
+			// Hook
+			if !engine.OnTaskExecutionSuccess(taskReceived.ID, actionsExecutionDuration) {
+				return
 			}
 
 			err = setAsRecentlyExecuted(taskReceived.ID)
@@ -145,7 +170,7 @@ func runTaskLoop(taskID string, taskChannel chan data.UserTask, managementChanne
 	}
 }
 
-func runTrigger(trigger data.UserTrigger, parentTaskID string) (bool, error) {
+func (engine *Engine) runTrigger(trigger data.UserTrigger, parentTaskID string) (bool, error) {
 	for _, pwTrigger := range triggersList.TRIGGERS {
 		if trigger.ID == pwTrigger.ID {
 			for _, arg := range trigger.Args {
@@ -169,7 +194,7 @@ func runTrigger(trigger data.UserTrigger, parentTaskID string) (bool, error) {
 	return false, fmt.Errorf("the trigger with the ID '%s' cannot be found", trigger.ID)
 }
 
-func runActions(task *data.UserTask, actionsQueue *queue.Queue) error {
+func (engine *Engine) runActions(task *data.UserTask, actionsQueue *queue.Queue) error {
 	log.Info().Str("taskID", task.ID).Msg("Running actions...")
 	startTime := time.Now()
 
@@ -219,9 +244,18 @@ func runActions(task *data.UserTask, actionsQueue *queue.Queue) error {
 							}
 						}
 
+						beforeActionExecution := time.Now()
+
 						// Send the action execution to the queue
 						execResult := actionsQueue.AddJob(task.ID, action, &userAction, *chainedResult)
 						r := <-execResult
+
+						actionExecutionDuration := time.Since(beforeActionExecution)
+
+						// Hook
+						if !engine.OnActionRun(task.ID, &userAction, actionExecutionDuration) {
+							return nil
+						}
 
 						// Set the returned chr (chained result) to our main instance of the ChainedResult struct (`chainedResult`).
 						// This will be given to the next action (if exists).

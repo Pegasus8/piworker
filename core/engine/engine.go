@@ -14,8 +14,14 @@ import (
 )
 
 // StartEngine is the function used to start the Dynamic Engine
-func StartEngine() {
+func (engine *Engine) Start() {
 	log.Info().Msg("Starting the Dynamic Engine...")
+
+	// Hook
+	if !engine.OnStart() {
+		return
+	}
+
 	defer func() {
 		err := os.RemoveAll(TempDir)
 		if err != nil {
@@ -84,7 +90,7 @@ func StartEngine() {
 		// Create the channel for each task (with active state).
 		tasksGoroutines[task.ID] = make(chan data.UserTask)
 		managementChannels[task.ID] = make(chan uint8)
-		go runTaskLoop(task.ID, tasksGoroutines[task.ID], managementChannels[task.ID], actionsQ)
+		go engine.runTaskLoop(task.ID, tasksGoroutines[task.ID], managementChannels[task.ID], actionsQ)
 
 		tasksGoroutines[task.ID] <- task
 
@@ -98,13 +104,27 @@ func StartEngine() {
 	log.Info().Msg("Starting the WebUI server...")
 	go backend.Run()
 
+	// Hook
+	if !engine.OnBackendInit() {
+		return
+	}
+
 	// Start the stats recollection.
 	log.Info().Msg("Starting the stats loop...")
 	go stats.StartLoop(stopSignal)
 
+	// Hook
+	if !engine.OnStatsLoopInit() {
+		return
+	}
+
 	go func() {
 		for {
 			event := <-data.EventBus
+
+			if !engine.OnEvent(&event) {
+				continue
+			}
 
 			switch event.Type {
 			case data.Added:
@@ -128,7 +148,7 @@ func StartEngine() {
 					// Because the task is new, the proper channel and loop must be initialized.
 					tasksGoroutines[t.ID] = make(chan data.UserTask)
 					managementChannels[t.ID] = make(chan uint8)
-					go runTaskLoop(t.ID, tasksGoroutines[t.ID], managementChannels[t.ID], actionsQ)
+					go engine.runTaskLoop(t.ID, tasksGoroutines[t.ID], managementChannels[t.ID], actionsQ)
 
 					// Once the loop and the channels are initialized is time to send the new task.
 					tasksGoroutines[t.ID] <- *t
@@ -179,7 +199,7 @@ func StartEngine() {
 							// so the task must be managed as a new one.
 							tasksGoroutines[t.ID] = make(chan data.UserTask)
 							managementChannels[t.ID] = make(chan uint8)
-							go runTaskLoop(t.ID, tasksGoroutines[t.ID], managementChannels[t.ID], actionsQ)
+							go engine.runTaskLoop(t.ID, tasksGoroutines[t.ID], managementChannels[t.ID], actionsQ)
 
 							// Once the loop and the channels are initialized is time to send the new task.
 							tasksGoroutines[t.ID] <- *t
@@ -237,12 +257,19 @@ func StartEngine() {
 	}()
 
 	<-signals.Shutdown
+
+	// Hook
+	engine.OnShutdown()
 }
 
 func updateTStatsDB() {
 	stats.Current.RLock()
-	stats.StoreTStats(&stats.Current.TasksStats)
+	err := stats.StoreTStats(&stats.Current.TasksStats)
 	stats.Current.RUnlock()
+
+	if err != nil {
+		log.Error().Err(err).Msg("Error when storing tasks stats")
+	}
 }
 
 func checkTempDir() error {
