@@ -110,7 +110,7 @@ func GetLocalVariableName(argument string) string {
 	match := localVariableRgx.FindStringSubmatch(argument)
 	var variableName string
 	if match != nil {
-		variableName = match[1]
+		variableName = match[2]
 	}
 
 	return variableName
@@ -123,7 +123,7 @@ func GetGlobalVariableName(argument string) string {
 	match := globalVariableRgx.FindStringSubmatch(argument)
 	var variableName string
 	if match != nil {
-		variableName = match[1]
+		variableName = match[2]
 	}
 
 	return variableName

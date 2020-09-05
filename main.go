@@ -9,7 +9,7 @@ import (
 
 	"github.com/Pegasus8/piworker/core/configs"
 	"github.com/Pegasus8/piworker/core/data"
-	"github.com/Pegasus8/piworker/core/engine"
+	engine2 "github.com/Pegasus8/piworker/core/engine"
 	"github.com/Pegasus8/piworker/core/logs"
 	"github.com/Pegasus8/piworker/core/signals"
 	"github.com/Pegasus8/piworker/core/stats"
@@ -58,8 +58,12 @@ func start() {
 	log.Info().Int("length", len(*localVariables)).Msg("Local variables read correctly!, saving them on the variable")
 	uservariables.LocalVariablesSlice = localVariables
 
-	// Start the Dynamic Engine
-	engine.StartEngine()
+	// Initialize the engine.
+	engine := engine2.NewEngine()
+
+	// TODO Use hooks.
+
+	engine.Start()
 }
 
 func prepareLogsDirectory(dir string) error {
