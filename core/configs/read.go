@@ -5,24 +5,20 @@ import (
 	"github.com/rs/zerolog/log"
 	"io/ioutil"
 	"os"
-	"path/filepath"
 )
 
-// ReadFromFile is a method used to read the configs file and parse the content into
-// the `Configs` struct.
-func ReadFromFile() error {
-	f := filepath.Join(Path, Filename)
-
-	mutex.Lock()
-	defer mutex.Unlock()
-
-	jsonData, err := os.Open(f)
+// readFromFile is a function that reads the file that stores the configs and returns it content parsed in the struct
+// `Configs`.
+func readFromFile(path string) (*Configs, error) {
+	jsonData, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return ErrNoConfigFileDetected
+			return nil, ErrNoConfigFileDetected
 		}
-		return err
+
+		return nil, err
 	}
+
 	defer func() {
 		err := jsonData.Close()
 		if err != nil {
@@ -32,17 +28,14 @@ func ReadFromFile() error {
 
 	byteContent, err := ioutil.ReadAll(jsonData)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	var cfg Configs
 	err = json.Unmarshal(byteContent, &cfg)
 	if err != nil {
-		return ErrConfigFileCorrupted
+		return &cfg, ErrConfigFileCorrupted
 	}
 
-	// Update configs variable
-	CurrentConfigs = &cfg
-
-	return nil
+	return &cfg, nil
 }

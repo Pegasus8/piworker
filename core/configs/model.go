@@ -6,14 +6,16 @@ import (
 
 // Configs is the struct used to store all PiWorker configurations.
 type Configs struct {
+	Behavior   Behavior   `json:"behavior"`
+	Security   Security   `json:"security"`
+	Backups    Backups    `json:"backups"`
+	APIConfigs APIConfigs `json:"api-configs"`
+	Updates    Updates    `json:"updates"`
+	WebUI      WebUI      `json:"webui"`
+	Users      []User     `json:"users"`
+
+	path         string
 	sync.RWMutex `json:"-"`
-	Behavior     Behavior   `json:"behavior"`
-	Security     Security   `json:"security"`
-	Backups      Backups    `json:"backups"`
-	APIConfigs   APIConfigs `json:"api-configs"`
-	Updates      Updates    `json:"updates"`
-	WebUI        WebUI      `json:"webui"`
-	Users        []User     `json:"users"`
 }
 
 // Behavior is the struct used to store Behavior configs of PiWorker.
@@ -21,13 +23,13 @@ type Behavior struct {
 	LoopSleep int64 `json:"loop-sleep(ms)"`
 }
 
-// Security is the struct used to store Security configs of PiWorker.
+// Security is the struct used to store configs related with the security of PiWorker.
 type Security struct {
 	DeniedIPs          []string `json:"denied-ips"`
 	LocalNetworkAccess bool     `json:"local-network-access"`
 }
 
-// Backups is the struct used to store Backups configs of PiWorker.
+// Backups is the struct used to store configs related with the backups of PiWorker (not implemented yet).
 type Backups struct {
 	BackupData        bool   `json:"backup-data"`
 	BackupConfigs     bool   `json:"backup-configs"`
@@ -36,7 +38,7 @@ type Backups struct {
 	Freq              int16  `json:"frequency(hs)"`
 }
 
-// APIConfigs is the struct used to store API configs of PiWorker.
+// APIConfigs is the struct used to store configs related with the different APIs of PiWorker.
 type APIConfigs struct {
 	// APIs States
 	NewTaskAPI     bool `json:"new-task-api"`
@@ -53,14 +55,14 @@ type APIConfigs struct {
 	TokenDuration int64  `json:"token-duration(hs)"`
 }
 
-// Updates is the struct used to store update configs of PiWorker.
+// Updates is the struct used to store configs related with the self-update of PiWorker (not implemented yet).
 type Updates struct {
 	DailyCheck     bool `json:"daily-check"`
 	AutoDownload   bool `json:"auto-download"` // Only if daily check is active
 	BugsPrevention bool `json:"bugs-prevention"`
 }
 
-// WebUI is the struct used to store web user interface configs of PiWorker.
+// WebUI is the struct used to store configs related with the WebUI of PiWorker.
 type WebUI struct {
 	Enabled       bool   `json:"enabled"`
 	ListeningPort string `json:"listening-port"`
@@ -71,4 +73,15 @@ type User struct {
 	Username     string `json:"username"`
 	PasswordHash string `json:"password-hash"`
 	Admin        bool   `json:"admin"`
+}
+
+// Sync writes the configs into the proper file, overwriting the previous content of it.
+func (c *Configs) Sync() error {
+	return writeToFile(c.path, c, true)
+}
+
+// unsafeSync does the same that `Configs.Sync()` with the difference that if does not lock the `RWMutex`, letting the
+// responsibility of doing it to the developer. If the `RWMutex` is not locked, a **race condition** can be caused.
+func (c *Configs) unsafeSync() error {
+	return writeToFile(c.path, c, false)
 }
