@@ -11,7 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func handleFlags() {
+func handleFlags(cfg *configs.Configs) {
 	newUserFlag := flag.Bool("new-user", false, "create a new user")
 	username := flag.String("username", "", "the name of the new user")
 	password := flag.String("password", "", "the password of the new user")
@@ -54,23 +54,23 @@ func handleFlags() {
 	}
 
 	if *newUserFlag {
-		newUserFlagHandler(*username, *password, *admin)
+		newUserFlagHandler(cfg, *username, *password, *admin)
 		os.Exit(0)
 	}
 
 	if *changeUserPasswordFlag {
-		changeUserPasswordFlagHandler(*username, *newPassword)
+		changeUserPasswordFlagHandler(cfg, *username, *newPassword)
 		os.Exit(0)
 	}
 }
 
-func newUserFlagHandler(username, password string, admin bool) {
+func newUserFlagHandler(cfg *configs.Configs, username, password string, admin bool) {
 	if username == "" || password == "" {
 		fmt.Println("Some of the flags used to create a new user are empty (username and/or password) which is not allowed.")
 		os.Exit(1)
 	}
 
-	err := configs.NewUser(username, password, admin)
+	err := cfg.NewUser(username, password, admin)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -79,13 +79,13 @@ func newUserFlagHandler(username, password string, admin bool) {
 	fmt.Println("New user created correctly")
 }
 
-func changeUserPasswordFlagHandler(username, newPassword string) {
+func changeUserPasswordFlagHandler(cfg *configs.Configs, username, newPassword string) {
 	if username == "" || newPassword == "" {
 		fmt.Println("Some of the flags used to change the password of a user are empty (username and/or new password) which is not allowed.")
 		os.Exit(1)
 	}
 
-	err := configs.ChangeUserPassword(username, newPassword)
+	err := cfg.ChangeUserPassword(username, newPassword)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)

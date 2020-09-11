@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"github.com/Pegasus8/piworker/core/configs"
 	"github.com/Pegasus8/piworker/core/data"
 	"time"
 )
@@ -18,6 +19,9 @@ type Engine struct {
 	OnTaskExecutionFail    func(id TaskID, err error) bool
 	OnTaskExecutionSuccess func(id TaskID, executionDuration time.Duration) bool
 	OnEvent                func(event *data.Event) bool
+
+	userdataDB *data.DatabaseInstance
+	configs    *configs.Configs
 }
 
 type Run interface {
@@ -25,7 +29,7 @@ type Run interface {
 }
 
 // NewEngine returns a new instance of the `Engine` struct.
-func NewEngine() *Engine {
+func NewEngine(userdataDB *data.DatabaseInstance, configs *configs.Configs) *Engine {
 	e := &Engine{}
 
 	/*
@@ -66,6 +70,9 @@ func NewEngine() *Engine {
 	e.OnEvent = func(_ *data.Event) bool {
 		return true
 	}
+
+	e.userdataDB = userdataDB
+	e.configs = configs
 
 	return e
 }

@@ -14,11 +14,22 @@ import (
 	"github.com/Pegasus8/piworker/core/signals"
 	"github.com/Pegasus8/piworker/core/stats"
 	"github.com/Pegasus8/piworker/core/uservariables"
-	"github.com/Pegasus8/piworker/utilities/files"
-
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/natefinch/lumberjack.v2"
+)
+
+const (
+	userdataDBPath = "./data"
+	userdataDBFilename = "tasks.db"
+
+	statsDBPath = "./statistics"
+	statsDBFilename = "stats.db"
+
+	configsPath = userdataDBPath
+	configsFilename = "configs.json"
+
+	uservariablesPath = userdataDBPath + "/" + ".variables"
 )
 
 func main() {
@@ -26,18 +37,30 @@ func main() {
 }
 
 func start() {
-	err := initConfigs()
+	cfg, err := configs.NewConfig(configsPath, configsFilename)
 	if err != nil {
 		fmt.Println("Error when reading configs:", err)
 		os.Exit(1)
 	}
-	handleFlags()
+
+	handleFlags(cfg)
 
 	log.Info().Msg("Starting PiWorker...")
 
 	uservariables.Init()
 	stats.Init()
-	data.Init()
+
+	tasksDB, err := data.NewDB(userdataDBPath, userdataDBFilename)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Error when initializing database of user tasks")
+	}
+
+	defer func() {
+		err := tasksDB.Close()
+		if err != nil {
+			log.Fatal().Err(err).Msg("Error when closing the SQLite3 database of user tasks")
+		}
+	}()
 
 	signals.Shutdown = make(chan os.Signal)
 	signal.Notify(signals.Shutdown, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
@@ -59,7 +82,7 @@ func start() {
 	uservariables.LocalVariablesSlice = localVariables
 
 	// Initialize the engine.
-	engine := engine2.NewEngine()
+	engine := engine2.NewEngine(tasksDB, cfg)
 
 	// TODO Use hooks.
 
@@ -91,25 +114,4 @@ func setLogSettings() {
 		MaxAge:    7,
 		LocalTime: true,
 	})
-}
-
-func initConfigs() error {
-	configsPath := filepath.Join(configs.Path, configs.Filename)
-	exists, err := files.Exists(configsPath)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		configs.CurrentConfigs = &configs.DefaultConfigs
-		err = configs.WriteToFile()
-		if err != nil {
-			return err
-		}
-	} else {
-		err = configs.ReadFromFile()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }

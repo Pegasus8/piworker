@@ -1,16 +1,16 @@
 package auth
 
 import (
-	"sync"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	// "github.com/Pegasus8/piworker/utilities/files"
 	"github.com/Pegasus8/piworker/core/configs"
 
-	jwt "github.com/dgrijalva/jwt-go"
+	"github.com/dgrijalva/jwt-go"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 )
@@ -20,8 +20,14 @@ var authorizedWSConns = struct {
 	clients []client
 	sync.RWMutex
 }{}
+var cfg *configs.Configs
 
-// NewJWT is a function to generate a new JWT tokken
+// SetCfg sets the configs to apply on the different functions of the package.
+func SetCfg(c *configs.Configs) {
+	cfg = c
+}
+
+// NewJWT is a function to generate a new JWT token
 func NewJWT(claim CustomClaims) (jwtToken string, err error) {
 	token := jwt.New(jwt.SigningMethodHS256)
 	// claims := token.Claims.(jwt.MapClaims)
@@ -44,16 +50,16 @@ func NewJWT(claim CustomClaims) (jwtToken string, err error) {
 func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
-		configs.CurrentConfigs.RLock()
-		if !configs.CurrentConfigs.APIConfigs.RequireToken {
-			configs.CurrentConfigs.RUnlock()
+		cfg.RLock()
+		if !cfg.APIConfigs.RequireToken {
+			cfg.RUnlock()
 			endpoint(w, r)
 		}
-		configs.CurrentConfigs.RUnlock()
+		cfg.RUnlock()
 
 		if r.Header["Authorization"] != nil {
 
-			// Prevents panic if an empty string is sended as token.
+			// Prevents panic if an empty string is sent as token.
 			if r.Header["Authorization"][0] == "" {
 				log.Warn().
 					Str("remoteAddr", r.RemoteAddr).
@@ -66,7 +72,7 @@ func IsAuthorized(endpoint func(http.ResponseWriter, *http.Request)) http.Handle
 
 			token, err := jwt.ParseWithClaims(authHeader, &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
 				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-					return nil, fmt.Errorf("The token is using an incorrect signing method")
+					return nil, fmt.Errorf("the token is using an incorrect signing method")
 				}
 				return signingKey, nil
 			})
@@ -161,7 +167,7 @@ func NewWSTicket(clientAddr string) (ticket string) {
 		ClientAddr: clientAddr,
 		Ticket:     ticket,
 	}
-	
+
 	authorizedWSConns.Lock()
 	authorizedWSConns.clients = append(authorizedWSConns.clients, c)
 	authorizedWSConns.Unlock()
@@ -193,20 +199,27 @@ func IsWSAuthorized(clientAddr, ticket string) bool {
 // CheckSigningKey checks if the SigningKey on the configs already exists. If not, it will be
 // generated and saved on the configs file.
 func CheckSigningKey() {
-	// Not needed to use CurrentConfigs.RLock() because this happens only one time: when the package
-	// is imported for first time.
-	if configs.CurrentConfigs.APIConfigs.SigningKey == "" {
-		generateSigningKey()
-	}
-	signingKey = []byte(configs.CurrentConfigs.APIConfigs.SigningKey)
-}
+	cfg.RLock()
 
-func generateSigningKey() {
-	key := uuid.New()
-	configs.CurrentConfigs.APIConfigs.SigningKey = key.String()
-	// Write the updated configs (with the SigningKey)
-	err := configs.WriteToFile()
-	if err != nil {
-		log.Fatal().Err(err).Msg("Cannot write the signing key in the configs file")
+	if cfg.APIConfigs.SigningKey == "" {
+		cfg.RUnlock()
+		cfg.Lock()
+
+		key := uuid.New()
+		cfg.APIConfigs.SigningKey = key.String()
+
+		cfg.Unlock()
+
+		// Write the updated configs (with the SigningKey)
+		err := cfg.Sync()
+		if err != nil {
+			log.Fatal().Err(err).Msg("Cannot write the signing key in the configs file")
+		}
+
+		cfg.RLock()
 	}
+
+	signingKey = []byte(cfg.APIConfigs.SigningKey)
+
+	cfg.RUnlock()
 }

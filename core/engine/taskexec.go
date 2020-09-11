@@ -9,7 +9,6 @@ import (
 
 	"github.com/Pegasus8/piworker/core/engine/queue"
 
-	"github.com/Pegasus8/piworker/core/configs"
 	"github.com/Pegasus8/piworker/core/data"
 	actionsList "github.com/Pegasus8/piworker/core/elements/actions/models"
 	actionsModel "github.com/Pegasus8/piworker/core/elements/actions/shared"
@@ -29,9 +28,7 @@ func (engine *Engine) runTaskLoop(taskID string, taskChannel chan data.UserTask,
 	log.Info().Str("taskID", taskID).Msg("Data received, getting tick duration config before start the loop...")
 
 	// Load configs
-	configs.CurrentConfigs.Lock()
-	d := configs.CurrentConfigs.Behavior.LoopSleep
-	configs.CurrentConfigs.Unlock()
+	d := engine.configs.Behavior.LoopSleep
 	ticker := time.NewTicker(time.Millisecond * time.Duration(d))
 	defer ticker.Stop()
 
@@ -164,7 +161,7 @@ func (engine *Engine) runTaskLoop(taskID string, taskChannel chan data.UserTask,
 	}
 	data.EventBus <- event
 	// And finally, update the state of the task on the database.
-	err := data.UpdateTaskState(taskReceived.ID, data.StateTaskFailed)
+	err := engine.userdataDB.UpdateTaskState(taskReceived.ID, data.StateTaskFailed)
 	if err != nil {
 		log.Panic().Err(err).Str("taskID", taskReceived.ID).Msg("Error when trying to update the state of the task to 'failed'")
 	}
@@ -203,7 +200,7 @@ func (engine *Engine) runActions(task *data.UserTask, actionsQueue *queue.Queue)
 	log.Info().Str("taskID", task.ID).Msgf("Changing task state to '%s'\n", data.StateTaskOnExecution)
 
 	// Set task state to on-execution
-	err := data.UpdateTaskState(task.ID, data.StateTaskOnExecution)
+	err := engine.userdataDB.UpdateTaskState(task.ID, data.StateTaskOnExecution)
 	if err != nil {
 		log.Error().
 			Str("taskID", task.ID).
@@ -296,10 +293,10 @@ func (engine *Engine) runActions(task *data.UserTask, actionsQueue *queue.Queue)
 
 	}
 
-	// Before the begin of actions's execution, the only possible state of the task is 'active' (otherwise the task won't be here).
+	// Before the begin of actions' execution, the only possible state of the task is 'active' (otherwise the task won't be here).
 	// So now, after the execution of all the actions, let's restore the state to its previous value (remember that while the task is
 	// being executed the state will be 'on-execution').
-	err = data.UpdateTaskState(task.ID, data.StateTaskActive)
+	err = engine.userdataDB.UpdateTaskState(task.ID, data.StateTaskActive)
 	if err != nil {
 		log.Fatal().
 			Str("taskID", task.ID).
@@ -316,7 +313,7 @@ func (engine *Engine) runActions(task *data.UserTask, actionsQueue *queue.Queue)
 
 	// Add the execution time to the calculation of the field `stats.Current.AverageExecutionTime`.
 	stats.Current.Lock()
-	stats.Current.TasksStats.NewAvgObs(executionTime)
+	stats.Current.TasksStats.NewAvgObs(executionTime) // TODO elaborate a new way to calculate the average.
 	stats.Current.Unlock()
 
 	return nil
