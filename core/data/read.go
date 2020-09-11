@@ -6,12 +6,12 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// GetTasks is a func that returns all the user tasks from the table `Tasks`, from the SQLite3 database.
-func GetTasks() (*[]UserTask, error) {
+// GetTasks is a method that returns all the user tasks stored in the database.
+func (db *DatabaseInstance) GetTasks() (*[]UserTask, error) {
 	sqlStatement := "SELECT * FROM Tasks;"
 	var tasks []UserTask
 
-	row, err := DB.Query(sqlStatement)
+	row, err := db.Query(sqlStatement)
 	if err != nil {
 		return &tasks, err
 	}
@@ -60,9 +60,8 @@ func GetTasks() (*[]UserTask, error) {
 	return &tasks, nil
 }
 
-// GetTaskByName is a function that returns a specific task,
-// searching it by the name on the tasks database.
-func GetTaskByName(name string) (taskFound *UserTask, err error) {
+// GetTaskByName is a method that returns a specific task, searching it by the name on the tasks database.
+func (db *DatabaseInstance) GetTaskByName(name string) (taskFound *UserTask, err error) {
 	sqlStatement := `
 		SELECT * FROM Tasks
 		WHERE Name=?;
@@ -71,7 +70,7 @@ func GetTaskByName(name string) (taskFound *UserTask, err error) {
 	var trigger string
 	var actions string
 
-	row, err := DB.Query(sqlStatement, name)
+	row, err := db.Query(sqlStatement, name)
 	if err != nil {
 		return &task, err
 	}
@@ -115,9 +114,8 @@ func GetTaskByName(name string) (taskFound *UserTask, err error) {
 	return &task, nil
 }
 
-// GetTaskByID is a function that returns a specific task,
-// searching it by the ID on the tasks database.
-func GetTaskByID(ID string) (taskFound *UserTask, err error) {
+// GetTaskByID is a method that returns a specific task, searching it by the ID on the database.
+func (db *DatabaseInstance) GetTaskByID(ID string) (taskFound *UserTask, err error) {
 	sqlStatement := `
 		SELECT * FROM Tasks
 		WHERE ID=?;
@@ -126,7 +124,7 @@ func GetTaskByID(ID string) (taskFound *UserTask, err error) {
 	var trigger string
 	var actions string
 
-	row, err := DB.Query(sqlStatement, ID)
+	row, err := db.Query(sqlStatement, ID)
 	if err != nil {
 		return &task, err
 	}
@@ -170,38 +168,36 @@ func GetTaskByID(ID string) (taskFound *UserTask, err error) {
 	return &task, nil
 }
 
-// GetActiveTasks is a function that returns the tasks
-// with the state `active` from the tasks database.
-func GetActiveTasks() (activeTasks *[]UserTask, err error) {
-	return getTasksByState(StateTaskActive)
+// GetActiveTasks is a method that returns the tasks with the state `StateTaskActive`.
+func (db *DatabaseInstance) GetActiveTasks() (activeTasks *[]UserTask, err error) {
+	return db.getTasksByState(StateTaskActive)
 }
 
-// GetInactiveTasks is a function that returns the tasks
-// with the state `inactive` from the tasks database.
-func GetInactiveTasks() (inactiveTasks *[]UserTask, err error) {
-	return getTasksByState(StateTaskInactive)
+// GetInactiveTasks is a method that returns the tasks with the state
+// `StateTaskInactive`.
+func (db *DatabaseInstance) GetInactiveTasks() (inactiveTasks *[]UserTask, err error) {
+	return db.getTasksByState(StateTaskInactive)
 }
 
-// GetFailedTasks is a function that returns the tasks
-// with the state `failed` from the tasks database.
-func GetFailedTasks() (failedTasks *[]UserTask, err error) {
-	return getTasksByState(StateTaskFailed)
+// GetFailedTasks is a method that returns the tasks with the state `StateTaskFailed`.
+func (db *DatabaseInstance) GetFailedTasks() (failedTasks *[]UserTask, err error) {
+	return db.getTasksByState(StateTaskFailed)
 }
 
-// GetOnExecutionTasks is a method of the UserData struct that returns the tasks
-// with the state `on-execution`.
-func GetOnExecutionTasks() (onExecutionTasks *[]UserTask, err error) {
-	return getTasksByState(StateTaskOnExecution)
+// GetOnExecutionTasks is a method that returns the tasks with the state
+// `StateTaskOnExecution`.
+func (db *DatabaseInstance) GetOnExecutionTasks() (onExecutionTasks *[]UserTask, err error) {
+	return db.getTasksByState(StateTaskOnExecution)
 }
 
-func getTasksByState(state TaskState) (matchedTasks *[]UserTask, err error) {
+func (db *DatabaseInstance) getTasksByState(state TaskState) (matchedTasks *[]UserTask, err error) {
 	sqlStatement := `
 		SELECT * FROM Tasks
 		WHERE State=?;
 	`
 	var tasks []UserTask
 
-	row, err := DB.Query(sqlStatement, state)
+	row, err := db.Query(sqlStatement, state)
 	if err != nil {
 		return &tasks, err
 	}
