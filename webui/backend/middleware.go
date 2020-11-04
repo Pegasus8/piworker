@@ -11,16 +11,11 @@ import (
 
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var tls bool
-		if r.TLS != nil {
-			tls = true
-		}
-
 		log.Info().
 			Str("URI", r.RequestURI).
 			Str("method", r.Method).
 			Str("remoteAddr", r.RemoteAddr).
-			Bool("tls", tls).
+			Bool("tls", r.TLS != nil).
 			Int64("contentLength", r.ContentLength).
 			Msg("Request received")
 
@@ -41,7 +36,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 					Str("URI", r.RequestURI).
 					Str("method", r.Method).
 					Str("remoteAddr", r.RemoteAddr).
-					Bool("tls", tls).
+					Bool("tls", r.TLS != nil).
 					Int64("contentLength", r.ContentLength).
 					Msg("IP blacklisted. Request rejected")
 
