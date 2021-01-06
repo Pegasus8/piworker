@@ -12,7 +12,7 @@ require (
 	github.com/gorilla/websocket v1.4.2
 	github.com/kardianos/service v1.2.0
 	github.com/markbates/pkger v0.17.1
-	github.com/mattn/go-sqlite3 v2.0.3+incompatible
+	github.com/mattn/go-sqlite3 v1.14.6
 	github.com/rs/zerolog v1.20.0
 	github.com/shirou/gopsutil v2.20.9+incompatible
 	github.com/stretchr/testify v1.6.1
