@@ -23,12 +23,12 @@ bash -c "$(curl -sSL https://github.com/Pegasus8/piworker/raw/master/install.sh)
 3. Check if you have `git` installed. If not (again), get it from [here](https://git-scm.com/downloads).
 4. Install [pkger](https://github.com/markbates/pkger) in your `GOPATH` running `go get github.com/markbates/pkger/cmd/pkger`.
 5. Download the source code: `git clone https://github.com/Pegasus8/piworker`.
-6. Once downloaded, go inside the directory `cd PiWorker/`.
+6. Once downloaded, go inside the directory `cd piworker/`.
 7. Go to the dir of the frontend `cd webui/frontend/`, install the dependencies `npm install`, and compile it `npm run build`.
 8. Go back to the root PiWorker directory `cd ../..`.
 9. Execute `pkger` to include the frontend inside the binary.
-10. Compile the entire project (`output_dir` is the path where the executable will be saved): `go build -o <output_dir>`. In my case, I prefer save the executable on the directory `$HOME/PiWorker/`, so I will run the command `go build -o $HOME/PiWorker/`. *Note: the dir used must exist before the compiling.*
-11. Go to the directory where you saved the executable: `cd <output_dir>`. In my case is `$HOME/PiWorker/`, so I execute: `cd $HOME/PiWorker/`.
+10. Compile the entire project (`output_dir` is the path where the executable will be saved): `go build -o <output_dir>`. In my case, I prefer save the executable on the directory `$HOME/piworker/`, so I will run the command `go build -o $HOME/piworker/`. *Note: the dir used must exist before the compiling.*
+11. Go to the directory where you saved the executable: `cd <output_dir>`. In my case is `$HOME/piworker/`, so I execute: `cd $HOME/piworker/`.
 12. Install the service of P.W. running the following command: `sudo ./piworker --service install`. *Why `sudo`?* Because you need `root` privileges to add a new service to the system. *The service **must** be installed?* No, isn't something essential. If you prefer don't install it, remember that P.W. won't be executed when you reboot the system.
 13. **IMPORTANT** - Make a new user before start the service: `./piworker --new-user --username <your_username> --password <your_password> --admin`. Replace `<your_username>` with the username you will use and `<your_password>` with the password. Also, the `--admin` flag can be avoided if you don't want to give admin privileges to the user. *Note: you can add more users if you want.*
 14. Optional (but recommended) - Generate a self-signed certificate for a secure connection (https) with the WebUI (**Warning**: **don't use the WebUI/REST APIs from outside the [LAN](https://en.wikipedia.org/wiki/Local_area_network)**. As a software in early development, can contain vulnerabilities that can be exploited by more experienced people with malicious intentions):
