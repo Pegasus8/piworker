@@ -6,8 +6,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// NewTask is a function used to add a new task to the table 'Tasks', on the SQLite3 database.
-func NewTask(task *UserTask) error {
+// NewTask is a function used to add a new task to the database.
+func (db *DatabaseInstance) NewTask(task *UserTask) error {
 	if c := checkIntegrity(task); !c {
 		return ErrIntegrity
 	}
@@ -27,7 +27,7 @@ func NewTask(task *UserTask) error {
 	// Set the task ID
 	task.ID = uuid.New().String()
 
-	stmt, err := DB.Prepare(sqlStatement)
+	stmt, err := db.Prepare(sqlStatement)
 	if err != nil {
 		return err
 	}

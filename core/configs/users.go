@@ -3,8 +3,8 @@ package configs
 import "golang.org/x/crypto/bcrypt"
 
 // NewUser is the function used to add a new user.
-func NewUser(username, password string, admin bool) error {
-	if usernameExists(username) {
+func (c *Configs) NewUser(username, password string, admin bool) error {
+	if c.usernameExists(username) {
 		return ErrUsernameExists
 	}
 
@@ -19,47 +19,39 @@ func NewUser(username, password string, admin bool) error {
 		admin,
 	}
 
-	CurrentConfigs.Lock()
-	CurrentConfigs.Users = append(CurrentConfigs.Users, newUser)
-	CurrentConfigs.Unlock()
-	err = WriteToFile()
-	if err != nil {
-		return err
-	}
+	c.Lock()
+	defer c.Unlock()
 
-	return nil
+	c.Users = append(c.Users, newUser)
+
+	return c.unsafeSync()
 }
 
 // DeleteUser is used to delete a existing users.
-func DeleteUser(username string) error {
-	// TODO Verify if the user that executes this function (from the API)
-	// is an admin user.
-	CurrentConfigs.RLock()
-	for index, user := range CurrentConfigs.Users {
-		if user.Username == username {
-			CurrentConfigs.RUnlock()
-			CurrentConfigs.Lock()
-			CurrentConfigs.Users = append(
-				CurrentConfigs.Users[:index], CurrentConfigs.Users[index+1:]...,
-			)
-			CurrentConfigs.Unlock()
-			err := WriteToFile()
-			if err != nil {
-				return err
-			}
+func (c *Configs) DeleteUser(username string) error {
+	// TODO Verify if the user that executes this function (from the API) is an admin user.
+	c.Lock()
+	defer c.Unlock()
 
-			return nil
+	for index, user := range c.Users {
+		if user.Username == username {
+			c.Users = append(
+				c.Users[:index], c.Users[index+1:]...,
+			)
+
+			return c.unsafeSync()
 		}
 	}
-	CurrentConfigs.RUnlock()
+
 	return ErrUserNotFound
 }
 
 // AuthUser is used to authenticate a user.
-func AuthUser(username, password string) (user User, authenticated bool) {
-	CurrentConfigs.RLock()
-	defer CurrentConfigs.RUnlock()
-	for _, user := range CurrentConfigs.Users {
+func (c *Configs) AuthUser(username, password string) (user User, authenticated bool) {
+	c.RLock()
+	defer c.RUnlock()
+
+	for _, user := range c.Users {
 		if user.Username == username {
 			err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
 			if err != nil {
@@ -72,36 +64,31 @@ func AuthUser(username, password string) (user User, authenticated bool) {
 }
 
 // ChangeUserPassword is a function used to change the password of a user.
-func ChangeUserPassword(username, newPassword string) error {
-	CurrentConfigs.RLock()
+func (c *Configs) ChangeUserPassword(username, newPassword string) error {
+	c.Lock()
+	defer c.Unlock()
 
-	for _, user := range CurrentConfigs.Users {
+	for _, user := range c.Users {
 		if user.Username == username {
-			CurrentConfigs.RUnlock()
 			hashedPwd, err := hashAndSalt([]byte(newPassword))
 			if err != nil {
 				return err
 			}
-			CurrentConfigs.Lock()
+
 			user.PasswordHash = hashedPwd
-			CurrentConfigs.Unlock()
-			err = WriteToFile()
-			if err != nil {
-				return err
-			}
-			return nil
+
+			return c.unsafeSync()
 		}
 	}
 
-	CurrentConfigs.RUnlock()
 	return ErrUserNotFound
 }
 
-func usernameExists(username string) bool {
-	CurrentConfigs.RLock()
-	defer CurrentConfigs.RUnlock()
+func (c *Configs) usernameExists(username string) bool {
+	c.RLock()
+	defer c.RUnlock()
 
-	for _, user := range CurrentConfigs.Users {
+	for _, user := range c.Users {
 		if user.Username == username {
 			return true
 		}

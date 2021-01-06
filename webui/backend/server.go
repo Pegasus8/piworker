@@ -3,7 +3,6 @@ package backend
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -23,7 +22,7 @@ import (
 	"github.com/Pegasus8/piworker/webui/backend/auth"
 	"github.com/Pegasus8/piworker/webui/backend/websocket"
 
-	jwt "github.com/dgrijalva/jwt-go"
+	"github.com/dgrijalva/jwt-go"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/markbates/pkger"
@@ -32,6 +31,8 @@ import (
 
 var tlsSupport bool
 var devMode bool
+var cfg *configs.Configs
+var tasksDB *data.DatabaseInstance
 
 // -- Using (partially) example from https://github.com/gorilla/mux#serving-single-page-applications --.
 // spaHandler implements the http.Handler interface, so we can use it
@@ -77,44 +78,49 @@ func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 //
 
 func setupRoutes() {
-	defer auth.Database.Close()
+	defer func() {
+		err := auth.Database.Close()
+		if err != nil {
+			log.Error().Err(err).Msg("Error when closing auth db")
+		}
+	}()
 
 	_ = pkger.Include("/webui/frontend/dist")
 
+	auth.SetCfg(cfg)
 	auth.CheckSigningKey()
 
 	router := mux.NewRouter()
 	router.Use(loggingMiddleware)
 
-	configs.CurrentConfigs.RLock()
-	apiConfigs := &configs.CurrentConfigs.APIConfigs
+	cfg.RLock()
 
 	// ─── APIS ───────────────────────────────────────────────────────────────────────
 	router.HandleFunc("/api/login", makeGzipHandler(loginAPI))
-	if apiConfigs.NewTaskAPI {
+	if cfg.APIConfigs.NewTaskAPI {
 		router.Handle("/api/tasks/new", auth.IsAuthorized(newTaskAPI)).Methods("POST")
 	}
-	if apiConfigs.EditTaskAPI {
+	if cfg.APIConfigs.EditTaskAPI {
 		router.Handle("/api/tasks/update", auth.IsAuthorized(updateTaskAPI)).Methods("PUT")
 	}
-	if apiConfigs.DeleteTaskAPI {
+	if cfg.APIConfigs.DeleteTaskAPI {
 		router.Handle("/api/tasks/delete", auth.IsAuthorized(deleteTaskAPI)).Methods("DELETE")
 	}
-	if apiConfigs.GetAllTasksAPI {
+	if cfg.APIConfigs.GetAllTasksAPI {
 		router.Handle("/api/tasks/get-all", auth.IsAuthorized(makeGzipHandler(getTasksAPI))).Methods("GET")
 	}
-	if apiConfigs.LogsAPI {
+	if cfg.APIConfigs.LogsAPI {
 		router.Handle("/api/tasks/logs", auth.IsAuthorized(makeGzipHandler(logsAPI))).Methods("GET")
 	}
-	if apiConfigs.StatisticsAPI {
+	if cfg.APIConfigs.StatisticsAPI {
 		router.Handle("/api/info/statistics", auth.IsAuthorized(makeGzipHandler(statisticsAPI))).Methods("GET")
 	}
-	if apiConfigs.TypesCompatAPI {
+	if cfg.APIConfigs.TypesCompatAPI {
 		router.Handle("/api/info/types-compat", auth.IsAuthorized(makeGzipHandler(typesCompatAPI))).Methods("GET")
 	}
 	// ────────────────────────────────────────────────────────────────────────────────
 
-	if configs.CurrentConfigs.WebUI.Enabled {
+	if cfg.WebUI.Enabled {
 		// ─── WEBSOCKET ──────────────────────────────────────────────────────────────────
 		router.HandleFunc("/ws", statsWS)
 		router.Handle("/api/ws-auth", auth.IsAuthorized(makeGzipHandler(wsAuthAPI))).Methods("GET")
@@ -135,19 +141,20 @@ func setupRoutes() {
 	// If the setting `.Security.LocalNetworkAccess` is disabled, set the server's addr to localhost, preventing
 	// external connections.
 	var addr string
-	if !configs.CurrentConfigs.Security.LocalNetworkAccess {
+	if !cfg.Security.LocalNetworkAccess {
 		addr = "127.0.0.1"
 	}
 
 	srv := &http.Server{
 		Handler:      router,
-		Addr:         addr + ":" + configs.CurrentConfigs.WebUI.ListeningPort,
+		Addr:         addr + ":" + cfg.WebUI.ListeningPort,
 		WriteTimeout: 15 * time.Second,
 		ReadTimeout:  15 * time.Second,
 	}
 
-	log.Info().Msgf("Listening and serving on port %s", configs.CurrentConfigs.WebUI.ListeningPort)
-	configs.CurrentConfigs.RUnlock()
+	log.Info().Msgf("Listening and serving on port %s", cfg.WebUI.ListeningPort)
+
+	cfg.RUnlock()
 
 	if _, err := os.Stat("./server.key"); err == nil {
 		tlsSupport = true
@@ -172,13 +179,16 @@ func setupRoutes() {
 }
 
 // Run - start the server
-func Run() {
+func Run(tDB *data.DatabaseInstance, c *configs.Configs) {
 	log.Info().Msg("Starting server...")
 
 	if d := os.Getenv("DEV"); d != "" {
 		log.Warn().Msg("Server on development mode activated")
 		devMode = true
 	}
+
+	cfg = c
+	tasksDB = tDB
 
 	setupRoutes()
 }
@@ -193,7 +203,7 @@ func statsWS(w http.ResponseWriter, request *http.Request) {
 	keys, ok := request.URL.Query()["auth"]
 	if !ok || len(keys[0]) < 1 {
 		log.Error().
-			Err(errors.New("Url Param 'auth' is missing")).
+			Err(errors.New("url Param 'auth' is missing")).
 			Bool("wsAuthenticated", false).
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Rejecting request because absence of 'auth' param")
@@ -225,7 +235,7 @@ func statsWS(w http.ResponseWriter, request *http.Request) {
 	// Upgrade the connection from standard HTTP connection to WebSocket connection
 	ws, err := websocket.Upgrade(w, request)
 	if err != nil {
-		fmt.Fprintf(w, "%+v\n", err)
+		log.Error().Err(err).Msg("Error when upgrading the connection")
 		return
 	}
 	// Execution of data sending to the client
@@ -300,13 +310,15 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 		return
 	}
 
-	if u, ok := configs.AuthUser(user.Username, user.Password); ok {
-		configs.CurrentConfigs.RLock()
-		duration := configs.CurrentConfigs.APIConfigs.TokenDuration
-		configs.CurrentConfigs.RUnlock()
+	if u, ok := cfg.AuthUser(user.Username, user.Password); ok {
+		cfg.RLock()
+		duration := cfg.APIConfigs.TokenDuration
+		cfg.RUnlock()
+
 		now := time.Now()
 		expiresAt := now.Add(time.Hour * time.Duration(duration))
 		tokenID := uuid.New().String()
+
 		token, err := auth.NewJWT(
 			auth.CustomClaims{
 				Admin:     u.Admin,
@@ -331,6 +343,7 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 
 			return
 		}
+
 		response.Token = token
 		response.ExpiresAt = expiresAt.Unix()
 		response.Admin = u.Admin
@@ -359,7 +372,10 @@ func loginAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	}
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	err = json.NewEncoder(w).Encode(response)
+	if err != nil {
+		log.Error().Err(err).Msg("Error on login response")
+	}
 }
 
 func typesCompatAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
@@ -411,7 +427,7 @@ func newTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: POST
 	task.Created = time.Now()
 	task.LastTimeModified = task.Created
 
-	err = data.NewTask(&task)
+	err = tasksDB.NewTask(&task)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -442,7 +458,7 @@ func updateTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PU
 	keys, ok := request.URL.Query()["id"]
 	if !ok || len(keys[0]) < 1 {
 		log.Error().
-			Err(errors.New("Url Param 'id' is missing")).
+			Err(errors.New("url Param 'id' is missing")).
 			Str("api", "updateTask").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Rejecting request because absence of 'id' param")
@@ -469,7 +485,7 @@ func updateTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: PU
 		return
 	}
 
-	err = data.UpdateTask(taskID, &task)
+	err = tasksDB.UpdateTask(taskID, &task)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -498,7 +514,7 @@ func deleteTaskAPI(w http.ResponseWriter, request *http.Request) { // Method: DE
 	keys, ok := request.URL.Query()["id"]
 	if !ok || len(keys[0]) < 1 {
 		log.Error().
-			Err(errors.New("Url Param 'id' is missing")).
+			Err(errors.New("url Param 'id' is missing")).
 			Str("api", "deleteTask").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Rejecting request because absence of 'id' param")
@@ -545,7 +561,7 @@ func getTasksAPI(w http.ResponseWriter, request *http.Request) { // Method: GET
 			Msg("Url Param 'fromWebUI' is missing, sending the data without recreation")
 	}
 
-	tasks, err := data.GetTasks()
+	tasks, err := tasksDB.GetTasks()
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -814,7 +830,7 @@ func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GE
 	date, ok := request.URL.Query()["date"]
 	if !ok || len(date[0]) < 1 {
 		log.Error().
-			Err(errors.New("Url Param 'date' is missing")).
+			Err(errors.New("url Param 'date' is missing")).
 			Str("api", "statisticsAPI").
 			Str("remoteAddr", request.RemoteAddr).
 			Msg("Rejecting request because absence of 'date' param")
@@ -834,7 +850,7 @@ func statisticsAPI(w http.ResponseWriter, request *http.Request) { // Method: GE
 
 	if !rgx.MatchString(date[0]) {
 		log.Error().
-			Err(errors.New("Incorrect format")).
+			Err(errors.New("incorrect format")).
 			Str("api", "statisticsAPI").
 			Str("remoteAddr", request.RemoteAddr).
 			Str("dateParam", date[0]).
@@ -957,8 +973,8 @@ func actionsInfoAPI(w http.ResponseWriter, request *http.Request) {
 	}
 }
 
-func setCORSHeaders(w *http.ResponseWriter, reqest *http.Request) {
-	(*w).Header().Set("Access-Control-Allow-Origin", "*")
-	(*w).Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-	(*w).Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
-}
+//func setCORSHeaders(w *http.ResponseWriter, _ *http.Request) {
+//	(*w).Header().Set("Access-Control-Allow-Origin", "*")
+//	(*w).Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+//	(*w).Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+//}

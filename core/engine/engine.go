@@ -27,10 +27,6 @@ func (engine *Engine) Start() {
 		if err != nil {
 			log.Error().Err(err).Msg("Error when trying to remove temp dir")
 		}
-		err = data.DB.Close()
-		if err != nil {
-			log.Error().Err(err).Msg("Error when closing the SQLite3 database of user tasks")
-		}
 	}()
 
 	var stopSignal = make(chan struct{})
@@ -57,7 +53,7 @@ func (engine *Engine) Start() {
 
 	log.Info().Msg("Reading the user data for first time...")
 
-	activeTasks, err := data.GetActiveTasks()
+	activeTasks, err := engine.userdataDB.GetActiveTasks()
 	if err != nil {
 		log.Panic().
 			Err(err).
@@ -65,7 +61,7 @@ func (engine *Engine) Start() {
 	}
 
 	// Set Stats.Inactive counter (`inactiveTasks` will be used only here).
-	inactiveTasks, err := data.GetInactiveTasks()
+	inactiveTasks, err := engine.userdataDB.GetInactiveTasks()
 	if err != nil {
 		log.Panic().
 			Err(err).
@@ -75,7 +71,7 @@ func (engine *Engine) Start() {
 	stats.Current.TasksStats.InactiveTasks = uint16(len(*inactiveTasks))
 	stats.Current.Unlock()
 
-	failedTasks, err := data.GetFailedTasks()
+	failedTasks, err := engine.userdataDB.GetFailedTasks()
 	if err != nil {
 		log.Panic().
 			Err(err).
@@ -102,7 +98,7 @@ func (engine *Engine) Start() {
 
 	// Start the server of the WebUI.
 	log.Info().Msg("Starting the WebUI server...")
-	go backend.Run()
+	go backend.Run(engine.userdataDB, engine.configs)
 
 	// Hook
 	if !engine.OnBackendInit() {
@@ -130,7 +126,7 @@ func (engine *Engine) Start() {
 			case data.Added:
 				{
 					// Get the recently added task by it ID.
-					t, err := data.GetTaskByID(event.TaskID)
+					t, err := engine.userdataDB.GetTaskByID(event.TaskID)
 					if err != nil {
 						log.Panic().Err(err).Msg("Error when responding to an event of type Added")
 					}
@@ -161,7 +157,7 @@ func (engine *Engine) Start() {
 			case data.Modified:
 				{
 					// Get the recently modified task by it ID.
-					t, err := data.GetTaskByID(event.TaskID)
+					t, err := engine.userdataDB.GetTaskByID(event.TaskID)
 					if err != nil {
 						log.Panic().Err(err).Msg("Error when responding to an event of type Modified")
 					}

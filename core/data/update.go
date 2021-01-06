@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// UpdateTask is a function used to update an existing task from the JSON data file.
-func UpdateTask(ID string, updatedTask *UserTask) error {
+// UpdateTask is a method to update an existing task.
+func (db *DatabaseInstance) UpdateTask(ID string, updatedTask *UserTask) error {
 	if c := checkIntegrity(updatedTask); !c {
 		return ErrIntegrity
 	}
@@ -36,7 +36,7 @@ func UpdateTask(ID string, updatedTask *UserTask) error {
 
 	updatedTask.LastTimeModified = time.Now()
 
-	r, err := DB.Exec(sqlStatement,
+	r, err := db.Exec(sqlStatement,
 		updatedTask.Name,
 		updatedTask.State,
 		trigger,
@@ -66,8 +66,8 @@ func UpdateTask(ID string, updatedTask *UserTask) error {
 	return nil
 }
 
-// UpdateTaskState is a function used to change the state of a task.
-func UpdateTaskState(ID string, newState TaskState) error {
+// UpdateTaskState is a method that provides the change of a task's state.
+func (db *DatabaseInstance) UpdateTaskState(ID string, newState TaskState) error {
 	if !(newState == StateTaskActive || newState == StateTaskInactive || newState == StateTaskFailed ||
 		newState == StateTaskOnExecution) {
 		return ErrIntegrity
@@ -79,7 +79,7 @@ func UpdateTaskState(ID string, newState TaskState) error {
 		WHERE ID = ?;
 	`
 
-	r, err := DB.Exec(sqlStatement,
+	r, err := db.Exec(sqlStatement,
 		newState,
 		ID,
 	)
