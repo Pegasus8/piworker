@@ -4,7 +4,7 @@
 
 PiWorker is a **free** and **open source** tool that let you **automate tasks easily on your [Raspberry Pi](https://www.raspberrypi.org)** (can be used on other devices too) without letting aside your privacy. In these times where your data is used as a payment on some "free" software/services, I think is good to remark that PiWorker **does not** use any external server for nothing (unless you explicity add an action to doing it), so everything is executed inside your device, **under your control**.
 
-I'm working hard to make PiWorker stable and robust, but for now, it's not even an alpha, so there should be bugs everywhere (If you see one, can you [let me know it](https://github.com/Pegasus8/piworker/issues/new/choose) please? that will be really helpful!) so don't use it on a device that contain something that you don't want to loose.
+I'm working hard to make PiWorker stable and robust, but for now, it's not even an alpha, so there should be bugs everywhere (If you see one, can you [let me know it](https://github.com/Pegasus8/piworker/issues/new/choose) please? that will be really helpful!) so don't use it on a device that contain something that you don't want to lose.
 
 <br>
 
