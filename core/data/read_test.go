@@ -2,7 +2,6 @@ package data
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,23 +10,25 @@ import (
 )
 
 type ReadTestSuite struct {
-	TestDir   string
-	TestTasks [4][]UserTask
-	TotalLen  int
+	TestDir      string
+	TestFilename string
+	TestDB       *DatabaseInstance
+	TestTasks    [4][]UserTask
+	TotalLen     int
 
 	suite.Suite
 }
 
-func (suite *ReadTestSuite) SetupTest() {
-	suite.TestDir = "./test"
-	Path = suite.TestDir
+func (s *ReadTestSuite) SetupTest() {
+	s.TestDir = "./test_read"
+	s.TestFilename = "read.db"
 
-	err := os.Mkdir(suite.TestDir, 0755)
+	err := os.Mkdir(s.TestDir, 0755)
 	if err != nil {
 		panic(err)
 	}
 
-	suite.TestTasks = [4][]UserTask{
+	s.TestTasks = [4][]UserTask{
 		// Tasks with state active
 		{
 			{
@@ -759,45 +760,37 @@ func (suite *ReadTestSuite) SetupTest() {
 	}
 
 	var l int
-	for _, ts := range suite.TestTasks {
+	for _, ts := range s.TestTasks {
 		l += len(ts)
 	}
-	suite.TotalLen = l
+	s.TotalLen = l
 }
 
-func (suite *ReadTestSuite) BeforeTest(_, _ string) {
-	EventBus = make(chan Event)
-
-	db, err := InitDB(filepath.Join(Path, Filename))
-	if err != nil {
-		panic(err)
-	}
-	DB = db
-
-	err = CreateTable()
+func (s *ReadTestSuite) BeforeTest(_, _ string) {
+	db, err := NewDB(s.TestDir, s.TestFilename)
 	if err != nil {
 		panic(err)
 	}
 
 	go func() {
-		for i := 0; i < suite.TotalLen; i++ {
-			<-EventBus
+		for i := 0; i < s.TotalLen; i++ {
+			<-db.EventBus
 		}
 	}()
 
-	for i, ts := range suite.TestTasks {
+	for i, ts := range s.TestTasks {
 		for i2 := range ts {
 			var currentState TaskState
 
 			// If the status is not one of the admitted (which are `StateTaskActive` and `StateTaskInactive`), it will be
 			// changed to an admitted one and then, updated to the original value. This is to avoid the restriction in the
 			// function `NewTask`.
-			if !(suite.TestTasks[i][i2].State == StateTaskActive || suite.TestTasks[i][i2].State == StateTaskInactive) {
-				currentState = suite.TestTasks[i][i2].State
-				suite.TestTasks[i][i2].State = StateTaskInactive
+			if !(s.TestTasks[i][i2].State == StateTaskActive || s.TestTasks[i][i2].State == StateTaskInactive) {
+				currentState = s.TestTasks[i][i2].State
+				s.TestTasks[i][i2].State = StateTaskInactive
 			}
 
-			err = NewTask(&suite.TestTasks[i][i2])
+			err = db.NewTask(&s.TestTasks[i][i2])
 			if err != nil {
 				panic(err)
 			}
@@ -807,31 +800,32 @@ func (suite *ReadTestSuite) BeforeTest(_, _ string) {
 			}
 
 			// Restore the state of the task.
-			suite.TestTasks[i][i2].State = currentState
-			err = UpdateTaskState(suite.TestTasks[i][i2].ID, currentState)
+			s.TestTasks[i][i2].State = currentState
+			err = db.UpdateTaskState(s.TestTasks[i][i2].ID, currentState)
 			if err != nil {
 				panic(err)
 			}
 		}
 	}
 
+	s.TestDB = db
 }
 
-func (suite *ReadTestSuite) TestGetTasks() {
-	assert := assert2.New(suite.T())
+func (s *ReadTestSuite) TestGetTasks() {
+	assert := assert2.New(s.T())
 
-	tasks, err := GetTasks()
+	tasks, err := s.TestDB.GetTasks()
 	assert.NoError(err, "The tasks should be obtained without errors")
-	if !assert.Len(*tasks, suite.TotalLen, "The number of returned tasks is not what it should be") {
+	if !assert.Len(*tasks, s.TotalLen, "The number of returned tasks is not what it should be") {
 		assert.FailNow("Test can't continue if tasks can't be read correctly", "To continue"+
 			", all tasks should be read from the database without any issue")
 	}
 
 	// Set IDs and add tasks to a common slice.
 	var tasksSlice []*UserTask
-	for i := range suite.TestTasks {
-		for i2 := range suite.TestTasks[i] {
-			tasksSlice = append(tasksSlice, &suite.TestTasks[i][i2])
+	for i := range s.TestTasks {
+		for i2 := range s.TestTasks[i] {
+			tasksSlice = append(tasksSlice, &s.TestTasks[i][i2])
 		}
 	}
 
@@ -844,33 +838,33 @@ func (suite *ReadTestSuite) TestGetTasks() {
 	}
 }
 
-func (suite *ReadTestSuite) TestGetTaskByName() {
-	assert := assert2.New(suite.T())
+func (s *ReadTestSuite) TestGetTaskByName() {
+	assert := assert2.New(s.T())
 
-	t, err := GetTaskByName(suite.TestTasks[0][0].Name)
+	t, err := s.TestDB.GetTaskByName(s.TestTasks[0][0].Name)
 	assert.NoError(err, "The task should be obtained by its name without errors")
-	assert.True(foundTask(&suite.TestTasks[0], t), "The task returned should be the same that the one we have")
+	assert.True(foundTask(&s.TestTasks[0], t), "The task returned should be the same that the one we have")
 
-	_, err = GetTaskByName(suite.TestTasks[0][0].Name + "hello")
+	_, err = s.TestDB.GetTaskByName(s.TestTasks[0][0].Name + "hello")
 	assert.Error(err, "If the name of the requested task does not exist, an error should be returned")
 }
 
-func (suite *ReadTestSuite) TestGetTaskByID() {
-	assert := assert2.New(suite.T())
+func (s *ReadTestSuite) TestGetTaskByID() {
+	assert := assert2.New(s.T())
 
-	t, err := GetTaskByID(suite.TestTasks[0][1].ID)
+	t, err := s.TestDB.GetTaskByID(s.TestTasks[0][1].ID)
 	assert.NoError(err, "The task should be returned without errors")
-	assert.True(foundTask(&suite.TestTasks[0], t), "The task returned should be the same that the one we have")
+	assert.True(foundTask(&s.TestTasks[0], t), "The task returned should be the same that the one we have")
 
-	_, err = GetTaskByID(suite.TestTasks[0][1].ID + "a")
+	_, err = s.TestDB.GetTaskByID(s.TestTasks[0][1].ID + "a")
 	assert.Error(err, "If the ID of the requested task does not exist, an error should be returned")
 }
 
-func (suite *ReadTestSuite) TestGetActiveTasks() {
-	assert := assert2.New(suite.T())
-	atLen := len(suite.TestTasks[0])
+func (s *ReadTestSuite) TestGetActiveTasks() {
+	assert := assert2.New(s.T())
+	atLen := len(s.TestTasks[0])
 
-	at, err := GetActiveTasks()
+	at, err := s.TestDB.GetActiveTasks()
 	assert.NoError(err, "Active tasks should be returned without errors")
 	if !assert.Lenf(*at, atLen, "The number of returned tasks should be %d", atLen) {
 		assert.FailNow("The test can't continue if tasks can't be read correctly", "To continue,"+
@@ -878,16 +872,16 @@ func (suite *ReadTestSuite) TestGetActiveTasks() {
 	}
 
 	for i, t := range *at {
-		assert.Truef(foundTask(&suite.TestTasks[0], &t), "The active task %d should be read correctly from the"+
+		assert.Truef(foundTask(&s.TestTasks[0], &t), "The active task %d should be read correctly from the"+
 			" database", i)
 	}
 }
 
-func (suite *ReadTestSuite) TestGetInactiveTasks() {
-	assert := assert2.New(suite.T())
-	itLen := len(suite.TestTasks[1])
+func (s *ReadTestSuite) TestGetInactiveTasks() {
+	assert := assert2.New(s.T())
+	itLen := len(s.TestTasks[1])
 
-	it, err := GetInactiveTasks()
+	it, err := s.TestDB.GetInactiveTasks()
 	assert.NoError(err, "Inactive tasks should be returned without errors")
 	if !assert.Lenf(*it, itLen, "The number of returned tasks should be %d", itLen) {
 		assert.FailNow("The test can't continue if tasks can't be read correctly", "To continue,"+
@@ -895,16 +889,16 @@ func (suite *ReadTestSuite) TestGetInactiveTasks() {
 	}
 
 	for i, t := range *it {
-		assert.Truef(foundTask(&suite.TestTasks[1], &t), "The inactive task %d should be read correctly from the"+
+		assert.Truef(foundTask(&s.TestTasks[1], &t), "The inactive task %d should be read correctly from the"+
 			" database", i)
 	}
 }
 
-func (suite *ReadTestSuite) TestGetFailedTasks() {
-	assert := assert2.New(suite.T())
-	ftLen := len(suite.TestTasks[2])
+func (s *ReadTestSuite) TestGetFailedTasks() {
+	assert := assert2.New(s.T())
+	ftLen := len(s.TestTasks[2])
 
-	ft, err := GetFailedTasks()
+	ft, err := s.TestDB.GetFailedTasks()
 	assert.NoError(err, "Failed tasks should be returned without errors")
 	if !assert.Lenf(*ft, ftLen, "The number of returned tasks should be %d", ftLen) {
 		assert.FailNow("The test can't continue if tasks can't be read correctly", "To continue,"+
@@ -912,16 +906,16 @@ func (suite *ReadTestSuite) TestGetFailedTasks() {
 	}
 
 	for i, t := range *ft {
-		assert.Truef(foundTask(&suite.TestTasks[2], &t), "The failed task %d should be read correctly from the"+
+		assert.Truef(foundTask(&s.TestTasks[2], &t), "The failed task %d should be read correctly from the"+
 			" database", i)
 	}
 }
 
-func (suite *ReadTestSuite) TestGetOnExecutionTasks() {
-	assert := assert2.New(suite.T())
-	oetLen := len(suite.TestTasks[3])
+func (s *ReadTestSuite) TestGetOnExecutionTasks() {
+	assert := assert2.New(s.T())
+	oetLen := len(s.TestTasks[3])
 
-	oet, err := GetOnExecutionTasks()
+	oet, err := s.TestDB.GetOnExecutionTasks()
 	assert.NoError(err, "On-execution tasks should be returned without errors")
 	if !assert.Lenf(*oet, oetLen, "The number of returned tasks should be %d", oetLen) {
 		assert.FailNow("The test can't continue if tasks can't be read correctly", "To continue,"+
@@ -929,13 +923,13 @@ func (suite *ReadTestSuite) TestGetOnExecutionTasks() {
 	}
 
 	for i, t := range *oet {
-		assert.Truef(foundTask(&suite.TestTasks[3], &t), "The task on-execution %d should be read correctly from the"+
+		assert.Truef(foundTask(&s.TestTasks[3], &t), "The task on-execution %d should be read correctly from the"+
 			" database", i)
 	}
 }
 
-func (suite *ReadTestSuite) TearDownTest() {
-	err := os.RemoveAll(suite.TestDir)
+func (s *ReadTestSuite) TearDownTest() {
+	err := os.RemoveAll(s.TestDir)
 	if err != nil {
 		panic(err)
 	}

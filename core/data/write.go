@@ -27,7 +27,7 @@ func (db *DatabaseInstance) NewTask(task *UserTask) error {
 	// Set the task ID
 	task.ID = uuid.New().String()
 
-	stmt, err := db.Prepare(sqlStatement)
+	stmt, err := db.instance.Prepare(sqlStatement)
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func (db *DatabaseInstance) NewTask(task *UserTask) error {
 		Type:   Added,
 		TaskID: task.ID,
 	}
-	EventBus <- event
+	db.EventBus <- event
 
 	return nil
 }

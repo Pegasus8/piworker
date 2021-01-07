@@ -6,7 +6,11 @@ import (
 )
 
 type DatabaseInstance struct {
-	*sql.DB
+	Path string
+	// EventBus is the channel used to transport the events related to the tasks stored in the database.
+	EventBus chan Event
+
+	instance *sql.DB
 }
 
 // UserTask is the struct that represents the data of a task created by the user.

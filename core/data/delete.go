@@ -3,13 +3,13 @@ package data
 import "fmt"
 
 // DeleteTask is a function used to delete a specific task from the table 'Tasks', on the SQLite3 database.
-func DeleteTask(ID string) error {
+func (db *DatabaseInstance) DeleteTask(ID string) error {
 	sqlStatement := `
 		DELETE FROM Tasks
 		WHERE ID = ?;
 	`
 
-	r, err := DB.Exec(sqlStatement, ID)
+	r, err := db.instance.Exec(sqlStatement, ID)
 	if err != nil {
 		return err
 	}
@@ -29,7 +29,8 @@ func DeleteTask(ID string) error {
 		Type:   Deleted,
 		TaskID: ID,
 	}
-	EventBus <- event
+
+	db.EventBus <- event
 
 	return nil
 }

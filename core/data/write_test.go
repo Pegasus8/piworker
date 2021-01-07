@@ -2,7 +2,6 @@ package data
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,22 +10,24 @@ import (
 )
 
 type WriteTestSuite struct {
-	TestDir   string
-	TestTasks []UserTask
+	TestDir      string
+	TestFilename string
+	TestDB       *DatabaseInstance
+	TestTasks    []UserTask
 
 	suite.Suite
 }
 
-func (suite *WriteTestSuite) SetupTest() {
-	suite.TestDir = "./test"
-	Path = suite.TestDir
+func (s *WriteTestSuite) SetupTest() {
+	s.TestDir = "./test_write"
+	s.TestFilename = "write.db"
 
-	err := os.Mkdir(suite.TestDir, 0755)
+	err := os.Mkdir(s.TestDir, 0755)
 	if err != nil {
 		panic(err)
 	}
 
-	suite.TestTasks = []UserTask{
+	s.TestTasks = []UserTask{
 		{
 			Name:  "My custom task 1",
 			State: "active",
@@ -179,74 +180,75 @@ func (suite *WriteTestSuite) SetupTest() {
 	}
 }
 
-func (suite *WriteTestSuite) BeforeTest(_, _ string) {
-	db, err := InitDB(filepath.Join(suite.TestDir, Filename))
+func (s *WriteTestSuite) BeforeTest(_, _ string) {
+	db, err := NewDB(s.TestDir, s.TestFilename)
 	if err != nil {
 		panic(err)
 	}
-	DB = db
 
-	err = CreateTable()
-	if err != nil {
-		panic(err)
-	}
+	s.TestDB = db
 }
 
-func (suite *WriteTestSuite) TestNewTask() {
-	assert := assert2.New(suite.T())
-	EventBus = make(chan Event)
+func (s *WriteTestSuite) TestNewTask() {
+	assert := assert2.New(s.T())
 
 	// Receive the events sent by the `NewTask` function.
 	go func() {
-		var nEvents = len(suite.TestTasks) - 1
+		var nEvents = len(s.TestTasks) - 1
 
 		for i := 0; i <= nEvents; i++ {
-			event := <-EventBus
+			event := <-s.TestDB.EventBus
+
 			assert.Equal(Added, event.Type, "The emitted event when a task is created successfully must "+
 				"be of type `Added`")
-			assert.Equal(suite.TestTasks[i].ID, event.TaskID, "The task ID emitted with the event must be "+
+			assert.Equal(s.TestTasks[i].ID, event.TaskID, "The task ID emitted with the event must be "+
 				"the same that the ID of the recently added task")
 		}
 	}()
 
 	// Tasks should be added without problems.
-	for i := range suite.TestTasks {
-		err := NewTask(&suite.TestTasks[i])
+	for i := range s.TestTasks {
+		err := s.TestDB.NewTask(&s.TestTasks[i])
+
 		assert.NoError(err, "The task should be added without problems")
 	}
 
 	// Empty fields should cause an error.
-	err := NewTask(&UserTask{})
+	err := s.TestDB.NewTask(&UserTask{})
+
 	assert.Error(err, "If the task contains an empty field it shouldn't be added")
 	assert.EqualError(err, ErrIntegrity.Error(), "The returned error is not which should be")
 
 	// The usage of a no admitted `State` must return an error.
-	suite.TestTasks[0].Name = "Another name"
-	suite.TestTasks[0].State = StateTaskFailed // Let's use a no admitted state.
-	err = NewTask(&suite.TestTasks[0])
+	s.TestTasks[0].Name = "Another name"
+	s.TestTasks[0].State = StateTaskFailed // Let's use a no admitted state.
+	err = s.TestDB.NewTask(&s.TestTasks[0])
+
 	assert.Error(err, "The usage of a no admitted state must return an error")
 	assert.EqualError(err, ErrIntegrity.Error(), "The returned error is not which should be")
 
 	// The usage of an unrecognized `State` must return an error.
-	suite.TestTasks[0].Name = "Another name 2"
-	suite.TestTasks[0].State = "random_state" // Let's use a non-existent state.
-	err = NewTask(&suite.TestTasks[0])
+	s.TestTasks[0].Name = "Another name 2"
+	s.TestTasks[0].State = "random_state" // Let's use a non-existent state.
+	err = s.TestDB.NewTask(&s.TestTasks[0])
+
 	assert.Error(err, "The usage of a non-existent state should cause an error")
 	assert.EqualError(err, ErrIntegrity.Error(), "The returned error is not which should be")
 
 	// Try to write with the database closed should return an error.
-	suite.TestTasks[0].Name = "Another name 3"
-	suite.TestTasks[0].State = StateTaskInactive
-	err = DB.Close()
+	s.TestTasks[0].Name = "Another name 3"
+	s.TestTasks[0].State = StateTaskInactive
+	err = s.TestDB.Close()
 	if err != nil {
 		panic(err)
 	}
-	err = NewTask(&suite.TestTasks[0])
+	err = s.TestDB.NewTask(&s.TestTasks[0])
+
 	assert.Error(err, "The try to write in a closed database must cause an error")
 }
 
-func (suite *WriteTestSuite) TearDownTest() {
-	err := os.RemoveAll(suite.TestDir)
+func (s *WriteTestSuite) TearDownTest() {
+	err := os.RemoveAll(s.TestDir)
 	if err != nil {
 		panic(err)
 	}

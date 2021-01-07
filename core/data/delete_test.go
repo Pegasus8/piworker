@@ -5,28 +5,29 @@ import (
 	assert2 "github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 )
 
 type DeleteTestSuite struct {
-	TestDir   string
-	TestTasks []UserTask
+	TestDir      string
+	TestFilename string
+	TestTasks    []UserTask
+	TestDB       *DatabaseInstance
 
 	suite.Suite
 }
 
-func (suite *DeleteTestSuite) SetupTest() {
-	suite.TestDir = "./test"
-	Path = suite.TestDir
+func (s *DeleteTestSuite) SetupTest() {
+	s.TestDir = "./test_delete"
+	s.TestFilename = "delete.db"
 
-	err := os.Mkdir(Path, 0755)
+	err := os.Mkdir(s.TestDir, 0755)
 	if err != nil {
 		panic(err)
 	}
 
-	suite.TestTasks = []UserTask{
+	s.TestTasks = []UserTask{
 		{
 			Name:  "Task 1",
 			State: "active",
@@ -104,72 +105,65 @@ func (suite *DeleteTestSuite) SetupTest() {
 	}
 }
 
-func (suite *DeleteTestSuite) BeforeTest(_, _ string) {
-	EventBus = make(chan Event)
-
-	db, err := InitDB(filepath.Join(Path, Filename))
-	if err != nil {
-		panic(err)
-	}
-	DB = db
-
-	err = CreateTable()
+func (s *DeleteTestSuite) BeforeTest(_, _ string) {
+	db, err := NewDB(s.TestDir, s.TestFilename)
 	if err != nil {
 		panic(err)
 	}
 
 	go func() {
-		<-EventBus
+		<-db.EventBus
 	}()
 
-	err = NewTask(&suite.TestTasks[0])
+	err = db.NewTask(&s.TestTasks[0])
 	if err != nil {
 		panic(err)
 	}
+
+	s.TestDB = db
 }
 
-func (suite *DeleteTestSuite) TestDeleteTask() {
-	assert := assert2.New(suite.T())
-	var end = make(chan struct{})
+func (s *DeleteTestSuite) TestDeleteTask() {
+	assert := assert2.New(s.T())
+	end := make(chan struct{})
 
 	go func() {
-		event := <-EventBus
-
-		assert.Equal(Deleted, event.Type, "The emitted event should be of type `Deleted`")
-		assert.Equal(suite.TestTasks[0].ID, event.TaskID, "The TaskID emitted in the event must be the same of the deleted task")
-
 		for {
-			// Avoid blocking just in case that other tests fail and create new tasks.
 			select {
+			case event := <-s.TestDB.EventBus:
+				{
+					assert.Equal(Deleted, event.Type, "The emitted event should be of type `Deleted`")
+					assert.Equal(s.TestTasks[0].ID, event.TaskID, "The TaskID emitted in the event must be the"+
+						" same of the deleted task")
+				}
 			case <-end:
 				break
-			case <-EventBus:
 			}
 		}
 	}()
 
 	// Task should be deleted correctly.
-	err := DeleteTask(suite.TestTasks[0].ID)
+	err := s.TestDB.DeleteTask(s.TestTasks[0].ID)
 	assert.NoError(err, "The task should be deleted correctly")
 
-	t, err := getTask(suite.TestTasks[0].Name)
+	t, err := getTask(s.TestDB, s.TestTasks[0].Name)
 	//noinspection GoNilness
 	assert.Equal(UserTask{}, *t, "The task should be deleted from the database")
 	assert.Error(err, "The task should be deleted from the database")
 
 	// Try to delete an already deleted task should return an error.
-	err = DeleteTask(suite.TestTasks[0].ID)
+	err = s.TestDB.DeleteTask(s.TestTasks[0].ID)
 	assert.Error(err, "Try to delete an already deleted task should return an error")
 
 	// Try to delete a non-existent task should return an error.
-	err = DeleteTask("non-existent-id")
+	err = s.TestDB.DeleteTask("non-existent-id")
 	assert.Error(err, "Try to delete a non-existent task should return an error")
 
 	end <- struct{}{}
 }
 
-func (suite *DeleteTestSuite) TearDownTest() {
-	err := os.RemoveAll(Path)
+func (s *DeleteTestSuite) TearDownTest() {
+	err := os.RemoveAll(s.TestDir)
 	if err != nil {
 		panic(err)
 	}
@@ -179,7 +173,7 @@ func TestDeleteSuite(t *testing.T) {
 	suite.Run(t, new(DeleteTestSuite))
 }
 
-func getTask(name string) (*UserTask, error) {
+func getTask(db *DatabaseInstance, name string) (*UserTask, error) {
 	// I know that this function is a copy of `GetTaskByName`. The objective of that is to avoid possible
 	// bugs or not desired behaviors (due to a future modifications).
 
@@ -188,11 +182,13 @@ func getTask(name string) (*UserTask, error) {
 		WHERE Name=?;
 	`
 
+	i := db.GetSQLInstance()
+
 	var task UserTask
 	var trigger string
 	var actions string
 
-	row, err := DB.Query(sqlStatement, name)
+	row, err := i.Query(sqlStatement, name)
 	if err != nil {
 		return &task, err
 	}

@@ -9,21 +9,22 @@ import (
 // GetTasks is a method that returns all the user tasks stored in the database.
 func (db *DatabaseInstance) GetTasks() (*[]UserTask, error) {
 	sqlStatement := "SELECT * FROM Tasks;"
-	var tasks []UserTask
 
-	row, err := db.Query(sqlStatement)
+	row, err := db.instance.Query(sqlStatement)
 	if err != nil {
-		return &tasks, err
+		return nil, err
 	}
 
 	defer func() {
 		err := row.Close()
 		if err != nil {
-			log.Error().Err(err).Str("db", Filename).
+			log.Error().Err(err).Str("db", db.Path).
 				Caller(zerolog.CallerSkipFrameCount).
 				Msg("Error when trying to close rows")
 		}
 	}()
+
+	var tasks []UserTask
 
 	for row.Next() {
 		var task UserTask
@@ -66,13 +67,10 @@ func (db *DatabaseInstance) GetTaskByName(name string) (taskFound *UserTask, err
 		SELECT * FROM Tasks
 		WHERE Name=?;
 	`
-	var task UserTask
-	var trigger string
-	var actions string
 
-	row, err := db.Query(sqlStatement, name)
+	row, err := db.instance.Query(sqlStatement, name)
 	if err != nil {
-		return &task, err
+		return nil, err
 	}
 
 	defer func() {
@@ -83,8 +81,12 @@ func (db *DatabaseInstance) GetTaskByName(name string) (taskFound *UserTask, err
 	}()
 
 	if !row.Next() {
-		return &task, ErrBadTaskID
+		return nil, ErrBadTaskID
 	}
+
+	var task UserTask
+	var trigger string
+	var actions string
 
 	err = row.Scan(
 		&task.ID,
@@ -120,13 +122,10 @@ func (db *DatabaseInstance) GetTaskByID(ID string) (taskFound *UserTask, err err
 		SELECT * FROM Tasks
 		WHERE ID=?;
 	`
-	var task UserTask
-	var trigger string
-	var actions string
 
-	row, err := db.Query(sqlStatement, ID)
+	row, err := db.instance.Query(sqlStatement, ID)
 	if err != nil {
-		return &task, err
+		return nil, err
 	}
 
 	defer func() {
@@ -137,8 +136,12 @@ func (db *DatabaseInstance) GetTaskByID(ID string) (taskFound *UserTask, err err
 	}()
 
 	if !row.Next() {
-		return &task, ErrBadTaskID
+		return nil, ErrBadTaskID
 	}
+
+	var task UserTask
+	var trigger string
+	var actions string
 
 	err = row.Scan(
 		&task.ID,
@@ -173,8 +176,7 @@ func (db *DatabaseInstance) GetActiveTasks() (activeTasks *[]UserTask, err error
 	return db.getTasksByState(StateTaskActive)
 }
 
-// GetInactiveTasks is a method that returns the tasks with the state
-// `StateTaskInactive`.
+// GetInactiveTasks is a method that returns the tasks with the state `StateTaskInactive`.
 func (db *DatabaseInstance) GetInactiveTasks() (inactiveTasks *[]UserTask, err error) {
 	return db.getTasksByState(StateTaskInactive)
 }
@@ -184,8 +186,7 @@ func (db *DatabaseInstance) GetFailedTasks() (failedTasks *[]UserTask, err error
 	return db.getTasksByState(StateTaskFailed)
 }
 
-// GetOnExecutionTasks is a method that returns the tasks with the state
-// `StateTaskOnExecution`.
+// GetOnExecutionTasks is a method that returns the tasks with the state `StateTaskOnExecution`.
 func (db *DatabaseInstance) GetOnExecutionTasks() (onExecutionTasks *[]UserTask, err error) {
 	return db.getTasksByState(StateTaskOnExecution)
 }
@@ -195,11 +196,10 @@ func (db *DatabaseInstance) getTasksByState(state TaskState) (matchedTasks *[]Us
 		SELECT * FROM Tasks
 		WHERE State=?;
 	`
-	var tasks []UserTask
 
-	row, err := db.Query(sqlStatement, state)
+	row, err := db.instance.Query(sqlStatement, state)
 	if err != nil {
-		return &tasks, err
+		return nil, err
 	}
 
 	defer func() {
@@ -208,6 +208,8 @@ func (db *DatabaseInstance) getTasksByState(state TaskState) (matchedTasks *[]Us
 			log.Error().Err(err).Caller(zerolog.CallerSkipFrameCount).Msg("Error when closing rows")
 		}
 	}()
+
+	var tasks []UserTask
 
 	for row.Next() {
 		var task UserTask

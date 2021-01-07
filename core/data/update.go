@@ -36,7 +36,7 @@ func (db *DatabaseInstance) UpdateTask(ID string, updatedTask *UserTask) error {
 
 	updatedTask.LastTimeModified = time.Now()
 
-	r, err := db.Exec(sqlStatement,
+	r, err := db.instance.Exec(sqlStatement,
 		updatedTask.Name,
 		updatedTask.State,
 		trigger,
@@ -61,7 +61,7 @@ func (db *DatabaseInstance) UpdateTask(ID string, updatedTask *UserTask) error {
 		Type:   Modified,
 		TaskID: ID,
 	}
-	EventBus <- event
+	db.EventBus <- event
 
 	return nil
 }
@@ -79,7 +79,7 @@ func (db *DatabaseInstance) UpdateTaskState(ID string, newState TaskState) error
 		WHERE ID = ?;
 	`
 
-	r, err := db.Exec(sqlStatement,
+	r, err := db.instance.Exec(sqlStatement,
 		newState,
 		ID,
 	)

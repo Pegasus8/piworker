@@ -2,7 +2,6 @@ package data
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,21 +10,23 @@ import (
 )
 
 type UpdateTestSuite struct {
-	TestDir   string
-	TestTasks []UserTask
+	TestDir      string
+	TestFilename string
+	TestDB       *DatabaseInstance
+	TestTasks    []UserTask
 	suite.Suite
 }
 
-func (suite *UpdateTestSuite) SetupTest() {
-	suite.TestDir = "./test"
-	Path = suite.TestDir
+func (s *UpdateTestSuite) SetupTest() {
+	s.TestDir = "./test_update"
+	s.TestFilename = "update.db"
 
-	err := os.Mkdir(suite.TestDir, 0755)
+	err := os.Mkdir(s.TestDir, 0755)
 	if err != nil {
 		panic(err)
 	}
 
-	suite.TestTasks = []UserTask{
+	s.TestTasks = []UserTask{
 		{
 			Name:  "Task 1",
 			State: "active",
@@ -147,51 +148,38 @@ func (suite *UpdateTestSuite) SetupTest() {
 	}
 }
 
-func (suite *UpdateTestSuite) BeforeTest(_, _ string) {
-	EventBus = make(chan Event)
-
-	db, err := InitDB(filepath.Join(Path, Filename))
-	if err != nil {
-		panic(err)
-	}
-	DB = db
-
-	err = CreateTable()
+func (s *UpdateTestSuite) BeforeTest(_, _ string) {
+	db, err := NewDB(s.TestDir, s.TestFilename)
 	if err != nil {
 		panic(err)
 	}
 
 	go func() {
-		for i := 0; i < len(suite.TestTasks); i++ {
-			<-EventBus
+		for i := 0; i < len(s.TestTasks); i++ {
+			<-db.EventBus
 		}
 	}()
 
-	for i := range suite.TestTasks {
-		err = NewTask(&suite.TestTasks[i])
+	for i := range s.TestTasks {
+		err = db.NewTask(&s.TestTasks[i])
 		if err != nil {
 			panic(err)
 		}
 	}
+
+	s.TestDB = db
 }
 
-func (suite *UpdateTestSuite) TestUpdate() {
-	suite.UpdateTask()
-	suite.UpdateTaskState()
-}
-
-func (suite *UpdateTestSuite) UpdateTask() {
-	assert := assert2.New(suite.T())
+func (s *UpdateTestSuite) TestUpdateTask() {
+	assert := assert2.New(s.T())
 	var end = make(chan struct{})
 
 	go func() {
 		for {
 			select {
-			case event := <-EventBus:
+			case event := <-s.TestDB.EventBus:
 				assert.Equal(Modified, event.Type, "When a task is updated the emitted event should be of"+
 					" type `Modified`")
-				assert.Equal(suite.TestTasks[0].ID, event.TaskID, "The ID in the event must be the same that the ID of the"+
-					" task affected")
 			case <-end:
 				break
 			}
@@ -200,13 +188,13 @@ func (suite *UpdateTestSuite) UpdateTask() {
 
 	// --- Test 1 ---
 	// Task should be updated without problems.
-	updatedTask := suite.TestTasks[0]
+	updatedTask := s.TestTasks[0]
 	updatedTask.State = StateTaskInactive
 	updatedTask.Name = "Task 12345"
-	err := UpdateTask(suite.TestTasks[0].ID, &updatedTask)
+	err := s.TestDB.UpdateTask(s.TestTasks[0].ID, &updatedTask)
 	assert.NoError(err, "The task should be updated without errors")
 
-	updatedTaskFromDB, err := getTask(updatedTask.Name)
+	updatedTaskFromDB, err := getTask(s.TestDB, updatedTask.Name)
 	if err != nil {
 		panic(err)
 	}
@@ -229,13 +217,13 @@ func (suite *UpdateTestSuite) UpdateTask() {
 
 	// --- Test 2 ---
 	// The usage of an non-existent ID must return an error.
-	err = UpdateTask(suite.TestTasks[0].ID+"a", &suite.TestTasks[0])
+	err = s.TestDB.UpdateTask(s.TestTasks[0].ID+"a", &s.TestTasks[0])
 	assert.Error(err, "Try to use an ID that does not exist should return an error")
 	// --- End of Test 2 ---
 
 	// --- Test 3 ---
 	// The usage of an empty critical field must return an error.
-	err = UpdateTask(suite.TestTasks[0].ID, &UserTask{})
+	err = s.TestDB.UpdateTask(s.TestTasks[0].ID, &UserTask{})
 	assert.Error(err, "If some critical field (the ID of an action for example) is empty, the "+
 		"function should return an error")
 	// --- End of Test 3 ---
@@ -243,18 +231,16 @@ func (suite *UpdateTestSuite) UpdateTask() {
 	end <- struct{}{}
 }
 
-func (suite *UpdateTestSuite) UpdateTaskState() {
-	assert := assert2.New(suite.T())
+func (s *UpdateTestSuite) TestUpdateTaskState() {
+	assert := assert2.New(s.T())
 	var end = make(chan struct{})
 
 	go func() {
 		for {
 			select {
-			case event := <-EventBus:
+			case event := <-s.TestDB.EventBus:
 				assert.Equal(Modified, event.Type, "When a task is updated the emitted event should be of"+
 					" type `Modified`")
-				assert.Equal(suite.TestTasks[1].ID, event.TaskID, "The ID in the event must be the same that the ID of"+
-					" the task affected")
 			case <-end:
 				break
 			}
@@ -263,10 +249,10 @@ func (suite *UpdateTestSuite) UpdateTaskState() {
 
 	// --- Test 1 ---
 	// Task state should be updated without problems.
-	err := UpdateTaskState(suite.TestTasks[1].ID, StateTaskActive)
+	err := s.TestDB.UpdateTaskState(s.TestTasks[1].ID, StateTaskActive)
 	assert.NoError(err, "The task should be updated without errors")
 
-	updatedTaskFromDB, err := getTask(suite.TestTasks[1].Name)
+	updatedTaskFromDB, err := getTask(s.TestDB, s.TestTasks[1].Name)
 	if err != nil {
 		panic(err)
 	}
@@ -277,21 +263,21 @@ func (suite *UpdateTestSuite) UpdateTaskState() {
 
 	// --- Test 2 ---
 	// The usage of an non-existent ID must return an error.
-	err = UpdateTaskState(suite.TestTasks[1].ID+"a", StateTaskActive)
+	err = s.TestDB.UpdateTaskState(s.TestTasks[1].ID+"a", StateTaskActive)
 	assert.Error(err, "Try to use an ID that does not exist should return an error")
 	// --- End of Test 2 ---
 
 	// --- Test 3 ---
 	// The usage of an non-existent state must return an error.
-	err = UpdateTaskState(suite.TestTasks[1].ID, "random-state")
+	err = s.TestDB.UpdateTaskState(s.TestTasks[1].ID, "random-state")
 	assert.Error(err, "Try to use an state that does not exist should return an error")
 	// --- End of Test 3 ---
 
 	end <- struct{}{}
 }
 
-func (suite *UpdateTestSuite) TearDownTest() {
-	err := os.RemoveAll(suite.TestDir)
+func (s *UpdateTestSuite) TearDownTest() {
+	err := os.RemoveAll(s.TestDir)
 	if err != nil {
 		panic(err)
 	}

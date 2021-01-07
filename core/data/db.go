@@ -29,16 +29,23 @@ func NewDB(path, filename string) (*DatabaseInstance, error) {
 		return nil, err
 	}
 
-	return &DatabaseInstance{db}, nil
+	d := DatabaseInstance{
+		Path:     filepath.Join(path, filename),
+		EventBus: make(chan Event),
+		instance: db,
+	}
+
+	return &d, nil
 }
 
-/*
-*	Usage order:
-*	1) InitDB
-*	2) defer db.Close()
-*	3) CreateTable
-*	4) StoreRaspberryStatistics/ReadRaspberryStatistics
- */
+func (db *DatabaseInstance) Close() error {
+	return db.instance.Close()
+}
+
+// GetSQLInstance returns a pointer to the instance of the database itself. Mainly needed to execute custom queries.
+func (db *DatabaseInstance) GetSQLInstance() *sql.DB {
+	return db.instance
+}
 
 // initDB is the function used to initialize the SQLite3 database.
 func initDB(path string) (*sql.DB, error) {

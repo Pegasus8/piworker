@@ -1,19 +1,9 @@
 package data
 
-import (
-	"database/sql"
-)
-
 //					** Data storage **					//
 
 // BackupLoopState is the boolean variable used to show the state of the backup loop.
 //var BackupLoopState = false
-
-// Path is the path of the user SQLite database.
-var Path string = "./data/"
-
-// Filename is the name of the SQLite file.
-const Filename string = "tasks.db"
 
 //					** Tasks's States **					//
 
@@ -37,9 +27,3 @@ const (
 	// field of each task. This state represents an active task.
 	StateTaskActive TaskState = "active"
 )
-
-// EventBus is the channel used to transport the events related to the tasks.
-var EventBus chan Event
-
-// DB is the instance of the SQLite3 database used to store the user's tasks.
-var DB *sql.DB
