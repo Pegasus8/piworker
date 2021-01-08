@@ -27,7 +27,7 @@ func (s *DBTestSuite) SetupTest() {
 	}
 }
 
-func (s *DBTestSuite) NewDB() {
+func (s *DBTestSuite) TestNewDB() {
 	assert := assert2.New(s.T())
 
 	// The database should be created correctly.
