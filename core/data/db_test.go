@@ -39,7 +39,7 @@ func (s *DBTestSuite) TestNewDB() {
 	}
 
 	// The usage of an non-existent `Path` must return an error.
-	db2, err := NewDB("hello_world/", s.TestFilename)
+	db2, err := NewDB("./hello_world", s.TestFilename)
 	assert.Error(err, "If the path does not exist an error should be returned")
 	if !assert.Nil(db2, "If the path does not exist the returned instance of the database should be `nil`") {
 		_ = db2.Close()

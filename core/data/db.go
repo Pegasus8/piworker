@@ -11,8 +11,8 @@ import (
 
 // NewDB initializes the database where tasks will be saved and read.
 func NewDB(path, filename string) (*DatabaseInstance, error) {
-	// Create path if not exists.
-	err := os.MkdirAll(path, os.ModePerm)
+	// Check if the path is accessible.
+	_, err := os.Stat(path)
 	if err != nil {
 		return nil, err
 	}
@@ -49,13 +49,6 @@ func (db *DatabaseInstance) GetSQLInstance() *sql.DB {
 
 // initDB is the function used to initialize the SQLite3 database.
 func initDB(path string) (*sql.DB, error) {
-	// First check if the directory is accessible.
-	dir := filepath.Dir(path)
-	_, err := os.Stat(dir)
-	if err != nil {
-		return nil, err
-	}
-
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		return nil, err
