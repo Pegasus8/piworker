@@ -39,12 +39,14 @@ func (s *DBUserVariablesTestSuite) SetupTest() {
 
 	s.LocalVars = []uservariables.LocalVariable{
 		{
+			ID:           1,
 			Name:         "variable_1",
 			Content:      "10",
 			Type:         types.Int,
 			ParentTaskID: "abc1",
 		},
 		{
+			ID:           2,
 			Name:         "variable_2",
 			Content:      "Hello world!",
 			Type:         types.Text,
@@ -54,11 +56,13 @@ func (s *DBUserVariablesTestSuite) SetupTest() {
 
 	s.GlobalVars = []uservariables.GlobalVariable{
 		{
+			ID:      1,
 			Name:    "VARIABLE_1",
 			Content: "0.120",
 			Type:    types.Float,
 		},
 		{
+			ID:      2,
 			Name:    "VARIABLE_2",
 			Content: "11/01/2021",
 			Type:    types.Date,
@@ -123,7 +127,6 @@ func (s *DBUserVariablesTestSuite) TestSetULV() {
 	assert.NoError(err, "The user local variable should be set without errors")
 }
 
-/*
 func (s *DBUserVariablesTestSuite) TestGetULV() {
 	assert := assert2.New(s.T())
 
@@ -139,7 +142,7 @@ func (s *DBUserVariablesTestSuite) TestGetULV() {
 	assert.Error(err, "If the requested variable does not exist, an error should be returned")
 	assert.Nil(v, "If the requested variable does not exist, the returned variable should be nil")
 }
-*/
+
 func (s *DBUserVariablesTestSuite) TestSetUGV() {
 	assert := assert2.New(s.T())
 
@@ -159,7 +162,6 @@ func (s *DBUserVariablesTestSuite) TestSetUGV() {
 	assert.NoError(err, "The user global variable should be set without errors")
 }
 
-/*
 func (s *DBUserVariablesTestSuite) TestGetUGV() {
 	assert := assert2.New(s.T())
 
@@ -175,7 +177,7 @@ func (s *DBUserVariablesTestSuite) TestGetUGV() {
 	assert.Error(err, "If the requested variable does not exist, an error should be returned")
 	assert.Nil(v, "If the requested variable does not exist, the returned variable should be nil")
 }
-*/
+
 func (s *DBUserVariablesTestSuite) AfterTest(_, _ string) {}
 
 func (s *DBUserVariablesTestSuite) TearDownTest() {

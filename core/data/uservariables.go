@@ -45,8 +45,38 @@ func (db *DatabaseInstance) SetULV(v *uservariables.LocalVariable) error {
 // GetULV returns the content of a user local variable stored in the database. If the requested variable doesn't exist,
 // an error will be returned.
 func (db *DatabaseInstance) GetULV(name string) (*uservariables.LocalVariable, error) {
-	// TODO
-	return nil, nil // TODO Change this
+	q := "SELECT * FROM variables_local WHERE name = ?;"
+
+	row, err := db.instance.Query(q, name)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		err = row.Close()
+		if err != nil {
+			log.Err(err).Msg("error when trying to close rows")
+		}
+	}()
+
+	if !row.Next() {
+		return nil, fmt.Errorf("there's no variable with the name '%s'", name)
+	}
+
+	var v uservariables.LocalVariable
+
+	err = row.Scan(
+		&v.ID,
+		&v.Name,
+		&v.Content,
+		&v.Type,
+		&v.ParentTaskID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &v, nil
 }
 
 // SetUGV sets the content of a user global variable stored in the database. If the variable doesn't exist, it will be
@@ -87,8 +117,37 @@ func (db *DatabaseInstance) SetUGV(v *uservariables.GlobalVariable) error {
 // GetUGV returns the content of a user global variable stored in the database. If the requested variable doesn't exist,
 // an error will be returned.
 func (db *DatabaseInstance) GetUGV(name string) (*uservariables.GlobalVariable, error) {
-	// TODO
-	return nil, nil // TODO Change this
+	q := "SELECT * FROM variables_global WHERE name = ?;"
+
+	row, err := db.instance.Query(q, name)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		err = row.Close()
+		if err != nil {
+			log.Err(err).Msg("error when trying to close rows")
+		}
+	}()
+
+	if !row.Next() {
+		return nil, fmt.Errorf("there's no variable with the name '%s'", name)
+	}
+
+	var v uservariables.GlobalVariable
+
+	err = row.Scan(
+		&v.ID,
+		&v.Name,
+		&v.Content,
+		&v.Type,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &v, nil
 }
 
 func ulvExists(db *DatabaseInstance, name string) (bool, error) {
