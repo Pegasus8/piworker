@@ -56,7 +56,7 @@ func (s *DBTestSuite) TestCreateTable() {
 
 	i := db.GetSQLInstance()
 
-	err = createTable(i)
+	err = createTables(i)
 
 	assert.NoError(err, "The table should be created without problems")
 

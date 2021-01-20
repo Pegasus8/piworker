@@ -24,7 +24,7 @@ func NewDB(path, filename string) (*DatabaseInstance, error) {
 	}
 
 	// Create the table if not exists.
-	err = createTable(db)
+	err = createTables(db)
 	if err != nil {
 		return nil, err
 	}
@@ -61,17 +61,32 @@ func initDB(path string) (*sql.DB, error) {
 }
 
 // createTable is the function that creates the table 'Tasks' into the SQLite3 database.
-func createTable(db *sql.DB) error {
+func createTables(db *sql.DB) error {
 	sqlStatement := `
-	CREATE TABLE IF NOT EXISTS Tasks(
-		ID TEXT NOT NULL,
-		Name TEXT NOT NULL,
-		State TEXT NOT NULL,
-		Trigger TEXT NOT NULL,
-		Actions TEXT NOT NULL,
-		Created DATETIME,
-		LastTimeModified DATETIME
-	);
+CREATE TABLE IF NOT EXISTS Tasks(
+	ID TEXT NOT NULL,
+	Name TEXT NOT NULL,
+	State TEXT NOT NULL,
+	Trigger TEXT NOT NULL,
+	Actions TEXT NOT NULL,
+	Created DATETIME,
+	LastTimeModified DATETIME
+);
+
+CREATE TABLE IF NOT EXISTS variables_local(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    content TEXT NOT NULL,
+    type TEXT NOT NULL,
+    parent_task_id TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS variables_global(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    content TEXT NOT NULL,
+    type TEXT NOT NULL
+);
 	`
 
 	_, err := db.Exec(sqlStatement)
