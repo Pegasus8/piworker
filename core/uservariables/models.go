@@ -2,7 +2,6 @@ package uservariables
 
 import (
 	"github.com/Pegasus8/piworker/core/types"
-	"sync"
 )
 
 /**
@@ -10,25 +9,23 @@ import (
  *	The difference is that the GlobalVariable can be used in any task, when the
  *	LocalVariable only can be used on the same task where is declared.
  *
- *	GlobalVariable name sintax -> $SOME_GLOBAL_VARIABLE
- *	LocalVariable name sintax -> $some_local_variable
+ *	GlobalVariable name syntax -> $SOME_GLOBAL_VARIABLE
+ *	LocalVariable name syntax -> $some_local_variable
  */
 
 // LocalVariable is the struct used to represent a local variable of the user.
 type LocalVariable struct {
+	ID           int          `json:"id"`
 	Name         string       `json:"name"`
 	Content      string       `json:"content"`
 	Type         types.PWType `json:"type"`
 	ParentTaskID string       `json:"parentTaskID"`
-	*sync.RWMutex
 }
 
 // GlobalVariable is the struct used to represent a global variable of the user.
 type GlobalVariable struct {
+	ID      int          `json:"id"`
 	Name    string       `json:"name"`
 	Content string       `json:"content"`
 	Type    types.PWType `json:"type"`
-	*sync.RWMutex
 }
-
-var globalMutex = sync.Mutex{}

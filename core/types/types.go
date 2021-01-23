@@ -31,7 +31,7 @@ const (
 	Bool PWType = "boolean"
 	// Path is the constant used to represent the content of type path (example: "/home/pi/random/folder").
 	Path PWType = "path"
-	// JSON is the constant used to represent the content of type JSON (example: "{"foo": "bar"}").
+	// JSON is the constant used to represent the content of type JSON (example: "{'foo': 'bar'}").
 	JSON PWType = "json"
 	// URL is the constant used to represent the content of type URL. For example: "https://golang.org".
 	URL PWType = "url"
