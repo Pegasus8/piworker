@@ -15,7 +15,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.6
 	github.com/rs/zerolog v1.20.0
 	github.com/shirou/gopsutil v2.20.9+incompatible
-	github.com/stretchr/testify v1.6.1
+	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.0.0-20200427165652-729f1e841bcc
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 )
