@@ -13,6 +13,9 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// cronParser parses standard 5-field cron expressions (minute hour dom month dow).
+var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+
 // CronTrigger fires messages based on a cron schedule.
 type CronTrigger struct {
 	*node.BaseNode
@@ -31,8 +34,7 @@ func NewCronTrigger(config map[string]interface{}) (node.Node, error) {
 	expression := base.GetConfigString("expression", "*/5 * * * *") // Default: every 5 minutes
 
 	// Validate cron expression early to fail fast
-	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	if _, err := parser.Parse(expression); err != nil {
+	if _, err := cronParser.Parse(expression); err != nil {
 		return nil, fmt.Errorf("invalid cron expression %q: %w", expression, err)
 	}
 
@@ -64,9 +66,7 @@ func (t *CronTrigger) Ports() (inputs []types.Port, outputs []types.Port) {
 
 // Validate checks if the cron expression is valid.
 func (t *CronTrigger) Validate() error {
-	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	_, err := parser.Parse(t.expression)
-	if err != nil {
+	if _, err := cronParser.Parse(t.expression); err != nil {
 		return fmt.Errorf("invalid cron expression %q: %w", t.expression, err)
 	}
 	return nil
@@ -86,9 +86,7 @@ func (t *CronTrigger) Start(ctx context.Context, out chan<- *types.Message) erro
 		return err
 	}
 
-	t.cron = cron.New(cron.WithParser(cron.NewParser(
-		cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow,
-	)))
+	t.cron = cron.New(cron.WithParser(cronParser))
 
 	_, err := t.cron.AddFunc(t.expression, func() {
 		t.mu.Lock()

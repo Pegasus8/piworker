@@ -59,16 +59,15 @@ func NewTransformProcess(config map[string]interface{}) (node.Node, error) {
 	return process, nil
 }
 
-// Process evaluates the expression against the message and returns the result.
-func (p *TransformProcess) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
-	// Bound evaluation with a timeout so a pathological expression can't hang
-	// this node's executor indefinitely. WithContext("ctx") lets expr honour the
-	// deadline during function calls, and running in a goroutine guarantees
-	// Process returns even if evaluation gets stuck.
+// evalExpr runs a compiled expression against the message with a bounded
+// timeout. WithContext("ctx") lets expr honour the deadline during function
+// calls, and running expr.Run in a goroutine guarantees the caller returns even
+// if a pathological expression gets stuck. Shared by the transform, filter,
+// switch and set-var nodes.
+func evalExpr(ctx context.Context, program *vm.Program, msg *types.Message) (interface{}, error) {
 	runCtx, cancel := context.WithTimeout(ctx, DefaultExprTimeout)
 	defer cancel()
 
-	// Build the environment for expression evaluation
 	env := map[string]interface{}{
 		"payload":   msg.Payload,
 		"meta":      msg.Meta,
@@ -77,8 +76,6 @@ func (p *TransformProcess) Process(ctx context.Context, msg *types.Message) ([]*
 		"id":        msg.ID,
 		"ctx":       runCtx,
 	}
-
-	// If meta is nil, provide an empty map
 	if env["meta"] == nil {
 		env["meta"] = map[string]interface{}{}
 	}
@@ -89,42 +86,28 @@ func (p *TransformProcess) Process(ctx context.Context, msg *types.Message) ([]*
 	}
 	resCh := make(chan exprResult, 1)
 	go func() {
-		val, err := expr.Run(p.program, env)
+		val, err := expr.Run(program, env)
 		resCh <- exprResult{val: val, err: err}
 	}()
 
-	var result interface{}
 	select {
 	case <-runCtx.Done():
-		return nil, fmt.Errorf("expression evaluation timed out after %s: %w", DefaultExprTimeout, runCtx.Err())
+		return nil, fmt.Errorf("expression evaluation timed out after %s", DefaultExprTimeout)
 	case r := <-resCh:
-		if r.err != nil {
-			return nil, fmt.Errorf("expression evaluation failed: %w", r.err)
-		}
-		result = r.val
+		return r.val, r.err
+	}
+}
+
+// Process evaluates the expression against the message and returns the result.
+func (p *TransformProcess) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
+	result, err := evalExpr(ctx, p.program, msg)
+	if err != nil {
+		return nil, fmt.Errorf("expression evaluation failed: %w", err)
 	}
 
-	// Determine output type
-	var outputType types.DataType
-	switch result.(type) {
-	case string:
-		outputType = types.DataTypeString
-	case int, int64, float64:
-		outputType = types.DataTypeNumber
-	case bool:
-		outputType = types.DataTypeBoolean
-	case []interface{}:
-		outputType = types.DataTypeArray
-	case map[string]interface{}:
-		outputType = types.DataTypeObject
-	default:
-		outputType = types.DataTypeAny
-	}
-
-	// Create output message
 	outputMsg := msg.Clone()
 	outputMsg.Payload = result
-	outputMsg.PayloadType = outputType
+	outputMsg.PayloadType = inferDataType(result)
 	outputMsg.SourcePort = "output"
 	outputMsg.SetMeta("transformed", true)
 	outputMsg.SetMeta("expression", p.expression)

@@ -58,24 +58,9 @@ export const useFlowsStore = defineStore('flows', () => {
     loading.value = true
     error.value = null
     try {
-      let flowData = await api.getFlow(id)
-
-      // Handle nested structure: API returns { flow: {...}, running: true }
-      // Extract the inner flow object if present
-      let flow: any
-      let running = false
-
-      if (flowData && (flowData as any).flow && (flowData as any).flow.id) {
-        // Nested structure: { flow: {...}, running: bool }
-        flow = (flowData as any).flow
-        running = (flowData as any).running ?? false
-      } else {
-        // Direct structure: the flow object itself
-        flow = flowData
-        running = (flowData as any).running ?? false
-      }
-
-      flow.running = running
+      // api.getFlow already unwraps the { flow, running } envelope and returns
+      // the flow object with .running set.
+      const flow = (await api.getFlow(id)) as any
       currentFlow.value = flow
 
       // Ensure node-type metadata is loaded before transforming; otherwise nodes

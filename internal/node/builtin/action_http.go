@@ -190,7 +190,7 @@ func (a *HTTPAction) isIdempotent() bool {
 // Process makes the HTTP request and returns the response.
 func (a *HTTPAction) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
 	// Expand templates in URL
-	expandedURL := a.expandTemplate(a.url, msg)
+	expandedURL := renderTemplate(a.url, msg)
 
 	// Validate URL: reject parse errors, non-http(s) schemes, and empty hosts.
 	// url.Parse is very lenient (it accepts relative paths and exotic schemes),
@@ -209,7 +209,7 @@ func (a *HTTPAction) Process(ctx context.Context, msg *types.Message) ([]*types.
 	// Prepare request body
 	var bodyReader io.Reader
 	if a.body != "" && (a.method == "POST" || a.method == "PUT" || a.method == "PATCH") {
-		expandedBody := a.expandTemplate(a.body, msg)
+		expandedBody := renderTemplate(a.body, msg)
 		bodyReader = strings.NewReader(expandedBody)
 	}
 
@@ -236,7 +236,7 @@ func (a *HTTPAction) Process(ctx context.Context, msg *types.Message) ([]*types.
 
 	// Set custom headers (can override content type)
 	for k, v := range a.headers {
-		expandedValue := a.expandTemplate(v, msg)
+		expandedValue := renderTemplate(v, msg)
 		req.Header.Set(k, expandedValue)
 	}
 
@@ -326,84 +326,6 @@ func (a *HTTPAction) Process(ctx context.Context, msg *types.Message) ([]*types.
 	return []*types.Message{outputMsg}, nil
 }
 
-// expandTemplate expands {{variable}} placeholders in a template string.
-// Supported variables: payload, payload.field, meta.key, topic, timestamp, id
-func (a *HTTPAction) expandTemplate(tmpl string, msg *types.Message) string {
-	return templateRe.ReplaceAllStringFunc(tmpl, func(match string) string {
-		// Extract variable name without braces
-		varPath := strings.TrimPrefix(strings.TrimSuffix(match, "}}"), "{{")
-		varPath = strings.TrimSpace(varPath)
-
-		parts := strings.SplitN(varPath, ".", 2)
-		rootVar := parts[0]
-
-		switch rootVar {
-		case "payload":
-			if len(parts) == 1 {
-				// Return entire payload as JSON
-				if b, err := json.Marshal(msg.Payload); err == nil {
-					return string(b)
-				}
-				return fmt.Sprintf("%v", msg.Payload)
-			}
-			// Access nested field
-			return a.getNestedValue(msg.Payload, parts[1])
-
-		case "meta":
-			if len(parts) > 1 {
-				if val, ok := msg.GetMeta(parts[1]); ok {
-					return fmt.Sprintf("%v", val)
-				}
-			}
-			return ""
-
-		case "topic":
-			return msg.Topic
-
-		case "timestamp":
-			return msg.Timestamp.Format(time.RFC3339)
-
-		case "id":
-			return msg.ID
-
-		default:
-			return match // Return original if not recognized
-		}
-	})
-}
-
-// getNestedValue retrieves a nested value from a map using dot notation.
-func (a *HTTPAction) getNestedValue(data interface{}, path string) string {
-	parts := strings.Split(path, ".")
-	current := data
-
-	for _, part := range parts {
-		switch v := current.(type) {
-		case map[string]interface{}:
-			var ok bool
-			current, ok = v[part]
-			if !ok {
-				return ""
-			}
-		default:
-			return ""
-		}
-	}
-
-	// Format the final value
-	switch v := current.(type) {
-	case string:
-		return v
-	case nil:
-		return ""
-	default:
-		if b, err := json.Marshal(v); err == nil {
-			return string(b)
-		}
-		return fmt.Sprintf("%v", v)
-	}
-}
-
 // Ports returns the port definitions for this node.
 func (a *HTTPAction) Ports() (inputs []types.Port, outputs []types.Port) {
 	return []types.Port{
@@ -433,6 +355,10 @@ func (a *HTTPAction) Validate() error {
 
 // GetConfigSchema returns the configuration schema for UI.
 func (a *HTTPAction) GetConfigSchema() node.ConfigSchema {
+	return httpActionConfigSchema()
+}
+
+func httpActionConfigSchema() node.ConfigSchema {
 	minTimeout := float64(1000)
 	maxTimeout := float64(60000)
 
@@ -509,6 +435,7 @@ func (a *HTTPAction) GetConfigSchema() node.ConfigSchema {
 
 // HTTPActionInfo returns the node type info for registration.
 func HTTPActionInfo() node.NodeTypeInfo {
+	schema := httpActionConfigSchema()
 	return node.NodeTypeInfo{
 		Type:        "action-http",
 		Name:        "HTTP Request",
@@ -604,7 +531,8 @@ headers:
 				Multiple: true,
 			},
 		},
-		Icon: "globe",
+		Icon:   "globe",
+		Config: &schema,
 	}
 }
 

@@ -49,21 +49,7 @@ func NewSetVarProcess(config map[string]interface{}) (node.Node, error) {
 
 // Process evaluates the value expression and stores it under the key.
 func (p *SetVarProcess) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
-	runCtx, cancel := context.WithTimeout(ctx, DefaultExprTimeout)
-	defer cancel()
-
-	env := map[string]interface{}{
-		"payload": msg.Payload,
-		"meta":    msg.Meta,
-		"topic":   msg.Topic,
-		"id":      msg.ID,
-		"ctx":     runCtx,
-	}
-	if env["meta"] == nil {
-		env["meta"] = map[string]interface{}{}
-	}
-
-	result, err := expr.Run(p.program, env)
+	result, err := evalExpr(ctx, p.program, msg)
 	if err != nil {
 		return nil, fmt.Errorf("value evaluation failed: %w", err)
 	}

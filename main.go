@@ -104,7 +104,7 @@ func main() {
 	// Setup middleware. Recovery is outermost so it catches panics from every
 	// downstream handler; then logging, metrics, and CORS.
 	router.Use(api.RecoveryMiddleware(log.Logger))
-	router.Use(loggingMiddleware)
+	router.Use(api.LoggingMiddleware(log.Logger))
 	router.Use(api.MetricsMiddleware)
 	router.Use(makeCorsMiddleware(corsOrigins))
 
@@ -262,26 +262,6 @@ func setupLogging(debugMode bool) {
 		Level(level)
 
 	zerolog.DefaultContextLogger = &log.Logger
-}
-
-// loggingMiddleware logs all incoming requests.
-func loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-
-		// Wrap response writer to capture status code
-		wrapped := &api.ResponseWriter{ResponseWriter: w, StatusCode: http.StatusOK}
-
-		next.ServeHTTP(wrapped, r)
-
-		log.Info().
-			Str("method", r.Method).
-			Str("path", r.URL.Path).
-			Int("status", wrapped.StatusCode).
-			Dur("duration", time.Since(start)).
-			Str("remoteAddr", r.RemoteAddr).
-			Msg("HTTP request")
-	})
 }
 
 // makeCorsMiddleware creates a CORS middleware with the given allowed origins.

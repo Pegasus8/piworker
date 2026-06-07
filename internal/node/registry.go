@@ -48,10 +48,39 @@ func (r *Registry) Register(info NodeTypeInfo, factory NodeFactory) error {
 		return fmt.Errorf("node type %q already registered", info.Type)
 	}
 
+	// Derive the config schema from a probe instance when the info doesn't supply
+	// one, so a node's GetConfigSchema() is the single source of truth (the UI
+	// reads info.Config). Nodes that require configuration to construct keep the
+	// schema they provide explicitly.
+	if info.Config == nil {
+		if probe := probeNode(factory); probe != nil {
+			if cn, ok := probe.(ConfigurableNode); ok {
+				schema := cn.GetConfigSchema()
+				info.Config = &schema
+			}
+		}
+	}
+
 	r.factories[info.Type] = factory
 	r.types[info.Type] = info
 
 	return nil
+}
+
+// probeNode creates a throwaway instance with no config to read its declared
+// schema. It returns nil if the node requires configuration to construct (in
+// which case the caller-provided info is used as-is).
+func probeNode(factory NodeFactory) (n Node) {
+	defer func() {
+		if recover() != nil {
+			n = nil
+		}
+	}()
+	probe, err := factory(nil)
+	if err != nil {
+		return nil
+	}
+	return probe
 }
 
 // Unregister removes a node type from the registry.

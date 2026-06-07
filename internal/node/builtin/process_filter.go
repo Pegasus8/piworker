@@ -43,21 +43,7 @@ func NewFilterProcess(config map[string]interface{}) (node.Node, error) {
 
 // Process evaluates the condition and forwards the message only if it is true.
 func (p *FilterProcess) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
-	runCtx, cancel := context.WithTimeout(ctx, DefaultExprTimeout)
-	defer cancel()
-
-	env := map[string]interface{}{
-		"payload": msg.Payload,
-		"meta":    msg.Meta,
-		"topic":   msg.Topic,
-		"id":      msg.ID,
-		"ctx":     runCtx,
-	}
-	if env["meta"] == nil {
-		env["meta"] = map[string]interface{}{}
-	}
-
-	result, err := expr.Run(p.program, env)
+	result, err := evalExpr(ctx, p.program, msg)
 	if err != nil {
 		return nil, fmt.Errorf("filter evaluation failed: %w", err)
 	}

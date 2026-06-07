@@ -105,107 +105,13 @@ export const useNodeTypesStore = defineStore('nodeTypes', () => {
     })
   }
 
-  // Build config schema from API node type.
+  // Build a node's config form from the backend-provided JSON schema. Every node
+  // now exposes its schema via `config`, so there is no per-type fallback.
   function buildConfigSchema(node: any): NodeTypeConfig['configSchema'] {
-    // Prefer the backend-provided JSON schema (new nodes expose it via `config`);
-    // fall back to the hardcoded schemas below for the original nodes that don't.
     if (node.config && node.config.properties) {
       return configSchemaFromBackend(node.config)
     }
-
-    // Default schemas based on node type
-    switch (node.type) {
-      case 'trigger-interval':
-        return [
-          {
-            key: 'interval',
-            label: 'Interval',
-            type: 'number',
-            required: true,
-            default: 5000,
-            placeholder: '5000'
-          },
-          {
-            key: 'unit',
-            label: 'Unit',
-            type: 'select',
-            required: true,
-            default: 'ms',
-            options: [
-              { label: 'Milliseconds', value: 'ms' },
-              { label: 'Seconds', value: 's' },
-              { label: 'Minutes', value: 'm' }
-            ]
-          }
-        ]
-      case 'trigger-cron':
-        return [
-          {
-            key: 'expression',
-            label: 'Cron Expression',
-            type: 'text',
-            required: true,
-            default: '*/5 * * * *',
-            placeholder: '*/5 * * * *'
-          }
-        ]
-      case 'process-delay':
-        return [
-          {
-            key: 'duration',
-            label: 'Duration (ms)',
-            type: 'number',
-            required: true,
-            default: 1000,
-            placeholder: '1000'
-          }
-        ]
-      case 'action-log':
-        return [
-          {
-            key: 'level',
-            label: 'Log Level',
-            type: 'select',
-            required: true,
-            default: 'info',
-            options: [
-              { label: 'Debug', value: 'debug' },
-              { label: 'Info', value: 'info' },
-              { label: 'Warn', value: 'warn' },
-              { label: 'Error', value: 'error' }
-            ]
-          },
-          {
-            key: 'message',
-            label: 'Message',
-            type: 'text',
-            required: false,
-            default: '',
-            placeholder: 'Log message...'
-          }
-        ]
-      case 'action-command':
-        return [
-          {
-            key: 'command',
-            label: 'Command',
-            type: 'text',
-            required: true,
-            default: '',
-            placeholder: 'echo "Hello World"'
-          },
-          {
-            key: 'timeout',
-            label: 'Timeout (ms)',
-            type: 'number',
-            required: false,
-            default: 30000,
-            placeholder: '30000'
-          }
-        ]
-      default:
-        return []
-    }
+    return []
   }
 
   const triggers = computed(() =>

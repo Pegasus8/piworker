@@ -43,21 +43,7 @@ func NewSwitchProcess(config map[string]interface{}) (node.Node, error) {
 
 // Process evaluates the condition and routes the message to the matching port.
 func (p *SwitchProcess) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
-	runCtx, cancel := context.WithTimeout(ctx, DefaultExprTimeout)
-	defer cancel()
-
-	env := map[string]interface{}{
-		"payload": msg.Payload,
-		"meta":    msg.Meta,
-		"topic":   msg.Topic,
-		"id":      msg.ID,
-		"ctx":     runCtx,
-	}
-	if env["meta"] == nil {
-		env["meta"] = map[string]interface{}{}
-	}
-
-	result, err := expr.Run(p.program, env)
+	result, err := evalExpr(ctx, p.program, msg)
 	if err != nil {
 		return nil, fmt.Errorf("switch evaluation failed: %w", err)
 	}
