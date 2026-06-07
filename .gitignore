@@ -1,18 +1,65 @@
-tasks.db
-keys.go
-/logs/
-/statistics/
-.vscode
-.idea
-node_modules/
-/configs
-tokens.db
-*-packr.go
+# Binaries
 piworker
-server.crt
-server.key
-.variables/
-run.sh
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.out
+coverage.html
+
+# Go workspace file
+go.work
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database
+*.db
+data/
+
+# Frontend
+web/node_modules/
+web/dist/
+web/.vite/
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+tmp/
+temp/
 .tmp/
 bin/
-pkged.go
+
+# Certificates
+server.crt
+server.key
+
+# Variables/Config
+.variables/
+configs/
+
+# Local tooling state
+.serena/
+.remember/
