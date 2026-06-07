@@ -228,6 +228,19 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Registration is bootstrap-only. There is no role system, so any account
+	// grants full API access; once any user exists, this public endpoint is
+	// closed to prevent unauthenticated account creation. Additional users must
+	// be provisioned out-of-band (admin credentials / env).
+	if exists, err := h.userStore.UserExists(); err != nil {
+		h.logger.Error().Err(err).Msg("Failed to check user existence")
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	} else if exists {
+		writeError(w, http.StatusForbidden, "Registration is closed")
+		return
+	}
+
 	// Check if user already exists
 	existing, err := h.userStore.GetUser(req.Username)
 	if err != nil {
