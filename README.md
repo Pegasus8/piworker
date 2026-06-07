@@ -1,94 +1,453 @@
-# PiWorker 
+# PiWorker
 
 [![GitHub license](https://img.shields.io/github/license/Pegasus8/piworker)](https://github.com/Pegasus8/piworker/blob/master/LICENSE.md)
 
-PiWorker is a **free** and **open source** tool that let you **automate tasks easily on your [Raspberry Pi](https://www.raspberrypi.org)** (can be used on other devices too) without letting aside your privacy. In these times where your data is used as a payment on some "free" software/services, I think is good to remark that PiWorker **does not** use any external server for nothing (unless you explicity add an action to doing it), so everything is executed inside your device, **under your control**.
+A **visual flow-based automation system** for Raspberry Pi and other devices. Create automation workflows by connecting nodes in a visual editor, similar to Node-RED but built with Go for performance and Vue 3 for a modern UI.
 
-I'm working hard to make PiWorker stable and robust, but for now, it's not even an alpha, so there should be bugs everywhere (If you see one, can you [let me know it](https://github.com/Pegasus8/piworker/issues/new/choose) please? that will be really helpful!) so don't use it on a device that contain something that you don't want to lose.
+## Features
 
-<br>
+- **Visual Flow Editor** - Drag-and-drop interface to create automation workflows
+- **Node-Based** - Connect triggers, processing nodes, and actions
+- **Privacy-First** - Everything runs locally on your device
+- **Extensible** - Easy to add new node types
+- **Lightweight** - Single binary with embedded frontend, optimized for Raspberry Pi
+- **Fast** - Go backend with concurrent message processing
 
-> _**Disclaimer**: I am not responsible for the misuse that may be given to this software, whether for legal purposes or not. Use it at your own risk._
+## Quick Start
 
------
+### Option 1: Docker (Recommended)
 
-## Installation:
 ```bash
-bash -c "$(curl -sSL https://github.com/Pegasus8/piworker/raw/master/install.sh)"
+# Production - single container with everything included
+docker run -d \
+  --name piworker \
+  -p 8080:8080 \
+  -v piworker-data:/app/data \
+  ghcr.io/pegasus8/piworker:latest
+
+# Open http://localhost:8080
 ```
 
-## Installation from source:
-1. Make sure you have `golang` installed and configured. If not, check [this](https://golang.org/doc/install).
-2. Make sure you have `nodejs` and `npm` installed. If you don't, install them from [here](https://nodejs.org/en/) or [here](https://github.com/nodesource/distributions) (if you use linux maybe the last option will be more easy).
-3. Check if you have `git` installed. If not (again), get it from [here](https://git-scm.com/downloads).
-4. Install [pkger](https://github.com/markbates/pkger) in your `GOPATH` running `go get github.com/markbates/pkger/cmd/pkger`.
-5. Download the source code: `git clone https://github.com/Pegasus8/piworker`.
-6. Once downloaded, go inside the directory `cd piworker/`.
-7. Go to the dir of the frontend `cd webui/frontend/`, install the dependencies `npm install`, and compile it `npm run build`.
-8. Go back to the root PiWorker directory `cd ../..`.
-9. Execute `pkger` to include the frontend inside the binary.
-10. Compile the entire project (`output_dir` is the path where the executable will be saved): `go build -o <output_dir>`. In my case, I prefer save the executable on the directory `$HOME/piworker/`, so I will run the command `go build -o $HOME/piworker/`. *Note: the dir used must exist before the compiling.*
-11. Go to the directory where you saved the executable: `cd <output_dir>`. In my case is `$HOME/piworker/`, so I execute: `cd $HOME/piworker/`.
-12. Install the service of P.W. running the following command: `sudo ./piworker --service install`. *Why `sudo`?* Because you need `root` privileges to add a new service to the system. *The service **must** be installed?* No, isn't something essential. If you prefer don't install it, remember that P.W. won't be executed when you reboot the system.
-13. **IMPORTANT** - Make a new user before start the service: `./piworker --new-user --username <your_username> --password <your_password> --admin`. Replace `<your_username>` with the username you will use and `<your_password>` with the password. Also, the `--admin` flag can be avoided if you don't want to give admin privileges to the user. *Note: you can add more users if you want.*
-14. Optional (but recommended) - Generate a self-signed certificate for a secure connection (https) with the WebUI (**Warning**: **don't use the WebUI/REST APIs from outside the [LAN](https://en.wikipedia.org/wiki/Local_area_network)**. As a software in early development, can contain vulnerabilities that can be exploited by more experienced people with malicious intentions):
+### Option 2: Pre-built Binary
+
+Download the latest release from [Releases](https://github.com/Pegasus8/piworker/releases) and run:
+
 ```bash
-openssl req \
-        -subj '/O=PiWorker' \
-        -new \
-        -newkey \
-        rsa:2048 \
-        -sha256 \
-        -days 365 \
-        -nodes \
-        -x509 \
-        -keyout server.key \
-        -out server.crt
+./piworker
+# Open http://localhost:8080
 ```
-15. Start the service: `sudo ./piworker --service start`.
 
+### Option 3: Build from Source
 
-## Built With
-Thanks to all the developers who made each dependency used by PiWorker! They made the things much more easier for others devs like me, really.
+```bash
+# Clone the repository
+git clone https://github.com/Pegasus8/piworker.git
+cd piworker
 
-### Frontend (JS - VueJS)
-Dependency | License
---- | ---
-[VueJS](https://vuejs.org/) | [![GitHub license](https://img.shields.io/github/license/vuejs/vue)](https://github.com/vuejs/vue/blob/dev/LICENSE)
-[Vuetify](https://vuetifyjs.com) | [![GitHub license](https://img.shields.io/github/license/vuetifyjs/vuetify)](https://github.com/vuetifyjs/vuetify/blob/master/LICENSE.md)
-[Vue-router](https://router.vuejs.org/) | [![GitHub license](https://img.shields.io/github/license/vuejs/vue-router)](https://github.com/vuejs/vue-router/blob/dev/LICENSE)
-[Vuex](https://vuex.vuejs.org/) | [![GitHub license](https://img.shields.io/github/license/vuejs/vuex)](https://github.com/vuejs/vuex/blob/dev/LICENSE)
-[Axios](https://github.com/axios/axios) | [![GitHub license](https://img.shields.io/github/license/axios/axios)](https://github.com/axios/axios/blob/master/LICENSE)
-[Vue.Draggable](https://github.com/SortableJS/Vue.Draggable) | [![GitHub license](https://img.shields.io/github/license/SortableJS/Vue.Draggable)](https://github.com/SortableJS/Vue.Draggable/blob/master/LICENSE)
-[Vue-uuid](https://github.com/VitorLuizC/vue-uuid) | [![GitHub license](https://img.shields.io/github/license/VitorLuizC/vue-uuid)](https://github.com/VitorLuizC/vue-uuid/blob/master/LICENSE)
-[Anime.js](https://animejs.com/) | [![GitHub license](https://img.shields.io/github/license/juliangarnier/anime)](https://github.com/juliangarnier/anime/blob/master/LICENSE.md)
-[Chart.js](https://www.chartjs.org/) | [![GitHub license](https://img.shields.io/github/license/chartjs/Chart.js)](https://github.com/chartjs/Chart.js/blob/master/LICENSE.md)
-[Vue-chartjs](https://vue-chartjs.org) | [![GitHub license](https://img.shields.io/github/license/apertureless/vue-chartjs)](https://github.com/apertureless/vue-chartjs/blob/develop/LICENSE.txt)
-[typeface-roboto (Google Roboto)](https://github.com/KyleAMathews/typefaces/tree/master/packages/roboto) | -
-[Material Design Icons](https://materialdesignicons.com/) | -
+# Build with embedded frontend
+make build-release
 
-### Backend (Go)
-Dependency | License
---- | ---
-[Websocket by Gorilla](https://github.com/gorilla/websocket) | [![GitHub license](https://img.shields.io/github/license/gorilla/websocket)](https://github.com/gorilla/websocket/blob/master/LICENSE)
-[Mux](https://github.com/gorilla/mux) | [![GitHub license](https://img.shields.io/github/license/gorilla/mux)](https://github.com/gorilla/mux/blob/master/LICENSE)
-[Go-sqlite3](https://github.com/mattn/go-sqlite3) | [![GitHub license](https://img.shields.io/github/license/mattn/go-sqlite3)](https://github.com/mattn/go-sqlite3/blob/master/LICENSE)
-[Pkger](https://github.com/markbates/pkger) | [![GitHub license](https://img.shields.io/github/license/markbates/pkger)](https://github.com/markbates/pkger/blob/master/LICENSE)
-[Jwt-go](https://github.com/dgrijalva/jwt-go) | [![GitHub license](https://img.shields.io/github/license/dgrijalva/jwt-go)](https://github.com/dgrijalva/jwt-go/blob/master/LICENSE)
-[Lumberjack](https://github.com/natefinch/lumberjack) | [![GitHub license](https://img.shields.io/github/license/natefinch/lumberjack)](https://github.com/natefinch/lumberjack/blob/v2.0/LICENSE)
-[UUID by Google](https://github.com/google/uuid) | [![GitHub license](https://img.shields.io/github/license/google/uuid)](https://github.com/google/uuid/blob/master/LICENSE)
-[Service](https://github.com/kardianos/service) | [![GitHub license](https://img.shields.io/github/license/kardianos/service)](https://github.com/kardianos/service/blob/master/LICENSE)
-[Zerolog](https://github.com/rs/zerolog) | [![GitHub license](https://img.shields.io/github/license/rs/zerolog)](https://github.com/rs/zerolog/blob/master/LICENSE)
-[Gopsutil](https://github.com/shirou/gopsutil) | [![GitHub license](https://img.shields.io/badge/license-BSD-green)](https://github.com/shirou/gopsutil/blob/master/LICENSE)
-[Testify](https://github.com/stretchr/testify) | [![GitHub license](https://img.shields.io/github/license/stretchr/testify)](https://github.com/stretchr/testify/blob/master/LICENSE)
+# Run
+./build/piworker
+```
 
-## Acknowledgments
+---
 
-<p align="center">
-        <img src="https://user-images.githubusercontent.com/43992893/87373742-a096ef80-c560-11ea-9f2c-497a91213b77.png">
-</p>
+## Development Setup
 
-<p align="center">
-        To <strong>JetBrains</strong>, for providing me with their wonderful tools for free. Thank you guys! <br>
-        If you have a little of time, please consider take a look to <a href="https://www.jetbrains.com/?from=PiWorker">their website</a>.
-</p>
+### Prerequisites
+
+| Tool | Version | Purpose | Installation |
+|------|---------|---------|--------------|
+| **Go** | 1.22+ | Backend compilation | [go.dev/dl](https://go.dev/dl/) |
+| **Bun** | 1.0+ | Frontend runtime & package manager | `curl -fsSL https://bun.sh/install \| bash` |
+| **Make** | any | Build automation | Pre-installed on macOS/Linux |
+| **Docker** | 20+ | Optional, containerized dev | [docker.com](https://docker.com) |
+| **golangci-lint** | latest | Optional, for `make lint` | `go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest` |
+
+#### Quick Install (macOS)
+
+```bash
+# Install Go
+brew install go
+
+# Install Bun
+curl -fsSL https://bun.sh/install | bash
+
+# Verify installations
+go version    # go1.22+
+bun --version # 1.0+
+```
+
+#### Quick Install (Linux/Raspberry Pi)
+
+```bash
+# Install Go
+wget https://go.dev/dl/go1.22.0.linux-arm64.tar.gz
+sudo tar -C /usr/local -xzf go1.22.0.linux-arm64.tar.gz
+export PATH=$PATH:/usr/local/go/bin
+
+# Install Bun
+curl -fsSL https://bun.sh/install | bash
+
+# Verify
+go version && bun --version
+```
+
+### Local Development (Recommended)
+
+Run backend and frontend separately for hot-reload:
+
+**Terminal 1 - Backend:**
+```bash
+go run main.go -debug
+# API running at http://localhost:8080
+```
+
+**Terminal 2 - Frontend:**
+```bash
+cd web
+bun install
+bun run dev
+# UI running at http://localhost:3000
+```
+
+Open http://localhost:3000 - the frontend proxies API calls to the backend.
+
+### Docker Development
+
+Use Docker Compose for a fully containerized dev environment:
+
+```bash
+# Start both services with hot-reload
+make docker-dev
+
+# View logs
+make docker-dev-logs
+
+# Stop
+make docker-dev-down
+```
+
+- **Backend**: http://localhost:8080 (Go with air hot-reload)
+- **Frontend**: http://localhost:3000 (Vite HMR)
+
+---
+
+## Production Deployment
+
+### Docker (Recommended)
+
+```bash
+# Build production image
+make docker-build
+
+# Run with Docker Compose
+make docker-prod
+
+# Or run directly
+docker run -d \
+  --name piworker \
+  -p 8080:8080 \
+  -v piworker-data:/app/data \
+  --restart unless-stopped \
+  piworker:latest
+```
+
+### Raspberry Pi
+
+```bash
+# Build for ARM
+make build-arm64  # For RPi 4, 64-bit
+make build-arm    # For RPi 3 or 32-bit
+
+# Copy to Pi and run
+scp build/piworker-linux-arm64 pi@raspberrypi:~/piworker
+ssh pi@raspberrypi './piworker'
+```
+
+### Systemd Service
+
+Create `/etc/systemd/system/piworker.service`:
+
+```ini
+[Unit]
+Description=PiWorker Automation System
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi
+ExecStart=/home/pi/piworker -addr :8080 -db /home/pi/piworker.db
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable piworker
+sudo systemctl start piworker
+```
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Visual Flow Editor                    │
+│                 (Vue 3 + Vue Flow + Tailwind)            │
+└─────────────────────────────────────────────────────────┘
+                              │
+                         REST API
+                              │
+┌─────────────────────────────────────────────────────────┐
+│                      Flow Engine                         │
+│          (Goroutines + Channels for message passing)     │
+└─────────────────────────────────────────────────────────┘
+                              │
+          ┌───────────────────┼───────────────────┐
+          ▼                   ▼                   ▼
+    ┌──────────┐       ┌──────────┐       ┌──────────┐
+    │ Triggers │       │Processing│       │ Actions  │
+    │  Nodes   │       │  Nodes   │       │  Nodes   │
+    └──────────┘       └──────────┘       └──────────┘
+```
+
+### How It Works
+
+1. **Triggers** start a flow (interval timer, cron schedule, HTTP webhook)
+2. **Messages** flow through connected nodes via Go channels
+3. **Processing nodes** transform or route messages
+4. **Action nodes** perform side effects (log, execute commands, HTTP requests)
+
+---
+
+## Node Types
+
+### Triggers (Input)
+| Node | Type | Description |
+|------|------|-------------|
+| **Interval Timer** | `trigger-interval` | Fire at regular time intervals |
+| **Cron Schedule** | `trigger-cron` | Fire on a cron schedule (e.g., `0 9 * * *`) |
+| **Manual Inject** | `trigger-manual` | Fire on demand from the UI or API |
+| **Webhook** | `trigger-webhook` | Fire on an incoming HTTP request to `/api/webhooks/<path>` |
+| **System Metric** | `trigger-sysmetric` | Fire when CPU / memory / temperature crosses a threshold |
+
+### Processing
+| Node | Type | Description |
+|------|------|-------------|
+| **Delay** | `process-delay` | Delay messages by a specified duration |
+| **Debug** | `process-debug` | Inspect messages flowing through the flow |
+| **Transform** | `process-transform` | Reshape the payload with a sandboxed expression |
+| **Filter** | `process-filter` | Pass a message through only when a condition is true |
+| **Switch (If/Else)** | `process-switch` | Route a message to a `true` / `false` output |
+| **Template** | `process-template` | Render a text template from the message |
+| **Set Variable** | `set-var` | Store a value into a named variable |
+| **Get Variable** | `get-var` | Read a named variable into the payload |
+
+### Actions (Output)
+| Node | Type | Description |
+|------|------|-------------|
+| **Log** | `action-log` | Log messages with a configurable level |
+| **Command** | `action-command` | Execute shell commands (inputs are shell-escaped) |
+| **HTTP Request** | `action-http` | Call an HTTP API (SSRF-guarded, size-capped) |
+| **Notify** | `action-notify` | Send to Discord / Slack / ntfy |
+| **Telegram** | `action-telegram` | Send a message via a Telegram bot |
+| **Email** | `action-email` | Send an email via SMTP |
+| **Write File** | `action-file` | Write or append the message to a file |
+
+> Each node ships an in-app documentation card and a configuration schema, so the
+> editor renders its settings form automatically.
+
+---
+
+## Configuration
+
+Configuration is layered, in order of increasing precedence:
+
+**command-line flags > environment variables > TOML config file > built-in defaults**
+
+### Config File (TOML)
+
+PiWorker loads `piworker.toml` from the working directory if present (or pass
+`-config <path>`). See [`piworker.example.toml`](piworker.example.toml):
+
+```toml
+addr = ":8080"
+db = "piworker.db"
+auth = true
+jwt_secret = ""        # empty: a secret is generated and persisted across restarts
+cors_origins = ["http://localhost:3000", "http://localhost:8080"]
+```
+
+### Command Line Flags
+
+```bash
+./piworker [flags]
+
+Flags:
+  -config string        Path to TOML config file (default: piworker.toml if present)
+  -addr string          HTTP server address (default ":8080")
+  -db string            SQLite database path (default "piworker.db")
+  -debug                Enable debug logging
+  -auth                 Enable JWT authentication (default true)
+  -jwt-secret string    JWT secret (auto-generated and persisted if empty)
+  -cors-origins string  Comma-separated allowed CORS origins
+  -admin-user string    Bootstrap admin username (or env PIWORKER_ADMIN_USER)
+  -admin-pass string    Bootstrap admin password (or env PIWORKER_ADMIN_PASS)
+```
+
+### Environment Variables
+
+```bash
+export PIWORKER_ADDR=:8080
+export PIWORKER_DB=/var/lib/piworker/data.db
+export PIWORKER_DEBUG=true
+export PIWORKER_AUTH=true
+export PIWORKER_JWT_SECRET=...        # optional; otherwise auto-generated + persisted
+export PIWORKER_CORS_ORIGINS=https://app.example.com
+export PIWORKER_ADMIN_USER=admin
+export PIWORKER_ADMIN_PASS=...
+```
+
+### Webhooks
+
+Deploy a flow with a **Webhook** trigger and external services can start it by
+calling `http(s)://<host>/api/webhooks/<path>`. Set a token on the node to
+require `?token=...` or an `X-Webhook-Token` header.
+
+---
+
+## Make Commands
+
+```bash
+# Development
+make run              # Build and run
+make test             # Run all tests
+make test-verbose     # Run tests with verbose output
+make test-race        # Run tests with the race detector
+make lint             # Run linter
+make hooks-install    # Install the git pre-commit hook (auto-gofmt staged files)
+
+# Frontend
+make frontend-install # Install dependencies (bun)
+make frontend-dev     # Start dev server
+make frontend-build   # Build for production
+make frontend-embed   # Build and embed in Go binary
+
+# Docker
+make docker-dev       # Start dev environment
+make docker-dev-down  # Stop dev environment
+make docker-build     # Build production image
+make docker-prod      # Run production container
+
+# Release
+make build-release    # Build optimized binary with embedded frontend
+make build-arm64      # Build for Raspberry Pi 4
+make build-arm        # Build for Raspberry Pi 3
+```
+
+---
+
+## API Reference
+
+### Flows
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/flows` | List all flows |
+| POST | `/api/flows` | Create a new flow |
+| GET | `/api/flows/{id}` | Get a flow by ID |
+| PUT | `/api/flows/{id}` | Update a flow |
+| DELETE | `/api/flows/{id}` | Delete a flow |
+| POST | `/api/flows/{id}/deploy` | Deploy (start) a flow |
+| POST | `/api/flows/{id}/stop` | Stop a running flow |
+
+### Node Types
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/node-types` | List available node types |
+
+### Health
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/health` | Health check |
+
+---
+
+## Tech Stack
+
+### Backend
+- **Go 1.22+** - High performance, great concurrency
+- **gorilla/mux** - HTTP router
+- **SQLite** - Local database (no external dependencies)
+- **zerolog** - Structured JSON logging
+- **go:embed** - Frontend embedded in binary
+
+### Frontend
+- **Vue 3** - Reactive UI framework
+- **Vue Flow** - Visual flow editor canvas
+- **Tailwind CSS** - Utility-first styling
+- **shadcn-vue** - Accessible UI components
+- **Pinia** - State management
+- **Vite** - Dev server and bundler (required for Vue SFC support)
+- **Bun** - JavaScript runtime and package manager (faster than Node.js/npm)
+
+---
+
+## Project Structure
+
+```
+piworker/
+├── main.go                 # Application entry point
+├── Dockerfile              # Production multi-stage build
+├── Dockerfile.dev          # Development with hot-reload
+├── docker-compose.yml      # Dev environment
+├── docker-compose.prod.yml # Production environment
+├── Makefile                # Build automation
+│
+├── internal/
+│   ├── api/                # REST API handlers
+│   ├── flow/               # Flow engine (runtime, router, models)
+│   ├── node/               # Node system
+│   │   ├── builtin/        # Built-in node implementations
+│   │   └── ...
+│   ├── storage/            # SQLite persistence
+│   ├── types/              # Shared types (Message, Port, etc.)
+│   └── webui/              # Embedded frontend assets
+│
+└── web/                    # Vue 3 frontend
+    ├── src/
+    │   ├── components/     # UI components
+    │   ├── views/          # Page views
+    │   ├── stores/         # Pinia stores
+    │   └── ...
+    └── ...
+```
+
+---
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Make your changes
+4. Run tests: `make test`
+5. Commit: `git commit -m "Add my feature"`
+6. Push: `git push origin feature/my-feature`
+7. Open a Pull Request
+
+---
+
+## License
+
+[AGPL-3.0](LICENSE.md)
+
+> **Disclaimer**: I am not responsible for the misuse that may be given to this software. Use it at your own risk.
