@@ -1,0 +1,60 @@
+# Git
+.git
+.gitignore
+
+# Build artifacts
+build/
+tmp/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.test
+*.out
+coverage.out
+coverage.html
+*.prof
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Development
+.air.toml
+.env
+.env.local
+*.log
+
+# Node (we copy web/ but exclude node_modules)
+web/node_modules/
+web/.vite/
+web/dist/
+
+# Documentation
+*.md
+!README.md
+docs/
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Database (development)
+*.db
+*.sqlite
+*.sqlite3
+
+# Serena/Claude
+.serena/
+.claude/

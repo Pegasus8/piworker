@@ -1,0 +1,56 @@
+# PiWorker Development Docker Compose
+# Runs frontend and backend as separate services with hot reload
+
+services:
+  # ==========================================================================
+  # Backend (Go)
+  # ==========================================================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount source for hot reload (if using air)
+      - .:/app
+      # Exclude directories that shouldn't be mounted
+      - /app/web/node_modules
+      - /app/internal/webui/dist
+      # Persist database
+      - piworker-data:/app/data
+    environment:
+      - PIWORKER_ADDR=:8080
+      - PIWORKER_DB=/app/data/piworker.db
+      - PIWORKER_DEBUG=true
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  # ==========================================================================
+  # Frontend (Vite Dev Server with Bun)
+  # ==========================================================================
+  frontend:
+    image: oven/bun:1-alpine
+    working_dir: /app
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./web:/app
+      - frontend-modules:/app/node_modules
+    command: sh -c "bun install && bun run dev -- --host 0.0.0.0"
+    environment:
+      - VITE_API_URL=http://backend:8080
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  piworker-data:
+    driver: local
+  frontend-modules:
+    driver: local
