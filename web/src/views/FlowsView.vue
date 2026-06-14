@@ -3,7 +3,9 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFlowsStore } from '@/stores/flows'
 import { useAuthStore } from '@/stores/auth'
+import { useApi } from '@/composables/useApi'
 import { Button, Card, Input, Dialog, Label, Switch, Badge } from '@/components/ui'
+import SecretsDialog from '@/components/SecretsDialog.vue'
 import {
   Plus,
   Trash2,
@@ -11,17 +13,71 @@ import {
   Search,
   Workflow,
   Calendar,
-  LogOut
+  LogOut,
+  Copy,
+  Download,
+  Upload,
+  KeyRound
 } from 'lucide-vue-next'
 
 const router = useRouter()
 const flowsStore = useFlowsStore()
 const authStore = useAuthStore()
+const api = useApi()
 
 const searchQuery = ref('')
 const showCreateDialog = ref(false)
 const newFlowName = ref('')
 const newFlowDescription = ref('')
+
+const showSecrets = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
+
+async function handleDuplicate(id: string) {
+  try {
+    await api.duplicateFlow(id)
+    await flowsStore.fetchFlows()
+  } catch (e) {
+    console.error('Failed to duplicate flow:', e)
+  }
+}
+
+async function handleExport(id: string, name: string) {
+  try {
+    const flow = await api.exportFlow(id)
+    const blob = new Blob([JSON.stringify(flow, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${name.replace(/[^a-z0-9-_]+/gi, '_') || 'flow'}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    console.error('Failed to export flow:', e)
+  }
+}
+
+function triggerImport() {
+  fileInput.value?.click()
+}
+
+async function onImportFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    const text = await file.text()
+    const flow = JSON.parse(text)
+    const imported = await api.importFlow(flow)
+    await flowsStore.fetchFlows()
+    router.push(`/editor/${imported.id}`)
+  } catch (e) {
+    console.error('Failed to import flow:', e)
+    alert('Could not import: the file is not a valid flow JSON.')
+  } finally {
+    input.value = ''
+  }
+}
 
 onMounted(() => {
   flowsStore.fetchFlows()
@@ -104,6 +160,14 @@ function logout() {
           <h1 class="text-xl font-bold">PiWorker</h1>
         </div>
         <div class="flex items-center gap-2">
+          <Button variant="outline" @click="showSecrets = true" title="Manage secrets">
+            <KeyRound class="mr-2 h-4 w-4" />
+            Secrets
+          </Button>
+          <Button variant="outline" @click="triggerImport" title="Import a flow from JSON">
+            <Upload class="mr-2 h-4 w-4" />
+            Import
+          </Button>
           <Button @click="createNewFlow">
             <Plus class="mr-2 h-4 w-4" />
             New Flow
@@ -225,7 +289,24 @@ function logout() {
               <Button
                 variant="ghost"
                 size="icon"
+                title="Duplicate"
+                @click="handleDuplicate(flow.id)"
+              >
+                <Copy class="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Export"
+                @click="handleExport(flow.id, flow.name)"
+              >
+                <Download class="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
                 class="text-destructive hover:bg-destructive/10"
+                title="Delete"
                 @click="deleteFlow(flow.id)"
               >
                 <Trash2 class="h-4 w-4" />
@@ -277,5 +358,17 @@ function logout() {
         </div>
       </template>
     </Dialog>
+
+    <!-- Secrets manager -->
+    <SecretsDialog v-model:open="showSecrets" />
+
+    <!-- Hidden file input for flow import -->
+    <input
+      ref="fileInput"
+      type="file"
+      accept="application/json,.json"
+      class="hidden"
+      @change="onImportFile"
+    />
   </div>
 </template>

@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Flow, FlowListItem } from '@/types'
+import type { Flow, FlowListItem, FlowEvent, FlowRun, NodeEventRecord } from '@/types'
 
 const TOKEN_KEY = 'piworker_auth_token'
 
@@ -82,6 +82,36 @@ export function useApi() {
     await api.patch(`/flows/${id}/toggle`, { enabled })
   }
 
+  // Flow lifecycle: duplicate / export / import.
+  async function duplicateFlow(id: string): Promise<Flow> {
+    const { data } = await api.post(`/flows/${id}/duplicate`)
+    return data.data
+  }
+
+  async function exportFlow(id: string): Promise<Flow> {
+    const { data } = await api.get(`/flows/${id}/export`)
+    return data.data
+  }
+
+  async function importFlow(flow: unknown): Promise<Flow> {
+    const { data } = await api.post('/flows/import', flow)
+    return data.data
+  }
+
+  // Secrets (values are write-only; the listing returns names).
+  async function getSecrets(): Promise<string[]> {
+    const { data } = await api.get('/secrets')
+    return data.data?.names ?? []
+  }
+
+  async function setSecret(name: string, value: string): Promise<void> {
+    await api.put(`/secrets/${encodeURIComponent(name)}`, { value })
+  }
+
+  async function deleteSecret(name: string): Promise<void> {
+    await api.delete(`/secrets/${encodeURIComponent(name)}`)
+  }
+
   // Node types
   async function getNodeTypes() {
     const { data } = await api.get('/node-types')
@@ -101,10 +131,91 @@ export function useApi() {
     return data.data?.running ?? false
   }
 
-  // Debug
-  async function testNode(nodeId: string, payload: any): Promise<any> {
-    const { data } = await api.post(`/nodes/${nodeId}/test`, { payload })
-    return data
+  // Debug: run a single processing node once against a sample payload.
+  async function testNode(nodeType: string, config: Record<string, any>, payload: any): Promise<any> {
+    const { data } = await api.post(`/nodes/${nodeType}/test`, { config, payload })
+    return data.data
+  }
+
+  // Observability: run/event history.
+  async function getFlowRuns(flowId: string, limit = 50): Promise<FlowRun[]> {
+    const { data } = await api.get(`/flows/${flowId}/runs`, { params: { limit } })
+    return data.data?.runs ?? []
+  }
+
+  async function getRunEvents(flowId: string, runId: string): Promise<NodeEventRecord[]> {
+    const { data } = await api.get(`/flows/${flowId}/runs/${runId}/events`)
+    return data.data?.events ?? []
+  }
+
+  // subscribeFlowEvents opens the live Server-Sent Events stream for a flow using
+  // fetch + ReadableStream so it can send the Authorization header (the JWT never
+  // appears in a URL). It auto-reconnects with backoff and returns a close().
+  function subscribeFlowEvents(
+    flowId: string,
+    handlers: { onEvent: (e: FlowEvent) => void; onStatus?: (connected: boolean) => void }
+  ): () => void {
+    const controller = new AbortController()
+    let closed = false
+
+    async function run() {
+      let backoff = 1000
+      while (!closed) {
+        try {
+          const token = localStorage.getItem(TOKEN_KEY)
+          const resp = await fetch(`/api/flows/${flowId}/events`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            signal: controller.signal
+          })
+          if (resp.status === 401) {
+            closed = true
+            break
+          }
+          if (!resp.ok || !resp.body) throw new Error(`SSE status ${resp.status}`)
+
+          handlers.onStatus?.(true)
+          backoff = 1000
+
+          const reader = resp.body.getReader()
+          const decoder = new TextDecoder()
+          let buffer = ''
+          while (!closed) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            let sep: number
+            while ((sep = buffer.indexOf('\n\n')) !== -1) {
+              const frame = buffer.slice(0, sep)
+              buffer = buffer.slice(sep + 2)
+              // The server emits exactly one `data: <json>` per frame; anything
+              // else (a `: keepalive` comment) is skipped.
+              if (frame.startsWith('data:')) {
+                const json = frame.slice(5).trim()
+                if (json) {
+                  try {
+                    handlers.onEvent(JSON.parse(json))
+                  } catch {
+                    /* ignore malformed frame */
+                  }
+                }
+              }
+            }
+          }
+        } catch {
+          if (closed || controller.signal.aborted) break
+        }
+        handlers.onStatus?.(false)
+        if (closed) break
+        await new Promise((r) => setTimeout(r, backoff))
+        backoff = Math.min(backoff * 2, 15000)
+      }
+    }
+
+    void run()
+    return () => {
+      closed = true
+      controller.abort()
+    }
   }
 
   // Authentication
@@ -133,6 +244,18 @@ export function useApi() {
     deployFlow,
     stopFlow,
     testNode,
+    // Lifecycle
+    duplicateFlow,
+    exportFlow,
+    importFlow,
+    // Secrets
+    getSecrets,
+    setSecret,
+    deleteSecret,
+    // Observability
+    getFlowRuns,
+    getRunEvents,
+    subscribeFlowEvents,
     // Auth
     login,
     register,

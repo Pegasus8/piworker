@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import { cn } from '@/lib/utils'
+import { useObservabilityStore } from '@/stores/observability'
 import type { NodeCategory } from '@/types'
 import {
   Clock,
@@ -77,6 +78,47 @@ const colors = computed(() => categoryColors[props.data.category])
 
 const showInputHandle = computed(() => props.data.category !== 'trigger')
 const showOutputHandle = computed(() => props.data.category !== 'action')
+
+// Live execution state, streamed from the backend via the observability store.
+const obs = useObservabilityStore()
+const runState = computed(() => obs.nodeState(props.id))
+
+const runRing = computed(() => {
+  switch (runState.value?.phase) {
+    case 'running':
+      return 'ring-2 ring-sky-400 ring-offset-2 ring-offset-background animate-pulse'
+    case 'success':
+      return 'ring-2 ring-emerald-500 ring-offset-2 ring-offset-background'
+    case 'error':
+      return 'ring-2 ring-red-500 ring-offset-2 ring-offset-background'
+    default:
+      return ''
+  }
+})
+
+// A live run-state ring takes precedence over the selection ring.
+const ringClass = computed(() =>
+  runRing.value || (props.selected ? 'ring-2 ring-ring ring-offset-2 ring-offset-background' : '')
+)
+
+const dotClass = computed(() => {
+  switch (runState.value?.phase) {
+    case 'running':
+      return 'bg-sky-300 animate-pulse'
+    case 'success':
+      return 'bg-emerald-300'
+    case 'error':
+      return 'bg-red-300'
+    default:
+      return ''
+  }
+})
+
+const durationLabel = computed(() => {
+  const s = runState.value
+  if (!s || s.phase === 'running' || s.durMs == null) return ''
+  return `${s.durMs.toFixed(s.durMs < 1 ? 2 : 0)}ms`
+})
 </script>
 
 <template>
@@ -85,7 +127,7 @@ const showOutputHandle = computed(() => props.data.category !== 'action')
       'min-w-[160px] rounded-lg border-2 shadow-lg transition-all duration-200',
       colors.bg,
       colors.border,
-      selected && 'ring-2 ring-ring ring-offset-2 ring-offset-background'
+      ringClass
     )"
   >
     <!-- Header -->
@@ -97,6 +139,14 @@ const showOutputHandle = computed(() => props.data.category !== 'action')
     >
       <component :is="IconComponent" class="h-4 w-4" />
       <span class="text-sm font-medium">{{ data.label }}</span>
+      <!-- Live execution status -->
+      <span
+        v-if="runState"
+        class="ml-auto flex items-center gap-1 text-[10px] font-normal text-white/90"
+      >
+        <span v-if="durationLabel">{{ durationLabel }}</span>
+        <span :class="cn('h-2 w-2 rounded-full', dotClass)" />
+      </span>
     </div>
 
     <!-- Body -->

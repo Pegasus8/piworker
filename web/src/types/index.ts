@@ -54,3 +54,46 @@ export interface FlowListItem {
   createdAt: string
   updatedAt: string
 }
+
+// --- Observability ---
+
+export type NodePhase = 'running' | 'success' | 'error' | 'debug'
+
+// FlowEvent is one live node-execution event delivered over the SSE stream.
+export interface FlowEvent {
+  flowId: string
+  nodeId: string
+  nodeType: string
+  phase: NodePhase
+  msgId?: string
+  corrId?: string
+  durMs?: number
+  error?: string
+  debug?: unknown
+  ts?: number
+}
+
+// FlowRun is one persisted run (one trigger firing) of a flow.
+export interface FlowRun {
+  id: string
+  flowId: string
+  startedAt: string
+  finishedAt?: string
+  status: 'running' | 'success' | 'error'
+  nodeCount: number
+  errorCount: number
+}
+
+// NodeEventRecord is one persisted node-execution event within a run.
+export interface NodeEventRecord {
+  id: number
+  runId: string
+  flowId: string
+  nodeId: string
+  nodeType: string
+  phase: 'running' | 'success' | 'error'
+  msgId?: string
+  durationMs?: number
+  error?: string
+  createdAt: string
+}

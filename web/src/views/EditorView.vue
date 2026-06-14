@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useFlowsStore } from '@/stores/flows'
-import { FlowCanvas, NodePalette, NodeConfigPanel } from '@/components/flow'
+import { useObservabilityStore } from '@/stores/observability'
+import { FlowCanvas, NodePalette, NodeConfigPanel, ActivityPanel } from '@/components/flow'
 import { Button, Input, Switch, Badge, Dialog } from '@/components/ui'
 import {
   ArrowLeft,
@@ -16,6 +17,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 const flowsStore = useFlowsStore()
+const obs = useObservabilityStore()
 
 const showSettings = ref(false)
 const isSaving = ref(false)
@@ -34,7 +36,21 @@ onMounted(async () => {
   }
 })
 
+// Open the live event stream whenever the flow is running; close it otherwise.
+watch(
+  () => [flowsStore.currentFlow?.id, isRunning.value] as const,
+  ([id, running]) => {
+    if (running && id) {
+      obs.connect(id)
+    } else {
+      obs.disconnect()
+    }
+  },
+  { immediate: true }
+)
+
 onUnmounted(() => {
+  obs.reset()
   flowsStore.resetCurrentFlow()
 })
 
@@ -191,6 +207,9 @@ function toggleFlowEnabled(enabled: boolean) {
       <!-- Config Panel (slides in from right) -->
       <NodeConfigPanel />
     </div>
+
+    <!-- Live execution activity (runs history + debug inspector) -->
+    <ActivityPanel />
 
     <!-- Settings Dialog -->
     <Dialog v-model:open="showSettings">

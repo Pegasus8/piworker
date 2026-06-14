@@ -2,16 +2,52 @@
 import { ref, computed, watch } from 'vue'
 import { useFlowsStore } from '@/stores/flows'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
+import { useApi } from '@/composables/useApi'
 import { Button, Input, Textarea, Label, Select, Switch, ScrollArea } from '@/components/ui'
-import { X, Save, Trash2 } from 'lucide-vue-next'
+import { X, Save, Trash2, FlaskConical } from 'lucide-vue-next'
 import NodeDocumentation from './NodeDocumentation.vue'
 
 const flowsStore = useFlowsStore()
 const nodeTypesStore = useNodeTypesStore()
+const api = useApi()
 
 const localConfig = ref<Record<string, any>>({})
 
 const selectedNode = computed(() => flowsStore.selectedNode)
+
+// Only processing nodes can be test-run (action/trigger nodes have side effects).
+const isProcessing = computed(() => selectedNode.value?.data.category === 'process')
+const testPayload = ref('{}')
+const testResult = ref<{ outputs?: unknown; error?: string; durMs?: number } | null>(null)
+const testing = ref(false)
+
+async function handleTest() {
+  if (!selectedNode.value) return
+  testing.value = true
+  testResult.value = null
+  let payload: unknown = testPayload.value
+  try {
+    payload = JSON.parse(testPayload.value)
+  } catch {
+    /* not JSON — send as a raw string */
+  }
+  try {
+    testResult.value = await api.testNode(
+      selectedNode.value.data.nodeType,
+      { ...localConfig.value },
+      payload
+    )
+  } catch (e: any) {
+    testResult.value = { error: e?.response?.data?.error || String(e) }
+  } finally {
+    testing.value = false
+  }
+}
+
+// Reset the test result when switching nodes.
+watch(selectedNode, () => {
+  testResult.value = null
+})
 
 const nodeTypeConfig = computed(() => {
   if (!selectedNode.value) return null
@@ -142,6 +178,34 @@ function handleDelete() {
                 :model-value="!!localConfig[field.key]"
                 @update:model-value="(v) => updateField(field.key, v)"
               />
+            </div>
+          </div>
+
+          <!-- Test runner (processing nodes only) -->
+          <div v-if="isProcessing" class="mt-6 space-y-2 border-t pt-4">
+            <Label class="block">Test payload (JSON)</Label>
+            <Textarea
+              :model-value="testPayload"
+              :rows="3"
+              placeholder='e.g. {"value": 42}'
+              @update:model-value="(v) => (testPayload = String(v))"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              class="w-full"
+              :disabled="testing"
+              @click="handleTest"
+            >
+              <FlaskConical class="mr-2 h-4 w-4" />
+              {{ testing ? 'Running...' : 'Test node' }}
+            </Button>
+            <div v-if="testResult" class="rounded bg-muted/50 p-2 text-[11px]">
+              <p v-if="testResult.error" class="text-destructive">{{ testResult.error }}</p>
+              <pre v-else class="overflow-x-auto">{{ JSON.stringify(testResult.outputs, null, 2) }}</pre>
+              <p v-if="testResult.durMs != null" class="mt-1 text-muted-foreground">
+                {{ testResult.durMs }}ms
+              </p>
             </div>
           </div>
         </div>
