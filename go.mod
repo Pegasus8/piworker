@@ -1,6 +1,6 @@
 module github.com/Pegasus8/piworker
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/BurntSushi/toml v1.6.0
@@ -47,4 +47,6 @@ require (
 	golang.org/x/text v0.32.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	periph.io/x/conn/v3 v3.7.3 // indirect
+	periph.io/x/host/v3 v3.8.5 // indirect
 )
