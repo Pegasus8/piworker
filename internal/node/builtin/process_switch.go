@@ -28,12 +28,7 @@ func NewSwitchProcess(config map[string]interface{}) (node.Node, error) {
 		condition = "true"
 	}
 
-	program, err := expr.Compile(condition,
-		expr.AllowUndefinedVariables(),
-		expr.MaxNodes(DefaultExprMaxNodes),
-		expr.WithContext("ctx"),
-		expr.AsBool(),
-	)
+	program, err := compileExpr(condition, expr.AsBool())
 	if err != nil {
 		return nil, fmt.Errorf("invalid condition: %w", err)
 	}

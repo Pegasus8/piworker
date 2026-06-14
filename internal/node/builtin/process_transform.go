@@ -38,14 +38,7 @@ func NewTransformProcess(config map[string]interface{}) (node.Node, error) {
 		return nil, fmt.Errorf("expression is required")
 	}
 
-	// Compile the expression. AllowUndefinedVariables since payload structure
-	// varies at runtime; MaxNodes caps AST complexity; WithContext lets the
-	// per-message timeout context cancel function calls during evaluation.
-	program, err := expr.Compile(expression,
-		expr.AllowUndefinedVariables(),
-		expr.MaxNodes(DefaultExprMaxNodes),
-		expr.WithContext("ctx"),
-	)
+	program, err := compileExpr(expression)
 	if err != nil {
 		return nil, fmt.Errorf("invalid expression: %w", err)
 	}
@@ -57,6 +50,21 @@ func NewTransformProcess(config map[string]interface{}) (node.Node, error) {
 	}
 
 	return process, nil
+}
+
+// compileExpr compiles a sandboxed expression with the shared policy used by all
+// expr-backed nodes: AllowUndefinedVariables (payload shape varies at runtime),
+// MaxNodes (caps AST complexity), and WithContext("ctx") so evalExpr's per-message
+// timeout can cancel function calls during evaluation. Extra options (e.g.
+// expr.AsBool() for boolean conditions) are appended. Keeping the option list in
+// one place keeps the sandbox contract consistent across every node.
+func compileExpr(src string, extra ...expr.Option) (*vm.Program, error) {
+	opts := append([]expr.Option{
+		expr.AllowUndefinedVariables(),
+		expr.MaxNodes(DefaultExprMaxNodes),
+		expr.WithContext("ctx"),
+	}, extra...)
+	return expr.Compile(src, opts...)
 }
 
 // evalExpr runs a compiled expression against the message with a bounded

@@ -7,7 +7,6 @@ import (
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/Pegasus8/piworker/internal/vars"
-	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
 )
 
@@ -35,11 +34,7 @@ func NewSetVarProcess(config map[string]interface{}) (node.Node, error) {
 		valueExpr = "payload"
 	}
 
-	program, err := expr.Compile(valueExpr,
-		expr.AllowUndefinedVariables(),
-		expr.MaxNodes(DefaultExprMaxNodes),
-		expr.WithContext("ctx"),
-	)
+	program, err := compileExpr(valueExpr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid value expression: %w", err)
 	}

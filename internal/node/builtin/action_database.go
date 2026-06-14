@@ -9,7 +9,6 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
-	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
 
 	// SQL drivers, registered for database/sql by side effect.
@@ -94,11 +93,7 @@ func NewDatabaseAction(config map[string]interface{}) (node.Node, error) {
 	}
 
 	if p := base.GetConfigString("params", ""); strings.TrimSpace(p) != "" {
-		prog, err := expr.Compile(p,
-			expr.AllowUndefinedVariables(),
-			expr.MaxNodes(DefaultExprMaxNodes),
-			expr.WithContext("ctx"),
-		)
+		prog, err := compileExpr(p)
 		if err != nil {
 			return nil, fmt.Errorf("invalid params expression: %w", err)
 		}

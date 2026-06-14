@@ -9,7 +9,6 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
-	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
 )
 
@@ -44,11 +43,7 @@ func NewJoinProcess(config map[string]interface{}) (node.Node, error) {
 	}
 
 	keySrc := base.GetConfigString("key", "meta.correlationID")
-	keyProg, err := expr.Compile(keySrc,
-		expr.AllowUndefinedVariables(),
-		expr.MaxNodes(DefaultExprMaxNodes),
-		expr.WithContext("ctx"),
-	)
+	keyProg, err := compileExpr(keySrc)
 	if err != nil {
 		return nil, fmt.Errorf("invalid key expression: %w", err)
 	}
