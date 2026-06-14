@@ -52,9 +52,6 @@ func DefaultRetryConfig() RetryConfig {
 	}
 }
 
-// NodeExecutionHook is a callback function invoked before/after node execution.
-type NodeExecutionHook func(nodeID string, msg *types.Message, err error)
-
 // Node execution phases reported by a NodeEventHook. The string values match the
 // events package phases so a recorder can forward them without translation.
 const (
@@ -123,10 +120,6 @@ type FlowRuntime struct {
 	running bool
 	state   FlowState
 
-	// Hooks for monitoring and debugging
-	beforeExec NodeExecutionHook
-	afterExec  NodeExecutionHook
-
 	// observer receives structured per-execution NodeEvents (running/success/
 	// error). It is the bridge to the observability layer (history + live SSE).
 	observer NodeEventHook
@@ -143,20 +136,6 @@ type FlowRuntime struct {
 
 // RuntimeOption is a functional option for configuring the FlowRuntime.
 type RuntimeOption func(*FlowRuntime)
-
-// WithBeforeExecutionHook sets a hook to be called before node execution.
-func WithBeforeExecutionHook(hook NodeExecutionHook) RuntimeOption {
-	return func(r *FlowRuntime) {
-		r.beforeExec = hook
-	}
-}
-
-// WithAfterExecutionHook sets a hook to be called after node execution.
-func WithAfterExecutionHook(hook NodeExecutionHook) RuntimeOption {
-	return func(r *FlowRuntime) {
-		r.afterExec = hook
-	}
-}
 
 // WithObserver sets the structured per-execution observer hook. The hook must
 // not block (see NodeEventHook).
@@ -498,13 +477,8 @@ func (r *FlowRuntime) executeNode(routedMsg RoutedMessage) {
 		Str("nodeType", flowNode.Type).
 		Logger()
 
-	// Call before execution hook
-	if r.beforeExec != nil {
-		r.beforeExec(routedMsg.TargetNode, routedMsg.Message, nil)
-	}
-
-	// Emit the "running" event. Both hook calls are non-blocking by contract, so
-	// they never stall the executor goroutine that holds a semaphore slot.
+	// Emit the "running" event. The observer is non-blocking by contract, so it
+	// never stalls the executor goroutine that holds a semaphore slot.
 	if r.observer != nil {
 		ev := baseEvent
 		ev.Phase = NodePhaseRunning
@@ -523,11 +497,6 @@ func (r *FlowRuntime) executeNode(routedMsg RoutedMessage) {
 	// Record metrics
 	metrics.RecordNodeExecution(flowNode.Type, duration.Seconds())
 	metrics.RecordMessageProcessed(flowNode.Type, err == nil)
-
-	// Call after execution hook
-	if r.afterExec != nil {
-		r.afterExec(routedMsg.TargetNode, routedMsg.Message, err)
-	}
 
 	// Emit the terminal event (success/error) with timing and, on success, the
 	// outputs (used to attribute process-debug output to its canvas node).

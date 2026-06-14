@@ -220,23 +220,18 @@ func TestNewFlowRuntime(t *testing.T) {
 	t.Run("applies options", func(t *testing.T) {
 		f := createSimpleFlow()
 
-		beforeCalled := false
-		afterCalled := false
+		observed := false
 
 		rt, err := NewFlowRuntime(f, registry,
 			WithLogger(logger),
-			WithBeforeExecutionHook(func(nodeID string, msg *Message, err error) {
-				beforeCalled = true
-			}),
-			WithAfterExecutionHook(func(nodeID string, msg *Message, err error) {
-				afterCalled = true
+			WithObserver(func(NodeEvent) {
+				observed = true
 			}),
 		)
 
 		require.NoError(t, err)
 		assert.NotNil(t, rt)
-		assert.False(t, beforeCalled) // Not called yet
-		assert.False(t, afterCalled)  // Not called yet
+		assert.False(t, observed) // Not called yet
 	})
 }
 
@@ -519,29 +514,24 @@ func TestFlowRuntimeErrors(t *testing.T) {
 }
 
 // ============================================================================
-// Execution Hooks Tests
+// Observer Hook Tests
 // ============================================================================
 
-func TestFlowRuntimeExecutionHooks(t *testing.T) {
+func TestFlowRuntimeObserverHook(t *testing.T) {
 	registry := createTestRegistry()
 	logger := zerolog.Nop()
 
-	t.Run("calls hooks on node execution", func(t *testing.T) {
+	t.Run("accepts an observer without error", func(t *testing.T) {
 		f := createSimpleFlow()
 
 		var mu sync.Mutex
-		hooksCalled := 0
+		observed := 0
 
 		rt, err := NewFlowRuntime(f, registry,
 			WithLogger(logger),
-			WithBeforeExecutionHook(func(nodeID string, msg *Message, err error) {
+			WithObserver(func(NodeEvent) {
 				mu.Lock()
-				hooksCalled++
-				mu.Unlock()
-			}),
-			WithAfterExecutionHook(func(nodeID string, msg *Message, err error) {
-				mu.Lock()
-				hooksCalled++
+				observed++
 				mu.Unlock()
 			}),
 		)
@@ -551,9 +541,8 @@ func TestFlowRuntimeExecutionHooks(t *testing.T) {
 		require.NoError(t, err)
 		defer rt.Stop()
 
-		// The hooks are called when messages are processed
-		// In a real test, we would need to trigger message processing
-		// For now, just verify the hooks can be set without error
+		// The observer fires when messages are processed; here we only assert the
+		// option wires up cleanly (see runtime_observer_test.go for behavior).
 		assert.NotNil(t, rt)
 	})
 }
