@@ -29,7 +29,8 @@ type TelegramAction struct {
 func NewTelegramAction(config map[string]interface{}) (node.Node, error) {
 	base := node.NewBaseNode(config)
 
-	botToken := base.GetConfigString("botToken", "")
+	// Resolve {{secret.NAME}} so the token can be kept out of the flow blob.
+	botToken := expandSecrets(base.GetConfigString("botToken", ""))
 	if botToken == "" {
 		return nil, fmt.Errorf("botToken is required")
 	}

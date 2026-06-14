@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/node"
+	"github.com/Pegasus8/piworker/internal/secrets"
 	"github.com/Pegasus8/piworker/internal/types"
 )
 
@@ -114,8 +115,7 @@ Temperature is {{payload.temperature}}°C in {{payload.room}}
 // shared by template-style nodes and reuses the package-level templateRe.
 func renderTemplate(tmpl string, msg *types.Message) string {
 	return templateRe.ReplaceAllStringFunc(tmpl, func(match string) string {
-		varPath := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(match, "{{"), "}}"))
-		parts := strings.SplitN(varPath, ".", 2)
+		parts := placeholderParts(match)
 
 		switch parts[0] {
 		case "payload":
@@ -137,9 +137,41 @@ func renderTemplate(tmpl string, msg *types.Message) string {
 		case "timestamp":
 			return msg.Timestamp.Format(time.RFC3339)
 		default:
+			// NOTE: {{secret.NAME}} is deliberately NOT resolved here.
+			// renderTemplate produces message payloads — its output is echoed by
+			// the node-test endpoint and flows downstream into logs/files/HTTP.
+			// Resolving secrets here would let any flow exfiltrate them. Secrets
+			// are resolved only in expandSecrets, used by credential fields of
+			// action nodes whose resolved value goes to the network, never the
+			// payload.
 			return match
 		}
 	})
+}
+
+// expandSecrets resolves only {{secret.NAME}} placeholders, leaving every other
+// placeholder untouched. Use it for credential fields (tokens, passwords) that
+// must reference a secret without interpolating message payload.
+func expandSecrets(s string) string {
+	return templateRe.ReplaceAllStringFunc(s, func(match string) string {
+		parts := placeholderParts(match)
+		if parts[0] != "secret" {
+			return match
+		}
+		if len(parts) > 1 {
+			if v, ok := secrets.DefaultStore.Get(parts[1]); ok {
+				return v
+			}
+		}
+		return ""
+	})
+}
+
+// placeholderParts splits a {{...}} match into its dot-separated head and rest
+// (e.g. "{{payload.user.email}}" → ["payload", "user.email"]).
+func placeholderParts(match string) []string {
+	varPath := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(match, "{{"), "}}"))
+	return strings.SplitN(varPath, ".", 2)
 }
 
 // tmplNestedValue resolves a dot-path within a nested map structure.

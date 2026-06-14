@@ -30,7 +30,8 @@ type NotifyAction struct {
 func NewNotifyAction(config map[string]interface{}) (node.Node, error) {
 	base := node.NewBaseNode(config)
 
-	url := base.GetConfigString("url", "")
+	// Webhook URLs (Discord/Slack) embed a token, so resolve {{secret.NAME}}.
+	url := expandSecrets(base.GetConfigString("url", ""))
 	if url == "" {
 		return nil, fmt.Errorf("url is required")
 	}
