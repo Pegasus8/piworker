@@ -340,7 +340,10 @@ func AuthMiddleware(authHandler *AuthHandler) mux.MiddlewareFunc {
 				return
 			}
 
-			// Get token from Authorization header
+			// Get token from Authorization header. The SSE stream is consumed via
+			// fetch + ReadableStream on the frontend (not EventSource), so it can
+			// send this header like every other API call — the JWT never appears
+			// in a URL/query string (avoids leaking it to logs, history, Referer).
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
 				writeError(w, http.StatusUnauthorized, "Authorization header required")

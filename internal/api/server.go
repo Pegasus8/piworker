@@ -65,6 +65,17 @@ func (w *ResponseWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
+// Flush delegates to the underlying writer's Flusher so streaming handlers
+// (Server-Sent Events) keep working when wrapped by logging/metrics middleware.
+// Without this, the embedded http.ResponseWriter's Flush is not promoted (the
+// interface has no Flush method) and the SSE handler's http.Flusher assertion
+// fails.
+func (w *ResponseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 // LoggingMiddleware logs all incoming requests.
 func LoggingMiddleware(logger zerolog.Logger) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {

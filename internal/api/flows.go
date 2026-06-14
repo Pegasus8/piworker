@@ -39,6 +39,9 @@ func NewFlowsHandler(store *storage.SQLiteStore, manager *flow.RuntimeManager, r
 func (h *FlowsHandler) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/flows", h.ListFlows).Methods(http.MethodGet)
 	r.HandleFunc("/api/flows", h.CreateFlow).Methods(http.MethodPost)
+	r.HandleFunc("/api/flows/import", h.ImportFlow).Methods(http.MethodPost)
+	r.HandleFunc("/api/flows/{id}/duplicate", h.DuplicateFlow).Methods(http.MethodPost)
+	r.HandleFunc("/api/flows/{id}/export", h.ExportFlow).Methods(http.MethodGet)
 	r.HandleFunc("/api/flows/{id}", h.GetFlow).Methods(http.MethodGet)
 	r.HandleFunc("/api/flows/{id}", h.UpdateFlow).Methods(http.MethodPut)
 	r.HandleFunc("/api/flows/{id}", h.DeleteFlow).Methods(http.MethodDelete)
@@ -155,6 +158,81 @@ func (h *FlowsHandler) CreateFlow(w http.ResponseWriter, r *http.Request) {
 
 	h.logger.Info().Str("flowID", f.ID).Str("name", f.Name).Msg("Flow created")
 	writeSuccess(w, http.StatusCreated, &f, "Flow created successfully")
+}
+
+// cloneForNew builds a fresh, inactive flow (new ID + timestamps) carrying the
+// content of src. Node/connection IDs are flow-scoped, so they can be reused.
+func cloneForNew(src *flow.Flow, name string) *flow.Flow {
+	nf := flow.NewFlow(name)
+	nf.Description = src.Description
+	nf.Nodes = src.Nodes
+	nf.Connections = src.Connections
+	nf.State = flow.FlowStateInactive
+	return nf
+}
+
+// DuplicateFlow creates an inactive copy of an existing flow under a new ID.
+// POST /api/flows/{id}/duplicate
+func (h *FlowsHandler) DuplicateFlow(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	src, err := h.store.GetFlow(id)
+	if err != nil {
+		if err == storage.ErrFlowNotFound {
+			writeError(w, http.StatusNotFound, "Flow not found")
+			return
+		}
+		h.logger.Error().Err(err).Msg("Failed to load flow for duplication")
+		writeError(w, http.StatusInternalServerError, "Failed to duplicate flow")
+		return
+	}
+
+	dup := cloneForNew(src, src.Name+" (copy)")
+	if err := h.store.CreateFlow(dup); err != nil {
+		h.logger.Error().Err(err).Msg("Failed to create duplicated flow")
+		writeError(w, http.StatusInternalServerError, "Failed to duplicate flow")
+		return
+	}
+	writeSuccess(w, http.StatusCreated, dup, "Flow duplicated")
+}
+
+// ExportFlow returns a flow's portable JSON definition for download.
+// GET /api/flows/{id}/export
+func (h *FlowsHandler) ExportFlow(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	f, err := h.store.GetFlow(id)
+	if err != nil {
+		if err == storage.ErrFlowNotFound {
+			writeError(w, http.StatusNotFound, "Flow not found")
+			return
+		}
+		h.logger.Error().Err(err).Msg("Failed to export flow")
+		writeError(w, http.StatusInternalServerError, "Failed to export flow")
+		return
+	}
+	writeSuccess(w, http.StatusOK, f, "")
+}
+
+// ImportFlow creates a new flow from an uploaded definition, always assigning a
+// fresh ID so an import never clobbers an existing flow.
+// POST /api/flows/import
+func (h *FlowsHandler) ImportFlow(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodySize)
+	var src flow.Flow
+	if err := json.NewDecoder(r.Body).Decode(&src); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid flow JSON")
+		return
+	}
+	if src.Name == "" {
+		src.Name = "Imported flow"
+	}
+
+	nf := cloneForNew(&src, src.Name)
+	if err := h.store.CreateFlow(nf); err != nil {
+		h.logger.Error().Err(err).Msg("Failed to import flow")
+		writeError(w, http.StatusInternalServerError, "Failed to import flow")
+		return
+	}
+	writeSuccess(w, http.StatusCreated, nf, "Flow imported")
 }
 
 // GetFlow returns a specific flow by ID.

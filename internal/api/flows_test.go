@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	"github.com/Pegasus8/piworker/internal/flow"
@@ -22,8 +23,12 @@ import (
 // ============================================================================
 
 func createTestServer(t *testing.T) (*Server, *storage.SQLiteStore) {
-	store, err := storage.NewSQLiteStore(":memory:")
+	// A temp file per test gives real isolation. A shared-cache ":memory:" DB is
+	// process-global, so tests would otherwise leak flows into one another.
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := storage.NewSQLiteStore(dbPath)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
 
 	registry := createTestRegistry()
 	logger := zerolog.Nop()
