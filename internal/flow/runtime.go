@@ -55,6 +55,37 @@ func DefaultRetryConfig() RetryConfig {
 // NodeExecutionHook is a callback function invoked before/after node execution.
 type NodeExecutionHook func(nodeID string, msg *types.Message, err error)
 
+// Node execution phases reported by a NodeEventHook. The string values match the
+// events package phases so a recorder can forward them without translation.
+const (
+	NodePhaseRunning = "running"
+	NodePhaseSuccess = "success"
+	NodePhaseError   = "error"
+)
+
+// NodeEvent is a structured observation of a single node execution. Unlike the
+// legacy before/after hooks it carries the node type, correlation ID, timing,
+// the input message and (on success) the outputs, which is everything the
+// observability layer needs to persist history and stream live state to the
+// editor — including attributing process-debug output to a canvas node.
+type NodeEvent struct {
+	FlowID   string
+	NodeID   string
+	NodeType string
+	CorrID   string
+	Phase    string // NodePhaseRunning | NodePhaseSuccess | NodePhaseError
+	Input    *types.Message
+	Outputs  []*types.Message
+	Err      error
+	Duration time.Duration
+}
+
+// NodeEventHook receives NodeEvents. It runs inline on the node executor
+// goroutine while a semaphore slot is held, so it MUST NOT block: implementations
+// are expected to do a non-blocking hand-off (e.g. a buffered channel send) and
+// return immediately. Blocking here directly stalls node throughput.
+type NodeEventHook func(NodeEvent)
+
 // FlowRuntime manages the execution of a single flow.
 // Each active flow runs in its own goroutine with message passing via channels.
 type FlowRuntime struct {
@@ -96,6 +127,10 @@ type FlowRuntime struct {
 	beforeExec NodeExecutionHook
 	afterExec  NodeExecutionHook
 
+	// observer receives structured per-execution NodeEvents (running/success/
+	// error). It is the bridge to the observability layer (history + live SSE).
+	observer NodeEventHook
+
 	// Retry configuration for node execution
 	retryConfig RetryConfig
 
@@ -120,6 +155,14 @@ func WithBeforeExecutionHook(hook NodeExecutionHook) RuntimeOption {
 func WithAfterExecutionHook(hook NodeExecutionHook) RuntimeOption {
 	return func(r *FlowRuntime) {
 		r.afterExec = hook
+	}
+}
+
+// WithObserver sets the structured per-execution observer hook. The hook must
+// not block (see NodeEventHook).
+func WithObserver(hook NodeEventHook) RuntimeOption {
+	return func(r *FlowRuntime) {
+		r.observer = hook
 	}
 }
 
@@ -410,9 +453,25 @@ func (r *FlowRuntime) executeNode(routedMsg RoutedMessage) {
 		return
 	}
 
+	// Ensure correlation ID exists for tracing. Computed before the recovery
+	// defer so a panic can still be reported as a terminal error NodeEvent.
+	correlationID := r.ensureCorrelationID(routedMsg.Message)
+
+	// Shared fields for every NodeEvent this execution emits; each fire point
+	// copies it and sets only Phase/Duration/Outputs/Err.
+	baseEvent := NodeEvent{
+		FlowID:   r.flow.ID,
+		NodeID:   routedMsg.TargetNode,
+		NodeType: flowNode.Type,
+		CorrID:   correlationID,
+		Input:    routedMsg.Message,
+	}
+
 	// A panic inside a node's Process must not take down the executor goroutine
 	// (and through it the whole runtime). Recover, log with a stack trace, and
-	// record it as a node error so it is observable instead of silent.
+	// record it as a node error so it is observable instead of silent. We also
+	// emit a terminal error NodeEvent so a panicking node doesn't leave the
+	// observer (and the editor) stuck showing it as perpetually "running".
 	defer func() {
 		if rec := recover(); rec != nil {
 			r.logger.Error().
@@ -422,11 +481,14 @@ func (r *FlowRuntime) executeNode(routedMsg RoutedMessage) {
 				Bytes("stack", debug.Stack()).
 				Msg("Recovered from panic during node execution")
 			metrics.RecordNodeError(flowNode.Type)
+			if r.observer != nil {
+				ev := baseEvent
+				ev.Phase = NodePhaseError
+				ev.Err = fmt.Errorf("panic: %v", rec)
+				r.observer(ev)
+			}
 		}
 	}()
-
-	// Ensure correlation ID exists for tracing
-	correlationID := r.ensureCorrelationID(routedMsg.Message)
 
 	// Create a logger with correlation context
 	logger := r.logger.With().
@@ -439,6 +501,14 @@ func (r *FlowRuntime) executeNode(routedMsg RoutedMessage) {
 	// Call before execution hook
 	if r.beforeExec != nil {
 		r.beforeExec(routedMsg.TargetNode, routedMsg.Message, nil)
+	}
+
+	// Emit the "running" event. Both hook calls are non-blocking by contract, so
+	// they never stall the executor goroutine that holds a semaphore slot.
+	if r.observer != nil {
+		ev := baseEvent
+		ev.Phase = NodePhaseRunning
+		r.observer(ev)
 	}
 
 	logger.Debug().
@@ -457,6 +527,21 @@ func (r *FlowRuntime) executeNode(routedMsg RoutedMessage) {
 	// Call after execution hook
 	if r.afterExec != nil {
 		r.afterExec(routedMsg.TargetNode, routedMsg.Message, err)
+	}
+
+	// Emit the terminal event (success/error) with timing and, on success, the
+	// outputs (used to attribute process-debug output to its canvas node).
+	if r.observer != nil {
+		ev := baseEvent
+		ev.Phase = NodePhaseSuccess
+		ev.Duration = duration
+		if err != nil {
+			ev.Phase = NodePhaseError
+			ev.Err = err
+		} else {
+			ev.Outputs = outputs
+		}
+		r.observer(ev)
 	}
 
 	if err != nil {
@@ -610,16 +695,32 @@ type RuntimeManager struct {
 	runtimes map[string]*FlowRuntime
 	registry *node.Registry
 	logger   zerolog.Logger
+	observer NodeEventHook
 	mu       sync.RWMutex
 }
 
+// ManagerOption configures a RuntimeManager.
+type ManagerOption func(*RuntimeManager)
+
+// WithManagerObserver sets a NodeEventHook applied to every flow this manager
+// deploys, so the whole process shares one observability sink.
+func WithManagerObserver(hook NodeEventHook) ManagerOption {
+	return func(m *RuntimeManager) {
+		m.observer = hook
+	}
+}
+
 // NewRuntimeManager creates a new RuntimeManager.
-func NewRuntimeManager(registry *node.Registry, logger zerolog.Logger) *RuntimeManager {
-	return &RuntimeManager{
+func NewRuntimeManager(registry *node.Registry, logger zerolog.Logger, opts ...ManagerOption) *RuntimeManager {
+	m := &RuntimeManager{
 		runtimes: make(map[string]*FlowRuntime),
 		registry: registry,
 		logger:   logger,
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 // Deploy creates and starts a runtime for the given flow.
@@ -638,8 +739,12 @@ func (m *RuntimeManager) Deploy(ctx context.Context, f *Flow) error {
 		return err
 	}
 
-	// Create the runtime
-	rt, err := NewFlowRuntime(f, m.registry, WithLogger(m.logger))
+	// Create the runtime, forwarding the process-wide observer if one is set.
+	rtOpts := []RuntimeOption{WithLogger(m.logger)}
+	if m.observer != nil {
+		rtOpts = append(rtOpts, WithObserver(m.observer))
+	}
+	rt, err := NewFlowRuntime(f, m.registry, rtOpts...)
 	if err != nil {
 		metrics.RecordFlowDeployment(false)
 		return err
