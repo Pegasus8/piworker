@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -66,11 +67,7 @@ func NewJoinProcess(config map[string]interface{}) (node.Node, error) {
 			j.count = 1
 		}
 	} else {
-		for _, s := range strings.Split(base.GetConfigString("sources", ""), ",") {
-			if s = strings.TrimSpace(s); s != "" {
-				j.sources = append(j.sources, s)
-			}
-		}
+		j.sources = splitRecipients(base.GetConfigString("sources", ""))
 		if len(j.sources) == 0 {
 			return nil, fmt.Errorf("source mode requires a non-empty sources list")
 		}
@@ -84,7 +81,7 @@ func (j *JoinProcess) Process(ctx context.Context, msg *types.Message) ([]*types
 	if err != nil {
 		return nil, fmt.Errorf("join key evaluation failed: %w", err)
 	}
-	key := stringifyKey(keyVal)
+	key := tmplStringify(keyVal)
 
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -100,7 +97,7 @@ func (j *JoinProcess) Process(ctx context.Context, msg *types.Message) ([]*types
 	}
 
 	// mode == "source"
-	if !contains(j.sources, msg.SourceNode) {
+	if !slices.Contains(j.sources, msg.SourceNode) {
 		return nil, nil // not one of the awaited sources
 	}
 	bucket := j.bySource[key]
@@ -115,11 +112,7 @@ func (j *JoinProcess) Process(ctx context.Context, msg *types.Message) ([]*types
 		}
 	}
 	delete(j.bySource, key)
-	merged := make(map[string]interface{}, len(bucket))
-	for k, v := range bucket {
-		merged[k] = v
-	}
-	return []*types.Message{j.emit(msg, merged, types.DataTypeObject)}, nil
+	return []*types.Message{j.emit(msg, bucket, types.DataTypeObject)}, nil
 }
 
 func (j *JoinProcess) emit(msg *types.Message, payload interface{}, dt types.DataType) *types.Message {
@@ -129,22 +122,6 @@ func (j *JoinProcess) emit(msg *types.Message, payload interface{}, dt types.Dat
 	out.SourcePort = "output"
 	out.SetMeta("joined", j.mode)
 	return out
-}
-
-func stringifyKey(v interface{}) string {
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return fmt.Sprintf("%v", v)
-}
-
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }
 
 // Ports returns the port definitions.

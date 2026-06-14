@@ -304,6 +304,16 @@ func (r *MessageRouter) GetTargets(sourceNode, sourcePort string) []targetConnec
 	return nil
 }
 
+// CountTargets returns how many targets a (sourceNode, sourcePort) routes to,
+// without allocating. Unlike GetTargets it copies nothing, so it's cheap to call
+// on the per-message hot path (e.g. sizing the in-flight run counter). The
+// adjacency map is immutable after construction; the nil-map indexing is safe.
+func (r *MessageRouter) CountTargets(sourceNode, sourcePort string) int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.adjacency[sourceNode][sourcePort])
+}
+
 // workerPool manages a pool of worker goroutines for parallel message processing.
 type workerPool struct {
 	size    int

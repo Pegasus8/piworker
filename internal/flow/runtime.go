@@ -687,12 +687,12 @@ func (r *FlowRuntime) ensureCorrelationID(msg *types.Message) string {
 // targets; an empty port routes from every output port of the node.
 func (r *FlowRuntime) targetCount(sourceNode, sourcePort string) int {
 	if sourcePort != "" {
-		return len(r.router.GetTargets(sourceNode, sourcePort))
+		return r.router.CountTargets(sourceNode, sourcePort)
 	}
 	n := 0
 	if def := r.nodeDefs[sourceNode]; def != nil {
 		for _, p := range def.Outputs {
-			n += len(r.router.GetTargets(sourceNode, p.ID))
+			n += r.router.CountTargets(sourceNode, p.ID)
 		}
 	}
 	return n
@@ -715,14 +715,15 @@ func (r *FlowRuntime) runAdd(correlationID string, delta int) {
 func (r *FlowRuntime) runDone(correlationID string) {
 	r.runMu.Lock()
 	n := r.runInflight[correlationID] - 1
-	if n <= 0 {
+	finished := n <= 0
+	if finished {
 		delete(r.runInflight, correlationID)
 	} else {
 		r.runInflight[correlationID] = n
 	}
 	r.runMu.Unlock()
 
-	if n <= 0 && r.observer != nil {
+	if finished && r.observer != nil {
 		r.observer(NodeEvent{
 			FlowID: r.flow.ID,
 			CorrID: correlationID,
