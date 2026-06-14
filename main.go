@@ -16,10 +16,13 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/api"
 	"github.com/Pegasus8/piworker/internal/config"
+	"github.com/Pegasus8/piworker/internal/events"
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
+	"github.com/Pegasus8/piworker/internal/secrets"
 	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/Pegasus8/piworker/internal/types"
+	"github.com/Pegasus8/piworker/internal/vars"
 	"github.com/Pegasus8/piworker/internal/webhook"
 	"github.com/Pegasus8/piworker/internal/webui"
 	"github.com/gorilla/mux"
@@ -71,6 +74,17 @@ func main() {
 	defer store.Close()
 	log.Info().Msg("Storage initialized")
 
+	// Load persisted secrets into the process-wide store and enable write-through,
+	// so nodes can reference {{secret.NAME}} instead of embedding plaintext.
+	if err := secrets.DefaultStore.Attach(store); err != nil {
+		log.Fatal().Err(err).Msg("Failed to load secrets")
+	}
+
+	// Persist flow variables (set-var/get-var) so they survive restarts.
+	if err := vars.DefaultStore.Attach(store); err != nil {
+		log.Fatal().Err(err).Msg("Failed to load variables")
+	}
+
 	// Get the node registry (already populated by init functions in builtin package)
 	registry := node.DefaultRegistry
 	log.Info().
@@ -86,8 +100,21 @@ func main() {
 			Msg("Registered node type")
 	}
 
-	// Create the runtime manager
-	runtimeManager := flow.NewRuntimeManager(registry, log.Logger)
+	// Observability: a long-lived context drives the history recorder, which
+	// bridges the runtime's per-node events to SQLite (run history) and the
+	// events hub (live SSE). Created before the runtime manager so it observes
+	// every deployed flow, including those restored on startup.
+	appCtx, appCancel := context.WithCancel(context.Background())
+	recorder := events.NewRecorder(store, events.WithHub(events.DefaultHub), events.WithLogger(log.Logger))
+	recorderDone := make(chan struct{})
+	go func() {
+		recorder.Run(appCtx)
+		close(recorderDone)
+	}()
+
+	// Create the runtime manager, wired to the recorder so every node execution
+	// is observed.
+	runtimeManager := flow.NewRuntimeManager(registry, log.Logger, flow.WithManagerObserver(recorder.Observe))
 
 	// Restore previously running flows
 	restoreRunningFlows(store, runtimeManager)
@@ -154,6 +181,17 @@ func main() {
 
 	nodeTypesHandler := api.NewNodeTypesHandler(registry, log.Logger)
 	nodeTypesHandler.RegisterRoutes(router)
+
+	// Observability endpoints: live SSE stream + run/event history. Registered
+	// under /api so AuthMiddleware applies; the frontend consumes the stream with
+	// fetch + ReadableStream so it sends the Authorization header like any other
+	// API call (no token in the URL).
+	eventsHandler := api.NewEventsHandler(events.DefaultHub, store, log.Logger)
+	eventsHandler.RegisterRoutes(router)
+
+	// Secrets management (names listable, values write-only).
+	secretsHandler := api.NewSecretsHandler(secrets.DefaultStore, log.Logger)
+	secretsHandler.RegisterRoutes(router)
 
 	healthHandler := api.NewHealthHandler(store)
 	router.HandleFunc("/api/health", healthHandler.Health).Methods(http.MethodGet)
@@ -228,6 +266,15 @@ func main() {
 
 	// Cancel context
 	cancel()
+
+	// Flush and finalize the observability recorder before the store closes
+	// (store.Close is deferred and runs after main returns).
+	appCancel()
+	select {
+	case <-recorderDone:
+	case <-time.After(2 * time.Second):
+		log.Warn().Msg("Recorder did not drain within timeout on shutdown")
+	}
 
 	// Shutdown HTTP server with timeout
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
