@@ -11,21 +11,24 @@ import (
 )
 
 // periph host initialization is process-wide and done once, lazily, so the
-// binary still runs on non-Pi hosts (where GPIO pins simply aren't found).
+// binary still runs on non-Pi hosts (where the buses simply aren't found).
 var (
-	gpioInitOnce sync.Once
-	gpioInitErr  error
+	periphInitOnce sync.Once
+	periphInitErr  error
 )
 
-func gpioInit() error {
-	gpioInitOnce.Do(func() { _, gpioInitErr = host.Init() })
-	return gpioInitErr
+// periphInit runs periph's host.Init() exactly once. It registers every bus
+// driver (GPIO, I2C, SPI, 1-Wire, …), so it's shared by all peripheral nodes,
+// not just GPIO.
+func periphInit() error {
+	periphInitOnce.Do(func() { _, periphInitErr = host.Init() })
+	return periphInitErr
 }
 
 // gpioPin resolves a named pin (e.g. "GPIO17"), initializing the host on first
 // use. It returns a clear error on non-Pi hosts where the pin doesn't exist.
 func gpioPin(name string) (gpio.PinIO, error) {
-	if err := gpioInit(); err != nil {
+	if err := periphInit(); err != nil {
 		return nil, fmt.Errorf("GPIO host init failed: %w", err)
 	}
 	p := gpioreg.ByName(name)

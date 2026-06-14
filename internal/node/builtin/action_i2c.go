@@ -20,10 +20,10 @@ var (
 	i2cBusCache = map[string]i2c.Bus{}
 )
 
-// i2cOpen returns a shared I2C bus, initializing the periph host on first use.
-// gpioInit() runs host.Init(), which registers every bus driver (GPIO, I2C, …).
+// i2cOpen returns a shared I2C bus, initializing the periph host on first use
+// via periphInit (which registers every bus driver, including I2C).
 func i2cOpen(name string) (i2c.Bus, error) {
-	if err := gpioInit(); err != nil {
+	if err := periphInit(); err != nil {
 		return nil, fmt.Errorf("I2C host init failed: %w", err)
 	}
 	i2cBusMu.Lock()
