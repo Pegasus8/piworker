@@ -58,6 +58,11 @@ const (
 	NodePhaseRunning = "running"
 	NodePhaseSuccess = "success"
 	NodePhaseError   = "error"
+	// NodePhaseRunFinished is a run-level (not node-level) event emitted once, when
+	// all in-flight work for a correlation ID drains. NodeID is empty; only FlowID
+	// and CorrID are set. It lets the recorder finalize a run deterministically
+	// instead of guessing via an idle timeout.
+	NodePhaseRunFinished = "run-finished"
 )
 
 // NodeEvent is a structured observation of a single node execution. Unlike the
@@ -124,6 +129,12 @@ type FlowRuntime struct {
 	// error). It is the bridge to the observability layer (history + live SSE).
 	observer NodeEventHook
 
+	// runInflight counts the messages still in flight per correlation ID (a "run").
+	// Seeded when a trigger emits, incremented per routed child in executeNode, and
+	// decremented when a message finishes. Reaching zero emits NodePhaseRunFinished.
+	runInflight map[string]int
+	runMu       sync.Mutex
+
 	// Retry configuration for node execution
 	retryConfig RetryConfig
 
@@ -184,6 +195,7 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 		retryConfig:    DefaultRetryConfig(),
 		maxConcurrency: DefaultMaxConcurrency,
 		errors:         make(chan error, 100),
+		runInflight:    make(map[string]int),
 	}
 
 	// Apply options
@@ -265,7 +277,34 @@ func (r *FlowRuntime) Start(ctx context.Context) error {
 		nodeID := nodeID // capture for goroutine
 		trigger := trigger
 
-		outChan := r.router.GetInputChannel(nodeID)
+		// Seed the run counter: the trigger writes to seedChan; this goroutine
+		// assigns the correlation ID and counts the message's downstream targets
+		// (starting a new run) before forwarding to the router. Assigning the
+		// correlation ID here — not later in executeNode — lets the whole cascade
+		// be tracked under one run ID.
+		realChan := r.router.GetInputChannel(nodeID)
+		seedChan := make(chan *types.Message, DefaultExecBuffer)
+		r.wg.Add(1)
+		go func() {
+			defer r.wg.Done()
+			for {
+				select {
+				case <-r.ctx.Done():
+					return
+				case msg, ok := <-seedChan:
+					if !ok {
+						return
+					}
+					corrID := r.ensureCorrelationID(msg)
+					r.runAdd(corrID, r.targetCount(nodeID, msg.SourcePort))
+					select {
+					case <-r.ctx.Done():
+						return
+					case realChan <- msg:
+					}
+				}
+			}
+		}()
 
 		r.wg.Add(1)
 		go func() {
@@ -275,7 +314,7 @@ func (r *FlowRuntime) Start(ctx context.Context) error {
 				Str("nodeID", nodeID).
 				Msg("Starting trigger node")
 
-			if err := trigger.Start(r.ctx, outChan); err != nil {
+			if err := trigger.Start(r.ctx, seedChan); err != nil {
 				r.logger.Error().
 					Err(err).
 					Str("nodeID", nodeID).
@@ -415,6 +454,14 @@ func (r *FlowRuntime) nodeExecutor(nodeID string, ch chan RoutedMessage) {
 // executeNode processes a message through the target node and routes the output.
 // It uses exponential backoff retry for transient failures.
 func (r *FlowRuntime) executeNode(routedMsg RoutedMessage) {
+	// Assign the run's correlation ID up front and decrement the run counter on
+	// every return path — this message has been consumed. The child increments
+	// happen below, before routing, so the counter never reaches zero while work
+	// for the run is still pending. When it does reach zero, runDone emits the
+	// run-finished signal.
+	correlationID := r.ensureCorrelationID(routedMsg.Message)
+	defer r.runDone(correlationID)
+
 	nodeInstance, ok := r.nodes[routedMsg.TargetNode]
 	if !ok {
 		r.logger.Error().
@@ -431,10 +478,6 @@ func (r *FlowRuntime) executeNode(routedMsg RoutedMessage) {
 			Msg("Flow node definition not found")
 		return
 	}
-
-	// Ensure correlation ID exists for tracing. Computed before the recovery
-	// defer so a panic can still be reported as a terminal error NodeEvent.
-	correlationID := r.ensureCorrelationID(routedMsg.Message)
 
 	// Shared fields for every NodeEvent this execution emits; each fire point
 	// copies it and sets only Phase/Duration/Outputs/Err.
@@ -552,6 +595,9 @@ func (r *FlowRuntime) executeNode(routedMsg RoutedMessage) {
 			}
 		}
 
+		// Count this output's downstream children into the run BEFORE routing them,
+		// so the counter reflects the pending work before any child can finish.
+		r.runAdd(correlationID, r.targetCount(routedMsg.TargetNode, output.SourcePort))
 		r.router.Route(routedMsg.TargetNode, output)
 	}
 }
@@ -633,6 +679,56 @@ func (r *FlowRuntime) ensureCorrelationID(msg *types.Message) string {
 	correlationID := uuid.New().String()
 	msg.SetMeta("correlationID", correlationID)
 	return correlationID
+}
+
+// targetCount returns how many downstream messages the router will deliver for a
+// message leaving sourceNode on sourcePort — i.e. how many in-flight children to
+// add. It mirrors MessageRouter routing: a specific port routes to that port's
+// targets; an empty port routes from every output port of the node.
+func (r *FlowRuntime) targetCount(sourceNode, sourcePort string) int {
+	if sourcePort != "" {
+		return len(r.router.GetTargets(sourceNode, sourcePort))
+	}
+	n := 0
+	if def := r.nodeDefs[sourceNode]; def != nil {
+		for _, p := range def.Outputs {
+			n += len(r.router.GetTargets(sourceNode, p.ID))
+		}
+	}
+	return n
+}
+
+// runAdd adds delta in-flight messages to a run's counter. Always called before
+// the corresponding children are routed, so the counter can't dip to zero while
+// work is still pending.
+func (r *FlowRuntime) runAdd(correlationID string, delta int) {
+	if delta <= 0 {
+		return
+	}
+	r.runMu.Lock()
+	r.runInflight[correlationID] += delta
+	r.runMu.Unlock()
+}
+
+// runDone decrements a run's counter by one (a message finished). When it reaches
+// zero the run has drained and a run-finished event is emitted exactly once.
+func (r *FlowRuntime) runDone(correlationID string) {
+	r.runMu.Lock()
+	n := r.runInflight[correlationID] - 1
+	if n <= 0 {
+		delete(r.runInflight, correlationID)
+	} else {
+		r.runInflight[correlationID] = n
+	}
+	r.runMu.Unlock()
+
+	if n <= 0 && r.observer != nil {
+		r.observer(NodeEvent{
+			FlowID: r.flow.ID,
+			CorrID: correlationID,
+			Phase:  NodePhaseRunFinished,
+		})
+	}
 }
 
 // State returns the current state of the flow runtime.

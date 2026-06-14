@@ -68,11 +68,17 @@ func collectObserver() (NodeEventHook, func() []NodeEvent) {
 		got = append(got, e)
 		mu.Unlock()
 	}
+	// read returns only node-level events (running/success/error); the run-level
+	// run-finished event is excluded — these tests assert on node execution.
 	read := func() []NodeEvent {
 		mu.Lock()
 		defer mu.Unlock()
-		out := make([]NodeEvent, len(got))
-		copy(out, got)
+		out := make([]NodeEvent, 0, len(got))
+		for _, e := range got {
+			if e.Phase != NodePhaseRunFinished {
+				out = append(out, e)
+			}
+		}
 		return out
 	}
 	return hook, read

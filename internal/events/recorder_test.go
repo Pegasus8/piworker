@@ -141,6 +141,38 @@ func TestRecorderFinalizesIdleRuns(t *testing.T) {
 	require.NotNil(t, store.getRun("ok").FinishedAt)
 }
 
+func TestRecorderFinalizesOnRunFinished(t *testing.T) {
+	store := newFakeStore()
+	// A huge idle timeout proves finalization comes from the signal, not the sweep.
+	rec := NewRecorder(store, WithHub(NewHub()), WithIdleTimeout(time.Hour))
+
+	now := time.Now()
+	rec.persist(successEvent("r1", "f1", "n1", "x"), now)
+	rec.persist(successEvent("r1", "f1", "n2", "y"), now)
+	assert.Equal(t, "running", store.getRun("r1").Status, "not finalized until the signal")
+
+	rec.persist(flow.NodeEvent{FlowID: "f1", CorrID: "r1", Phase: flow.NodePhaseRunFinished}, now)
+
+	run := store.getRun("r1")
+	assert.Equal(t, "success", run.Status)
+	assert.Equal(t, 2, run.NodeCount)
+	require.NotNil(t, run.FinishedAt)
+}
+
+func TestRecorderRunFinishedStatusReflectsErrors(t *testing.T) {
+	store := newFakeStore()
+	rec := NewRecorder(store, WithHub(NewHub()), WithIdleTimeout(time.Hour))
+
+	now := time.Now()
+	rec.persist(successEvent("r1", "f1", "n1", "x"), now)
+	rec.persist(errorEvent("r1", "f1", "n2", "y"), now)
+	rec.persist(flow.NodeEvent{FlowID: "f1", CorrID: "r1", Phase: flow.NodePhaseRunFinished}, now)
+
+	run := store.getRun("r1")
+	assert.Equal(t, "error", run.Status)
+	assert.Equal(t, 1, run.ErrorCount)
+}
+
 func TestRecorderObservePublishesLiveToHub(t *testing.T) {
 	hub := NewHub()
 	ch, unsub := hub.Subscribe("f1")

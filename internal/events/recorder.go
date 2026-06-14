@@ -99,7 +99,7 @@ func NewRecorder(store HistoryStore, opts ...RecorderOption) *Recorder {
 		log:            zerolog.Nop(),
 		batchSize:      200,
 		flushInterval:  500 * time.Millisecond,
-		idleTimeout:    5 * time.Second,
+		idleTimeout:    30 * time.Second, // safety net; runs normally finalize on the run-finished signal
 		pruneInterval:  time.Hour,
 		retention:      7 * 24 * time.Hour,
 		maxRunsPerFlow: 500,
@@ -178,6 +178,17 @@ func (r *Recorder) persist(e flow.NodeEvent, now time.Time) {
 	if e.CorrID == "" {
 		return
 	}
+
+	// A run-finished signal finalizes the run deterministically. It arrives after
+	// all of the run's node events (the runtime emits it only once in-flight work
+	// drains), so the aggregate is complete here.
+	if e.Phase == flow.NodePhaseRunFinished {
+		if agg, ok := r.runs[e.CorrID]; ok {
+			r.finalize(e.CorrID, agg)
+		}
+		return
+	}
+
 	agg, ok := r.runs[e.CorrID]
 	if !ok {
 		if err := r.store.UpsertFlowRun(e.CorrID, e.FlowID, now); err != nil {
@@ -241,6 +252,11 @@ func (r *Recorder) finalize(corr string, agg *runAgg) {
 // debug event carrying a payload/meta snapshot so the editor's debug inspector
 // can show what flowed through — without changing the debug node itself.
 func (r *Recorder) publish(e flow.NodeEvent) {
+	// run-finished is a run-level event (no node) for the persistence path only;
+	// the live node-state stream doesn't need it.
+	if e.Phase == flow.NodePhaseRunFinished {
+		return
+	}
 	// Skip building events nobody is watching — the common case in production is
 	// no editor open, hence no SSE subscriber for the flow.
 	if r.hub == nil || !r.hub.HasSubscribers(e.FlowID) {
