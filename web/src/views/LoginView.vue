@@ -56,7 +56,7 @@ function toggleRecovery() {
 </script>
 
 <template>
-  <div class="min-h-full bg-background flex items-center justify-center p-4">
+  <div class="lab-page min-h-full bg-background flex items-center justify-center p-4">
     <div class="w-full max-w-md space-y-6">
       <div class="text-center">
         <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">

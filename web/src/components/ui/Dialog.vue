@@ -1,68 +1,29 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import { cn } from '@/lib/utils'
 
-interface Props {
-  open?: boolean
-  class?: string
+const props = withDefaults(defineProps<{ open?: boolean; class?: string; title?: string }>(), { open: false, title: 'Dialog' })
+const emit = defineEmits<{ 'update:open': [value: boolean] }>()
+const dialog = ref<HTMLDialogElement>()
+function close() { emit('update:open', false) }
+function onBackdrop(event: MouseEvent) {
+  if (event.target !== dialog.value) return
+  const bounds = dialog.value.getBoundingClientRect()
+  if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) close()
 }
-
-const props = withDefaults(defineProps<Props>(), {
-  open: false
-})
-
-const emit = defineEmits<{
-  'update:open': [value: boolean]
-}>()
-
-const isOpen = ref(props.open)
-
-watch(() => props.open, (newVal) => {
-  isOpen.value = newVal
-})
-
-function close() {
-  isOpen.value = false
-  emit('update:open', false)
-}
-
-function handleBackdropClick(event: MouseEvent) {
-  if (event.target === event.currentTarget) {
-    close()
-  }
-}
+watch(() => props.open, async open => {
+  await nextTick()
+  if (open && !dialog.value?.open) dialog.value?.showModal()
+  else if (!open) dialog.value?.close()
+}, { immediate: true })
 </script>
 
 <template>
   <Teleport to="body">
-    <Transition
-      enter-active-class="transition duration-200 ease-out"
-      enter-from-class="opacity-0"
-      enter-to-class="opacity-100"
-      leave-active-class="transition duration-150 ease-in"
-      leave-from-class="opacity-100"
-      leave-to-class="opacity-0"
-    >
-      <div
-        v-if="isOpen"
-        class="fixed inset-0 z-50 flex items-center justify-center"
-      >
-        <!-- Backdrop -->
-        <div
-          class="fixed inset-0 bg-black/50 backdrop-blur-sm"
-          @click="handleBackdropClick"
-        />
-
-        <!-- Dialog -->
-        <div
-          :class="cn(
-            'relative z-50 w-full max-w-lg rounded-lg border bg-background p-6 shadow-lg',
-            props.class
-          )"
-        >
-          <slot :close="close" />
-        </div>
-      </div>
-    </Transition>
+    <dialog ref="dialog" :aria-label="title"
+      :class="cn('lab-dialog m-auto w-[calc(100%-2rem)] max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-xl border bg-card p-6 shadow-2xl', props.class)"
+      @cancel.prevent="close" @click="onBackdrop">
+      <slot :close="close" />
+    </dialog>
   </Teleport>
 </template>

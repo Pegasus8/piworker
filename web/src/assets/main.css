@@ -23,7 +23,7 @@
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
     --ring: 222.2 84% 4.9%;
-    --radius: 0.5rem;
+    --radius: 0.75rem;
 
     /* Node colors */
     --trigger: 38 92% 50%;
@@ -35,25 +35,25 @@
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --background: 222 32% 8%;
+    --foreground: 210 24% 94%;
+    --card: 222 26% 12%;
+    --card-foreground: 210 24% 94%;
+    --popover: 222 26% 12%;
+    --popover-foreground: 210 24% 94%;
+    --primary: 163 70% 65%;
+    --primary-foreground: 222 40% 10%;
+    --secondary: 222 23% 18%;
+    --secondary-foreground: 210 24% 94%;
+    --muted: 222 23% 16%;
+    --muted-foreground: 215 17% 70%;
+    --accent: 222 23% 22%;
+    --accent-foreground: 210 24% 94%;
+    --destructive: 0 78% 70%;
+    --destructive-foreground: 222 40% 10%;
+    --border: 222 20% 23%;
+    --input: 222 20% 28%;
+    --ring: 163 70% 65%;
 
     /* Node colors - dark mode */
     --trigger: 38 92% 50%;
@@ -126,4 +126,23 @@
 
 .vue-flow__background-pattern {
   stroke: hsl(var(--border));
+}
+
+/* Friendly laboratory: quiet surfaces, expressive actions. */
+@layer base {
+  body { -webkit-font-smoothing: antialiased; }
+  h1, h2, h3 { letter-spacing: -0.025em; }
+  :focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
+  ::selection { background: hsl(var(--primary) / .25); }
+  button, input, textarea, select { transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
+}
+.lab-button { transition: background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
+.lab-button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
+.lab-page { animation: lab-enter 240ms ease-out both; }
+.lab-empty { background-image: radial-gradient(hsl(var(--border)) 1px, transparent 1px); background-size: 24px 24px; }
+.lab-dialog { color: hsl(var(--foreground)); animation: lab-enter 180ms ease-out; }
+.lab-dialog::backdrop { background: rgb(0 0 0 / .65); backdrop-filter: blur(5px); }
+@keyframes lab-enter { from { opacity: 0; translate: 0 6px; } to { opacity: 1; translate: 0 0; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }

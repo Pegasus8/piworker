@@ -7,6 +7,12 @@ import { KeyRound, Trash2, Plus } from 'lucide-vue-next'
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ 'update:open': [boolean] }>()
 
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import OperationFeedback from '@/components/ui/OperationFeedback.vue'
+import { useFeedback } from '@/composables/useFeedback'
+
+const confirmation = ref<InstanceType<typeof ConfirmDialog>>()
+const { feedback, pending, run } = useFeedback()
 const api = useApi()
 const names = ref<string[]>([])
 const loading = ref(false)
@@ -40,29 +46,20 @@ watch(
 async function add() {
   const name = newName.value.trim()
   if (!name || !newValue.value) return
-  try {
+  await run(async () => {
     await api.setSecret(name, newValue.value)
-    newName.value = ''
-    newValue.value = ''
+    newName.value = ''; newValue.value = ''
     await load()
-  } catch (e: any) {
-    error.value = e?.response?.data?.error || 'Failed to save secret'
-  }
+  }, 'Secret saved.', 'Could not save the secret. Try again.')
 }
-
 async function remove(name: string) {
-  if (!confirm(`Delete secret "${name}"?`)) return
-  try {
-    await api.deleteSecret(name)
-    await load()
-  } catch (e: any) {
-    error.value = e?.response?.data?.error || 'Failed to delete secret'
-  }
+  if (pending.value || !await confirmation.value?.ask('Delete secret?', `Delete “${name}”? Flows that reference it may stop working. This cannot be undone.`, 'Delete secret')) return
+  await run(async () => { await api.deleteSecret(name); await load() }, 'Secret deleted.', 'Could not delete the secret. Try again.')
 }
 </script>
 
 <template>
-  <Dialog :open="open" @update:open="(v) => emit('update:open', v)">
+  <Dialog title="Manage secrets" :open="open" @update:open="(v) => emit('update:open', v)">
     <template #default="{ close }">
       <div class="space-y-4">
         <div class="flex items-center gap-2">
@@ -75,8 +72,9 @@ async function remove(name: string) {
           </div>
         </div>
 
-        <p v-if="error" class="text-sm text-destructive">{{ error }}</p>
+        <p v-if="error" role="alert" class="text-sm text-destructive">{{ error }}</p>
 
+        <OperationFeedback :message="feedback" @dismiss="feedback = null" />
         <!-- Existing secrets -->
         <div class="max-h-48 space-y-1 overflow-auto rounded border">
           <p v-if="!loading && !names.length" class="p-3 text-center text-sm text-muted-foreground">
@@ -88,7 +86,7 @@ async function remove(name: string) {
             class="flex items-center justify-between px-3 py-2 text-sm"
           >
             <span class="font-mono">{{ name }}</span>
-            <Button variant="ghost" size="icon" class="h-7 w-7 text-destructive" @click="remove(name)">
+            <Button variant="ghost" size="icon" class="text-destructive" :disabled="pending" :aria-label="`Delete secret ${name}`" @click="remove(name)">
               <Trash2 class="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -99,14 +97,14 @@ async function remove(name: string) {
           <div class="grid grid-cols-2 gap-2">
             <div>
               <Label class="text-xs">Name</Label>
-              <Input v-model="newName" placeholder="telegram_token" class="mt-1" />
+              <Input aria-label="Secret name" :disabled="pending" v-model="newName" placeholder="telegram_token" class="mt-1" />
             </div>
             <div>
               <Label class="text-xs">Value</Label>
-              <Input v-model="newValue" type="password" placeholder="secret value" class="mt-1" />
+              <Input aria-label="Secret value" :disabled="pending" v-model="newValue" type="password" placeholder="secret value" class="mt-1" />
             </div>
           </div>
-          <Button size="sm" class="w-full" :disabled="!newName.trim() || !newValue" @click="add">
+          <Button size="sm" class="w-full" :disabled="pending || !newName.trim() || !newValue" @click="add">
             <Plus class="mr-2 h-4 w-4" /> Add secret
           </Button>
         </div>
@@ -115,6 +113,7 @@ async function remove(name: string) {
           <Button variant="outline" @click="close">Done</Button>
         </div>
       </div>
+      <ConfirmDialog ref="confirmation" />
     </template>
   </Dialog>
 </template>
