@@ -31,7 +31,7 @@ async function save() {
 }
 </script>
 <template>
- <main class="min-h-screen bg-background p-6">
+ <main class="min-h-full bg-background p-6">
   <div class="mx-auto max-w-md space-y-6">
    <Button variant="ghost" @click="router.push('/')">Back to flows</Button>
    <div><h1 class="text-2xl font-bold">Account</h1><p class="text-muted-foreground">{{ auth.user?.username }}</p></div>

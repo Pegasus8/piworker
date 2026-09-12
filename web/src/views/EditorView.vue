@@ -129,7 +129,7 @@ function toggleFlowEnabled(enabled: boolean) {
 </script>
 
 <template>
-  <div class="flex h-screen flex-col bg-background">
+  <div class="flex h-full flex-col bg-background">
     <!-- Header -->
     <header class="flex h-14 items-center justify-between border-b bg-card px-4">
       <div class="flex items-center gap-4">

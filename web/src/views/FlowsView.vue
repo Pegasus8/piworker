@@ -156,7 +156,7 @@ async function logout() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-background">
+  <div class="min-h-full bg-background">
     <!-- Header -->
     <header class="sticky top-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/60">
       <div class="container mx-auto flex h-16 items-center justify-between px-4">

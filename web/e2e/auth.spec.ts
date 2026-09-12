@@ -33,6 +33,7 @@ test.afterAll(async () => {
 test('installer setup, remembered session, password change, logout and local recovery', async ({ page, context }) => {
  await page.goto('/')
  await expect(page.getByRole('heading', { name: 'Create your administrator account' })).toBeVisible()
+ await expect(page.getByRole('note', { name: 'Unencrypted connection' })).toBeVisible()
  await page.screenshot({ path: 'test-results/auth-setup.png', fullPage: true })
  await page.getByLabel('Setup code', { exact: true }).fill('wrong')
  await page.getByLabel('Username', { exact: true }).fill('owner')
