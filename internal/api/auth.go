@@ -3,7 +3,7 @@ package api
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net"
 	"net/http"
@@ -119,7 +119,7 @@ func (h *AuthHandler) readCredentials(w http.ResponseWriter, r *http.Request) (L
 		return req, false
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.UnmarshalRead(r.Body, &req); err != nil {
 		writeError(w, 400, "Invalid request body")
 		return req, false
 	}
