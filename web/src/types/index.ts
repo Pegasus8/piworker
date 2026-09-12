@@ -9,6 +9,8 @@ export interface NodeTypeConfig {
   icon: string
   description: string
   documentation?: string
+  inputs?: unknown[]
+  outputs?: unknown[]
   configSchema: ConfigField[]
 }
 
@@ -101,4 +103,23 @@ export interface NodeEventRecord {
   durationMs?: number
   error?: string
   createdAt: string
+}
+
+export interface NodeTestMessage {
+  payload: unknown
+  sourcePort?: string
+  topic?: string
+  meta?: Record<string, unknown>
+  [key: string]: unknown
+}
+export interface NodeTestResult {
+  outputs?: NodeTestMessage[] | null
+  error?: string
+  durMs?: number
+}
+export interface NodeTestDraft {
+  mode: 'json' | 'text'
+  payload: string
+  topic: string
+  metadata: string
 }

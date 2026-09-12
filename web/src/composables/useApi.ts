@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Flow, FlowListItem, FlowEvent, FlowRun, NodeEventRecord } from '@/types'
+import type { Flow, FlowListItem, FlowEvent, FlowRun, NodeEventRecord, NodeTestResult } from '@/types'
 
 const api = axios.create({
   baseURL: '/api',
@@ -120,8 +120,8 @@ export function useApi() {
   }
 
   // Debug: run a single processing node once against a sample payload.
-  async function testNode(nodeType: string, config: Record<string, any>, payload: any): Promise<any> {
-    const { data } = await api.post(`/nodes/${nodeType}/test`, { config, payload })
+  async function testNode(nodeType: string, config: Record<string, any>, payload: unknown, context: { topic?: string; meta?: Record<string, unknown> } = {}, signal?: AbortSignal): Promise<NodeTestResult> {
+    const { data } = await api.post(`/nodes/${nodeType}/test`, { config, payload, ...context }, { signal })
     return data.data
   }
 

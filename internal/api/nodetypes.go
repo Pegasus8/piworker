@@ -42,6 +42,8 @@ const testNodeTimeout = 10 * time.Second
 type TestNodeRequest struct {
 	Config  map[string]interface{} `json:"config"`
 	Payload interface{}            `json:"payload"`
+	Topic   string                 `json:"topic,omitempty"`
+	Meta    map[string]interface{} `json:"meta,omitempty"`
 }
 
 // TestNodeResult is the outcome of a one-shot node execution.
@@ -86,7 +88,7 @@ func (h *NodeTypesHandler) TestNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, panicked := h.runOnce(r.Context(), inst, req.Payload)
+	result, panicked := h.runOnce(r.Context(), inst, req)
 	if panicked {
 		// A node that panics is a server-side fault, distinct from a node that
 		// returns a normal error (which is reported as 200 with an error field).
@@ -100,11 +102,15 @@ func (h *NodeTypesHandler) TestNode(w http.ResponseWriter, r *http.Request) {
 // misbehaving node returns an error instead of crashing the server. It reports
 // whether the node panicked so the caller can distinguish a crash from a normal
 // node error.
-func (h *NodeTypesHandler) runOnce(parent context.Context, inst node.Node, payload interface{}) (result TestNodeResult, panicked bool) {
+func (h *NodeTypesHandler) runOnce(parent context.Context, inst node.Node, sample TestNodeRequest) (result TestNodeResult, panicked bool) {
 	ctx, cancel := context.WithTimeout(parent, testNodeTimeout)
 	defer cancel()
 
-	msg := types.NewMessage(payload, types.DataTypeAny)
+	msg := types.NewMessage(sample.Payload, types.DataTypeAny)
+	msg.Topic = sample.Topic
+	if sample.Meta != nil {
+		msg.Meta = sample.Meta
+	}
 	start := time.Now()
 	defer func() {
 		result.DurMs = float64(time.Since(start).Microseconds()) / 1000.0

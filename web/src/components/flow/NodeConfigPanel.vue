@@ -1,15 +1,25 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useFlowsStore } from '@/stores/flows'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
-import { useApi } from '@/composables/useApi'
-import { Button, Input, Textarea, Label, Select, Switch, ScrollArea } from '@/components/ui'
-import { X, Save, Trash2, FlaskConical } from 'lucide-vue-next'
+import { Button, Input, Textarea, Label, Select, Switch, ScrollArea, Dialog } from '@/components/ui'
+import { X, Save, Trash2 } from 'lucide-vue-next'
 import NodeDocumentation from './NodeDocumentation.vue'
+import NodePlayground from './NodePlayground.vue'
+import type { NodeTestDraft } from '@/types'
 
 const flowsStore = useFlowsStore()
 const nodeTypesStore = useNodeTypesStore()
-const api = useApi()
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import { onBeforeRouteLeave } from 'vue-router'
+const confirmation = ref<InstanceType<typeof ConfirmDialog>>()
+const configDirty = computed(() => JSON.stringify(localConfig.value) !== JSON.stringify(selectedNode.value?.data.config || {}))
+const examples: Record<string, string> = {
+  expression: 'payload.temperature * 1.8 + 32',
+  condition: 'payload.temperature > 25',
+  template: 'Temperature: {{payload.temperature}}°C'
+}
+const playgroundDrafts = ref<Record<string, NodeTestDraft>>({})
 
 const localConfig = ref<Record<string, any>>({})
 
@@ -17,38 +27,6 @@ const selectedNode = computed(() => flowsStore.selectedNode)
 
 // Only processing nodes can be test-run (action/trigger nodes have side effects).
 const isProcessing = computed(() => selectedNode.value?.data.category === 'process')
-const testPayload = ref('{}')
-const testResult = ref<{ outputs?: unknown; error?: string; durMs?: number } | null>(null)
-const testing = ref(false)
-
-async function handleTest() {
-  if (!selectedNode.value) return
-  testing.value = true
-  testResult.value = null
-  let payload: unknown = testPayload.value
-  try {
-    payload = JSON.parse(testPayload.value)
-  } catch {
-    /* not JSON — send as a raw string */
-  }
-  try {
-    testResult.value = await api.testNode(
-      selectedNode.value.data.nodeType,
-      { ...localConfig.value },
-      payload
-    )
-  } catch (e: any) {
-    testResult.value = { error: e?.response?.data?.error || String(e) }
-  } finally {
-    testing.value = false
-  }
-}
-
-// Reset the test result when switching nodes.
-watch(selectedNode, () => {
-  testResult.value = null
-})
-
 const nodeTypeConfig = computed(() => {
   if (!selectedNode.value) return null
   return nodeTypesStore.getById(selectedNode.value.data.nodeType)
@@ -76,30 +54,27 @@ function handleSave() {
   }
 }
 
-function handleCancel() {
+async function handleCancel() {
+  if (configDirty.value && !await confirmation.value?.ask('Discard node changes?', 'Your configuration changes have not been applied.', 'Discard changes', 'Keep editing')) return
   flowsStore.selectNode(null)
 }
+onBeforeRouteLeave(async to => to.name === 'login' || !selectedNode.value || !configDirty.value || !!await confirmation.value?.ask('Discard node changes?', 'Your configuration changes have not been applied.', 'Discard changes', 'Keep editing'))
 
-function handleDelete() {
-  if (selectedNode.value) {
+async function handleDelete() {
+  if (selectedNode.value && await confirmation.value?.ask('Delete node?', 'Remove this node and its connections? Save the flow to persist this change.', 'Delete node')) {
     flowsStore.removeNode(selectedNode.value.id)
   }
 }
+function beforeUnload(event: BeforeUnloadEvent) {
+  if (selectedNode.value && configDirty.value) { event.preventDefault(); event.returnValue = '' }
+}
+onMounted(() => window.addEventListener('beforeunload', beforeUnload))
+onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
 </script>
 
 <template>
-  <Transition
-    enter-active-class="transition duration-200 ease-out"
-    enter-from-class="translate-x-full"
-    enter-to-class="translate-x-0"
-    leave-active-class="transition duration-150 ease-in"
-    leave-from-class="translate-x-0"
-    leave-to-class="translate-x-full"
-  >
-    <div
-      v-if="selectedNode && nodeTypeConfig"
-      class="fixed right-0 top-0 z-40 h-full w-80 border-l bg-card shadow-lg"
-    >
+  <Dialog :open="!!selectedNode && !!nodeTypeConfig" title="Node configuration" :class="isProcessing ? 'max-w-6xl' : 'max-w-lg'" @update:open="handleCancel">
+    <div v-if="selectedNode && nodeTypeConfig">
       <!-- Header -->
       <div class="flex items-center justify-between border-b p-4">
         <div class="flex-1 min-w-0">
@@ -111,29 +86,32 @@ function handleDelete() {
               :documentation="nodeTypeConfig.documentation"
             />
           </div>
-          <p class="text-sm text-muted-foreground truncate">
+          <p class="text-sm text-muted-foreground">
             {{ nodeTypeConfig.description }}
           </p>
         </div>
-        <Button variant="ghost" size="icon" class="flex-shrink-0" @click="handleCancel">
+        <Button variant="ghost" size="icon" class="flex-shrink-0" aria-label="Close configuration" @click="handleCancel">
           <X class="h-4 w-4" />
         </Button>
       </div>
 
       <!-- Config Fields -->
-      <ScrollArea class="h-[calc(100%-140px)] p-4">
-        <div class="space-y-4">
+      <ScrollArea class="max-h-[65dvh] p-4">
+        <div class="grid min-w-0 gap-6" :class="isProcessing ? 'lg:grid-cols-[minmax(0,0.8fr)_minmax(0,2fr)]' : ''">
+        <section class="min-w-0 space-y-4 lg:sticky lg:top-0 lg:self-start">
+          <div><h3 class="font-semibold">Configuration</h3><p class="mt-1 text-sm text-muted-foreground">Apply changes to update the draft. Save the flow to keep them.</p></div>
           <div v-for="field in nodeTypeConfig.configSchema" :key="field.key">
             <Label :for="field.key" class="mb-2 block">
               {{ field.label }}
-              <span v-if="field.required" class="text-destructive">*</span>
+              <span v-if="field.required" aria-hidden="true" class="text-destructive">*</span>
             </Label>
 
             <!-- Text Input -->
             <Input
-              v-if="field.type === 'text'"
+              v-if="field.type === 'text' && !['expression', 'condition', 'template'].includes(field.key)"
               :id="field.key"
-              :model-value="localConfig[field.key] || ''"
+              :aria-required="field.required"
+              :model-value="localConfig[field.key] ?? ''"
               :placeholder="field.placeholder"
               @update:model-value="(v) => updateField(field.key, v)"
             />
@@ -142,19 +120,22 @@ function handleDelete() {
             <Input
               v-else-if="field.type === 'number'"
               :id="field.key"
+              :aria-required="field.required"
               type="number"
-              :model-value="localConfig[field.key] || 0"
+              :model-value="localConfig[field.key] ?? 0"
               :placeholder="field.placeholder"
               @update:model-value="(v) => updateField(field.key, v)"
             />
 
             <!-- Textarea -->
             <Textarea
-              v-else-if="field.type === 'textarea' || field.type === 'cron'"
+              v-else-if="field.type === 'textarea' || field.type === 'cron' || ['expression', 'condition', 'template'].includes(field.key)"
               :id="field.key"
-              :model-value="localConfig[field.key] || ''"
+              :aria-required="field.required"
+              :model-value="localConfig[field.key] ?? ''"
               :placeholder="field.placeholder"
-              :rows="field.type === 'textarea' ? 5 : 2"
+              :rows="field.type === 'cron' ? 2 : 5"
+              spellcheck="false"
               @update:model-value="(v) => updateField(field.key, v)"
             />
 
@@ -162,7 +143,8 @@ function handleDelete() {
             <Select
               v-else-if="field.type === 'select'"
               :id="field.key"
-              :model-value="localConfig[field.key] || ''"
+              :aria-required="field.required"
+              :model-value="localConfig[field.key] ?? ''"
               :options="field.options || []"
               :placeholder="field.placeholder || 'Select...'"
               @update:model-value="(v) => updateField(field.key, v)"
@@ -175,44 +157,25 @@ function handleDelete() {
             >
               <Switch
                 :id="field.key"
+              :aria-required="field.required"
                 :model-value="!!localConfig[field.key]"
                 @update:model-value="(v) => updateField(field.key, v)"
               />
             </div>
-          </div>
-
-          <!-- Test runner (processing nodes only) -->
-          <div v-if="isProcessing" class="mt-6 space-y-2 border-t pt-4">
-            <Label class="block">Test payload (JSON)</Label>
-            <Textarea
-              :model-value="testPayload"
-              :rows="3"
-              placeholder='e.g. {"value": 42}'
-              @update:model-value="(v) => (testPayload = String(v))"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              class="w-full"
-              :disabled="testing"
-              @click="handleTest"
-            >
-              <FlaskConical class="mr-2 h-4 w-4" />
-              {{ testing ? 'Running...' : 'Test node' }}
-            </Button>
-            <div v-if="testResult" class="rounded bg-muted/50 p-2 text-[11px]">
-              <p v-if="testResult.error" class="text-destructive">{{ testResult.error }}</p>
-              <pre v-else class="overflow-x-auto">{{ JSON.stringify(testResult.outputs, null, 2) }}</pre>
-              <p v-if="testResult.durMs != null" class="mt-1 text-muted-foreground">
-                {{ testResult.durMs }}ms
-              </p>
+            <p v-if="field.placeholder" class="mt-2 break-words text-xs text-muted-foreground">{{ field.placeholder }}</p>
+            <div v-if="examples[field.key]" class="mt-2 space-y-1">
+              <Button variant="ghost" size="sm" :aria-label="`Use example for ${field.label}`" @click="updateField(field.key, examples[field.key])">Use temperature example</Button>
+              <p class="text-xs text-muted-foreground">Replaces this field. Use the sample payload in the playground to try it.</p>
             </div>
           </div>
+
+        </section>
+        <NodePlayground v-if="isProcessing" :key="selectedNode.id" :node-type="selectedNode.data.nodeType" :config="localConfig" :draft="playgroundDrafts[selectedNode.id]" @draft="playgroundDrafts[selectedNode.id] = $event" />
         </div>
       </ScrollArea>
 
       <!-- Actions -->
-      <div class="absolute bottom-0 left-0 right-0 flex gap-2 border-t bg-card p-4">
+      <div class="grid grid-cols-2 gap-2 border-t bg-card pt-4 sm:flex">
         <Button
           variant="destructive"
           size="sm"
@@ -222,15 +185,16 @@ function handleDelete() {
           <Trash2 class="mr-2 h-4 w-4" />
           Delete
         </Button>
-        <div class="flex-1" />
+        <div class="hidden flex-1 sm:block" />
         <Button variant="outline" size="sm" @click="handleCancel">
           Cancel
         </Button>
-        <Button size="sm" @click="handleSave">
+        <Button size="sm" class="col-span-2" @click="handleSave">
           <Save class="mr-2 h-4 w-4" />
-          Save
+          Apply changes
         </Button>
       </div>
     </div>
-  </Transition>
+    <ConfirmDialog ref="confirmation" />
+  </Dialog>
 </template>

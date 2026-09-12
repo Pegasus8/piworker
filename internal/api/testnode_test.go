@@ -120,3 +120,25 @@ func TestTestNodeRecoversPanic(t *testing.T) {
 		assert.Equal(t, http.StatusInternalServerError, rr.Code)
 	})
 }
+
+func TestTestNodePreservesSampleContext(t *testing.T) {
+	rr := postTestNode(t, testNodeRouter(t), "process-echo", map[string]interface{}{
+		"payload": false, "topic": "sensors/office", "meta": map[string]interface{}{"unit": "C"},
+	})
+	require.Equal(t, http.StatusOK, rr.Code)
+	var resp struct {
+		Data TestNodeResult `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.Len(t, resp.Data.Outputs, 1)
+	assert.Equal(t, false, resp.Data.Outputs[0].Payload)
+	assert.Equal(t, "sensors/office", resp.Data.Outputs[0].Topic)
+	assert.Equal(t, "C", resp.Data.Outputs[0].Meta["unit"])
+}
+
+func TestTestNodeRejectsNonObjectMetadata(t *testing.T) {
+	rr := postTestNode(t, testNodeRouter(t), "process-echo", map[string]interface{}{
+		"payload": "hello", "meta": []interface{}{"invalid"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
