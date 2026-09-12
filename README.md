@@ -83,7 +83,7 @@ make frontend-install build-release
 
 | Tool | Version | Purpose | Installation |
 |------|---------|---------|--------------|
-| **Go** | 1.26.7+ | Backend compilation | [go.dev/dl](https://go.dev/dl/) |
+| **Go** | 1.27.1+ | Backend compilation | [go.dev/dl](https://go.dev/dl/) |
 | **Bun** | 1.3.14 | Frontend runtime & package manager | `curl -fsSL https://bun.sh/install \| bash` |
 | **Make** | any | Build automation | Pre-installed on macOS/Linux |
 | **Docker** | BuildKit + Compose v2 | Optional, containerized dev | [docker.com](https://docker.com) |
@@ -99,7 +99,7 @@ brew install go
 curl -fsSL https://bun.sh/install | bash
 
 # Verify installations
-go version    # go1.26.7+
+go version    # go1.27.1+
 bun --version # 1.3.14
 ```
 
@@ -111,8 +111,8 @@ frontend; release binaries include it already.
 
 ```bash
 # Install Go
-wget https://go.dev/dl/go1.26.7.linux-arm64.tar.gz
-sudo tar -C /usr/local -xzf go1.26.7.linux-arm64.tar.gz
+wget https://go.dev/dl/go1.27.1.linux-arm64.tar.gz
+sudo tar -C /usr/local -xzf go1.27.1.linux-arm64.tar.gz
 export PATH=$PATH:/usr/local/go/bin
 
 # Install Bun
@@ -428,6 +428,9 @@ email, public recovery-code endpoint, or additional user registration is involve
 
 API clients must keep the cookie returned by login and send
 `X-PiWorker-Request: 1` on POST/PUT/PATCH/DELETE requests (including login).
+Authentication request bodies must contain one UTF-8 JSON value with unique
+field names; use the documented lowercase/camelCase field names. Duplicate
+fields, invalid UTF-8 and trailing JSON values are rejected.
 Browser origins must match the server or an explicitly configured CORS origin.
 Login/setup/recovery/password attempts are rate limited. Legacy Bearer JWTs are
 no longer accepted; old JWT configuration values are ignored for compatibility.
@@ -522,7 +525,7 @@ preserved during migration.
 ## Tech Stack
 
 ### Backend
-- **Go 1.26.7+** - High performance, great concurrency
+- **Go 1.27.1+** - High performance, great concurrency
 - **gorilla/mux** - HTTP router
 - **SQLite** - Local database (no external dependencies)
 - **zerolog** - Structured JSON logging

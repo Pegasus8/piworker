@@ -26,7 +26,7 @@ RUN bun run build
 # =============================================================================
 # Stage 2: Build Backend with Embedded Frontend
 # =============================================================================
-FROM golang:1.26.7-alpine AS backend-builder
+FROM golang:1.27.1-alpine AS backend-builder
 
 # Install build dependencies
 RUN apk add --no-cache gcc musl-dev
