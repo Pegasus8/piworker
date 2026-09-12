@@ -8,7 +8,7 @@ A **visual flow-based automation system** for Raspberry Pi and other devices. Cr
 
 - **Visual Flow Editor** - Drag-and-drop interface to create automation workflows
 - **Node-Based** - Connect triggers, processing nodes, and actions
-- **Privacy-First** - Everything runs locally on your device
+- **Local execution** - Flows and storage run on your device; external-service nodes send data to the services you configure
 - **Extensible** - Easy to add new node types
 - **Lightweight** - Single binary with embedded frontend, optimized for Raspberry Pi
 - **Fast** - Go backend with concurrent message processing
@@ -17,24 +17,28 @@ A **visual flow-based automation system** for Raspberry Pi and other devices. Cr
 
 ### First boot: create the administrator
 
-Before starting a binary or container with a new database, export:
+Start PiWorker and open its address in your browser. On a fresh database,
+PiWorker prints a **one-use setup code** in its startup terminal (or container
+logs). Enter that code, choose your username and password, and the editor opens.
+The code expires after 30 minutes; restart PiWorker or run `-setup-code` against
+the same database to replace it. Once an account exists, setup is closed.
+
+For unattended installations, you can optionally bootstrap the first account:
 
 ```bash
 export PIWORKER_ADMIN_USER=admin
 export PIWORKER_ADMIN_PASS='replace-with-a-unique-password'
 ```
 
-Use a unique password of at least 8 characters. These credentials create the
-first user only; they do not reset existing accounts. Sign in with them when
-opening the editor. You can unset the variables after the first successful
-start. Docker Compose also reads them from a local, git-ignored `.env` file.
-Authentication stays enabled by default; without credentials a fresh installation
-exits with an explanation instead of starting an unprotected server.
+These variables never overwrite an existing account. Docker Compose reads them
+from the shell or a local, git-ignored `.env` file. Existing installations keep
+their accounts and password hashes; old JWT sessions require one new login.
 
-Pre-built images and binaries below apply to the published revival release.
-Until it is published, build this branch from source or use `make docker-build`.
+This README describes the revival branch, including changes not yet released.
+Build from source or use `make docker-build` to try this implementation. Published
+binaries/images may still contain the previous implementation; check their release notes.
 
-### Option 1: Docker (Recommended)
+### Option 1: Docker (published releases)
 
 ```bash
 # Production - single container with everything included
@@ -48,7 +52,7 @@ docker run -d \
 # Open http://localhost:8080
 ```
 
-### Option 2: Pre-built Binary
+### Option 2: Pre-built Binary (published releases)
 
 Download the latest release from [Releases](https://github.com/Pegasus8/piworker/releases) and run:
 
@@ -120,11 +124,12 @@ go version && bun --version
 
 ### Local Development (Recommended)
 
-Run backend and frontend separately for hot-reload:
+Run backend and frontend separately. Vite reloads frontend changes automatically;
+restart the Go command after backend changes:
 
 **Terminal 1 - Backend:**
 ```bash
-go run main.go -debug -auth=false
+go run . -addr 127.0.0.1:8080 -debug -auth=false
 # API running at http://localhost:8080
 ```
 
@@ -193,7 +198,7 @@ make build-arm    # For RPi 3 or 32-bit
 
 # Copy to Pi and connect
 scp build/piworker-linux-arm64 pi@raspberrypi:~/piworker
-# On the Pi, set PIWORKER_ADMIN_USER and PIWORKER_ADMIN_PASS before first boot.
+# On the Pi, run PiWorker and use the setup code from its terminal.
 ssh pi@raspberrypi
 ```
 
@@ -213,9 +218,8 @@ require the corresponding buses/drivers and device permissions on the Pi.
 
 ### Systemd Service
 
-Bootstrap the administrator once by running the binary as `pi` with the
-credentials above and `-db /home/pi/piworker.db`, then stop it. The service reuses
-that database without needing bootstrap credentials.
+Start the service and read its setup code with `journalctl -u piworker`.
+Existing accounts remain available without bootstrap credentials.
 
 Create `/etc/systemd/system/piworker.service`:
 
@@ -342,7 +346,7 @@ PiWorker loads `piworker.toml` from the working directory if present (or pass
 addr = ":8080"
 db = "piworker.db"
 auth = true
-jwt_secret = ""        # empty: a secret is generated and persisted across restarts
+session_secure = false # Secure cookies only; does not enable an HTTPS listener
 cors_origins = ["http://localhost:3000", "http://localhost:8080"]
 ```
 
@@ -356,8 +360,10 @@ Flags:
   -addr string          HTTP server address (default ":8080")
   -db string            SQLite database path (default "piworker.db")
   -debug                Enable debug logging
-  -auth                 Enable JWT authentication (default true)
-  -jwt-secret string    JWT secret (auto-generated and persisted if empty)
+  -auth                 Enable session authentication (default true)
+  -session-secure        Require HTTPS for session cookies (default false)
+  -setup-code           Generate a new setup code and exit (only before setup)
+  -recover-account name Generate a password recovery code and exit
   -cors-origins string  Comma-separated allowed CORS origins
   -admin-user string    Bootstrap admin username (or env PIWORKER_ADMIN_USER)
   -admin-pass string    Bootstrap admin password (or env PIWORKER_ADMIN_PASS)
@@ -370,16 +376,68 @@ export PIWORKER_ADDR=:8080
 export PIWORKER_DB=/var/lib/piworker/data.db
 export PIWORKER_DEBUG=true
 export PIWORKER_AUTH=true
-export PIWORKER_JWT_SECRET=...        # optional; otherwise auto-generated + persisted
-export PIWORKER_CORS_ORIGINS=https://app.example.com
+export PIWORKER_SESSION_SECURE=false # true when the browser connects via HTTPS
+export PIWORKER_CORS_ORIGINS=http://localhost:3000,http://localhost:8080
 export PIWORKER_ADMIN_USER=admin
 export PIWORKER_ADMIN_PASS=...
 ```
 
+### Sessions and account recovery
+
+The browser uses an HttpOnly, SameSite=Strict cookie; session secrets are never
+stored in JavaScript/localStorage. SQLite stores only token hashes. Sessions
+survive restarts, expire after 7 days of inactivity or 30 days total, and are
+limited to 20 per account. Signing out revokes the current session. Changing the
+password from **Account** or recovering it invalidates every session for that
+account, including live event streams (on the next event or heartbeat).
+
+### HTTP and future HTTPS support
+
+PiWorker currently starts an **HTTP server**. The UI displays a persistent warning
+on HTTP pages, including setup, login and the editor. Passwords and sessions can
+be intercepted even on a local network. Use a trusted network; this warning does
+not encrypt the connection. It is hidden when the browser page uses HTTPS.
+
+PiWorker does **not** currently provide a TLS listener, certificate generation,
+automatic HTTP-to-HTTPS redirects, or a certificate installation assistant.
+HTTPS requires an externally configured reverse proxy today. Set
+`session_secure = true` (or `PIWORKER_SESSION_SECURE=true`) when the browser uses
+that HTTPS endpoint. This setting only marks cookies `Secure`; it does not
+configure TLS. Enabling it on a LAN HTTP endpoint prevents normal session use.
+Forwarded headers do not automatically enable or downgrade cookie security.
+
+A tested HTTPS deployment guide and assisted certificate setup are future work:
+[Plan assisted HTTPS setup for local installations](https://github.com/Pegasus8/piworker/issues/287).
+See [TODO.md](TODO.md) for the remaining scope.
+
+### Recovering access
+
+If you forget your password, choose **Forgot password?** on the sign-in page.
+On the device hosting PiWorker, run this using the **same database as the server**:
+
+```bash
+./piworker -db /path/to/piworker.db -recover-account YOUR_USERNAME
+# Docker (container remains running):
+docker exec piworker ./piworker -db /app/data/piworker.db -recover-account YOUR_USERNAME
+```
+
+The command prints a one-use code valid for 30 minutes. Enter it in the recovery
+form with your username and new password. It does not reset the password until
+that code is redeemed. Generating another code replaces the previous one. No
+email, public recovery-code endpoint, or additional user registration is involved.
+
+API clients must keep the cookie returned by login and send
+`X-PiWorker-Request: 1` on POST/PUT/PATCH/DELETE requests (including login).
+Browser origins must match the server or an explicitly configured CORS origin.
+Login/setup/recovery/password attempts are rate limited. Legacy Bearer JWTs are
+no longer accepted; old JWT configuration values are ignored for compatibility.
+
 ### Webhooks
 
 Deploy a flow with a **Webhook** trigger and external services can start it by
-calling `http(s)://<host>/api/webhooks/<path>`. Set a token on the node to
+calling `http://<host>/api/webhooks/<path>` (or HTTPS through a configured proxy).
+These endpoints use their own optional token authentication, independently of
+the administrator session. Set a token on the node to
 require `?token=...` or an `X-Webhook-Token` header.
 
 ---
@@ -398,6 +456,8 @@ make hooks-install    # Install the git pre-commit hook (auto-gofmt staged files
 # Frontend
 make frontend-install # Install dependencies (bun)
 make frontend-dev     # Start dev server
+make frontend-test    # Run frontend unit tests
+make frontend-test-e2e # Run Playwright tests (install Chromium first)
 make frontend-build   # Build for production
 make frontend-embed   # Build and embed in Go binary
 
@@ -416,6 +476,22 @@ make build-arm        # Build for Raspberry Pi 3
 ---
 
 ## API Reference
+
+### Authentication
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/auth/status` | Whether auth is enabled and first setup is required |
+| POST | `/api/auth/setup` | Create the first administrator using a local one-use code |
+| POST | `/api/auth/login` | Start a cookie session |
+| GET | `/api/auth/session` | Read the current session |
+| POST | `/api/auth/logout` | Revoke the current session |
+| POST | `/api/auth/password` | Change password and revoke all account sessions |
+| POST | `/api/auth/recover` | Redeem a local recovery code and revoke account sessions |
+
+There is no public registration endpoint, user-management UI, or role system.
+The initial scope is one administrator per installation; existing accounts are
+preserved during migration.
 
 ### Flows
 
@@ -498,7 +574,7 @@ piworker/
 ## Validation and releases
 
 CI runs on pull requests and pushes to `master`, `main`, and `revival`. It checks
-Go formatting, `go vet`, race-enabled tests, frontend typechecking/build, Linux
+Go formatting, `go vet`, race-enabled tests, frontend unit/browser tests and typechecking/build, Linux
 CGO builds for amd64/arm64/ARMv7, and multi-platform Docker builds. Linux archives
 and SHA256 checksums are available as workflow artifacts.
 
@@ -515,8 +591,8 @@ Dependabot monitors Go modules, the Bun lockfile in `web/`, and GitHub Actions.
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Make your changes
-4. Run tests: `make test`
+3. Follow [AGENTS.md](AGENTS.md): write a failing behavior test, implement, then refactor
+4. Run relevant checks: `make test` for Go, `make frontend-test frontend-test-e2e` for frontend behavior; use `make test-race` for concurrency changes
 5. Commit: `git commit -m "Add my feature"`
 6. Push: `git push origin feature/my-feature`
 7. Open a Pull Request

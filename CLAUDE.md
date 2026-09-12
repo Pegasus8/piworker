@@ -38,9 +38,9 @@ make frontend-embed && go build -o build/piworker .   # embed UI, then build
 - `make build` compiles the root main package (`.`) but does **not** embed the frontend — use
   `make build-all` / `make build-release` (both run `frontend-embed` first) when
   the UI must be current.
-- Local dev with hot-reload: `go run main.go -debug -auth=false` (backend :8080) +
+- Local dev: `go run . -addr 127.0.0.1:8080 -debug -auth=false` (backend :8080) +
   `cd web && bun run dev` (UI :3000, proxies `/api` to the backend). The
-  frontend uses **Bun**, not npm/node.
+  frontend uses **Bun**. Restart Go after backend edits; Vite provides frontend HMR.
 - Run one Go test: `go test -run TestName ./internal/flow/...`. Per-package
   shortcuts exist (`make test-flow|test-node|test-storage|test-api|test-builtin`),
   plus `make test-race` (the runtime has dedicated concurrency tests).
@@ -103,19 +103,27 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
 - `internal/storage`: SQLite tuned in `buildDSN` (WAL, `busy_timeout`,
   `_txlock=immediate`) with `SetMaxOpenConns(1)` (single writer). Flows are
   stored as a JSON blob in the `data` column; a `settings` table persists the
-  auto-generated JWT secret. The user store **shares the same `*sql.DB` handle**
+  legacy settings. The user store **shares the same `*sql.DB` handle**
   (`NewSQLiteUserStoreWithDB(store.DB())`) — don't open a second pool on the file.
-- Auth: JWT. The admin user is bootstrapped from `PIWORKER_ADMIN_USER`/`_PASS`
-  on first run (server refuses to start with auth on and no users); user
-  registration is bootstrap-only. The JWT secret is generated and persisted so
-  tokens survive restarts. `-auth=false` disables it for local dev.
+- Auth: SQLite-backed opaque sessions with HttpOnly/SameSite=Strict cookies.
+  HTTP local mode is default; `session_secure` only marks cookies Secure and does
+  not configure TLS. There is no native HTTPS listener or certificate assistant.
+  External HTTPS reverse proxies require explicit cookie configuration.
+  Fresh installs print a one-use setup code; optional admin environment variables
+  bootstrap unattended installs. Existing accounts remain unchanged. Local
+  `-recover-account` issues a one-use recovery code; password changes revoke all
+  sessions. No Bearer JWT compatibility. Auth state is queried from the server.
 - Config precedence is **flags > env (`PIWORKER_*`) > `piworker.toml` >
   defaults**. `config.Load` layers defaults+TOML+env; `applyFlagOverrides` in
   `main.go` overlays only explicitly-set flags (via `flag.Visit`).
 
 ### Frontend (`web/`)
-Vue 3 + Vue Flow canvas + Pinia + Tailwind/shadcn-vue. API calls go through
-`composables/useApi.ts` (axios, baseURL `/api`, Bearer token from localStorage,
+Vue 3 + Vue Flow canvas + Pinia + Tailwind/shadcn-vue. `App.vue` keeps a persistent
+HTTP warning above the routed view; `HttpWarning.vue` checks the browser URL
+protocol, independently of authentication. HTTPS guidance/automation is tracked
+in [the HTTPS issue](https://github.com/Pegasus8/piworker/issues/287).
+API calls go through
+`composables/useApi.ts` (axios, baseURL `/api`, HttpOnly session cookie and CSRF request header,
 401 → redirect to login). Responses use a `{ success, data }` envelope, hence the
 `data.data` unwrapping in the composable. Flow editing state is the
 `stores/flows.ts` Pinia store; the canvas is `components/flow/FlowCanvas.vue`.

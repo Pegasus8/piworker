@@ -13,17 +13,20 @@ db = "piworker.db"
 # Enable debug logging.
 debug = false
 
-# Enable JWT authentication. When auth is true and jwt_secret is empty, a secret
-# is generated and persisted in the database so tokens survive restarts.
+# Enable session authentication. A fresh database uses one-use browser setup;
+# existing users keep their password. Sessions are persisted in SQLite.
 auth = true
 
-# JWT signing secret. Leave empty to auto-generate and persist one.
-jwt_secret = ""
+# HTTP local mode is the default. Set true if the browser connects through HTTPS,
+# using an externally configured HTTPS reverse proxy. This ONLY marks cookies
+# Secure; it does not enable TLS or generate certificates. Keep false for LAN HTTP.
+# Forwarded headers are not trusted implicitly.
+session_secure = false
 
 # Allowed CORS origins (credentials are only sent for specific allowlisted origins).
 cors_origins = ["http://localhost:3000", "http://localhost:8080"]
 
-# Initial admin credentials. Only used to bootstrap the very first user when auth
+# Optional unattended admin credentials. Only used to bootstrap the first user when auth
 # is enabled and no users exist yet. Prefer providing these via the
 # PIWORKER_ADMIN_USER / PIWORKER_ADMIN_PASS environment variables instead of
 # committing them to a file.
