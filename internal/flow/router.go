@@ -348,14 +348,12 @@ func (p *workerPool) Start() {
 	p.started = true
 
 	for i := 0; i < p.size; i++ {
-		p.wg.Add(1)
-		go p.worker()
+		p.wg.Go(p.worker)
 	}
 }
 
 // worker is the main loop for a worker goroutine.
 func (p *workerPool) worker() {
-	defer p.wg.Done()
 	for {
 		select {
 		case job, ok := <-p.jobs:
