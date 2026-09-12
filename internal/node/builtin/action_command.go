@@ -59,6 +59,7 @@ func (a *CommandAction) Process(ctx context.Context, msg *types.Message) ([]*typ
 
 	// Execute the command
 	cmd := exec.CommandContext(execCtx, a.shell, "-c", expandedCommand)
+	isolateCommand(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -256,6 +257,10 @@ Runs shell commands on the host system. Values are automatically escaped to prev
 | shell | string | /bin/sh | Path to shell interpreter |
 | timeout | number | 30 | Max execution time in seconds (1-3600) |
 
+On Unix systems (including Linux and macOS), timeout or flow cancellation stops
+the shell and children in its process group. Commands that deliberately detach
+into another session or process group are outside this cancellation scope.
+
 ## Variable Substitution
 
 Use placeholders in your command:
@@ -278,6 +283,7 @@ Returns an object with:
 - **stderr** - Standard error (trimmed)
 - **exitCode** - Exit code (0 = success)
 - **success** - Boolean indicating success
+- **timedOut** - Whether the execution deadline expired
 - **duration** - Execution time in ms
 - **error** - Error message (if any)
 
