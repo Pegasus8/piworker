@@ -209,14 +209,16 @@ func (r *Recorder) persist(e flow.NodeEvent, now time.Time) {
 }
 
 // flush writes the pending batch in one transaction.
-func (r *Recorder) flush() {
+func (r *Recorder) flush() bool {
 	if len(r.pending) == 0 {
-		return
+		return true
 	}
 	if err := r.store.InsertNodeEvents(r.pending); err != nil {
 		r.log.Warn().Err(err).Int("batch", len(r.pending)).Msg("insert node events failed")
+		return false
 	}
 	r.pending = r.pending[:0]
+	return true
 }
 
 // finalizeIdle finalizes runs with no activity within idleTimeout of asOf. The
@@ -238,6 +240,10 @@ func (r *Recorder) finalizeAll() {
 }
 
 func (r *Recorder) finalize(corr string, agg *runAgg) {
+	// Completion is visible only once its node details have been persisted.
+	if !r.flush() {
+		return
+	}
 	status := flow.NodePhaseSuccess
 	if agg.errCount > 0 {
 		status = flow.NodePhaseError

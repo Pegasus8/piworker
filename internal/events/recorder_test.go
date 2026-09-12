@@ -240,3 +240,37 @@ func TestRecorderRunDrainsOnShutdown(t *testing.T) {
 		return len(store.snapshotEvents()) == 2
 	}, time.Second, 10*time.Millisecond, "pending events must be flushed on shutdown")
 }
+
+func TestCompletedRunHasReadableNodeEvents(t *testing.T) {
+	store := newFakeStore()
+	rec := NewRecorder(store)
+	now := time.Now()
+	rec.persist(errorEvent("complete", "flow", "node", "transform"), now)
+	rec.persist(flow.NodeEvent{FlowID: "flow", CorrID: "complete", Phase: flow.NodePhaseRunFinished}, now)
+	require.Equal(t, "error", store.getRun("complete").Status)
+	require.Len(t, store.snapshotEvents(), 1, "a completed run must be inspectable immediately, before the periodic flush")
+}
+
+type retryHistoryStore struct {
+	*fakeStore
+	fail bool
+}
+
+func (s *retryHistoryStore) InsertNodeEvents(batch []storage.NodeEventRecord) error {
+	if s.fail {
+		return errors.New("temporary write failure")
+	}
+	return s.fakeStore.InsertNodeEvents(batch)
+}
+func TestCompletionWaitsForEventPersistence(t *testing.T) {
+	store := &retryHistoryStore{fakeStore: newFakeStore(), fail: true}
+	rec := NewRecorder(store)
+	now := time.Now()
+	rec.persist(successEvent("retry", "flow", "node", "debug"), now)
+	rec.persist(flow.NodeEvent{FlowID: "flow", CorrID: "retry", Phase: flow.NodePhaseRunFinished}, now)
+	require.Equal(t, "running", store.getRun("retry").Status, "never publish completion with lost details")
+	store.fail = false
+	rec.finalizeAll()
+	require.Equal(t, "success", store.getRun("retry").Status)
+	require.Len(t, store.snapshotEvents(), 1, "retry preserves the pending event")
+}
