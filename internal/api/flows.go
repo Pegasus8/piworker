@@ -4,7 +4,9 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"sync"
 
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
@@ -19,10 +21,12 @@ const MaxRequestBodySize = 1 << 20
 
 // FlowsHandler handles HTTP requests for flow operations.
 type FlowsHandler struct {
-	store    *storage.SQLiteStore
-	manager  *flow.RuntimeManager
-	registry *node.Registry
-	logger   zerolog.Logger
+	// Serialize definition and lifecycle mutations so storage and runtime agree.
+	lifecycleMu sync.Mutex
+	store       *storage.SQLiteStore
+	manager     *flow.RuntimeManager
+	registry    *node.Registry
+	logger      zerolog.Logger
 }
 
 // NewFlowsHandler creates a new FlowsHandler.
@@ -101,6 +105,8 @@ func writeSuccess(w http.ResponseWriter, status int, data interface{}, message s
 // ListFlows returns all flows.
 // GET /api/flows
 func (h *FlowsHandler) ListFlows(w http.ResponseWriter, r *http.Request) {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
 	h.logger.Debug().Msg("Listing flows")
 
 	flows, err := h.store.ListFlows(nil)
@@ -142,9 +148,7 @@ func (h *FlowsHandler) CreateFlow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set default state
-	if f.State == "" {
-		f.State = flow.FlowStateInactive
-	}
+	f.State = flow.FlowStateInactive
 
 	if err := h.store.CreateFlow(&f); err != nil {
 		if err == storage.ErrFlowAlreadyExists {
@@ -238,6 +242,8 @@ func (h *FlowsHandler) ImportFlow(w http.ResponseWriter, r *http.Request) {
 // GetFlow returns a specific flow by ID.
 // GET /api/flows/{id}
 func (h *FlowsHandler) GetFlow(w http.ResponseWriter, r *http.Request) {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
 	vars := mux.Vars(r)
 	id := vars["id"]
 
@@ -272,6 +278,8 @@ func (h *FlowsHandler) GetFlow(w http.ResponseWriter, r *http.Request) {
 // UpdateFlow updates an existing flow.
 // PUT /api/flows/{id}
 func (h *FlowsHandler) UpdateFlow(w http.ResponseWriter, r *http.Request) {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
 	vars := mux.Vars(r)
 	id := vars["id"]
 
@@ -316,9 +324,7 @@ func (h *FlowsHandler) UpdateFlow(w http.ResponseWriter, r *http.Request) {
 
 	// Don't trust the client's state field. The flow is not running (guarded
 	// above), so never persist a "running" state coming from the request body.
-	if f.State == flow.FlowStateRunning {
-		f.State = flow.FlowStateInactive
-	}
+	f.State = flow.FlowStateInactive
 
 	if err := h.store.UpdateFlow(&f); err != nil {
 		h.logger.Error().Err(err).Str("flowID", id).Msg("Failed to update flow")
@@ -333,6 +339,8 @@ func (h *FlowsHandler) UpdateFlow(w http.ResponseWriter, r *http.Request) {
 // DeleteFlow deletes a flow.
 // DELETE /api/flows/{id}
 func (h *FlowsHandler) DeleteFlow(w http.ResponseWriter, r *http.Request) {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
 	vars := mux.Vars(r)
 	id := vars["id"]
 
@@ -370,160 +378,90 @@ type ToggleRequest struct {
 // ToggleFlow toggles a flow on or off.
 // PATCH /api/flows/{id}/toggle
 func (h *FlowsHandler) ToggleFlow(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	id := vars["id"]
-
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "Flow ID is required")
-		return
-	}
-
-	// Limit request body size to prevent DoS attacks
 	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodySize)
-
 	var req ToggleRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.logger.Error().Err(err).Msg("Failed to decode toggle request")
 		writeError(w, http.StatusBadRequest, "Invalid JSON payload")
 		return
 	}
+	h.changeRunning(w, r, req.Enabled, false)
+}
 
+// DeployFlow deploys a saved definition; repeated explicit deployment conflicts.
+func (h *FlowsHandler) DeployFlow(w http.ResponseWriter, r *http.Request) {
+	h.changeRunning(w, r, true, true)
+}
+
+// StopFlow stops a running flow and removes its restart intent.
+func (h *FlowsHandler) StopFlow(w http.ResponseWriter, r *http.Request) {
+	h.changeRunning(w, r, false, true)
+}
+
+func (h *FlowsHandler) changeRunning(w http.ResponseWriter, r *http.Request, wantRunning, strict bool) {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
+	id := mux.Vars(r)["id"]
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "Flow ID is required")
+		return
+	}
 	f, err := h.store.GetFlow(id)
 	if err != nil {
 		if err == storage.ErrFlowNotFound {
 			writeError(w, http.StatusNotFound, "Flow not found")
-			return
+		} else {
+			writeError(w, http.StatusInternalServerError, "Failed to get flow")
 		}
-		h.logger.Error().Err(err).Str("flowID", id).Msg("Failed to get flow")
-		writeError(w, http.StatusInternalServerError, "Failed to get flow")
 		return
 	}
-
-	// Check current running state
-	rt, hasRuntime := h.manager.GetRuntime(id)
-	isRunning := hasRuntime && rt.IsRunning()
-
-	if req.Enabled && !isRunning {
-		// Deploy the flow
-		if err := h.manager.Deploy(r.Context(), f); err != nil {
-			h.logger.Error().Err(err).Str("flowID", id).Msg("Failed to deploy flow")
-			writeError(w, http.StatusInternalServerError, "Failed to deploy flow: "+err.Error())
-			return
+	rt, exists := h.manager.GetRuntime(id)
+	running := exists && rt.IsRunning()
+	if strict && running == wantRunning {
+		if running {
+			writeError(w, http.StatusConflict, "Flow is already running")
+		} else {
+			writeError(w, http.StatusConflict, "Flow is not running")
+		}
+		return
+	}
+	if wantRunning {
+		if !running {
+			if err := h.manager.Deploy(r.Context(), f); err != nil {
+				writeError(w, http.StatusInternalServerError, "Failed to deploy flow: "+err.Error())
+				return
+			}
 		}
 		f.State = flow.FlowStateRunning
-		h.logger.Info().Str("flowID", id).Msg("Flow deployed via toggle")
-	} else if !req.Enabled && isRunning {
-		// Stop the flow
-		if err := h.manager.Undeploy(id); err != nil {
-			h.logger.Error().Err(err).Str("flowID", id).Msg("Failed to stop flow")
-			writeError(w, http.StatusInternalServerError, "Failed to stop flow: "+err.Error())
+		if err := h.store.UpdateFlow(f); err != nil {
+			// A newly started flow must not continue after a failed deployment response.
+			if !running {
+				if rollbackErr := h.manager.Undeploy(id); rollbackErr != nil {
+					h.logger.Error().Err(rollbackErr).Msg("Failed to roll back deployment")
+				}
+			}
+			writeError(w, http.StatusInternalServerError, "Failed to persist flow state")
 			return
 		}
+	} else {
+		oldState := f.State
 		f.State = flow.FlowStateInactive
-		h.logger.Info().Str("flowID", id).Msg("Flow stopped via toggle")
-	}
-
-	// Update state in storage
-	if err := h.store.UpdateFlow(f); err != nil {
-		h.logger.Warn().Err(err).Str("flowID", id).Msg("Failed to update flow state")
-	}
-
-	writeSuccess(w, http.StatusOK, FlowStatusResponse{
-		Flow:    f,
-		Running: req.Enabled,
-	}, "")
-}
-
-// DeployFlow deploys (starts) a flow.
-// POST /api/flows/{id}/deploy
-func (h *FlowsHandler) DeployFlow(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	id := vars["id"]
-
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "Flow ID is required")
-		return
-	}
-
-	f, err := h.store.GetFlow(id)
-	if err != nil {
-		if err == storage.ErrFlowNotFound {
-			writeError(w, http.StatusNotFound, "Flow not found")
+		// Persist stop intent first: if storage is unavailable, leave execution alone.
+		if err := h.store.UpdateFlow(f); err != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to persist flow state")
 			return
 		}
-		h.logger.Error().Err(err).Str("flowID", id).Msg("Failed to get flow")
-		writeError(w, http.StatusInternalServerError, "Failed to get flow")
-		return
-	}
-
-	// Deploy the flow
-	if err := h.manager.Deploy(r.Context(), f); err != nil {
-		if err == flow.ErrFlowAlreadyRunning {
-			writeError(w, http.StatusConflict, "Flow is already running")
-			return
+		if exists {
+			if err := h.manager.Undeploy(id); err != nil {
+				f.State = oldState
+				if rollbackErr := h.store.UpdateFlow(f); rollbackErr != nil {
+					h.logger.Error().Err(rollbackErr).Msg("Failed to restore flow state")
+				}
+				writeError(w, http.StatusInternalServerError, "Failed to stop flow")
+				return
+			}
 		}
-		h.logger.Error().Err(err).Str("flowID", id).Msg("Failed to deploy flow")
-		writeError(w, http.StatusInternalServerError, "Failed to deploy flow: "+err.Error())
-		return
 	}
-
-	// Update state in storage
-	f.State = flow.FlowStateRunning
-	if err := h.store.UpdateFlow(f); err != nil {
-		h.logger.Warn().Err(err).Str("flowID", id).Msg("Failed to update flow state")
-	}
-
-	h.logger.Info().Str("flowID", id).Msg("Flow deployed")
-	writeSuccess(w, http.StatusOK, FlowStatusResponse{
-		Flow:    f,
-		Running: true,
-	}, "Flow deployed successfully")
-}
-
-// StopFlow stops a running flow.
-// POST /api/flows/{id}/stop
-func (h *FlowsHandler) StopFlow(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	id := vars["id"]
-
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "Flow ID is required")
-		return
-	}
-
-	f, err := h.store.GetFlow(id)
-	if err != nil {
-		if err == storage.ErrFlowNotFound {
-			writeError(w, http.StatusNotFound, "Flow not found")
-			return
-		}
-		h.logger.Error().Err(err).Str("flowID", id).Msg("Failed to get flow")
-		writeError(w, http.StatusInternalServerError, "Failed to get flow")
-		return
-	}
-
-	// Stop the flow
-	if err := h.manager.Undeploy(id); err != nil {
-		if err == flow.ErrFlowNotFound {
-			writeError(w, http.StatusConflict, "Flow is not running")
-			return
-		}
-		h.logger.Error().Err(err).Str("flowID", id).Msg("Failed to stop flow")
-		writeError(w, http.StatusInternalServerError, "Failed to stop flow")
-		return
-	}
-
-	// Update state in storage
-	f.State = flow.FlowStateInactive
-	if err := h.store.UpdateFlow(f); err != nil {
-		h.logger.Warn().Err(err).Str("flowID", id).Msg("Failed to update flow state")
-	}
-
-	h.logger.Info().Str("flowID", id).Msg("Flow stopped")
-	writeSuccess(w, http.StatusOK, FlowStatusResponse{
-		Flow:    f,
-		Running: false,
-	}, "Flow stopped successfully")
+	writeSuccess(w, http.StatusOK, FlowStatusResponse{Flow: f, Running: wantRunning}, "")
 }
 
 // InjectRequest is the request body for injecting a message into a manual trigger.
@@ -556,9 +494,9 @@ func (h *FlowsHandler) InjectNode(w http.ResponseWriter, r *http.Request) {
 
 	// Parse optional payload from request body
 	var req InjectRequest
-	if r.Body != nil && r.ContentLength > 0 {
+	if r.Body != nil {
 		r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodySize)
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
 			writeError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
 			return
 		}

@@ -222,6 +222,7 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 			return nil, NewNodeExecutionError(n.ID, n.Type, err)
 		}
 
+		n.Inputs, n.Outputs = nodeInstance.Ports()
 		rt.nodes[n.ID] = nodeInstance
 		rt.nodeDefs[n.ID] = n
 
@@ -799,12 +800,6 @@ func (m *RuntimeManager) Deploy(ctx context.Context, f *Flow) error {
 		return ErrFlowAlreadyRunning
 	}
 
-	// Validate the flow
-	if err := f.Validate(); err != nil {
-		metrics.RecordFlowDeployment(false)
-		return err
-	}
-
 	// Create the runtime, forwarding the process-wide observer if one is set.
 	rtOpts := []RuntimeOption{WithLogger(m.logger)}
 	if m.observer != nil {
@@ -812,6 +807,13 @@ func (m *RuntimeManager) Deploy(ctx context.Context, f *Flow) error {
 	}
 	rt, err := NewFlowRuntime(f, m.registry, rtOpts...)
 	if err != nil {
+		metrics.RecordFlowDeployment(false)
+		return err
+	}
+
+	// Validate against the ports supplied by the instantiated nodes, not a
+	// possibly missing or stale cache in an imported/editor definition.
+	if err := f.Validate(); err != nil {
 		metrics.RecordFlowDeployment(false)
 		return err
 	}
