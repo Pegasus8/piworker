@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFlowsStore } from '@/stores/flows'
 import { useAuthStore } from '@/stores/auth'
 import { useApi } from '@/composables/useApi'
-import { Button, Card, Input, Dialog, Label, Switch, Badge } from '@/components/ui'
+import { Button, Card, Input, Switch, Badge } from '@/components/ui'
 import SecretsDialog from '@/components/SecretsDialog.vue'
 import {
   Plus,
@@ -20,30 +20,26 @@ import {
   KeyRound
 } from 'lucide-vue-next'
 
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import OperationFeedback from '@/components/ui/OperationFeedback.vue'
+import { useFeedback } from '@/composables/useFeedback'
+
+const confirmation = ref<InstanceType<typeof ConfirmDialog>>()
+const { feedback, pending, run } = useFeedback()
 const router = useRouter()
 const flowsStore = useFlowsStore()
 const authStore = useAuthStore()
 const api = useApi()
 
 const searchQuery = ref('')
-const showCreateDialog = ref(false)
-const newFlowName = ref('')
-const newFlowDescription = ref('')
-
 const showSecrets = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 
 async function handleDuplicate(id: string) {
-  try {
-    await api.duplicateFlow(id)
-    await flowsStore.fetchFlows()
-  } catch (e) {
-    console.error('Failed to duplicate flow:', e)
-  }
+  await run(async () => { await api.duplicateFlow(id); await flowsStore.fetchFlows() }, 'Flow duplicated.', 'Could not duplicate the flow. Try again.')
 }
-
 async function handleExport(id: string, name: string) {
-  try {
+  await run(async () => {
     const flow = await api.exportFlow(id)
     const blob = new Blob([JSON.stringify(flow, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -52,9 +48,7 @@ async function handleExport(id: string, name: string) {
     a.download = `${name.replace(/[^a-z0-9-_]+/gi, '_') || 'flow'}.json`
     a.click()
     URL.revokeObjectURL(url)
-  } catch (e) {
-    console.error('Failed to export flow:', e)
-  }
+  }, 'Export prepared. Check your downloads.', 'Could not export the flow. Try again.')
 }
 
 function triggerImport() {
@@ -65,25 +59,19 @@ async function onImportFile(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
-  try {
-    const text = await file.text()
-    const flow = JSON.parse(text)
+  await run(async () => {
+    const flow = JSON.parse(await file.text())
     const imported = await api.importFlow(flow)
-    await flowsStore.fetchFlows()
-    router.push(`/editor/${imported.id}`)
-  } catch (e) {
-    console.error('Failed to import flow:', e)
-    alert('Could not import: the file is not a valid flow JSON.')
-  } finally {
-    input.value = ''
-  }
+    await router.push(`/editor/${imported.id}`)
+  }, 'Flow imported.', 'Could not import the flow. Check the JSON file and your connection, then try again.')
+  input.value = ''
+
 }
 
 onMounted(() => {
   flowsStore.fetchFlows()
 })
 
-import { computed } from 'vue'
 
 const displayedFlows = computed(() => {
   const query = searchQuery.value.toLowerCase()
@@ -95,40 +83,21 @@ const displayedFlows = computed(() => {
   )
 })
 
-async function createFlow() {
-  if (!newFlowName.value.trim()) return
-
-  try {
-    const flow = await flowsStore.createFlow(newFlowName.value, newFlowDescription.value)
-    showCreateDialog.value = false
-    newFlowName.value = ''
-    newFlowDescription.value = ''
-    router.push(`/editor/${flow.id}`)
-  } catch (e) {
-    console.error('Failed to create flow:', e)
-  }
-}
-
 function editFlow(id: string) {
   router.push(`/editor/${id}`)
 }
 
 async function toggleFlow(id: string, enabled: boolean) {
-  try {
-    await flowsStore.toggleFlow(id, enabled)
-  } catch (e) {
-    console.error('Failed to toggle flow:', e)
-  }
+  await run(() => flowsStore.toggleFlow(id, enabled), enabled ? 'Flow deployed.' : 'Flow stopped.', 'Could not update the flow. Try again.')
+  flowsStore.error = null
 }
 
 async function deleteFlow(id: string) {
-  if (confirm('Are you sure you want to delete this flow?')) {
-    try {
-      await flowsStore.deleteFlow(id)
-    } catch (e) {
-      console.error('Failed to delete flow:', e)
-    }
-  }
+  if (pending.value) return
+  const name = flowsStore.flows.find(flow => flow.id === id)?.name || 'this flow'
+  if (!await confirmation.value?.ask('Delete flow?', `Delete “${name}” and its configuration? This cannot be undone.`, 'Delete flow')) return
+  await run(() => flowsStore.deleteFlow(id), 'Flow deleted.', 'Could not delete the flow. Try again.')
+  flowsStore.error = null
 }
 
 function formatDate(dateString: string) {
@@ -159,17 +128,17 @@ async function logout() {
   <div class="min-h-full bg-background">
     <!-- Header -->
     <header class="sticky top-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/60">
-      <div class="container mx-auto flex h-16 items-center justify-between px-4">
+      <div class="container mx-auto flex min-h-16 flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div class="flex items-center gap-3">
           <Workflow class="h-8 w-8 text-primary" />
           <h1 class="text-xl font-bold">PiWorker</h1>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           <Button variant="outline" @click="showSecrets = true" title="Manage secrets">
             <KeyRound class="mr-2 h-4 w-4" />
             Secrets
           </Button>
-          <Button variant="outline" @click="triggerImport" title="Import a flow from JSON">
+          <Button variant="outline" :disabled="pending" @click="triggerImport" title="Import a flow from JSON">
             <Upload class="mr-2 h-4 w-4" />
             Import
           </Button>
@@ -178,7 +147,7 @@ async function logout() {
             New Flow
           </Button>
           <Button v-if="authStore.authEnabled" variant="ghost" @click="router.push('/account')">Account</Button>
-          <Button v-if="authStore.authEnabled" variant="ghost" size="icon" @click="logout" title="Logout">
+          <Button v-if="authStore.authEnabled" variant="ghost" size="icon" @click="logout" title="Logout" aria-label="Logout">
             <LogOut class="h-4 w-4" />
           </Button>
         </div>
@@ -186,14 +155,24 @@ async function logout() {
     </header>
 
     <!-- Main Content -->
-    <main class="container mx-auto px-4 py-8">
+    <main class="lab-page container mx-auto max-w-7xl px-4 py-8 sm:px-8">
       <p v-if="logoutError" role="alert" class="mb-4 text-sm text-destructive">{{ logoutError }}</p>
+      <section class="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p class="mb-2 text-xs font-semibold uppercase tracking-widest text-primary">Your automation lab</p>
+          <h2 class="text-3xl font-semibold sm:text-4xl">Small flows. Big possibilities.</h2>
+          <p class="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">Connect ideas, automate the everyday, and let your Pi take it from here.</p>
+        </div>
+        <Badge variant="secondary">{{ flowsStore.flows.filter(flow => flow.running).length }} running</Badge>
+      </section>
+      <OperationFeedback :message="feedback" class="mb-4" @dismiss="feedback = null" />
       <!-- Search -->
       <div class="mb-6 flex items-center gap-4">
         <div class="relative flex-1 max-w-md">
           <Search class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             v-model="searchQuery"
+            aria-label="Search flows"
             placeholder="Search flows..."
             class="pl-9"
           />
@@ -204,12 +183,12 @@ async function logout() {
       </div>
 
       <!-- Loading State -->
-      <div v-if="flowsStore.loading" class="flex items-center justify-center py-12">
+      <div v-if="flowsStore.loading && !flowsStore.flows.length" class="flex items-center justify-center py-12">
         <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
       </div>
 
       <!-- Error State -->
-      <div v-else-if="flowsStore.error" class="rounded-lg border border-destructive bg-destructive/10 p-4 text-center">
+      <div v-else-if="flowsStore.error && !flowsStore.flows.length" class="rounded-lg border border-destructive bg-destructive/10 p-4 text-center">
         <p class="text-destructive">{{ flowsStore.error }}</p>
         <Button variant="outline" class="mt-2" @click="flowsStore.fetchFlows">
           Retry
@@ -217,13 +196,14 @@ async function logout() {
       </div>
 
       <!-- Empty State -->
-      <div v-else-if="displayedFlows.length === 0" class="text-center py-12">
-        <Workflow class="mx-auto h-16 w-16 text-muted-foreground/50" />
-        <h3 class="mt-4 text-lg font-medium">No flows yet</h3>
+      <div v-else-if="displayedFlows.length === 0" class="lab-empty rounded-xl border border-dashed px-6 py-16 text-center">
+        <Workflow class="mx-auto h-16 w-16 text-primary/70" />
+        <h3 class="mt-4 text-lg font-medium">{{ searchQuery ? 'No matching flows' : 'No flows yet' }}</h3>
         <p class="mt-2 text-muted-foreground">
-          Create your first automation flow to get started.
+          {{ searchQuery ? 'Try a different name or clear your search.' : 'Every useful automation starts with a first connection.' }}
         </p>
-        <Button class="mt-4" @click="createNewFlow">
+        <Button v-if="searchQuery" class="mt-4" variant="outline" @click="searchQuery = ''">Clear search</Button>
+        <Button v-else class="mt-4" @click="createNewFlow">
           <Plus class="mr-2 h-4 w-4" />
           Create Flow
         </Button>
@@ -234,7 +214,7 @@ async function logout() {
         <Card
           v-for="flow in displayedFlows"
           :key="flow.id"
-          class="group relative overflow-hidden transition-all duration-200 hover:shadow-md"
+          class="group relative overflow-hidden transition-colors hover:border-primary/50 hover:shadow-md"
         >
           <div class="p-4">
             <!-- Header -->
@@ -249,7 +229,8 @@ async function logout() {
                 </p>
               </div>
               <Switch
-                :model-value="flow.enabled"
+                :disabled="pending" :aria-label="`${flow.running ? 'Stop' : 'Deploy'} ${flow.name}`"
+                :model-value="flow.running"
                 @update:model-value="(v) => toggleFlow(flow.id, v)"
               />
             </div>
@@ -270,20 +251,20 @@ async function logout() {
             <Badge
               v-if="flow.running"
               variant="default"
-              class="absolute top-2 right-2 bg-green-500"
+              class="mt-3 bg-primary text-primary-foreground"
             >
               Running
             </Badge>
             <Badge
-              v-else-if="flow.enabled"
+              v-else-if="flow.state === 'failed'"
               variant="secondary"
-              class="absolute top-2 right-2"
+              class="mt-3"
             >
-              Enabled
+              Failed
             </Badge>
 
             <!-- Actions -->
-            <div class="mt-4 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+            <div class="mt-4 flex gap-2 border-t pt-4">
               <Button
                 variant="outline"
                 size="sm"
@@ -296,7 +277,7 @@ async function logout() {
               <Button
                 variant="ghost"
                 size="icon"
-                title="Duplicate"
+                :disabled="pending" title="Duplicate"
                 @click="handleDuplicate(flow.id)"
               >
                 <Copy class="h-4 w-4" />
@@ -304,7 +285,7 @@ async function logout() {
               <Button
                 variant="ghost"
                 size="icon"
-                title="Export"
+                :disabled="pending" title="Export"
                 @click="handleExport(flow.id, flow.name)"
               >
                 <Download class="h-4 w-4" />
@@ -313,7 +294,7 @@ async function logout() {
                 variant="ghost"
                 size="icon"
                 class="text-destructive hover:bg-destructive/10"
-                title="Delete"
+                :disabled="pending" title="Delete"
                 @click="deleteFlow(flow.id)"
               >
                 <Trash2 class="h-4 w-4" />
@@ -324,48 +305,7 @@ async function logout() {
       </div>
     </main>
 
-    <!-- Create Flow Dialog -->
-    <Dialog v-model:open="showCreateDialog">
-      <template #default="{ close }">
-        <div class="space-y-4">
-          <div>
-            <h2 class="text-lg font-semibold">Create New Flow</h2>
-            <p class="text-sm text-muted-foreground">
-              Give your automation flow a name and description.
-            </p>
-          </div>
-
-          <div class="space-y-4">
-            <div>
-              <Label for="name">Name</Label>
-              <Input
-                id="name"
-                v-model="newFlowName"
-                placeholder="My Automation"
-                class="mt-1"
-              />
-            </div>
-            <div>
-              <Label for="description">Description (optional)</Label>
-              <Input
-                id="description"
-                v-model="newFlowDescription"
-                placeholder="Describe what this flow does..."
-                class="mt-1"
-              />
-            </div>
-          </div>
-
-          <div class="flex justify-end gap-2">
-            <Button variant="outline" @click="close">Cancel</Button>
-            <Button :disabled="!newFlowName.trim()" @click="createFlow">
-              Create Flow
-            </Button>
-          </div>
-        </div>
-      </template>
-    </Dialog>
-
+    <ConfirmDialog ref="confirmation" />
     <!-- Secrets manager -->
     <SecretsDialog v-model:open="showSecrets" />
 

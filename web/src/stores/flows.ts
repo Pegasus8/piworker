@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Flow, FlowNode, FlowEdge, FlowListItem, NodeCategory } from '@/types'
 import { useApi } from '@/composables/useApi'
+import { ports, validConnection } from '@/lib/ports'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
 
 // Map backend categories to frontend categories
@@ -34,6 +35,8 @@ export const useFlowsStore = defineStore('flows', () => {
   const edges = ref<FlowEdge[]>([])
   const selectedNodeId = ref<string | null>(null)
   const isDirty = ref(false)
+
+  const invalidConnections = computed(() => edges.value.filter(edge => !validConnection(edge, nodes.value, edges.value.filter(other => other.id !== edge.id), nodeTypesStore.getById)))
 
   const selectedNode = computed(() => {
     if (!selectedNodeId.value) return null
@@ -97,7 +100,8 @@ export const useFlowsStore = defineStore('flows', () => {
           nodeType: node.type,
           category: category,
           icon: nodeType?.icon || 'HelpCircle',
-          config: node.config || {}
+          config: node.config || {},
+          enabled: node.enabled ?? true
         }
       } as FlowNode
     })
@@ -109,6 +113,8 @@ export const useFlowsStore = defineStore('flows', () => {
       id: edge.id,
       source: edge.sourceNode || edge.source,
       target: edge.targetNode || edge.target,
+      sourceHandle: edge.sourcePort ?? edge.sourceHandle ?? 'output',
+      targetHandle: edge.targetPort ?? edge.targetHandle ?? 'input',
       animated: true
     }))
   }
@@ -121,7 +127,9 @@ export const useFlowsStore = defineStore('flows', () => {
       category: frontendCategoryMap[node.data.category] || node.data.category,
       position: node.position,
       config: node.data.config || {},
-      enabled: true
+      enabled: node.data.enabled ?? true,
+      inputs: ports(nodeTypesStore.getById(node.data.nodeType)?.inputs),
+      outputs: ports(nodeTypesStore.getById(node.data.nodeType)?.outputs)
     }))
   }
 
@@ -130,9 +138,9 @@ export const useFlowsStore = defineStore('flows', () => {
     return frontendEdges.map(edge => ({
       id: edge.id,
       sourceNode: edge.source,
-      sourcePort: 'output',
+      sourcePort: edge.sourceHandle ?? 'output',
       targetNode: edge.target,
-      targetPort: 'input'
+      targetPort: edge.targetHandle ?? 'input'
     }))
   }
 
@@ -145,7 +153,7 @@ export const useFlowsStore = defineStore('flows', () => {
         id: flow.id,
         name: flow.name,
         description: flow.description,
-        enabled: flow.enabled,
+        state: flow.state,
         running: false,
         nodeCount: 0,
         createdAt: flow.createdAt,
@@ -188,7 +196,7 @@ export const useFlowsStore = defineStore('flows', () => {
           ...flows.value[idx],
           name: updatedFlow.name,
           description: updatedFlow.description,
-          enabled: updatedFlow.enabled,
+          state: updatedFlow.state,
           nodeCount: updatedFlow.nodes.length,
           updatedAt: updatedFlow.updatedAt
         }
@@ -224,14 +232,8 @@ export const useFlowsStore = defineStore('flows', () => {
     loading.value = true
     error.value = null
     try {
-      await api.toggleFlow(id, enabled)
-      const idx = flows.value.findIndex(f => f.id === id)
-      if (idx !== -1) {
-        flows.value[idx].enabled = enabled
-      }
-      if (currentFlow.value?.id === id) {
-        currentFlow.value.enabled = enabled
-      }
+      const running = await api.toggleFlow(id, enabled)
+      applyRunningState(id, running)
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to toggle flow'
       throw e
@@ -279,10 +281,12 @@ export const useFlowsStore = defineStore('flows', () => {
   function applyRunningState(flowId: string, running: boolean) {
     if (currentFlow.value?.id === flowId) {
       currentFlow.value.running = running
+      currentFlow.value.state = running ? 'running' : 'inactive'
     }
     const idx = flows.value.findIndex(f => f.id === flowId)
     if (idx !== -1) {
       flows.value[idx].running = running
+      flows.value[idx].state = running ? 'running' : 'inactive'
     }
   }
 
@@ -329,7 +333,7 @@ export const useFlowsStore = defineStore('flows', () => {
            e.sourceHandle === edge.sourceHandle && e.targetHandle === edge.targetHandle
     )
     if (!exists) {
-      edges.value.push(edge)
+      edges.value = [...edges.value, edge]
       isDirty.value = true
     }
   }
@@ -353,7 +357,7 @@ export const useFlowsStore = defineStore('flows', () => {
       id: '',
       name: 'Untitled Flow',
       description: '',
-      enabled: false,
+      state: 'inactive',
       nodes: [],
       edges: [],
       createdAt: new Date().toISOString(),
@@ -371,6 +375,7 @@ export const useFlowsStore = defineStore('flows', () => {
     currentFlow,
     nodes,
     edges,
+    invalidConnections,
     selectedNodeId,
     selectedNode,
     loading,

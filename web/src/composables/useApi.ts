@@ -36,7 +36,7 @@ export function useApi() {
       id: flow.id,
       name: flow.name,
       description: flow.description,
-      enabled: flow.enabled ?? false,
+      state: flow.state,
       running: flow.state === 'running',
       nodeCount: flow.nodes?.length ?? 0,
       createdAt: flow.createdAt,
@@ -66,8 +66,9 @@ export function useApi() {
     await api.delete(`/flows/${id}`)
   }
 
-  async function toggleFlow(id: string, enabled: boolean): Promise<void> {
-    await api.patch(`/flows/${id}/toggle`, { enabled })
+  async function toggleFlow(id: string, enabled: boolean): Promise<boolean> {
+    const { data } = await api.patch(`/flows/${id}/toggle`, { enabled })
+    return data.data.running
   }
 
   // Flow lifecycle: duplicate / export / import.
@@ -111,12 +112,16 @@ export function useApi() {
   // full getFlow round-trip just to read one boolean.
   async function deployFlow(id: string): Promise<boolean> {
     const { data } = await api.post(`/flows/${id}/deploy`)
-    return data.data?.running ?? true
+    return data.data.running
   }
 
   async function stopFlow(id: string): Promise<boolean> {
     const { data } = await api.post(`/flows/${id}/stop`)
-    return data.data?.running ?? false
+    return data.data.running
+  }
+
+  async function injectNode(flowId: string, nodeId: string, payload?: unknown): Promise<void> {
+    await api.post(`/flows/${flowId}/inject/${nodeId}`, payload === undefined ? {} : { payload })
   }
 
   // Debug: run a single processing node once against a sample payload.
@@ -247,6 +252,7 @@ export function useApi() {
     deployFlow,
     stopFlow,
     testNode,
+    injectNode,
     // Lifecycle
     duplicateFlow,
     exportFlow,

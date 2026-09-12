@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { ports } from '@/lib/ports'
+import { useNodeTypesStore } from '@/stores/nodeTypes'
 import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import { cn } from '@/lib/utils'
@@ -76,8 +78,9 @@ const categoryColors = {
 
 const colors = computed(() => categoryColors[props.data.category])
 
-const showInputHandle = computed(() => props.data.category !== 'trigger')
-const showOutputHandle = computed(() => props.data.category !== 'action')
+const types = useNodeTypesStore()
+const inputs = computed(() => ports(types.getById(props.data.nodeType)?.inputs))
+const outputs = computed(() => ports(types.getById(props.data.nodeType)?.outputs))
 
 // Live execution state, streamed from the backend via the observability store.
 const obs = useObservabilityStore()
@@ -156,9 +159,12 @@ const durationLabel = computed(() => {
       </div>
     </div>
 
+    <div v-if="outputs.length > 1" class="px-3 pb-2 text-right text-xs text-muted-foreground">Outputs: {{ outputs.map(p => p.name).join(' · ') }}</div>
     <!-- Input Handle -->
     <Handle
-      v-if="showInputHandle"
+      v-for="(port, index) in inputs"
+      :key="`in-${port.id}`" :id="port.id" :title="`Input: ${port.name}`"
+      :style="{ top: `${(index + 1) * 100 / (inputs.length + 1)}%` }"
       type="target"
       :position="Position.Left"
       :class="cn(
@@ -169,7 +175,9 @@ const durationLabel = computed(() => {
 
     <!-- Output Handle -->
     <Handle
-      v-if="showOutputHandle"
+      v-for="(port, index) in outputs"
+      :key="`out-${port.id}`" :id="port.id" :title="`Output: ${port.name}`"
+      :style="{ top: `${(index + 1) * 100 / (outputs.length + 1)}%` }"
       type="source"
       :position="Position.Right"
       :class="cn(

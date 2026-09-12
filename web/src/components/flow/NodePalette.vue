@@ -24,6 +24,7 @@ import {
 } from 'lucide-vue-next'
 import type { NodeCategory } from '@/types'
 
+const emit = defineEmits<{ add: [nodeType: string] }>()
 const nodeTypesStore = useNodeTypesStore()
 
 const searchQuery = ref('')
@@ -94,12 +95,16 @@ function onDragStart(event: DragEvent, nodeTypeId: string) {
         <Search class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           v-model="searchQuery"
-          placeholder="Search nodes..."
+          aria-label="Search nodes" placeholder="Search nodes..."
           class="pl-9"
         />
       </div>
     </div>
 
+    <p class="px-4 py-2 text-xs text-muted-foreground">Tap to add, or drag onto the canvas.</p>
+    <p v-if="nodeTypesStore.loading" role="status" class="p-4 text-sm">Loading nodes…</p>
+    <div v-else-if="nodeTypesStore.error" role="alert" class="p-4 text-sm text-destructive">Could not load nodes. <button class="underline" @click="nodeTypesStore.fetchNodeTypes()">Retry</button></div>
+    <p v-else-if="!filteredNodeTypes.length" class="p-4 text-sm text-muted-foreground">No matching nodes. Try another search.</p>
     <!-- Node List -->
     <ScrollArea class="flex-1 p-2">
       <div v-for="category in categories" :key="category.key" class="mb-2">
@@ -132,12 +137,15 @@ function onDragStart(event: DragEvent, nodeTypeId: string) {
             v-if="expandedCategories.has(category.key)"
             class="ml-4 mt-1 space-y-1"
           >
-            <div
+            <button
+              type="button"
+              :aria-label="`Add ${nodeType.name}`"
+              @click="emit('add', nodeType.id)"
               v-for="nodeType in getNodesByCategory(category.key)"
               :key="nodeType.id"
               draggable="true"
               :class="cn(
-                'group flex cursor-grab items-center gap-3 rounded-md border border-transparent p-2',
+                'group flex w-full text-left cursor-grab items-center gap-3 rounded-md border border-transparent p-2',
                 'hover:border-border hover:bg-accent',
                 'active:cursor-grabbing'
               )"
@@ -157,7 +165,7 @@ function onDragStart(event: DragEvent, nodeTypeId: string) {
                   {{ nodeType.description }}
                 </div>
               </div>
-            </div>
+            </button>
           </div>
         </Transition>
       </div>

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { useApi } from '@/composables/useApi'
-import type { FlowEvent, FlowRun, NodePhase } from '@/types'
+import type { FlowEvent, FlowRun, NodePhase, NodeEventRecord } from '@/types'
 
 const MAX_DEBUG_ENTRIES = 200
 
@@ -31,6 +31,15 @@ export const useObservabilityStore = defineStore('observability', () => {
   const nodeStates = ref<Record<string, NodeRunState>>({})
   const debugLog = ref<DebugEntry[]>([])
   const runs = ref<FlowRun[]>([])
+
+  const runsLoading = ref(false)
+  const runsError = ref('')
+  const selectedRunId = ref<string | null>(null)
+  const runEvents = ref<NodeEventRecord[]>([])
+  const eventsLoading = ref(false)
+  const eventsError = ref('')
+  let runsRequest = 0
+  let eventsRequest = 0
 
   let unsub: (() => void) | null = null
   let runsTimer: ReturnType<typeof setTimeout> | null = null
@@ -77,18 +86,59 @@ export const useObservabilityStore = defineStore('observability', () => {
   }
 
   async function refreshRuns() {
-    if (!activeFlowId.value) return
+    const flowId = activeFlowId.value
+    if (!flowId) return
+    const request = ++runsRequest
+    runsLoading.value = true
+    runsError.value = ''
     try {
-      runs.value = await api.getFlowRuns(activeFlowId.value)
+      const result = await api.getFlowRuns(flowId)
+      if (request === runsRequest) runs.value = result
     } catch {
-      /* best-effort */
+      if (request === runsRequest) runsError.value = 'Could not load run history. Try again.'
+    } finally {
+      if (request === runsRequest) runsLoading.value = false
     }
+  }
+
+  function closeRun() {
+    eventsRequest++
+    selectedRunId.value = null
+    runEvents.value = []
+    eventsLoading.value = false
+    eventsError.value = ''
+  }
+
+  async function openRun(runId: string) {
+    const flowId = activeFlowId.value
+    if (!flowId) return
+    selectedRunId.value = runId
+    runEvents.value = []
+    eventsError.value = ''
+    eventsLoading.value = true
+    const request = ++eventsRequest
+    try {
+      const result = await api.getRunEvents(flowId, runId)
+      if (request === eventsRequest) runEvents.value = result
+    } catch {
+      if (request === eventsRequest) eventsError.value = 'Could not load run details. Try again.'
+    } finally {
+      if (request === eventsRequest) eventsLoading.value = false
+    }
+  }
+
+  // History belongs to the selected flow, independently of its live stream.
+  function setFlow(flowId: string | null) {
+    if (activeFlowId.value === flowId) return
+    reset()
+    activeFlowId.value = flowId
+    if (flowId) void refreshRuns()
   }
 
   function connect(flowId: string) {
     if (activeFlowId.value === flowId && connected.value) return
     disconnect()
-    activeFlowId.value = flowId
+    setFlow(flowId)
     void refreshRuns()
     unsub = api.subscribeFlowEvents(flowId, {
       onEvent: handleEvent,
@@ -113,6 +163,10 @@ export const useObservabilityStore = defineStore('observability', () => {
   // reset clears everything (used when leaving the editor).
   function reset() {
     disconnect()
+    runsRequest++
+    runsLoading.value = false
+    runsError.value = ''
+    closeRun()
     activeFlowId.value = null
     nodeStates.value = {}
     debugLog.value = []
@@ -125,6 +179,8 @@ export const useObservabilityStore = defineStore('observability', () => {
   }
 
   return {
+    runsLoading, runsError, selectedRunId, runEvents, eventsLoading, eventsError,
+    setFlow, openRun, closeRun,
     connected,
     activeFlowId,
     nodeStates,

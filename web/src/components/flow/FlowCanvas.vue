@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, markRaw } from 'vue'
+import { validConnection } from '@/lib/ports'
+import { ref, onMounted, watch, markRaw, nextTick } from 'vue'
 import { VueFlow, useVueFlow, ConnectionMode } from '@vue-flow/core'
 import type { NodeTypesObject } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
@@ -20,7 +21,7 @@ const nodeTypesStore = useNodeTypesStore()
 
 const flowContainer = ref<HTMLDivElement | null>(null)
 
-const { onConnect, onNodeClick, onPaneClick, onEdgesChange, onNodeDragStop, addNodes, addEdges, project, setNodes, setEdges, fitView } = useVueFlow()
+const { onConnect, onNodeClick, onPaneClick, onEdgesChange, onNodeDragStop, addNodes, project, setNodes, setEdges, fitView } = useVueFlow()
 
 // Custom node types
 const nodeTypes: NodeTypesObject = {
@@ -31,15 +32,16 @@ const nodeTypes: NodeTypesObject = {
 
 // Handle connections
 onConnect((connection) => {
-  if (connection.source && connection.target) {
+  if (validConnection(connection, flowsStore.nodes, flowsStore.edges, nodeTypesStore.getById)) {
     const edge = {
       id: `edge_${connection.source}_${connection.target}_${Date.now()}`,
       source: connection.source,
       target: connection.target,
+      sourceHandle: connection.sourceHandle,
+      targetHandle: connection.targetHandle,
       animated: true
     }
     flowsStore.addEdge(edge)
-    addEdges([edge])
   }
 })
 
@@ -71,8 +73,8 @@ onNodeDragStop(({ node }) => {
 // replaced wholesale on load or remove). We intentionally avoid { deep: true }:
 // deep-watching re-pushes the entire graph into Vue Flow on every nested
 // mutation (a config edit, a drag), causing full re-renders and feedback churn
-// with the drag/connect handlers. Adds and connects are pushed directly via
-// addNodes/addEdges above, and drag positions live in Vue Flow already.
+// with the drag/connect handlers. Node additions are pushed via addNodes above;
+// connections replace the store array and sync through setEdges below.
 watch(
   () => flowsStore.nodes,
   (nodes) => {
@@ -103,15 +105,23 @@ function onDrop(event: DragEvent) {
   const nodeTypeId = event.dataTransfer?.getData('application/vueflow-nodetype')
   if (!nodeTypeId || !flowContainer.value) return
 
+  const bounds = flowContainer.value.getBoundingClientRect()
+  insertNode(nodeTypeId, project({ x: event.clientX - bounds.left, y: event.clientY - bounds.top }))
+}
+
+async function addNodeType(nodeTypeId: string) {
+  const bounds = flowContainer.value?.getBoundingClientRect()
+  if (!bounds) return
+  const id = insertNode(nodeTypeId, { x: (flowsStore.nodes.length % 3) * 260, y: Math.floor(flowsStore.nodes.length / 3) * 180 })
+  if (id) {
+    flowsStore.selectNode(id)
+    await nextTick()
+    fitView({ padding: 0.3, maxZoom: 1 })
+  }
+}
+function insertNode(nodeTypeId: string, position: { x: number; y: number }) {
   const nodeType = nodeTypesStore.getById(nodeTypeId)
   if (!nodeType) return
-
-  const bounds = flowContainer.value.getBoundingClientRect()
-  const position = project({
-    x: event.clientX - bounds.left,
-    y: event.clientY - bounds.top
-  })
-
   // Build default config from schema
   const config: Record<string, any> = {}
   nodeType.configSchema.forEach(field => {
@@ -137,7 +147,9 @@ function onDrop(event: DragEvent) {
 
   flowsStore.addNode(newNode)
   addNodes([newNode])
+  return id
 }
+defineExpose({ addNodeType })
 
 // Minimap node color
 function minimapNodeColor(node: any): string {
@@ -177,7 +189,8 @@ onMounted(() => {
       :max-zoom="4"
       :snap-to-grid="true"
       :snap-grid="[15, 15]"
-      :connection-mode="ConnectionMode.Loose"
+      :connection-mode="ConnectionMode.Strict"
+      :is-valid-connection="connection => validConnection(connection, flowsStore.nodes, flowsStore.edges, nodeTypesStore.getById)"
       class="bg-background"
     >
       <Background pattern-color="hsl(var(--border))" :gap="20" />
@@ -186,7 +199,7 @@ onMounted(() => {
         :node-color="minimapNodeColor"
         :node-stroke-color="minimapNodeColor"
         position="bottom-right"
-        class="bg-card border rounded-lg"
+        class="hidden sm:block bg-card border rounded-lg"
       />
     </VueFlow>
   </div>

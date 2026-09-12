@@ -33,6 +33,7 @@ export interface FlowNode extends Pick<Node, 'id' | 'type' | 'position'> {
     nodeType: string
     category: NodeCategory
     icon: string
+    enabled?: boolean
     config: Record<string, any>
   }
 }
@@ -43,7 +44,7 @@ export interface Flow {
   id: string
   name: string
   description?: string
-  enabled: boolean
+  state?: 'active' | 'inactive' | 'running' | 'failed'
   running?: boolean
   nodes: FlowNode[]
   edges: FlowEdge[]
@@ -55,7 +56,7 @@ export interface FlowListItem {
   id: string
   name: string
   description?: string
-  enabled: boolean
+  state?: 'active' | 'inactive' | 'running' | 'failed'
   running: boolean
   nodeCount: number
   createdAt: string
