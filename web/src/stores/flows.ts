@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Edge } from '@vue-flow/core'
-import type { Flow, FlowNode, FlowListItem, NodeCategory } from '@/types'
+import type { Flow, FlowNode, FlowEdge, FlowListItem, NodeCategory } from '@/types'
 import { useApi } from '@/composables/useApi'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
 
@@ -32,7 +31,7 @@ export const useFlowsStore = defineStore('flows', () => {
 
   // Current flow state
   const nodes = ref<FlowNode[]>([])
-  const edges = ref<Edge[]>([])
+  const edges = ref<FlowEdge[]>([])
   const selectedNodeId = ref<string | null>(null)
   const isDirty = ref(false)
 
@@ -105,7 +104,7 @@ export const useFlowsStore = defineStore('flows', () => {
   }
 
   // Transform backend edges/connections to Vue Flow format
-  function transformEdges(backendEdges: any[]): Edge[] {
+  function transformEdges(backendEdges: any[]): FlowEdge[] {
     return backendEdges.map((edge: any) => ({
       id: edge.id,
       source: edge.sourceNode || edge.source,
@@ -127,7 +126,7 @@ export const useFlowsStore = defineStore('flows', () => {
   }
 
   // Reverse transform: frontend edges → backend connections format
-  function reverseTransformEdges(frontendEdges: Edge[]): any[] {
+  function reverseTransformEdges(frontendEdges: FlowEdge[]): any[] {
     return frontendEdges.map(edge => ({
       id: edge.id,
       sourceNode: edge.source,
@@ -323,7 +322,7 @@ export const useFlowsStore = defineStore('flows', () => {
   }
 
   // Edge operations
-  function addEdge(edge: Edge) {
+  function addEdge(edge: FlowEdge) {
     // Prevent duplicate edges
     const exists = edges.value.some(
       e => e.source === edge.source && e.target === edge.target &&

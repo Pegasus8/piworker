@@ -22,7 +22,10 @@ export interface ConfigField {
   placeholder?: string
 }
 
-export interface FlowNode extends Node {
+// The persisted model contains node identity, position and application data.
+// Vue Flow's rendering attributes and component types belong to the canvas,
+// not to the deeply reactive, serializable flow state.
+export interface FlowNode extends Pick<Node, 'id' | 'type' | 'position'> {
   data: {
     label: string
     nodeType: string
@@ -32,6 +35,8 @@ export interface FlowNode extends Node {
   }
 }
 
+export type FlowEdge = Pick<Edge, 'id' | 'source' | 'target' | 'sourceHandle' | 'targetHandle' | 'type' | 'animated'>
+
 export interface Flow {
   id: string
   name: string
@@ -39,7 +44,7 @@ export interface Flow {
   enabled: boolean
   running?: boolean
   nodes: FlowNode[]
-  edges: Edge[]
+  edges: FlowEdge[]
   createdAt: string
   updatedAt: string
 }
