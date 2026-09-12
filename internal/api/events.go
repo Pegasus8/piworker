@@ -85,6 +85,9 @@ func (h *EventsHandler) StreamEvents(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 		case e := <-ch:
+			if !sessionStillValid(ctx) {
+				return
+			}
 			data, err := json.Marshal(e)
 			if err != nil {
 				continue
@@ -100,6 +103,9 @@ func (h *EventsHandler) StreamEvents(w http.ResponseWriter, r *http.Request) {
 			}
 			flusher.Flush()
 		case <-keepalive.C:
+			if !sessionStillValid(ctx) {
+				return
+			}
 			if _, err := w.Write([]byte(": keepalive\n\n")); err != nil {
 				return
 			}

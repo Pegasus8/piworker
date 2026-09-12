@@ -144,9 +144,14 @@ function createNewFlow() {
   router.push('/editor')
 }
 
-function logout() {
-  authStore.logout()
-  router.push('/login')
+const logoutError = ref('')
+async function logout() {
+  logoutError.value = ''
+  try { await authStore.logout(); await router.push('/login') }
+  catch (e: any) {
+    if (e.response?.status === 401) { authStore.clearAuth(); await router.push('/login') }
+    else logoutError.value = 'Could not sign out. Check your connection and try again.'
+  }
 }
 </script>
 
@@ -172,6 +177,7 @@ function logout() {
             <Plus class="mr-2 h-4 w-4" />
             New Flow
           </Button>
+          <Button v-if="authStore.authEnabled" variant="ghost" @click="router.push('/account')">Account</Button>
           <Button v-if="authStore.authEnabled" variant="ghost" size="icon" @click="logout" title="Logout">
             <LogOut class="h-4 w-4" />
           </Button>
@@ -181,6 +187,7 @@ function logout() {
 
     <!-- Main Content -->
     <main class="container mx-auto px-4 py-8">
+      <p v-if="logoutError" role="alert" class="mb-4 text-sm text-destructive">{{ logoutError }}</p>
       <!-- Search -->
       <div class="mb-6 flex items-center gap-4">
         <div class="relative flex-1 max-w-md">

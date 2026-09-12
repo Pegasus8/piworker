@@ -13,14 +13,15 @@ import (
 
 // Config holds all runtime configuration for PiWorker.
 type Config struct {
-	Addr        string   `toml:"addr"`
-	DBPath      string   `toml:"db"`
-	Debug       bool     `toml:"debug"`
-	Auth        bool     `toml:"auth"`
-	JWTSecret   string   `toml:"jwt_secret"`
-	CORSOrigins []string `toml:"cors_origins"`
-	AdminUser   string   `toml:"admin_user"`
-	AdminPass   string   `toml:"admin_pass"`
+	Addr          string   `toml:"addr"`
+	DBPath        string   `toml:"db"`
+	Debug         bool     `toml:"debug"`
+	Auth          bool     `toml:"auth"`
+	JWTSecret     string   `toml:"jwt_secret"` // Deprecated: ignored by session authentication.
+	SessionSecure bool     `toml:"session_secure"`
+	CORSOrigins   []string `toml:"cors_origins"`
+	AdminUser     string   `toml:"admin_user"`
+	AdminPass     string   `toml:"admin_pass"`
 }
 
 // DefaultConfigPath is the config file looked up when none is specified.
@@ -60,6 +61,9 @@ func Load(path string) (Config, error) {
 
 // applyEnv overlays environment variables onto the config.
 func (c *Config) applyEnv() {
+	if v, ok := os.LookupEnv("PIWORKER_SESSION_SECURE"); ok {
+		c.SessionSecure = isTruthy(v)
+	}
 	if v, ok := os.LookupEnv("PIWORKER_ADDR"); ok {
 		c.Addr = v
 	}

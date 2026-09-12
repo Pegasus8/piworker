@@ -2,95 +2,50 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useApi } from '@/composables/useApi'
 
-const TOKEN_KEY = 'piworker_auth_token'
-const USER_KEY = 'piworker_auth_user'
-
-export interface AuthUser {
-  username: string
-}
-
+export interface AuthUser { username: string }
 export const useAuthStore = defineStore('auth', () => {
   const api = useApi()
-
-  // State - restore from localStorage
-  const token = ref<string | null>(localStorage.getItem(TOKEN_KEY))
-  const user = ref<AuthUser | null>((() => {
-    // Guard against corrupt/tampered localStorage: an unhandled JSON.parse throw
-    // here runs during store construction (app bootstrap) and would render a
-    // blank white screen with only a console error.
-    try {
-      const stored = localStorage.getItem(USER_KEY)
-      return stored ? JSON.parse(stored) : null
-    } catch {
-      localStorage.removeItem(USER_KEY)
-      return null
-    }
-  })())
+  // Migration: a previously stored JWT is never evidence of a valid session.
+  try {
+    localStorage.removeItem('piworker_auth_token')
+    localStorage.removeItem('piworker_auth_user')
+  } catch { /* Storage can be unavailable; cookies still work. */ }
+  const user = ref<AuthUser | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
-  const authEnabled = ref(true) // Safe default: assume auth required until checked
+  const authEnabled = ref(true)
+  const setupRequired = ref(false)
+  const isAuthenticated = computed(() => !authEnabled.value || user.value !== null)
 
-  // Computed
-  const isAuthenticated = computed(() => !authEnabled.value || !!token.value)
-
-  // Actions
-  function setAuth(newToken: string, username: string) {
-    token.value = newToken
-    user.value = { username }
-    localStorage.setItem(TOKEN_KEY, newToken)
-    localStorage.setItem(USER_KEY, JSON.stringify({ username }))
+  function clearAuth() { user.value = null }
+  function setError(message: string) { error.value = message }
+  function setLoading(value: boolean) { loading.value = value }
+  function clearError() { error.value = null }
+  async function signIn(username: string, password: string) {
+    user.value = await api.login(username, password)
+    setupRequired.value = false
     error.value = null
   }
-
-  function clearAuth() {
-    token.value = null
-    user.value = null
-    localStorage.removeItem(TOKEN_KEY)
-    localStorage.removeItem(USER_KEY)
-  }
-
-  function setError(message: string) {
-    error.value = message
-  }
-
-  function setLoading(value: boolean) {
-    loading.value = value
-  }
-
-  function clearError() {
-    error.value = null
-  }
-
-  function logout() {
+  async function logout() {
+    await api.logout()
     clearAuth()
   }
-
   async function fetchAuthStatus() {
     try {
       const status = await api.getAuthStatus()
       authEnabled.value = status.enabled
+      setupRequired.value = status.setupRequired
+      user.value = null
+      if (status.enabled && !status.setupRequired) {
+        try { user.value = await api.getSession() }
+        catch (e: any) { if (e.response?.status !== 401) throw e }
+      }
     } catch {
-      // On failure, keep default (auth enabled) — fail-secure
       authEnabled.value = true
+      user.value = null
+      error.value = 'Cannot connect to PiWorker. Please try again.'
     }
   }
-
-  return {
-    // State
-    token,
-    user,
-    loading,
-    error,
-    authEnabled,
-    // Computed
-    isAuthenticated,
-    // Actions
-    setAuth,
-    clearAuth,
-    setError,
-    setLoading,
-    clearError,
-    logout,
-    fetchAuthStatus
-  }
+  return { user, loading, error, authEnabled, setupRequired, isAuthenticated,
+    clearAuth, setError, setLoading, clearError, signIn, logout, fetchAuthStatus }
 })

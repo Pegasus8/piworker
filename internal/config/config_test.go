@@ -55,3 +55,17 @@ func TestLoadInvalidTOMLReturnsError(t *testing.T) {
 	_, err := Load(path)
 	require.Error(t, err)
 }
+
+func TestSessionCookieTransportIsExplicit(t *testing.T) {
+	cfg := Default()
+	require.False(t, cfg.SessionSecure)
+	path := filepath.Join(t.TempDir(), "piworker.toml")
+	require.NoError(t, os.WriteFile(path, []byte("session_secure = true\n"), 0600))
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.True(t, cfg.SessionSecure)
+	t.Setenv("PIWORKER_SESSION_SECURE", "false")
+	cfg, err = Load(path)
+	require.NoError(t, err)
+	require.False(t, cfg.SessionSecure)
+}

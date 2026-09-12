@@ -1,6 +1,7 @@
 # PiWorker Makefile
 # Build, test, and development utilities
 
+.PHONY: frontend-test frontend-test-e2e
 .PHONY: build-linux build-arm build-arm64 build-all build-release frontend-embed check
 .PHONY: all build test test-coverage test-race test-short test-verbose \
         clean lint fmt vet deps help hooks-install \
@@ -209,6 +210,12 @@ frontend-install: ## Install dependencies (bun install)
 
 frontend-dev: ## Start dev server (bun + vite)
 	cd web && bun run dev
+
+frontend-test: ## Run frontend behavior tests
+	cd web && bun run test
+
+frontend-test-e2e: ## Run browser tests with an isolated backend (install Playwright Chromium first)
+	cd web && bun run test:e2e
 
 frontend-typecheck: ## Run Vue/TypeScript type checking
 	cd web && bun run typecheck

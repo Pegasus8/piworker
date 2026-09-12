@@ -67,3 +67,7 @@ configs/
 # Generated builds and code index
 build/
 .codegraph/
+
+# Browser test artifacts
+web/test-results/
+web/playwright-report/

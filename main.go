@@ -4,8 +4,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"flag"
 	"fmt"
 	"net/http"
@@ -36,12 +34,15 @@ import (
 
 // Configuration flags
 var (
+	sessionSecure  = flag.Bool("session-secure", false, "Require HTTPS for session cookies (env: PIWORKER_SESSION_SECURE)")
+	recoveryUser   = flag.String("recover-account", "", "Generate a one-use password recovery code for this username, then exit")
+	setupCode      = flag.Bool("setup-code", false, "Generate a new first-installation setup code, then exit")
 	configPath     = flag.String("config", "", "Path to TOML config file (default: piworker.toml if present)")
 	listenAddr     = flag.String("addr", ":8080", "HTTP server listen address")
 	dbPath         = flag.String("db", "piworker.db", "SQLite database path")
 	debug          = flag.Bool("debug", false, "Enable debug logging")
-	jwtSecret      = flag.String("jwt-secret", "", "JWT secret key (required in production)")
-	authEnabled    = flag.Bool("auth", true, "Enable JWT authentication (env: PIWORKER_AUTH)")
+	jwtSecret      = flag.String("jwt-secret", "", "Deprecated: ignored; authentication now uses server sessions")
+	authEnabled    = flag.Bool("auth", true, "Enable session authentication (env: PIWORKER_AUTH)")
 	allowedOrigins = flag.String("cors-origins", "http://localhost:3000,http://localhost:8080", "Comma-separated list of allowed CORS origins")
 	adminUser      = flag.String("admin-user", "", "Default admin username (env: PIWORKER_ADMIN_USER)")
 	adminPass      = flag.String("admin-pass", "", "Default admin password (env: PIWORKER_ADMIN_PASS)")
@@ -73,6 +74,26 @@ func main() {
 	}
 	defer store.Close()
 	log.Info().Msg("Storage initialized")
+
+	// Local-only recovery/setup commands exit before starting flows or HTTP.
+	if *recoveryUser != "" || *setupCode {
+		users, err := storage.NewSQLiteUserStoreWithDB(store.DB())
+		if err != nil {
+			log.Fatal().Err(err).Msg("Cannot open accounts")
+		}
+		purpose := "recovery"
+		username := *recoveryUser
+		if *setupCode {
+			purpose = "setup"
+			username = ""
+		}
+		code, err := users.NewAuthCode(purpose, username, time.Now())
+		if err != nil {
+			log.Fatal().Err(err).Msg("Cannot generate account code")
+		}
+		fmt.Printf("%s code (one use, expires in 30 minutes): %s\nEnter it on the PiWorker sign-in page.\n", purpose, code)
+		return
+	}
 
 	// Load persisted secrets into the process-wide store and enable write-through,
 	// so nodes can reference {{secret.NAME}} instead of embedding plaintext.
@@ -138,9 +159,6 @@ func main() {
 	// Resolve auth setting from config.
 	authIsEnabled := cfg.Auth
 
-	// Register auth status endpoint unconditionally (public, no auth required)
-	router.HandleFunc("/api/auth/status", api.AuthStatusHandler(authIsEnabled)).Methods(http.MethodGet)
-
 	// Setup auth handler if enabled
 	var authHandler *api.AuthHandler
 	var userStore *storage.SQLiteUserStore
@@ -154,25 +172,29 @@ func main() {
 		}
 		defer userStore.Close()
 
-		// Ensure default admin exists (fails if no users and no credentials provided)
+		// Optional unattended bootstrap; otherwise the installer claims the account with a code.
 		if err := ensureDefaultAdmin(userStore, cfg); err != nil {
 			log.Fatal().Err(err).Msg("Failed to setup admin user")
 		}
 
-		secret, err := resolveJWTSecret(cfg, store)
+		exists, err := userStore.UserExists()
 		if err != nil {
-			log.Fatal().Err(err).Msg("Failed to resolve JWT secret")
+			log.Fatal().Err(err).Msg("Cannot read accounts")
 		}
-		authHandler = api.NewAuthHandler(
-			secret,
-			api.WithUserStore(userStore),
-			api.WithAuthLogger(log.Logger),
-		)
+		if !exists {
+			code, err := userStore.NewAuthCode("setup", "", time.Now())
+			if err != nil {
+				log.Fatal().Err(err).Msg("Cannot generate setup code")
+			}
+			fmt.Printf("Setup code (one use, expires in 30 minutes): %s\nOpen PiWorker to create your administrator account.\n", code)
+		}
+		authHandler = api.NewAuthHandler(userStore, cfg.SessionSecure, cfg.CORSOrigins)
 		authHandler.RegisterRoutes(router)
 		router.Use(api.AuthMiddleware(authHandler))
-		log.Info().Msg("JWT authentication enabled")
+		log.Info().Msg("Session authentication enabled")
 	} else {
-		log.Warn().Msg("JWT authentication disabled - API is unprotected")
+		router.HandleFunc("/api/auth/status", api.AuthStatusHandler(false)).Methods(http.MethodGet)
+		log.Warn().Msg("Authentication disabled - API is unprotected")
 	}
 
 	// Register handlers
@@ -184,8 +206,8 @@ func main() {
 
 	// Observability endpoints: live SSE stream + run/event history. Registered
 	// under /api so AuthMiddleware applies; the frontend consumes the stream with
-	// fetch + ReadableStream so it sends the Authorization header like any other
-	// API call (no token in the URL).
+	// fetch + ReadableStream with the same HttpOnly session cookie as other
+	// API calls (no token in JavaScript or URLs).
 	eventsHandler := api.NewEventsHandler(events.DefaultHub, store, log.Logger)
 	eventsHandler.RegisterRoutes(router)
 
@@ -343,8 +365,8 @@ func makeCorsMiddleware(allowedOrigins []string) mux.MiddlewareFunc {
 				}
 			}
 
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-PiWorker-Request")
 			w.Header().Set("Access-Control-Max-Age", "86400") // 24 hours
 
 			if r.Method == http.MethodOptions {
@@ -355,34 +377,6 @@ func makeCorsMiddleware(allowedOrigins []string) mux.MiddlewareFunc {
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-// resolveJWTSecret returns the JWT secret. An explicitly configured secret
-// (flag/env/TOML) always wins. Otherwise a previously-persisted secret is
-// reused, and if none exists one is generated and persisted — so issued tokens
-// survive restarts instead of silently logging every user out on each restart.
-func resolveJWTSecret(cfg config.Config, store *storage.SQLiteStore) ([]byte, error) {
-	if cfg.JWTSecret != "" {
-		return []byte(cfg.JWTSecret), nil
-	}
-
-	if v, ok, err := store.GetSetting("jwt_secret"); err != nil {
-		return nil, fmt.Errorf("failed to read persisted JWT secret: %w", err)
-	} else if ok && v != "" {
-		return []byte(v), nil
-	}
-
-	randomBytes := make([]byte, 32)
-	if _, err := rand.Read(randomBytes); err != nil {
-		return nil, fmt.Errorf("failed to generate JWT secret: %w", err)
-	}
-	secret := hex.EncodeToString(randomBytes)
-	if err := store.SetSetting("jwt_secret", secret); err != nil {
-		return nil, fmt.Errorf("failed to persist JWT secret: %w", err)
-	}
-
-	log.Info().Msg("Generated and persisted a new JWT secret (set jwt_secret in config to override)")
-	return []byte(secret), nil
 }
 
 // applyFlagOverrides overlays explicitly-set command-line flags onto cfg, so the
@@ -398,6 +392,8 @@ func applyFlagOverrides(cfg *config.Config) {
 			cfg.Debug = *debug
 		case "auth":
 			cfg.Auth = *authEnabled
+		case "session-secure":
+			cfg.SessionSecure = *sessionSecure
 		case "jwt-secret":
 			cfg.JWTSecret = *jwtSecret
 		case "cors-origins":
@@ -457,9 +453,8 @@ func restoreRunningFlows(store *storage.SQLiteStore, manager *flow.RuntimeManage
 		Msg("Flow restoration complete")
 }
 
-// ensureDefaultAdmin creates a default admin user if no users exist.
-// This function fails if no users exist and no admin credentials are provided,
-// preventing the server from starting without authentication.
+// ensureDefaultAdmin optionally bootstraps the first user from explicit credentials.
+// Without credentials the browser setup flow requires a local one-use code.
 func ensureDefaultAdmin(store *storage.SQLiteUserStore, cfg config.Config) error {
 	exists, err := store.UserExists()
 	if err != nil {
@@ -475,6 +470,9 @@ func ensureDefaultAdmin(store *storage.SQLiteUserStore, cfg config.Config) error
 	username := cfg.AdminUser
 	password := cfg.AdminPass
 
+	if username == "" && password == "" {
+		return nil
+	}
 	if username == "" || password == "" {
 		return fmt.Errorf("no users exist and no admin credentials provided. " +
 			"Set PIWORKER_ADMIN_USER and PIWORKER_ADMIN_PASS environment variables")

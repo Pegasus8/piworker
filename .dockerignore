@@ -60,3 +60,6 @@ docker-compose*.yml
 .claude/
 
 .codegraph/
+
+web/test-results/
+web/playwright-report/

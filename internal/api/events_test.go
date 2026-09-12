@@ -156,9 +156,8 @@ func TestStreamEventsOnlyDeliversMatchingFlow(t *testing.T) {
 }
 
 // TestStreamEventsRequiresNoTokenInURL documents that the SSE stream carries no
-// token in its URL: auth is enforced by AuthMiddleware via the Authorization
-// header (the frontend consumes the stream with fetch + ReadableStream, which can
-// set headers), so the JWT never leaks into a URL/query string.
+// token in its URL: AuthMiddleware checks the HttpOnly session cookie. The
+// frontend consumes the stream with fetch + ReadableStream.
 func TestStreamEventsRequiresNoTokenInURL(t *testing.T) {
 	router, _, _ := newEventsRouter(t)
 	// Without AuthMiddleware in front (as in these unit tests), the stream opens

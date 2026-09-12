@@ -60,6 +60,20 @@ func (s *SQLiteUserStore) initialize() error {
 			password_hash TEXT NOT NULL,
 			created_at DATETIME NOT NULL
 		);
+        CREATE TABLE IF NOT EXISTS auth_sessions (
+            token_hash TEXT PRIMARY KEY,
+            username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+            created_at INTEGER NOT NULL,
+            last_seen INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS auth_sessions_user ON auth_sessions(username);
+        CREATE TABLE IF NOT EXISTS auth_codes (
+            purpose TEXT PRIMARY KEY,
+            username TEXT NOT NULL,
+            token_hash TEXT NOT NULL,
+            expires_at INTEGER NOT NULL
+        );
 	`
 
 	_, err := s.db.Exec(schema)

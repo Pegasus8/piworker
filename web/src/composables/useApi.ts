@@ -1,38 +1,26 @@
 import axios from 'axios'
 import type { Flow, FlowListItem, FlowEvent, FlowRun, NodeEventRecord } from '@/types'
 
-const TOKEN_KEY = 'piworker_auth_token'
-
 const api = axios.create({
   baseURL: '/api',
+  withCredentials: true,
   headers: {
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'X-PiWorker-Request': '1'
   }
-})
-
-// Add Authorization header to all requests if token exists
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem(TOKEN_KEY)
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
-  }
-  return config
 })
 
 // Handle 401 responses (unauthorized)
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 401) {
-      // Clear token, then navigate to login via the router (preserving the
-      // return URL) instead of a hard window.location reload that would wipe
-      // SPA state and drop the user at '/' after re-login.
-      localStorage.removeItem(TOKEN_KEY)
-      localStorage.removeItem('piworker_auth_user')
+    if (error.response?.status === 401 && !error.config?.url?.startsWith('/auth/')) {
+      const { useAuthStore } = await import('@/stores/auth')
+      useAuthStore().clearAuth()
       const { default: router } = await import('@/router')
       const current = router.currentRoute.value
       if (current.name !== 'login') {
-        router.push({ name: 'login', query: { redirect: current.fullPath } })
+        await router.push({ name: 'login', query: { redirect: current.fullPath } })
       }
     }
     return Promise.reject(error)
@@ -149,8 +137,8 @@ export function useApi() {
   }
 
   // subscribeFlowEvents opens the live Server-Sent Events stream for a flow using
-  // fetch + ReadableStream so it can send the Authorization header (the JWT never
-  // appears in a URL). It auto-reconnects with backoff and returns a close().
+  // fetch + ReadableStream with the HttpOnly session cookie. It auto-reconnects
+  // with backoff and returns a close().
   function subscribeFlowEvents(
     flowId: string,
     handlers: { onEvent: (e: FlowEvent) => void; onStatus?: (connected: boolean) => void }
@@ -162,12 +150,18 @@ export function useApi() {
       let backoff = 1000
       while (!closed) {
         try {
-          const token = localStorage.getItem(TOKEN_KEY)
           const resp = await fetch(`/api/flows/${flowId}/events`, {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            credentials: 'same-origin',
             signal: controller.signal
           })
           if (resp.status === 401) {
+            handlers.onStatus?.(false)
+            const { useAuthStore } = await import('@/stores/auth')
+            useAuthStore().clearAuth()
+            const { default: router } = await import('@/router')
+            if (router.currentRoute.value.name !== 'login') {
+              await router.push({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
+            }
             closed = true
             break
           }
@@ -218,17 +212,26 @@ export function useApi() {
     }
   }
 
-  // Authentication
-  async function login(username: string, password: string): Promise<{ token: string }> {
+  // The browser manages the HttpOnly cookie; no session secret enters JavaScript.
+  async function login(username: string, password: string): Promise<{ username: string }> {
     const { data } = await api.post('/auth/login', { username, password })
     return data.data
   }
-
-  async function register(username: string, password: string): Promise<void> {
-    await api.post('/auth/register', { username, password })
+  async function setup(username: string, password: string, code: string): Promise<void> {
+    await api.post('/auth/setup', { username, password, code })
   }
-
-  async function getAuthStatus(): Promise<{ enabled: boolean }> {
+  async function recover(username: string, password: string, code: string): Promise<void> {
+    await api.post('/auth/recover', { username, password, code })
+  }
+  async function changePassword(currentPassword: string, password: string): Promise<void> {
+    await api.post('/auth/password', { currentPassword, password })
+  }
+  async function logout(): Promise<void> { await api.post('/auth/logout') }
+  async function getSession(): Promise<{ username: string }> {
+    const { data } = await api.get('/auth/session')
+    return data.data
+  }
+  async function getAuthStatus(): Promise<{ enabled: boolean; setupRequired: boolean }> {
     const { data } = await api.get('/auth/status')
     return data.data
   }
@@ -258,7 +261,11 @@ export function useApi() {
     subscribeFlowEvents,
     // Auth
     login,
-    register,
+    setup,
+    recover,
+    changePassword,
+    logout,
+    getSession,
     getAuthStatus
   }
 }

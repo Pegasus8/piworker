@@ -255,7 +255,7 @@ Each request produces a message with:
 
 ## Security
 
-The webhook endpoint is public (no JWT). Set a **token** to require a shared
+The webhook endpoint is public (no login session). Set a **token** to require a shared
 secret, and avoid exposing destructive flows without one.
 `,
 		Category: types.NodeCategoryInput,
