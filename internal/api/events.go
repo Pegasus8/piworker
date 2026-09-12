@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -13,8 +14,7 @@ import (
 )
 
 // sseKeepalive is how often a comment frame is sent to hold the connection open.
-// It MUST be shorter than the HTTP server's WriteTimeout (15s) or idle streams
-// would be severed.
+// Streaming responses manage their deadline independently of normal requests.
 const sseKeepalive = 10 * time.Second
 
 // EventsHandler serves the live SSE stream of node-execution events plus the
@@ -55,6 +55,14 @@ func (h *EventsHandler) StreamEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
+
+	// WriteTimeout is an absolute deadline for the entire response, not an
+	// inactivity timeout. SSE responses remain open until the client disconnects.
+	// Recorders used in handler tests do not implement connection deadlines.
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		writeError(w, http.StatusInternalServerError, "cannot configure streaming deadline")
 		return
 	}
 

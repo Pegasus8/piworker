@@ -20,6 +20,9 @@ services:
       # Persist database
       - piworker-data:/app/data
     environment:
+      # Required on first boot; existing users are preserved on restart.
+      - PIWORKER_ADMIN_USER=${PIWORKER_ADMIN_USER:-}
+      - PIWORKER_ADMIN_PASS=${PIWORKER_ADMIN_PASS:-}
       - PIWORKER_ADDR=:8080
       - PIWORKER_DB=/app/data/piworker.db
       - PIWORKER_DEBUG=true
@@ -34,14 +37,14 @@ services:
   # Frontend (Vite Dev Server with Bun)
   # ==========================================================================
   frontend:
-    image: oven/bun:1-alpine
+    image: oven/bun:1.3.14-alpine
     working_dir: /app
     ports:
       - "3000:3000"
     volumes:
       - ./web:/app
       - frontend-modules:/app/node_modules
-    command: sh -c "bun install && bun run dev -- --host 0.0.0.0"
+    command: sh -c "bun install --frozen-lockfile && bun run dev -- --host 0.0.0.0"
     environment:
       - VITE_API_URL=http://backend:8080
     depends_on:

@@ -4,15 +4,18 @@
 # =============================================================================
 # Stage 1: Build Frontend with Bun
 # =============================================================================
-FROM oven/bun:1-alpine AS frontend-builder
+# Bun builds the static UI on the builder platform, including for ARMv7 targets.
+# Legacy builders can pass BUILDPLATFORM explicitly (the Makefile does this).
+ARG BUILDPLATFORM
+FROM --platform=$BUILDPLATFORM oven/bun:1.3.14-alpine AS frontend-builder
 
 WORKDIR /app/web
 
 # Copy package files first for better caching
-COPY web/package.json web/bun.lockb* ./
+COPY web/package.json web/bun.lock ./
 
 # Install dependencies
-RUN bun install --frozen-lockfile 2>/dev/null || bun install
+RUN bun install --frozen-lockfile
 
 # Copy frontend source
 COPY web/ ./

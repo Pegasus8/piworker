@@ -1,12 +1,15 @@
 # PiWorker Makefile
 # Build, test, and development utilities
 
+.PHONY: build-linux build-arm build-arm64 build-all build-release frontend-embed check
 .PHONY: all build test test-coverage test-race test-short test-verbose \
         clean lint fmt vet deps help hooks-install \
         docker-build docker-run docker-dev docker-dev-down docker-prod docker-prod-down \
         frontend-build frontend-dev frontend-install frontend-typecheck
 
 # Go parameters
+COMPOSE ?= $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo docker-compose)
+
 GOCMD=go
 GOBUILD=$(GOCMD) build
 GOCLEAN=$(GOCMD) clean
@@ -20,6 +23,11 @@ GOFMT=gofmt
 BINARY_NAME=piworker
 BUILD_DIR=build
 
+# Linux cross-compilers (override with cc when building on the target itself).
+LINUX_CC ?= x86_64-linux-gnu-gcc
+ARM_CC ?= arm-linux-gnueabihf-gcc
+ARM64_CC ?= aarch64-linux-gnu-gcc
+
 # Test parameters
 TEST_FLAGS=-v
 COVERAGE_FILE=coverage.out
@@ -31,16 +39,16 @@ all: test build
 ## Build targets
 
 build: ## Build the binary
-	$(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME) ./...
+	CGO_ENABLED=1 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME) .
 
-build-linux: ## Build for Linux
-	GOOS=linux GOARCH=amd64 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 ./...
+build-linux: frontend-embed ## Build for Linux
+	CGO_ENABLED=1 CC="$(LINUX_CC)" GOOS=linux GOARCH=amd64 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 .
 
-build-arm: ## Build for ARM (Raspberry Pi)
-	GOOS=linux GOARCH=arm $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm ./...
+build-arm: frontend-embed ## Build for ARM (Raspberry Pi)
+	CGO_ENABLED=1 CC="$(ARM_CC)" GOOS=linux GOARCH=arm GOARM=7 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm .
 
-build-arm64: ## Build for ARM64
-	GOOS=linux GOARCH=arm64 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 ./...
+build-arm64: frontend-embed ## Build for ARM64
+	CGO_ENABLED=1 CC="$(ARM64_CC)" GOOS=linux GOARCH=arm64 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 .
 
 ## Test targets
 
@@ -163,33 +171,33 @@ docs: ## Generate documentation (requires godoc)
 ## Docker targets
 
 docker-build: ## Build production Docker image
-	docker build -t piworker:latest .
+	docker build --build-arg BUILDPLATFORM="$$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')" -t piworker:latest .
 
 docker-run: docker-build ## Build and run production container
-	docker run -d --name piworker -p 8080:8080 -v piworker-data:/app/data piworker:latest
+	docker run -d --name piworker -p 8080:8080 -v piworker-data:/app/data -e PIWORKER_ADMIN_USER -e PIWORKER_ADMIN_PASS piworker:latest
 
 docker-dev: ## Start development environment with Docker Compose
-	docker-compose up -d
+	$(COMPOSE) up -d
 	@echo "Development environment started:"
 	@echo "  - Backend:  http://localhost:8080"
-	@echo "  - Frontend: http://localhost:5173"
+	@echo "  - Frontend: http://localhost:3000"
 
 docker-dev-down: ## Stop development environment
-	docker-compose down
+	$(COMPOSE) down
 
 docker-dev-logs: ## Show development logs
-	docker-compose logs -f
+	$(COMPOSE) logs -f
 
 docker-prod: ## Start production environment with Docker Compose
-	docker-compose -f docker-compose.prod.yml up -d
+	$(COMPOSE) -f docker-compose.prod.yml up -d
 	@echo "Production environment started: http://localhost:8080"
 
 docker-prod-down: ## Stop production environment
-	docker-compose -f docker-compose.prod.yml down
+	$(COMPOSE) -f docker-compose.prod.yml down
 
 docker-clean: ## Remove all PiWorker Docker resources
-	docker-compose down -v 2>/dev/null || true
-	docker-compose -f docker-compose.prod.yml down -v 2>/dev/null || true
+	$(COMPOSE) down -v 2>/dev/null || true
+	$(COMPOSE) -f docker-compose.prod.yml down -v 2>/dev/null || true
 	docker rmi piworker:latest 2>/dev/null || true
 
 ## Frontend targets
@@ -197,7 +205,7 @@ docker-clean: ## Remove all PiWorker Docker resources
 ## Vite is still needed for Vue SFC support and HMR
 
 frontend-install: ## Install dependencies (bun install)
-	cd web && bun install
+	cd web && bun install --frozen-lockfile
 
 frontend-dev: ## Start dev server (bun + vite)
 	cd web && bun run dev
@@ -215,7 +223,8 @@ frontend-embed: frontend-build ## Build and embed frontend in Go binary
 
 ## Full build targets
 
-build-all: frontend-embed build ## Build everything (frontend + backend)
+build-all: frontend-embed ## Build everything (frontend + backend)
+	$(MAKE) build
 	@echo "Full build complete: $(BUILD_DIR)/$(BINARY_NAME)"
 
 build-release: frontend-embed ## Build release binary with embedded frontend

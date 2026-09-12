@@ -59,6 +59,12 @@ type ResponseWriter struct {
 	StatusCode int
 }
 
+// Unwrap lets http.ResponseController reach the underlying connection through
+// the logging and metrics wrappers (for example, to manage SSE deadlines).
+func (w *ResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 // WriteHeader captures the status code and delegates to the underlying writer.
 func (w *ResponseWriter) WriteHeader(code int) {
 	w.StatusCode = code

@@ -58,3 +58,5 @@ docker-compose*.yml
 # Serena/Claude
 .serena/
 .claude/
+
+.codegraph/

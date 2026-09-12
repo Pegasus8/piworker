@@ -13,6 +13,9 @@ services:
     volumes:
       - piworker-data:/app/data
     environment:
+      # Required on first boot; existing users are preserved on restart.
+      - PIWORKER_ADMIN_USER=${PIWORKER_ADMIN_USER:-}
+      - PIWORKER_ADMIN_PASS=${PIWORKER_ADMIN_PASS:-}
       - TZ=America/Argentina/Buenos_Aires
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]

@@ -170,3 +170,28 @@ func TestStreamEventsRequiresNoTokenInURL(t *testing.T) {
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
+
+// Exercise a real socket and both production wrappers: recorder-only tests do
+// not enforce the HTTP server's write deadline.
+func TestStreamEventsSurvivesServerWriteTimeout(t *testing.T) {
+	router, _, hub := newEventsRouter(t)
+	router.Use(LoggingMiddleware(zerolog.Nop()))
+	router.Use(MetricsMiddleware)
+	srv := httptest.NewUnstartedServer(router)
+	srv.Config.WriteTimeout = 100 * time.Millisecond
+	srv.Start()
+	defer srv.Close()
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(srv.URL + "/api/flows/f1/events")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Deliver an event well after the server's original deadline.
+	time.Sleep(300 * time.Millisecond)
+	hub.Publish(events.Event{FlowID: "f1", NodeID: "late", Phase: events.PhaseSuccess})
+	scanner := bufio.NewScanner(resp.Body)
+	require.True(t, scanner.Scan(), "stream closed before the late event: %v", scanner.Err())
+	require.Contains(t, scanner.Text(), `"nodeId":"late"`)
+}

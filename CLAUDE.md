@@ -17,7 +17,7 @@ considered done without a test that failed first. Keep tests next to the code
 (`test-flow|test-node|test-storage|test-api|test-builtin`), and **`make test-race`**
 for anything concurrency-sensitive (the flow runtime especially). Enforcement is by
 convention and discipline — there is no coverage gate, no test-running pre-commit
-hook, and no CI.
+hook, and CI runs tests, race detection, frontend and release builds.
 
 ## Build & run
 
@@ -35,10 +35,10 @@ make frontend-embed && go build -o build/piworker .   # embed UI, then build
 ./build/piworker -auth=false                           # run (auth off for local dev)
 ```
 
-- `make build` compiles `./...` but does **not** embed the frontend — use
+- `make build` compiles the root main package (`.`) but does **not** embed the frontend — use
   `make build-all` / `make build-release` (both run `frontend-embed` first) when
   the UI must be current.
-- Local dev with hot-reload: `go run main.go -debug` (backend :8080) +
+- Local dev with hot-reload: `go run main.go -debug -auth=false` (backend :8080) +
   `cd web && bun run dev` (UI :3000, proxies `/api` to the backend). The
   frontend uses **Bun**, not npm/node.
 - Run one Go test: `go test -run TestName ./internal/flow/...`. Per-package
@@ -94,7 +94,7 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
   HTTP server mounts the hub at `/api/webhooks/` and dispatches matching requests.
   This is the bridge that lets pull-only trigger nodes react to inbound HTTP.
 - `vars.DefaultStore` — in-memory key/value store backing the `set-var`/`get-var`
-  nodes (process lifetime, not persisted).
+  nodes (persisted to SQLite through the attached store).
 - Shared builtin helpers live alongside the nodes: `evalExpr` (sandboxed
   `expr-lang`, used by transform/filter/switch/set-var), `renderTemplate`, and
   `inferDataType`. Reuse these rather than re-implementing.

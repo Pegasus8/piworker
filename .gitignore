@@ -63,3 +63,7 @@ configs/
 # Local tooling state
 .serena/
 .remember/
+
+# Generated builds and code index
+build/
+.codegraph/
