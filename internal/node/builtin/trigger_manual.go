@@ -230,14 +230,15 @@ Triggers the flow manually via a button click or API call. Perfect for testing f
 ## How to Trigger
 
 **From the UI:**
-Use the inject button in the flow editor.
+Deploy the flow, then choose **Run manually** in the editor. Select the manual
+trigger and send its saved payload or a one-time JSON/text override.
 
 **Via API:**
 ` + "```bash" + `
 POST /api/flows/{flowId}/inject/{nodeId}
 Content-Type: application/json
 
-{"data": "custom payload"}
+{"payload": "custom payload"}
 ` + "```" + `
 
 ## Output

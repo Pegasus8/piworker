@@ -369,6 +369,31 @@ Flags:
   -admin-pass string    Bootstrap admin password (or env PIWORKER_ADMIN_PASS)
 ```
 
+### Editing and running flows
+
+Connections use the input/output ports declared by each node, including the
+**True** and **False** branches of Switch. Choose ports on the canvas or in
+**Connections**; saving and reopening preserves that choice. Invalid connections
+from older definitions are flagged for reconnection before deployment.
+
+**Deploy** starts the saved flow and schedules it for restoration when PiWorker
+restarts. **Stop** ends execution and removes that restoration intent. The list
+switch controls the same lifecycle; there is no separate flow-level “enabled”
+setting. Stop a running flow before saving edits. Failed startup restoration is
+shown as **Failed**.
+
+A deployed flow containing **Manual Inject** offers **Run manually**. Send the
+saved node payload or a one-time JSON/text override; downstream actions execute
+normally. Overrides do not change the saved node. Manual Inject wraps the value
+in `payload.data`, with `payload.count` and `payload.timestamp`, and uses the
+saved topic. The injection API treats `null` as “use the configured payload”, so
+the manual dialog rejects custom JSON `null` instead of silently changing it.
+
+**Activity → Runs** lists the latest 50 recorded executions, even when the flow
+is stopped. Open a run to inspect node identities, durations and errors; refresh
+its details to see newly recorded events. History does not store full payloads.
+The live **Debug** view is separate and keeps messages only in browser memory.
+
 ### Environment Variables
 
 ```bash
