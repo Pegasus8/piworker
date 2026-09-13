@@ -132,7 +132,13 @@ func (s *SQLiteStore) initialize() error {
 			updated_at DATETIME NOT NULL
 		);
 
-		CREATE TABLE IF NOT EXISTS vars (
+		CREATE TABLE IF NOT EXISTS flow_vars (
+ flow_id TEXT NOT NULL REFERENCES flows(id) ON DELETE CASCADE,
+ key TEXT NOT NULL,
+ value TEXT NOT NULL,
+ PRIMARY KEY(flow_id, key)
+);
+CREATE TABLE IF NOT EXISTS vars (
 			key        TEXT PRIMARY KEY,
 			value      TEXT NOT NULL,
 			updated_at DATETIME NOT NULL
