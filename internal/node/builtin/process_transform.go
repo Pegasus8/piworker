@@ -80,6 +80,7 @@ func evalExpr(ctx context.Context, program *vm.Program, msg *types.Message) (int
 	env := map[string]interface{}{
 		"payload":   msg.Payload,
 		"vars":      vars.FromContext(ctx).Snapshot(),
+		"flowVars":  flowVariableSnapshot(ctx),
 		"meta":      msg.Meta,
 		"topic":     msg.Topic,
 		"timestamp": msg.Timestamp.Format(time.RFC3339),
@@ -291,4 +292,11 @@ func init() {
 	if err := node.Register(info, NewTransformProcess); err != nil {
 		panic("failed to register transform process: " + err.Error())
 	}
+}
+
+func flowVariableSnapshot(ctx context.Context) map[string]interface{} {
+	if store := vars.FlowFromContext(ctx); store != nil {
+		return store.Snapshot()
+	}
+	return map[string]interface{}{}
 }

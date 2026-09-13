@@ -190,7 +190,7 @@ func (a *HTTPAction) isIdempotent() bool {
 // Process makes the HTTP request and returns the response.
 func (a *HTTPAction) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
 	// Expand templates in URL
-	expandedURL := renderTemplate(a.url, msg)
+	expandedURL := renderTemplate(a.url, msg, ctx)
 
 	// Validate URL: reject parse errors, non-http(s) schemes, and empty hosts.
 	// url.Parse is very lenient (it accepts relative paths and exotic schemes),
@@ -209,7 +209,7 @@ func (a *HTTPAction) Process(ctx context.Context, msg *types.Message) ([]*types.
 	// Prepare request body
 	var bodyReader io.Reader
 	if a.body != "" && (a.method == "POST" || a.method == "PUT" || a.method == "PATCH") {
-		expandedBody := renderTemplate(a.body, msg)
+		expandedBody := renderTemplate(a.body, msg, ctx)
 		bodyReader = strings.NewReader(expandedBody)
 	}
 
@@ -236,7 +236,7 @@ func (a *HTTPAction) Process(ctx context.Context, msg *types.Message) ([]*types.
 
 	// Set custom headers (can override content type)
 	for k, v := range a.headers {
-		expandedValue := renderTemplate(v, msg)
+		expandedValue := renderTemplate(v, msg, ctx)
 		req.Header.Set(k, expandedValue)
 	}
 

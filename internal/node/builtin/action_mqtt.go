@@ -91,14 +91,14 @@ func (a *MqttAction) ensureClient() (mqtt.Client, error) {
 }
 
 // Process renders the topic/payload and publishes the message.
-func (a *MqttAction) Process(_ context.Context, msg *types.Message) ([]*types.Message, error) {
+func (a *MqttAction) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
 	client, err := a.ensureClient()
 	if err != nil {
 		return nil, node.Transient(fmt.Errorf("mqtt connect failed: %w", err))
 	}
 
-	topic := renderTemplate(a.topic, msg)
-	payload := renderTemplate(a.payload, msg)
+	topic := renderTemplate(a.topic, msg, ctx)
+	payload := renderTemplate(a.payload, msg, ctx)
 
 	tok := client.Publish(topic, a.qos, a.retained, payload)
 	if !tok.WaitTimeout(mqttConnectTimeout) {

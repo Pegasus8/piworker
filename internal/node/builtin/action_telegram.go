@@ -53,7 +53,7 @@ func NewTelegramAction(config map[string]interface{}) (node.Node, error) {
 
 // Process renders the message and sends it via the Telegram Bot API.
 func (a *TelegramAction) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
-	text := renderTemplate(a.message, msg)
+	text := renderTemplate(a.message, msg, ctx)
 
 	payload := map[string]interface{}{
 		"chat_id": a.chatID,

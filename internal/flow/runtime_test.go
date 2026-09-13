@@ -2,6 +2,7 @@ package flow
 
 import (
 	"context"
+	flowvars "github.com/Pegasus8/piworker/internal/vars"
 	"sync"
 	"testing"
 	"time"
@@ -660,4 +661,24 @@ func TestFlowRuntimeConcurrency(t *testing.T) {
 		running := manager.ListRunning()
 		assert.LessOrEqual(t, len(running), 10)
 	})
+}
+
+func TestRuntimeCarriesItsOwnVariableScope(t *testing.T) {
+	f := NewFlow("variables")
+	rt, err := NewFlowRuntime(f, node.NewRegistry())
+	require.NoError(t, err)
+	require.NoError(t, rt.Start(context.Background()))
+	defer rt.Stop()
+	local, err := flowvars.Scoped(rt.ctx, "flow")
+	require.NoError(t, err)
+	require.NoError(t, local.Set("runtime-count", 42))
+	same, err := flowvars.DefaultFlows.Get(f.ID)
+	require.NoError(t, err)
+	value, ok := same.Get("runtime-count")
+	require.True(t, ok)
+	require.Equal(t, 42, value)
+	other, err := flowvars.DefaultFlows.Get("another-flow")
+	require.NoError(t, err)
+	_, ok = other.Get("runtime-count")
+	require.False(t, ok)
 }

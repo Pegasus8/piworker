@@ -57,7 +57,7 @@ func NewNotifyAction(config map[string]interface{}) (node.Node, error) {
 
 // Process renders the message and posts it to the configured webhook.
 func (a *NotifyAction) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
-	text := renderTemplate(a.message, msg)
+	text := renderTemplate(a.message, msg, ctx)
 
 	var body io.Reader
 	contentType := "application/json"

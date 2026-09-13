@@ -33,7 +33,7 @@ func NewTemplateProcess(config map[string]interface{}) (node.Node, error) {
 
 // Process renders the template and sets the result as the message payload.
 func (p *TemplateProcess) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
-	rendered := renderTemplate(p.template, msg)
+	rendered := renderTemplate(p.template, msg, ctx)
 
 	out := msg.Clone()
 	out.Payload = rendered
@@ -114,14 +114,25 @@ Temperature is {{payload.temperature}}°C in {{payload.room}}
 
 // renderTemplate expands {{...}} placeholders in tmpl using the message. It is
 // shared by template-style nodes and reuses the package-level templateRe.
-func renderTemplate(tmpl string, msg *types.Message) string {
+func renderTemplate(tmpl string, msg *types.Message, contexts ...context.Context) string {
+	ctx := context.Background()
+	if len(contexts) > 0 {
+		ctx = contexts[0]
+	}
 	return templateRe.ReplaceAllStringFunc(tmpl, func(match string) string {
 		parts := placeholderParts(match)
 
 		switch parts[0] {
-		case "vars":
+		case "vars", "flowVars":
+			store := vars.FromContext(ctx)
+			if parts[0] == "flowVars" {
+				store = vars.FlowFromContext(ctx)
+			}
+			if store == nil {
+				return ""
+			}
 			if len(parts) > 1 {
-				if v, ok := vars.DefaultStore.Get(parts[1]); ok {
+				if v, ok := store.Get(parts[1]); ok {
 					return tmplStringify(v)
 				}
 			}

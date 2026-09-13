@@ -12,6 +12,7 @@ import (
 // GetVarProcess reads a value from the shared variable store into the payload.
 type GetVarProcess struct {
 	*node.BaseNode
+	scope string
 
 	key          string
 	defaultValue string
@@ -22,6 +23,11 @@ type GetVarProcess struct {
 func NewGetVarProcess(config map[string]interface{}) (node.Node, error) {
 	base := node.NewBaseNode(config)
 
+	scope := base.GetConfigString("scope", "global")
+	if scope != "global" && scope != "flow" {
+		return nil, fmt.Errorf("invalid variable scope %q", scope)
+	}
+
 	key := base.GetConfigString("key", "")
 	if key == "" {
 		return nil, fmt.Errorf("key is required")
@@ -31,6 +37,7 @@ func NewGetVarProcess(config map[string]interface{}) (node.Node, error) {
 
 	return &GetVarProcess{
 		BaseNode:     base,
+		scope:        scope,
 		key:          key,
 		defaultValue: base.GetConfigString("default", ""),
 		hasDefault:   hasDefault,
@@ -39,7 +46,11 @@ func NewGetVarProcess(config map[string]interface{}) (node.Node, error) {
 
 // Process reads the variable and sets it as the message payload.
 func (p *GetVarProcess) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
-	value, ok := vars.FromContext(ctx).Get(p.key)
+	store, err := vars.Scoped(ctx, p.scope)
+	if err != nil {
+		return nil, err
+	}
+	value, ok := store.Get(p.key)
 	if !ok {
 		if p.hasDefault {
 			value = p.defaultValue
@@ -92,6 +103,7 @@ func (p *GetVarProcess) Validate() error {
 func getVarConfigSchema() node.ConfigSchema {
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
+			"scope": {Type: "string", Title: "Variable scope", Description: "Global is shared by all flows; Flow is isolated to this saved flow.", Default: "global", Enum: []string{"global", "flow"}},
 			"key": {
 				Type:        "string",
 				Title:       "Variable Name",
@@ -122,13 +134,17 @@ func GetVarProcessInfo() node.NodeTypeInfo {
 		Description: "Read a named variable into the payload",
 		Documentation: `## Get Variable
 
-Reads a process-wide variable (set by **Set Variable**) and places its value in
-the message payload.
+Reads a variable from the selected scope and places its value in the message payload.
+
+**Global** (the default) shares values across all flows. **Flow** isolates values
+to this saved flow. The same name may exist in both scopes; missing flow values
+do not fall back to global values. Manage both scopes from **Variables** in the editor.
 
 ## Configuration
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
+| scope | string | global | global or flow; no fallback between scopes |
 | key | string | - | Variable name (required) |
 | default | string | - | Value used when the variable is unset |
 

@@ -85,7 +85,7 @@ type Flow struct {
 	Nodes       []Node                 `json:"nodes"`
 	Connections []Connection           `json:"connections"`
 	State       FlowState              `json:"state"`
-	Variables   map[string]interface{} `json:"variables,omitempty"` // Flow-level variables
+	Variables   map[string]interface{} `json:"variables,omitempty"` // Legacy definition metadata; runtime variables use the scoped variable store.
 	CreatedAt   time.Time              `json:"createdAt"`
 	UpdatedAt   time.Time              `json:"updatedAt"`
 

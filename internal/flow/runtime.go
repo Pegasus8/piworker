@@ -3,6 +3,7 @@ package flow
 import (
 	"context"
 	"fmt"
+	flowvars "github.com/Pegasus8/piworker/internal/vars"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -249,7 +250,12 @@ func (r *FlowRuntime) Start(ctx context.Context) error {
 
 	// Use background context so the flow survives HTTP request completion.
 	// The parent ctx is only used for initial validation, not for runtime lifecycle.
-	r.ctx, r.cancel = context.WithCancel(context.Background())
+	local, err := flowvars.DefaultFlows.Get(r.flow.ID)
+	if err != nil {
+		r.mu.Unlock()
+		return fmt.Errorf("load flow variables: %w", err)
+	}
+	r.ctx, r.cancel = context.WithCancel(flowvars.WithFlowStore(context.Background(), local))
 	r.running = true
 	r.state = FlowStateRunning
 	r.mu.Unlock()

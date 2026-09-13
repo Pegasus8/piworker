@@ -61,8 +61,8 @@ func NewEmailAction(config map[string]interface{}) (node.Node, error) {
 
 // Process renders the subject/body and sends the email.
 func (a *EmailAction) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
-	subject := renderTemplate(a.subject, msg)
-	body := renderTemplate(a.body, msg)
+	subject := renderTemplate(a.subject, msg, ctx)
+	body := renderTemplate(a.body, msg, ctx)
 
 	var b strings.Builder
 	b.WriteString("From: " + a.from + "\r\n")

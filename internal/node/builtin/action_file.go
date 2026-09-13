@@ -45,7 +45,7 @@ func NewFileAction(config map[string]interface{}) (node.Node, error) {
 
 // Process renders the content template and writes it to the file.
 func (a *FileAction) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
-	data := renderTemplate(a.content, msg)
+	data := renderTemplate(a.content, msg, ctx)
 	if a.newline && !strings.HasSuffix(data, "\n") {
 		data += "\n"
 	}
