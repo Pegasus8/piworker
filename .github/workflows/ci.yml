@@ -14,6 +14,11 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
+      - name: Validate lifecycle installer
+        run: |
+          bash -n scripts/piworkerctl
+          shellcheck scripts/piworkerctl
+          make test-installer
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -37,17 +42,19 @@ jobs:
       - run: make build-linux build-arm64 build-arm
       - name: Package Linux binaries
         run: |
+          cp scripts/piworkerctl build/piworkerctl
           for arch in amd64 arm64 arm; do
-            tar -czf "build/piworker-linux-${arch}.tar.gz" -C build "piworker-linux-${arch}"
+            tar -czf "build/piworker-linux-${arch}.tar.gz" -C build "piworker-linux-${arch}" piworkerctl
           done
           cd build
-          sha256sum ./*.tar.gz > SHA256SUMS
+          sha256sum ./*.tar.gz piworkerctl > SHA256SUMS
       - uses: actions/upload-artifact@v7
         with:
           name: linux-binaries
           path: |
             build/*.tar.gz
             build/SHA256SUMS
+            build/piworkerctl
           if-no-files-found: error
 
   docker:
@@ -79,4 +86,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" build/*.tar.gz build/SHA256SUMS --draft --verify-tag --generate-notes
+        run: gh release create "$RELEASE_TAG" build/*.tar.gz build/SHA256SUMS build/piworkerctl --draft --verify-tag --generate-notes

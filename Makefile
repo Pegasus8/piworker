@@ -2,6 +2,7 @@
 # Build, test, and development utilities
 
 .PHONY: frontend-test frontend-test-e2e
+.PHONY: test-installer
 .PHONY: build-linux build-arm build-arm64 build-all build-release frontend-embed check
 .PHONY: all build test test-coverage test-race test-short test-verbose \
         clean lint fmt vet deps help hooks-install \
@@ -52,6 +53,9 @@ build-arm64: frontend-embed ## Build for ARM64
 	CGO_ENABLED=1 CC="$(ARM64_CC)" GOOS=linux GOARCH=arm64 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 .
 
 ## Test targets
+
+test-installer: ## Test install/update/uninstall in an isolated filesystem (Python 3)
+	python3 -B -m unittest discover -s scripts -p 'test_*.py'
 
 test: ## Run all tests
 	$(GOTEST) ./...

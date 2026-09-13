@@ -15,6 +15,66 @@ A **visual flow-based automation system** for Raspberry Pi and other devices. Cr
 
 ## Quick Start
 
+### Install, update and uninstall (Linux / Raspberry Pi)
+
+The native installer sets up PiWorker as an automatically started systemd service.
+It downloads a pre-built binary and verifies its SHA256 checksum; Go, Bun and
+Docker are not needed. Supported systems: Linux with systemd and glibc 2.35+
+(for example Raspberry Pi OS Bookworm), on ARM64, ARMv7 or x86_64.
+Install `curl` and CA certificates first if your OS does not include them.
+
+**Release availability:** this installer is new on the revival branch. The
+following download command becomes available when a release containing
+`piworkerctl` is published. Older releases are not compatible with this installer.
+
+```bash
+# Install the latest stable release (run in a directory you own)
+curl -fL https://github.com/Pegasus8/piworker/releases/latest/download/piworkerctl -o piworkerctl && sudo bash ./piworkerctl install
+
+# Later: update, including a backup of the stopped database
+sudo piworkerctl update
+
+# Remove the service and executables, keeping your data and configuration
+sudo piworkerctl uninstall
+```
+
+Open `http://<device-address>:8080`. Get the first administrator setup code with
+`sudo journalctl -u piworker -n 50 --no-pager`, then complete setup in the browser.
+The service also starts after a reboot. Re-running `install` updates a managed
+installation; reinstalling after `uninstall` reuses the retained data.
+
+You can select a release explicitly with `sudo piworkerctl update vX.Y.Z`
+(replace `vX.Y.Z` with an actual compatible release tag). Updates also replace
+the manager with the version included in the verified release archive.
+Before the first compatible release, contributors can run the lifecycle tests
+with `make test-installer`; running the installer still requires published assets.
+
+| Item | Location / command |
+|------|--------------------|
+| Configuration | `/etc/piworker/piworker.toml` |
+| Accounts, flows, secrets and variables | `/var/lib/piworker/piworker.db` |
+| Update backups (private, retained until you remove them) | `/var/backups/piworker/` |
+| Logs / status | `sudo journalctl -u piworker` / `systemctl status piworker` |
+| Restart after changing configuration | `sudo systemctl restart piworker` |
+
+Updates download and validate before stopping the service. They back up its
+entire data directory and configuration, replace the executable, and check the
+HTTP health endpoint. A failed update restores the previous binary and data;
+updates briefly interrupt running flows. Backups cannot undo actions already
+sent to external devices or services. Ensure there is enough disk space for a
+full data copy. If automatic recovery cannot stop/start the service, the command
+reports the backup location for manual recovery.
+
+The managed service runs as the dedicated `piworker` user and always uses the
+database path above. Grant that user the device-group permissions needed for
+GPIO/I2C hardware. If you change the HTTP address, provide the corresponding
+local health URL when installing/updating, for example
+`sudo PIWORKER_HEALTH_URL=http://127.0.0.1:9090/api/health piworkerctl update`.
+Manual installations are not overwritten or migrated automatically.
+Uninstall retains the service user as well as data/configuration/backups; it
+does not delete Docker installations. To erase retained data permanently,
+review and remove the three directories listed above after uninstalling.
+
 ### First boot: create the administrator
 
 Start PiWorker and open its address in your browser. On a fresh database,
@@ -216,7 +276,10 @@ Use Linux with glibc 2.35+ for CI-built binaries, or the Docker image (which
 includes its runtime libraries). Real GPIO, I2C and 1-Wire nodes additionally
 require the corresponding buses/drivers and device permissions on the Pi.
 
-### Systemd Service
+### Systemd Service (manual alternative)
+
+The native installer above creates and manages its own service. The following
+example is only for manually installed binaries.
 
 Start the service and read its setup code with `journalctl -u piworker`.
 Existing accounts remain available without bootstrap credentials.
@@ -647,6 +710,7 @@ piworker/
 ## Validation and releases
 
 CI runs on pull requests and pushes to `master`, `main`, and `revival`. It checks
+the installer lifecycle with isolated OS/download fixtures and ShellCheck,
 Go formatting, `go vet`, race-enabled tests, frontend unit/browser tests and typechecking/build, Linux
 CGO builds for amd64/arm64/ARMv7, and multi-platform Docker builds. Linux archives
 and SHA256 checksums are available as workflow artifacts.
