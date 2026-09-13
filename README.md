@@ -394,6 +394,45 @@ is stopped. Open a run to inspect node identities, durations and errors; refresh
 its details to see newly recorded events. History does not store full payloads.
 The live **Debug** view is separate and keeps messages only in browser memory.
 
+### User variables and secrets
+
+Open **Variables** from the flow list or editor to create, edit or delete global
+values. Choose Text or JSON; JSON preserves numbers, booleans, objects, arrays and
+`null`. These variables are shared by all flows and persisted in SQLite. Get/Set
+Variable nodes use the same store. Failed writes leave the previous value intact
+and report an error. Changes are read on subsequent node executions; they do not
+restart flows. Variables belong to the installation and are not included in a
+flow export. The `variables` field in the flow model is not an implemented
+per-flow scope.
+
+Use `vars["threshold"]` in Transform, Filter, Switch and Set Variable expressions,
+for example `payload.temperature > vars["threshold"]`. Fields rendered as message
+templates also support `{{vars.threshold}}`. Missing template variables produce an
+empty string; expressions can use defaults, such as `vars["threshold"] ?? 25`.
+Get Variable retains its configured default when the key is absent.
+
+Compatible editor fields offer autocomplete, **Insert reference**, and
+**Ctrl+Space**. Use arrow keys and Enter/Tab to select, or Escape to dismiss.
+Get/Set Variable fields insert a name, expression fields insert `vars["name"]`,
+and template fields insert `{{vars.name}}`. Declared Set Variable names are also
+suggested, even before they have a value. Playground tests read copies of global
+variables; testing Set Variable does not mutate live values.
+
+Open **Secrets** in the flow list to store or replace credentials. Its API lists
+only names. In compatible credential fields, autocomplete inserts
+`{{secret.NAME}}`. Supported fields are Telegram's bot token, Notify's URL,
+Database's DSN, and the username/password fields of Email, MQTT Publish and MQTT
+Subscribe. These references resolve when the node is created: stop and redeploy
+an existing flow after rotating a secret. HTTP Request headers do not currently
+resolve secret placeholders. General templates and expressions cannot read the
+secret store; missing credential references currently resolve to an empty string.
+
+Secrets are stored in SQLite without application-level encryption at rest. They
+are excluded from flow exports when referenced by name; literal credentials
+entered directly in a node configuration remain part of that configuration.
+Variables are ordinary data, visible in their manager and usable in payloads and
+Debug; use the separate secret store for credentials.
+
 ### Environment Variables
 
 ```bash

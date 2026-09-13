@@ -131,3 +131,23 @@ reloads a branched flow, executes both branches and opens a recorded error after
 stopping. Backend tests cover old definitions without port caches, restoration
 selection, failed lifecycle persistence, unknown-length injection bodies and
 persisting node details before exposing run completion.
+
+## Variables and credential references
+
+The Variables manager is available in the flow list and editor. Values have an
+explicit Text/JSON format, preserving numbers, booleans, composites and null.
+Replacing or deleting a global value requires confirmation because all flows
+share it. A failed save preserves the form and the previous stored value.
+
+Compatible node fields offer filtered suggestions while typing, an Insert
+reference button and Ctrl+Space. Arrow keys select, Enter/Tab inserts, and Escape
+closes suggestions before dismissing the node dialog. Suggestions insert at the
+caret and never send secret values to the browser. Get/Set Variable suggests bare
+names; expressions insert bracket notation to support names containing hyphens or
+dots; templates insert their own placeholder syntax. Unsupported fields have no
+reference affordance. Loading failures offer a retry without discarding edits.
+
+Names include existing global variables and Set Variable names declared in the
+current draft. A declared name may not have a stored value until its node runs.
+Node previews use isolated variable copies; testing Set Variable does not update
+live state. Variables are not credentials and may appear in payloads and Debug.
