@@ -10,7 +10,9 @@ import (
 	"testing"
 
 	"github.com/Pegasus8/piworker/internal/node"
+	_ "github.com/Pegasus8/piworker/internal/node/builtin"
 	"github.com/Pegasus8/piworker/internal/types"
+	"github.com/Pegasus8/piworker/internal/vars"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -141,4 +143,16 @@ func TestTestNodeRejectsNonObjectMetadata(t *testing.T) {
 		"payload": "hello", "meta": []interface{}{"invalid"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestVariablePreviewDoesNotMutateGlobalState(t *testing.T) {
+	require.NoError(t, vars.DefaultStore.Set("preview-only", 1))
+	defer vars.DefaultStore.Delete("preview-only")
+	h := NewNodeTypesHandler(node.DefaultRegistry, zerolog.Nop())
+	router := mux.NewRouter()
+	h.RegisterRoutes(router)
+	rr := postTestNode(t, router, "set-var", map[string]interface{}{"config": map[string]interface{}{"key": "preview-only", "value": "payload"}, "payload": 99})
+	require.Equal(t, 200, rr.Code)
+	value, _ := vars.DefaultStore.Get("preview-only")
+	require.EqualValues(t, 1, value)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Pegasus8/piworker/internal/vars"
 	"strings"
 	"time"
 
@@ -118,6 +119,13 @@ func renderTemplate(tmpl string, msg *types.Message) string {
 		parts := placeholderParts(match)
 
 		switch parts[0] {
+		case "vars":
+			if len(parts) > 1 {
+				if v, ok := vars.DefaultStore.Get(parts[1]); ok {
+					return tmplStringify(v)
+				}
+			}
+			return ""
 		case "payload":
 			if len(parts) == 1 {
 				return tmplStringify(msg.Payload)

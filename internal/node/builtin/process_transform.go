@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"fmt"
+	"github.com/Pegasus8/piworker/internal/vars"
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/node"
@@ -78,6 +79,7 @@ func evalExpr(ctx context.Context, program *vm.Program, msg *types.Message) (int
 
 	env := map[string]interface{}{
 		"payload":   msg.Payload,
+		"vars":      vars.FromContext(ctx).Snapshot(),
 		"meta":      msg.Meta,
 		"topic":     msg.Topic,
 		"timestamp": msg.Timestamp.Format(time.RFC3339),

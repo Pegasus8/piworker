@@ -49,7 +49,9 @@ func (p *SetVarProcess) Process(ctx context.Context, msg *types.Message) ([]*typ
 		return nil, fmt.Errorf("value evaluation failed: %w", err)
 	}
 
-	vars.DefaultStore.Set(p.key, result)
+	if err := vars.FromContext(ctx).Set(p.key, result); err != nil {
+		return nil, fmt.Errorf("failed to persist variable %q: %w", p.key, err)
+	}
 
 	out := msg.Clone()
 	out.SourcePort = "output"

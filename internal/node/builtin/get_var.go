@@ -39,7 +39,7 @@ func NewGetVarProcess(config map[string]interface{}) (node.Node, error) {
 
 // Process reads the variable and sets it as the message payload.
 func (p *GetVarProcess) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
-	value, ok := vars.DefaultStore.Get(p.key)
+	value, ok := vars.FromContext(ctx).Get(p.key)
 	if !ok {
 		if p.hasDefault {
 			value = p.defaultValue

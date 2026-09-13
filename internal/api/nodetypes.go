@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	flowvars "github.com/Pegasus8/piworker/internal/vars"
 	"net/http"
 	"time"
 
@@ -121,6 +122,11 @@ func (h *NodeTypesHandler) runOnce(parent context.Context, inst node.Node, sampl
 		}
 	}()
 
+	preview := flowvars.NewStore()
+	for key, value := range flowvars.DefaultStore.Snapshot() {
+		_ = preview.Set(key, value)
+	}
+	ctx = flowvars.WithStore(ctx, preview)
 	outputs, err := inst.Process(ctx, msg)
 	if err != nil {
 		result.Error = err.Error()
