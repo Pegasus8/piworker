@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -83,4 +84,23 @@ func TestStoreAttachLoadsExisting(t *testing.T) {
 	v, ok := s.Get("loaded_key")
 	assert.True(t, ok)
 	assert.Equal(t, "from-db", v)
+}
+
+type unavailableSecrets struct{}
+
+func (unavailableSecrets) LoadSecrets() (map[string]string, error) {
+	return map[string]string{"TOKEN": "old"}, nil
+}
+func (unavailableSecrets) SaveSecret(string, string) error { return fmt.Errorf("storage unavailable") }
+func (unavailableSecrets) DeleteSecret(string) error       { return fmt.Errorf("storage unavailable") }
+func TestFailedPersistencePreservesSecret(t *testing.T) {
+	s := NewStore()
+	require.NoError(t, s.Attach(unavailableSecrets{}))
+	require.Error(t, s.Set("TOKEN", "new"))
+	v, _ := s.Get("TOKEN")
+	require.Equal(t, "old", v)
+	require.Error(t, s.Delete("TOKEN"))
+	v, ok := s.Get("TOKEN")
+	require.True(t, ok)
+	require.Equal(t, "old", v)
 }

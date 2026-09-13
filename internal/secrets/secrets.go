@@ -65,24 +65,29 @@ func (s *Store) Set(name, value string) error {
 		return fmt.Errorf("invalid secret name %q (use letters, digits, '_' or '-')", name)
 	}
 	s.mu.Lock()
-	s.values[name] = value
-	p := s.persist
-	s.mu.Unlock()
-	if p != nil {
-		return p.SaveSecret(name, value)
+	defer s.mu.Unlock()
+	if s.persist != nil {
+		if err := s.persist.SaveSecret(name, value); err != nil {
+			return err
+		}
 	}
+	if s.values == nil {
+		s.values = make(map[string]string)
+	}
+	s.values[name] = value
 	return nil
 }
 
-// Delete removes a secret, writing through to the persister if set.
+// Delete removes a secret only after its persistent deletion succeeds.
 func (s *Store) Delete(name string) error {
 	s.mu.Lock()
-	delete(s.values, name)
-	p := s.persist
-	s.mu.Unlock()
-	if p != nil {
-		return p.DeleteSecret(name)
+	defer s.mu.Unlock()
+	if s.persist != nil {
+		if err := s.persist.DeleteSecret(name); err != nil {
+			return err
+		}
 	}
+	delete(s.values, name)
 	return nil
 }
 
