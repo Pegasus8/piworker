@@ -106,6 +106,8 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to load variables")
 	}
 
+	vars.DefaultFlows.Factory = store.FlowVariables
+
 	// Get the node registry (already populated by init functions in builtin package)
 	registry := node.DefaultRegistry
 	log.Info().
@@ -201,7 +203,7 @@ func main() {
 	flowsHandler := api.NewFlowsHandler(store, runtimeManager, registry, log.Logger)
 	flowsHandler.RegisterRoutes(router)
 
-	nodeTypesHandler := api.NewNodeTypesHandler(registry, log.Logger)
+	nodeTypesHandler := api.NewNodeTypesHandler(registry, log.Logger, store)
 	nodeTypesHandler.RegisterRoutes(router)
 
 	// Observability endpoints: live SSE stream + run/event history. Registered

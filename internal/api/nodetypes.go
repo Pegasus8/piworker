@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Pegasus8/piworker/internal/storage"
 	flowvars "github.com/Pegasus8/piworker/internal/vars"
 	"net/http"
 	"time"
@@ -16,13 +17,19 @@ import (
 
 // NodeTypesHandler handles HTTP requests for node type operations.
 type NodeTypesHandler struct {
+	store    *storage.SQLiteStore
 	registry *node.Registry
 	logger   zerolog.Logger
 }
 
 // NewNodeTypesHandler creates a new NodeTypesHandler.
-func NewNodeTypesHandler(registry *node.Registry, logger zerolog.Logger) *NodeTypesHandler {
+func NewNodeTypesHandler(registry *node.Registry, logger zerolog.Logger, stores ...*storage.SQLiteStore) *NodeTypesHandler {
+	var store *storage.SQLiteStore
+	if len(stores) > 0 {
+		store = stores[0]
+	}
 	return &NodeTypesHandler{
+		store:    store,
 		registry: registry,
 		logger:   logger,
 	}
@@ -41,6 +48,7 @@ const testNodeTimeout = 10 * time.Second
 // TestNodeRequest is the body of a test-node request: the candidate config and a
 // sample input payload.
 type TestNodeRequest struct {
+	FlowID  string                 `json:"flowId,omitempty"`
 	Config  map[string]interface{} `json:"config"`
 	Payload interface{}            `json:"payload"`
 	Topic   string                 `json:"topic,omitempty"`
@@ -79,6 +87,16 @@ func (h *NodeTypesHandler) TestNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.FlowID != "" && h.store != nil {
+		if _, err := h.store.GetFlow(req.FlowID); err != nil {
+			if err == storage.ErrFlowNotFound {
+				writeError(w, 404, "Flow not found")
+			} else {
+				writeError(w, 500, "Failed to load flow")
+			}
+			return
+		}
+	}
 	inst, err := h.registry.Create(nodeType, req.Config)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("Failed to create node: %v", err))
@@ -127,6 +145,18 @@ func (h *NodeTypesHandler) runOnce(parent context.Context, inst node.Node, sampl
 		_ = preview.Set(key, value)
 	}
 	ctx = flowvars.WithStore(ctx, preview)
+	if sample.FlowID != "" {
+		local, err := flowvars.DefaultFlows.Get(sample.FlowID)
+		if err != nil {
+			result.Error = "Failed to load flow variables"
+			return result, false
+		}
+		isolated := flowvars.NewStore()
+		for key, value := range local.Snapshot() {
+			_ = isolated.Set(key, value)
+		}
+		ctx = flowvars.WithFlowStore(ctx, isolated)
+	}
 	outputs, err := inst.Process(ctx, msg)
 	if err != nil {
 		result.Error = err.Error()

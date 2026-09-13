@@ -4,6 +4,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	flowvars "github.com/Pegasus8/piworker/internal/vars"
 	"io"
 	"net/http"
 	"sync"
@@ -41,6 +42,8 @@ func NewFlowsHandler(store *storage.SQLiteStore, manager *flow.RuntimeManager, r
 
 // RegisterRoutes registers the flow routes on the given router.
 func (h *FlowsHandler) RegisterRoutes(r *mux.Router) {
+	r.HandleFunc("/api/flows/{id}/variables", h.FlowVariables).Methods(http.MethodGet)
+	r.HandleFunc("/api/flows/{id}/variables/{name}", h.FlowVariables).Methods(http.MethodPut, http.MethodDelete)
 	r.HandleFunc("/api/flows", h.ListFlows).Methods(http.MethodGet)
 	r.HandleFunc("/api/flows", h.CreateFlow).Methods(http.MethodPost)
 	r.HandleFunc("/api/flows/import", h.ImportFlow).Methods(http.MethodPost)
@@ -366,6 +369,7 @@ func (h *FlowsHandler) DeleteFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	flowvars.DefaultFlows.Forget(id)
 	h.logger.Info().Str("flowID", id).Msg("Flow deleted")
 	writeSuccess(w, http.StatusOK, nil, "Flow deleted successfully")
 }
@@ -610,4 +614,33 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 
 	s.logger.Info().Str("addr", addr).Msg("Starting API server")
 	return srv.ListenAndServe()
+}
+
+// FlowVariables serializes management with flow deletion and validates ownership.
+func (h *FlowsHandler) FlowVariables(w http.ResponseWriter, r *http.Request) {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
+	id := mux.Vars(r)["id"]
+	if _, err := h.store.GetFlow(id); err != nil {
+		if err == storage.ErrFlowNotFound {
+			writeError(w, 404, "Flow not found")
+		} else {
+			writeError(w, 500, "Failed to load flow")
+		}
+		return
+	}
+	store, err := flowvars.DefaultFlows.Get(id)
+	if err != nil {
+		writeError(w, 500, "Failed to load flow variables")
+		return
+	}
+	handler := NewVariablesHandler(store)
+	switch r.Method {
+	case http.MethodGet:
+		handler.List(w, r)
+	case http.MethodPut:
+		handler.Set(w, r)
+	case http.MethodDelete:
+		handler.Delete(w, r)
+	}
 }
