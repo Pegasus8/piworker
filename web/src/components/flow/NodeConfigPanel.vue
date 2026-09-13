@@ -2,8 +2,11 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useFlowsStore } from '@/stores/flows'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
-import { Button, Input, Textarea, Label, Select, Switch, ScrollArea, Dialog } from '@/components/ui'
+import { Button, Input, Label, Select, Switch, ScrollArea, Dialog } from '@/components/ui'
 import { X, Save, Trash2 } from 'lucide-vue-next'
+import ReferenceInput from './ReferenceInput.vue'
+import { referenceMode, referenceOptions } from '@/lib/references'
+import { useApi } from '@/composables/useApi'
 import NodeDocumentation from './NodeDocumentation.vue'
 import NodePlayground from './NodePlayground.vue'
 import type { NodeTestDraft } from '@/types'
@@ -26,6 +29,27 @@ const localConfig = ref<Record<string, any>>({})
 const selectedNode = computed(() => flowsStore.selectedNode)
 
 // Only processing nodes can be test-run (action/trigger nodes have side effects).
+const api = useApi()
+const variableNames = ref<string[]>([])
+const secretNames = ref<string[]>([])
+const referencesError = ref('')
+let referencesRequest = 0
+async function loadReferences() {
+ const request = ++referencesRequest
+ const result = await Promise.allSettled([api.getVariables(), api.getSecrets()])
+ if (request !== referencesRequest) return
+ variableNames.value = result[0].status === 'fulfilled' ? Object.keys(result[0].value || {}) : []
+ secretNames.value = result[1].status === 'fulfilled' ? result[1].value : []
+ referencesError.value = result.some(r => r.status === 'rejected') ? 'Some references could not be loaded. You can still edit the field.' : ''
+}
+watch(() => selectedNode.value?.id, id => {
+ referencesRequest++; variableNames.value = []; secretNames.value = []; referencesError.value = ''
+ if (id) void loadReferences()
+})
+function fieldReferences(key: string) {
+ const declared = flowsStore.nodes.filter(n => n.data.nodeType === 'set-var').map(n => n.data.config.key).filter(k => typeof k === 'string')
+ return referenceOptions(referenceMode(selectedNode.value?.data.nodeType || '',key), [...new Set([...variableNames.value,...declared])].sort(), secretNames.value)
+}
 const isProcessing = computed(() => selectedNode.value?.data.category === 'process')
 const nodeTypeConfig = computed(() => {
   if (!selectedNode.value) return null
@@ -100,20 +124,22 @@ onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
         <div class="grid min-w-0 gap-6" :class="isProcessing ? 'lg:grid-cols-[minmax(0,0.8fr)_minmax(0,2fr)]' : ''">
         <section class="min-w-0 space-y-4 lg:sticky lg:top-0 lg:self-start">
           <div><h3 class="font-semibold">Configuration</h3><p class="mt-1 text-sm text-muted-foreground">Apply changes to update the draft. Save the flow to keep them.</p></div>
+          <p v-if="referencesError" role="alert" class="text-sm text-destructive">{{ referencesError }} <Button size="sm" variant="outline" @click="loadReferences">Retry references</Button></p>
           <div v-for="field in nodeTypeConfig.configSchema" :key="field.key">
             <Label :for="field.key" class="mb-2 block">
               {{ field.label }}
               <span v-if="field.required" aria-hidden="true" class="text-destructive">*</span>
             </Label>
 
-            <!-- Text Input -->
-            <Input
-              v-if="field.type === 'text' && !['expression', 'condition', 'template'].includes(field.key)"
-              :id="field.key"
-              :aria-required="field.required"
-              :model-value="localConfig[field.key] ?? ''"
+            <ReferenceInput
+              v-if="['text','textarea','cron'].includes(field.type)"
+              :id="field.key" :required="field.required"
+              :model-value="String(localConfig[field.key] ?? '')"
               :placeholder="field.placeholder"
-              @update:model-value="(v) => updateField(field.key, v)"
+              :multiline="field.type === 'textarea' || field.type === 'cron' || ['expression','condition','template'].includes(field.key) || (selectedNode.data.nodeType === 'set-var' && field.key === 'value')"
+              :mode="referenceMode(selectedNode.data.nodeType, field.key)"
+              :options="fieldReferences(field.key)"
+              @update:model-value="v => updateField(field.key, v)"
             />
 
             <!-- Number Input -->
@@ -124,18 +150,6 @@ onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
               type="number"
               :model-value="localConfig[field.key] ?? 0"
               :placeholder="field.placeholder"
-              @update:model-value="(v) => updateField(field.key, v)"
-            />
-
-            <!-- Textarea -->
-            <Textarea
-              v-else-if="field.type === 'textarea' || field.type === 'cron' || ['expression', 'condition', 'template'].includes(field.key)"
-              :id="field.key"
-              :aria-required="field.required"
-              :model-value="localConfig[field.key] ?? ''"
-              :placeholder="field.placeholder"
-              :rows="field.type === 'cron' ? 2 : 5"
-              spellcheck="false"
               @update:model-value="(v) => updateField(field.key, v)"
             />
 

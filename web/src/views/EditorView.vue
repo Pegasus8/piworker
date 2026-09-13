@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import VariablesDialog from '@/components/VariablesDialog.vue'
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { useFlowsStore } from '@/stores/flows'
@@ -36,6 +37,7 @@ const flowsStore = useFlowsStore()
 const obs = useObservabilityStore()
 
 const showSettings = ref(false)
+const showVariables = ref(false)
 const isSaving = ref(false)
 
 const flowId = computed(() => route.params.id as string | undefined)
@@ -184,6 +186,7 @@ function updateFlowDescription(value: string | number) {
     <div v-if="flowsStore.error && !feedback" role="alert" class="px-4 py-2 text-sm text-destructive">Could not load the flow. <Button variant="outline" size="sm" @click="flowId && flowsStore.fetchFlow(flowId)">Retry</Button></div>
     <nav :inert="pending || flowsStore.loading" aria-label="Editor tools" class="flex shrink-0 flex-wrap gap-2 border-b bg-card px-4 py-2">
       <Button class="md:hidden" size="sm" variant="outline" @click="showNodes = true">Add nodes</Button>
+      <Button size="sm" variant="outline" @click="showVariables = true">Variables</Button>
       <Button size="sm" variant="outline" @click="showConnections = true">Connections</Button>
       <Button v-if="flowsStore.nodes.some(n => n.data.nodeType === 'trigger-manual' && n.data.enabled !== false)" size="sm" variant="outline" :disabled="!isRunning || flowsStore.isDirty" :title="!isRunning ? 'Deploy the flow first' : flowsStore.isDirty ? 'Stop and save changes before running manually' : 'Send a message through this flow'" @click="showManualRun = true">Run manually</Button>
       <span class="self-center text-xs text-muted-foreground">{{ flowsStore.nodes.length }} nodes · {{ flowsStore.edges.length }} connections</span>
@@ -208,6 +211,7 @@ function updateFlowDescription(value: string | number) {
     <ActivityPanel />
 
     <ConfirmDialog ref="confirmation" />
+    <VariablesDialog v-model:open="showVariables" />
     <ManualRunDialog v-model:open="showManualRun" />
     <ConnectionsDialog v-model:open="showConnections" />
     <Dialog v-model:open="showNodes" title="Add nodes" class="p-0">

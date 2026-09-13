@@ -87,6 +87,17 @@ export function useApi() {
     return data.data
   }
 
+  async function getVariables(): Promise<Record<string, unknown>> {
+    const { data } = await api.get('/variables')
+    return data.data.variables
+  }
+  async function setVariable(name: string, value: unknown): Promise<void> {
+    await api.put(`/variables/${encodeURIComponent(name)}`, { value })
+  }
+  async function deleteVariable(name: string): Promise<void> {
+    await api.delete(`/variables/${encodeURIComponent(name)}`)
+  }
+
   // Secrets (values are write-only; the listing returns names).
   async function getSecrets(): Promise<string[]> {
     const { data } = await api.get('/secrets')
@@ -258,6 +269,7 @@ export function useApi() {
     exportFlow,
     importFlow,
     // Secrets
+    getVariables, setVariable, deleteVariable,
     getSecrets,
     setSecret,
     deleteSecret,

@@ -55,3 +55,24 @@ test('saved branches execute from the editor and errors remain inspectable after
  await expect(details).toContainText('Transform')
  await page.screenshot({ path: 'test-results/core-run-details.png', fullPage: true })
 })
+
+test('global variables retain JSON types and are used by real node previews without persisting preview writes',async({request})=>{
+ const response=await request.put('/api/variables/threshold',{data:{value:25}})
+ expect(response.status()).toBe(200)
+ const transform=await request.post('/api/nodes/process-transform/test',{data:{config:{expression:'payload + vars["threshold"]'},payload:5}})
+ expect((await transform.json()).data.outputs[0].payload).toBe(30)
+ const template=await request.post('/api/nodes/process-template/test',{data:{config:{template:'Limit: {{vars.threshold}}'},payload:{}}})
+ expect((await template.json()).data.outputs[0].payload).toBe('Limit: 25')
+ await request.post('/api/nodes/set-var/test',{data:{config:{key:'threshold',value:'payload'},payload:100}})
+ expect((await (await request.get('/api/variables')).json()).data.variables.threshold).toBe(25)
+ for(const value of [false,null,{nested:[1,'two']},'text']) {
+  expect((await request.put('/api/variables/typed',{data:{value}})).status()).toBe(200)
+  expect((await (await request.get('/api/variables')).json()).data.variables.typed).toEqual(value)
+ }
+ expect((await request.put('/api/variables/invalid',{data:{}})).status()).toBe(400)
+ await request.put('/api/secrets/PRIVATE',{data:{value:'hidden-value'}})
+ expect(JSON.stringify(await (await request.get('/api/variables')).json())).not.toContain('hidden-value')
+ expect(JSON.stringify(await (await request.get('/api/secrets')).json())).not.toContain('hidden-value')
+ expect((await request.delete('/api/variables/typed')).status()).toBe(200)
+ expect((await (await request.get('/api/variables')).json()).data.variables).not.toHaveProperty('typed')
+})

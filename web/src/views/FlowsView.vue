@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import VariablesDialog from '@/components/VariablesDialog.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFlowsStore } from '@/stores/flows'
@@ -33,6 +34,7 @@ const api = useApi()
 
 const searchQuery = ref('')
 const showSecrets = ref(false)
+const showVariables = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 
 async function handleDuplicate(id: string) {
@@ -134,6 +136,7 @@ async function logout() {
           <h1 class="text-xl font-bold">PiWorker</h1>
         </div>
         <div class="flex flex-wrap items-center gap-2">
+          <Button variant="outline" @click="showVariables = true">Variables</Button>
           <Button variant="outline" @click="showSecrets = true" title="Manage secrets">
             <KeyRound class="mr-2 h-4 w-4" />
             Secrets
@@ -308,6 +311,7 @@ async function logout() {
     <ConfirmDialog ref="confirmation" />
     <!-- Secrets manager -->
     <SecretsDialog v-model:open="showSecrets" />
+    <VariablesDialog v-model:open="showVariables" />
 
     <!-- Hidden file input for flow import -->
     <input
