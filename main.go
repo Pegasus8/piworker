@@ -214,6 +214,7 @@ func main() {
 	// Secrets management (names listable, values write-only).
 	secretsHandler := api.NewSecretsHandler(secrets.DefaultStore, log.Logger)
 	secretsHandler.RegisterRoutes(router)
+	api.NewVariablesHandler(vars.DefaultStore).RegisterRoutes(router)
 
 	healthHandler := api.NewHealthHandler(store)
 	router.HandleFunc("/api/health", healthHandler.Health).Methods(http.MethodGet)
