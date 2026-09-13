@@ -396,27 +396,33 @@ The live **Debug** view is separate and keeps messages only in browser memory.
 
 ### User variables and secrets
 
-Open **Variables** from the flow list or editor to create, edit or delete global
-values. Choose Text or JSON; JSON preserves numbers, booleans, objects, arrays and
-`null`. These variables are shared by all flows and persisted in SQLite. Get/Set
-Variable nodes use the same store. Failed writes leave the previous value intact
+Open **Variables** from the flow list to manage globals. In a saved flow editor,
+choose **This flow** or **Global · all flows** to create, edit or delete values.
+The dialog includes **How to use variables** with syntax and scope examples. Choose Text or JSON; JSON preserves numbers, booleans, objects, arrays and
+`null`. Global variables are shared by all flows; flow variables are isolated by flow ID.
+Both scopes persist in SQLite. Get/Set Variable nodes have an explicit scope
+selector, defaulting to global for existing configurations. Failed writes leave the previous value intact
 and report an error. Changes are read on subsequent node executions; they do not
-restart flows. Variables belong to the installation and are not included in a
-flow export. The `variables` field in the flow model is not an implemented
-per-flow scope.
+restart flows. Saved variable values are not included when exporting or duplicating a flow.
+Configure values for the new flow separately. Deleting a flow deletes its scoped
+values; stopping or redeploying it preserves them. The legacy `variables` field
+in a flow definition remains unused; the dedicated variables API is authoritative.
 
 Use `vars["threshold"]` in Transform, Filter, Switch and Set Variable expressions,
 for example `payload.temperature > vars["threshold"]`. Fields rendered as message
 templates also support `{{vars.threshold}}`. Missing template variables produce an
 empty string; expressions can use defaults, such as `vars["threshold"] ?? 25`.
-Get Variable retains its configured default when the key is absent.
+For flow scope, use `flowVars["threshold"]` in expressions and
+`{{flowVars.threshold}}` in templates. The same name can exist in both scopes;
+there is no fallback from flow to global. Get Variable retains its configured
+default when the key is absent.
 
 Compatible editor fields offer autocomplete, **Insert reference**, and
 **Ctrl+Space**. Use arrow keys and Enter/Tab to select, or Escape to dismiss.
-Get/Set Variable fields insert a name, expression fields insert `vars["name"]`,
-and template fields insert `{{vars.name}}`. Declared Set Variable names are also
-suggested, even before they have a value. Playground tests read copies of global
-variables; testing Set Variable does not mutate live values.
+Get/Set Variable fields suggest names from the selected scope; expression and
+template references distinguish `vars` and `flowVars`. Declared Set Variable
+names are also suggested in their scope, even before they have a value.
+Playground tests read copies of both scopes; testing Set Variable does not mutate live values.
 
 Open **Secrets** in the flow list to store or replace credentials. Its API lists
 only names. In compatible credential fields, autocomplete inserts

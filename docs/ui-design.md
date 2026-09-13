@@ -151,3 +151,17 @@ Names include existing global variables and Set Variable names declared in the
 current draft. A declared name may not have a stored value until its node runs.
 Node previews use isolated variable copies; testing Set Variable does not update
 live state. Variables are not credentials and may appear in payloads and Debug.
+
+
+### Variable scopes
+
+The editor opens Variables in **This flow** scope for saved flows and offers a
+**Global · all flows** selector. A new unsaved flow can manage globals; save it
+before configuring its own variables. Switching scopes confirms discarding an
+unfinished variable draft. Each scope has independent values and autocomplete
+labels, with no implicit fallback. Existing Get/Set nodes default to global.
+
+The **How to use variables** disclosure explains Text/JSON, `vars["name"]` versus
+`flowVars["name"]`, template syntax, missing values, preview isolation and
+persistence. Runtime values are not copied during flow export or duplication;
+this limitation appears in the help. Credentials still belong in Secrets.

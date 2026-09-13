@@ -33,16 +33,16 @@ eliminar por sí solo las advertencias de un certificado autofirmado.
 
 ## Variables y secretos
 
-La gestión de variables globales, las referencias en expresiones/plantillas y el
+La gestión de variables globales y por flujo, las referencias en expresiones/plantillas y el
 selector contextual de nombres están implementados. Queda como ampliación:
 
-- [ ] Definir e implementar un alcance de variables por flujo; el campo del modelo
-  actual no constituye una implementación de ese alcance.
+- [x] Variables por flujo persistentes, selector de alcance, autocompletado y ayuda
+  contextual en la UI. Las referencias globales existentes conservan su significado.
 - [ ] Incorporar referencias a secretos en credenciales HTTP, con pruebas de que
   los valores no aparecen en payloads, previews ni mensajes de error.
 - [ ] Rechazar referencias a secretos inexistentes al desplegar, en lugar de
   resolverlas a una cadena vacía, y mostrar qué flujos usan cada secreto.
 - [ ] Evaluar cifrado de secretos en reposo con gestión y recuperación de claves.
   Actualmente SQLite guarda los valores sin cifrado propio de la aplicación.
-- [ ] Diseñar exportación/restauración explícita de variables globales y secretos;
+- [ ] Diseñar exportación/restauración explícita de variables globales, por flujo y secretos;
   exportar un flujo no incluye los almacenes de la instalación.
