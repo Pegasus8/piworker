@@ -5,7 +5,7 @@ import { Button, Textarea, Input, Label, Select } from '@/components/ui'
 import { FlaskConical, Loader2 } from 'lucide-vue-next'
 import PayloadTree from './PayloadTree.vue'
 import type { NodeTestResult, NodeTestDraft } from '@/types'
-const props = defineProps<{ nodeType: string; config: Record<string, unknown>; draft?: NodeTestDraft }>()
+const props = defineProps<{ flowId?: string; nodeType: string; config: Record<string, unknown>; draft?: NodeTestDraft }>()
 const emit = defineEmits<{ draft: [value: NodeTestDraft] }>()
 const api = useApi()
 const mode = ref<'json' | 'text'>(props.draft?.mode ?? (props.nodeType === 'process-parse' ? 'text' : 'json'))
@@ -59,7 +59,7 @@ async function runTest() {
   controller = new AbortController()
   const currentController = controller
   try {
-    const response = await api.testNode(props.nodeType, JSON.parse(JSON.stringify(props.config)), mode.value === 'json' ? JSON.parse(payload.value) : payload.value, { topic: topic.value, meta: JSON.parse(metadata.value) }, currentController.signal)
+    const response = await api.testNode(props.nodeType, JSON.parse(JSON.stringify(props.config)), mode.value === 'json' ? JSON.parse(payload.value) : payload.value, { flowId: props.flowId, topic: topic.value, meta: JSON.parse(metadata.value) }, currentController.signal)
     if (active && !currentController.signal.aborted) { result.value = response; lastSignature.value = testedSignature }
   } catch (error: any) {
     if (active && !currentController.signal.aborted) {

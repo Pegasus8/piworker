@@ -31,24 +31,26 @@ const selectedNode = computed(() => flowsStore.selectedNode)
 // Only processing nodes can be test-run (action/trigger nodes have side effects).
 const api = useApi()
 const variableNames = ref<string[]>([])
+const flowVariableNames = ref<string[]>([])
 const secretNames = ref<string[]>([])
 const referencesError = ref('')
 let referencesRequest = 0
 async function loadReferences() {
  const request = ++referencesRequest
- const result = await Promise.allSettled([api.getVariables(), api.getSecrets()])
+ const result = await Promise.allSettled([api.getVariables(), api.getSecrets(), flowsStore.currentFlow?.id ? api.getVariables(flowsStore.currentFlow.id) : Promise.resolve({})])
  if (request !== referencesRequest) return
  variableNames.value = result[0].status === 'fulfilled' ? Object.keys(result[0].value || {}) : []
+ flowVariableNames.value = result[2].status === 'fulfilled' ? Object.keys(result[2].value || {}) : []
  secretNames.value = result[1].status === 'fulfilled' ? result[1].value : []
  referencesError.value = result.some(r => r.status === 'rejected') ? 'Some references could not be loaded. You can still edit the field.' : ''
 }
 watch(() => selectedNode.value?.id, id => {
- referencesRequest++; variableNames.value = []; secretNames.value = []; referencesError.value = ''
+ referencesRequest++; variableNames.value = []; flowVariableNames.value = []; secretNames.value = []; referencesError.value = ''
  if (id) void loadReferences()
 })
 function fieldReferences(key: string) {
- const declared = flowsStore.nodes.filter(n => n.data.nodeType === 'set-var').map(n => n.data.config.key).filter(k => typeof k === 'string')
- return referenceOptions(referenceMode(selectedNode.value?.data.nodeType || '',key), [...new Set([...variableNames.value,...declared])].sort(), secretNames.value)
+ const declared = (scope: string) => flowsStore.nodes.filter(n => n.data.nodeType === 'set-var' && (n.data.config.scope || 'global') === scope).map(n => n.data.config.key).filter(k => typeof k === 'string')
+ return referenceOptions(referenceMode(selectedNode.value?.data.nodeType || '',key), [...new Set([...variableNames.value,...declared('global')])].sort(), secretNames.value, [...new Set([...flowVariableNames.value,...declared('flow')])].sort(), localConfig.value.scope || 'global')
 }
 const isProcessing = computed(() => selectedNode.value?.data.category === 'process')
 const nodeTypeConfig = computed(() => {
@@ -184,7 +186,7 @@ onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
           </div>
 
         </section>
-        <NodePlayground v-if="isProcessing" :key="selectedNode.id" :node-type="selectedNode.data.nodeType" :config="localConfig" :draft="playgroundDrafts[selectedNode.id]" @draft="playgroundDrafts[selectedNode.id] = $event" />
+        <NodePlayground :flow-id="flowsStore.currentFlow?.id || undefined" v-if="isProcessing" :key="selectedNode.id" :node-type="selectedNode.data.nodeType" :config="localConfig" :draft="playgroundDrafts[selectedNode.id]" @draft="playgroundDrafts[selectedNode.id] = $event" />
         </div>
       </ScrollArea>
 

@@ -18,10 +18,10 @@ export function referenceMode(nodeType: string, field: string): ReferenceMode {
  if (['get-var','set-var'].includes(nodeType) && field === 'key') return 'name'
 }
 export interface Reference { label: string; value: string; group: string }
-export function referenceOptions(mode: ReferenceMode, names: string[], secrets: string[]): Reference[] {
+export function referenceOptions(mode: ReferenceMode, names: string[], secrets: string[], flowNames: string[] = [], scope = 'global'): Reference[] {
  if (!mode) return []
  if (mode === 'secret') return secrets.map(name => ({ label:name, value:`{{secret.${name}}}`, group:'Secret name' }))
- if (mode === 'name') return names.map(name => ({ label:name, value:name, group:'Global variable' }))
- const globals = names.filter(name => mode !== 'template' || /^[A-Za-z0-9_.-]+$/.test(name)).map(name => ({ label:name, value:mode === 'expression' ? `vars[${JSON.stringify(name)}]` : `{{vars.${name}}}`, group:'Global variable' }))
- return [...globals, ...['payload','topic','meta','id','timestamp'].filter(name => mode !== 'template' || name !== 'meta').map(name => ({label:name,value:mode === 'template' ? `{{${name}}}` : name,group:'Message'}))]
+ if (mode === 'name') return (scope === 'flow' ? flowNames : names).map(name => ({ label:name, value:name, group:scope === 'flow' ? 'Flow variable' : 'Global variable' }))
+ const options = (keys: string[], prefix: string, group: string) => keys.filter(name => mode !== 'template' || /^[A-Za-z0-9_.-]+$/.test(name)).map(name => ({ label:name, value:mode === 'expression' ? `${prefix}[${JSON.stringify(name)}]` : `{{${prefix}.${name}}}`, group }))
+ return [...options(names,'vars','Global variable'), ...options(flowNames,'flowVars','Flow variable'), ...['payload','topic','meta','id','timestamp'].filter(name => mode !== 'template' || name !== 'meta').map(name => ({label:name,value:mode === 'template' ? `{{${name}}}` : name,group:'Message'}))]
 }

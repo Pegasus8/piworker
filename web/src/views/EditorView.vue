@@ -211,7 +211,7 @@ function updateFlowDescription(value: string | number) {
     <ActivityPanel />
 
     <ConfirmDialog ref="confirmation" />
-    <VariablesDialog v-model:open="showVariables" />
+    <VariablesDialog v-model:open="showVariables" :flow-id="flowsStore.currentFlow?.id || undefined" />
     <ManualRunDialog v-model:open="showManualRun" />
     <ConnectionsDialog v-model:open="showConnections" />
     <Dialog v-model:open="showNodes" title="Add nodes" class="p-0">

@@ -7,7 +7,7 @@ test.beforeEach(async ({page})=>{
  page.setDefaultTimeout(5000)
  await page.route('**/api/**',route=>{
   const path=new URL(route.request().url()).pathname
-  const data=path.endsWith('/auth/status')?{enabled:false}:path.endsWith('/variables')?{variables:{threshold:25,'room-name':'office'}}:path.endsWith('/secrets')?{names:['BOT_TOKEN']}:path.endsWith('/node-types')?{nodeTypes:[
+  const data=path.endsWith('/auth/status')?{enabled:false}:path.includes('/flows/') && path.endsWith('/variables')?{variables:{}}:path.endsWith('/variables')?{variables:{threshold:25,'room-name':'office'}}:path.endsWith('/secrets')?{names:['BOT_TOKEN']}:path.endsWith('/node-types')?{nodeTypes:[
    {type:'process-transform',name:'Transform',category:'processing',config:{properties:{expression:{type:'string',title:'Expression'}}}},
    {type:'action-telegram',name:'Telegram',category:'output',config:{properties:{botToken:{type:'string',title:'Bot Token'},message:{type:'string',title:'Message'}}}}
   ]}:path.endsWith('/flows/ref')?{flow:{id:'ref',name:'References',state:'inactive',nodes,connections:[]},running:false}:{flows:[],runs:[]}
@@ -99,4 +99,46 @@ test('mobile variable editing and deletion require explicit confirmation',async(
  await expect(dialog.getByRole('button',{name:'Edit variable threshold'})).toHaveCount(0)
  expect(removed).toBe(1)
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+})
+
+test('flow variables are managed separately with inline documentation and autocomplete',async({page})=>{
+ let local:Record<string,unknown>={limit:7};let saved:any
+ await page.route('**/api/flows/ref/variables**',route=>{
+  if(route.request().method()==='PUT'){saved=route.request().postDataJSON();local.limit=saved.value}
+  return route.fulfill({json:{success:true,data:{variables:local}}})
+ })
+ await page.goto('/editor/ref')
+ await page.getByRole('button',{name:'Variables',exact:true}).click()
+ const dialog=page.getByRole('dialog',{name:'Flow variables',exact:true})
+ await expect(dialog).toContainText('Only this flow')
+ await dialog.getByText('How to use variables', {exact:true}).click()
+ await expect(dialog).toContainText('flowVars["threshold"]')
+ await expect(dialog).toContainText('{{flowVars.threshold}}')
+ await dialog.getByLabel('Variable name',{exact:true}).fill('limit')
+ await dialog.getByLabel('Value format').selectOption('json')
+ await dialog.getByLabel('Variable value',{exact:true}).fill('9')
+ await dialog.getByRole('button',{name:'Save variable'}).click()
+ await page.getByRole('button',{name:'Replace variable',exact:true}).click()
+ await expect(dialog.getByRole('status')).toContainText('Variable saved')
+ expect(saved).toEqual({value:9})
+ await dialog.getByLabel('Variable scope',{exact:true}).selectOption('global')
+ await expect(page.getByRole('dialog',{name:'Global variables',exact:true})).toContainText('threshold')
+ await page.getByRole('button',{name:'Done',exact:true}).click()
+ await page.locator('.vue-flow__node').filter({hasText:'Transform'}).click()
+ const expression=page.getByLabel('Expression',{exact:true})
+ await expression.fill('payload + flowVars.li')
+ await page.getByRole('option',{name:'limit',exact:true}).click()
+ await expect(expression).toHaveValue('payload + flowVars["limit"]')
+})
+
+test('cancelling a scope switch keeps the selected scope and variable draft',async({page})=>{
+ await page.goto('/editor/ref')
+ await page.getByRole('button',{name:'Variables',exact:true}).click()
+ const dialog=page.getByRole('dialog',{name:'Flow variables',exact:true})
+ await dialog.getByLabel('Variable name',{exact:true}).fill('unsaved')
+ await dialog.getByLabel('Variable value',{exact:true}).fill('keep me')
+ await dialog.getByLabel('Variable scope',{exact:true}).selectOption('global')
+ await page.getByRole('dialog',{name:'Discard variable draft?',exact:true}).getByRole('button',{name:'Cancel',exact:true}).click()
+ await expect(dialog.getByLabel('Variable scope',{exact:true})).toHaveValue('flow')
+ await expect(dialog.getByLabel('Variable value',{exact:true})).toHaveValue('keep me')
 })

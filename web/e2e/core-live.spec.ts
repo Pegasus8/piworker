@@ -76,3 +76,44 @@ test('global variables retain JSON types and are used by real node previews with
  expect((await request.delete('/api/variables/typed')).status()).toBe(200)
  expect((await (await request.get('/api/variables')).json()).data.variables).not.toHaveProperty('typed')
 })
+
+test('flow scope connects UI, previews and deployed nodes without touching global values',async({page,request})=>{
+ const created=await request.post('/api/flows',{data:{name:'Scoped variables',nodes:[
+  {id:'manual',type:'trigger-manual',category:'input',config:{payload:'11'},enabled:true,position:{x:100,y:150}},
+  {id:'set',type:'set-var',category:'processing',config:{scope:'flow',key:'threshold',value:'payload.data'},enabled:true,position:{x:350,y:150}},
+  {id:'transform',type:'process-transform',category:'processing',config:{expression:'flowVars.threshold + vars.threshold'},enabled:true,position:{x:600,y:150}}
+ ],connections:[{id:'edge',sourceNode:'manual',sourcePort:'output',targetNode:'set',targetPort:'input'}]}})
+ expect(created.status()).toBe(201)
+ const id=(await created.json()).data.id
+ const path=`/api/flows/${id}/variables`
+ await request.put('/api/variables/threshold',{data:{value:25}})
+ await page.goto(`/editor/${id}`)
+ await page.getByRole('button',{name:'Variables',exact:true}).click()
+ const variables=page.getByRole('dialog',{name:'Flow variables',exact:true})
+ await variables.getByLabel('Variable name',{exact:true}).fill('threshold')
+ await variables.getByLabel('Value format').selectOption('json')
+ await variables.getByLabel('Variable value',{exact:true}).fill('7')
+ await variables.getByRole('button',{name:'Save variable'}).click()
+ await expect(variables.getByRole('status')).toContainText('Variable saved')
+ await variables.getByText('How to use variables',{exact:true}).click()
+ await page.screenshot({path:'test-results/flow-variables-help.png',fullPage:true})
+ await variables.getByRole('button',{name:'Done',exact:true}).click()
+ await page.locator('.vue-flow__node').filter({hasText:'Transform'}).click()
+ const config=page.getByRole('dialog',{name:'Node configuration'})
+ const preview=page.waitForResponse(r=>r.url().includes('/process-transform/test'))
+ await config.getByRole('button',{name:'Test node',exact:true}).click()
+ expect((await (await preview).json()).data.outputs[0].payload).toBe(32)
+ await config.getByRole('button',{name:'Cancel',exact:true}).click()
+ await request.post(`/api/flows/${id}/deploy`)
+ await request.post(`/api/flows/${id}/inject/manual`,{data:{payload:11}})
+ await expect.poll(async()=>(await (await request.get(path)).json()).data.variables.threshold).toBe(11)
+ expect((await (await request.get('/api/variables')).json()).data.variables.threshold).toBe(25)
+ await request.post(`/api/flows/${id}/stop`)
+ expect((await (await request.get(path)).json()).data.variables.threshold).toBe(11)
+ const duplicate=await request.post(`/api/flows/${id}/duplicate`)
+ expect(duplicate.status()).toBe(201)
+ const copy=(await duplicate.json()).data.id
+ expect((await (await request.get(`/api/flows/${copy}/variables`)).json()).data.variables).toEqual({})
+ await request.delete(`/api/flows/${id}`)
+ expect((await request.get(path)).status()).toBe(404)
+})

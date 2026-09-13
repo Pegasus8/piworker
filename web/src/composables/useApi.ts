@@ -87,15 +87,15 @@ export function useApi() {
     return data.data
   }
 
-  async function getVariables(): Promise<Record<string, unknown>> {
-    const { data } = await api.get('/variables')
+  async function getVariables(flowId?: string): Promise<Record<string, unknown>> {
+    const { data } = await api.get(flowId ? `/flows/${encodeURIComponent(flowId)}/variables` : '/variables')
     return data.data.variables
   }
-  async function setVariable(name: string, value: unknown): Promise<void> {
-    await api.put(`/variables/${encodeURIComponent(name)}`, { value })
+  async function setVariable(name: string, value: unknown, flowId?: string): Promise<void> {
+    await api.put(`${flowId ? `/flows/${encodeURIComponent(flowId)}` : ""}/variables/${encodeURIComponent(name)}`, { value })
   }
-  async function deleteVariable(name: string): Promise<void> {
-    await api.delete(`/variables/${encodeURIComponent(name)}`)
+  async function deleteVariable(name: string, flowId?: string): Promise<void> {
+    await api.delete(`${flowId ? `/flows/${encodeURIComponent(flowId)}` : ""}/variables/${encodeURIComponent(name)}`)
   }
 
   // Secrets (values are write-only; the listing returns names).
@@ -136,7 +136,7 @@ export function useApi() {
   }
 
   // Debug: run a single processing node once against a sample payload.
-  async function testNode(nodeType: string, config: Record<string, any>, payload: unknown, context: { topic?: string; meta?: Record<string, unknown> } = {}, signal?: AbortSignal): Promise<NodeTestResult> {
+  async function testNode(nodeType: string, config: Record<string, any>, payload: unknown, context: { flowId?: string; topic?: string; meta?: Record<string, unknown> } = {}, signal?: AbortSignal): Promise<NodeTestResult> {
     const { data } = await api.post(`/nodes/${nodeType}/test`, { config, payload, ...context }, { signal })
     return data.data
   }
