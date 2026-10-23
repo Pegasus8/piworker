@@ -1,3 +1,43 @@
+# Current candidate audit — 2026-10-23
+
+Candidate baseline: `83534cf` on `revival`; remediation is included in the PR.
+The September report below is historical, not a statement about current findings.
+
+## Refreshed results
+
+- `govulncheck` v1.9.0 with CGO enabled initially found 11 reachable standard-library
+  vulnerabilities using Go 1.27.1. Updated Go (go.mod, production/development Docker
+  images and README) to 1.27.3 and x/net from v0.59.0 to v0.60.0.
+- Repeated `govulncheck ./...`: **0 reachable vulnerabilities, 0 imported-package
+  vulnerabilities**, one module-only advisory not called by the application.
+- `bun audit --json` initially flagged braces, follow-redirects,
+  postcss-selector-parser, source-map-js and Vite. Updated packages within existing
+  major ranges, including Vite 7.3.7, and pinned transitive correction ranges using
+  overrides: follow-redirects >=1.16.1, source-map-js >=1.2.2 and
+  postcss-selector-parser >=7.1.7. The parser override crosses its transitive major;
+  TypeScript, production build and browser tests must remain validation gates.
+- Remaining frontend finding: **high severity braces <=3.0.3**,
+  [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm).
+  Registry latest queried during this audit is 3.0.3, so no patched release was
+  available. It is pulled by Tailwind through micromatch/chokidar for build/dev
+  tooling. It is not served as a runtime dependency of the embedded static app.
+  `bun audit` therefore exits 1; this is recorded and not suppressed. Replacing
+  the Tailwind toolchain is a separate change, not an untested security override.
+- Backend `go test -race ./...` passed after updates. Frontend unit tests
+  (5 tests, 20 assertions), TypeScript and production build passed.
+
+## Scope and reproduction
+
+Run `govulncheck ./...` with CGO enabled and the compiler/SDK available, and
+`cd web && bun audit --json`. On this Mac, the default Xcode compiler/Git shims
+were blocked by an unaccepted license. Using the installed Command Line Tools
+compiler, Git and SDK explicitly allowed the full CGO scan and Go race tests.
+This audit does not cover bundled SQLite C advisories, container OS packages,
+malicious packages, or application logic vulnerabilities; see the merge review
+for the separate command-template finding. No claim of zero security risk is made.
+
+---
+
 # Dependency audit and remediation — revival
 
 Date: 2026-09-12. Baseline revision: `5a71c88`. Remediation: `7ba0999` and `918f11f`.
@@ -169,3 +209,11 @@ The historical baseline did not include fixes; the remediation section above
 records the subsequent updates. This audit does not include penetration testing,
 a full bundle reachability analysis, or OS/container vulnerability scanning. Results are a dated
 snapshot and should be refreshed when choosing upgrade versions.
+
+## October validation addendum
+
+After remediation, all 34 Playwright browser tests passed, including the tests
+that build and exercise the real Go backend. Go vet passed as well. The embedded
+frontend was regenerated from the updated lockfile. The initial browser attempt
+failed because Go invoked the Xcode Git shim; the successful run explicitly used
+Command Line Tools Git/compiler/SDK. No test cases were disabled for the refresh.

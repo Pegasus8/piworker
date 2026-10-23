@@ -26,7 +26,7 @@ RUN bun run build
 # =============================================================================
 # Stage 2: Build Backend with Embedded Frontend
 # =============================================================================
-FROM golang:1.27.1-alpine AS backend-builder
+FROM golang:1.27.3-alpine AS backend-builder
 ARG VERSION=dev
 
 # Install build dependencies
