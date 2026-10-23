@@ -2,6 +2,10 @@
 
 Date: 2026-09-12. Baseline revision: `5a71c88`. Remediation: `7ba0999` and `918f11f`.
 
+This report records those revisions, not the current release candidate. Go was
+subsequently moved to 1.27.1; see [Go modernization](go-modernization.md). Test
+counts and scan results below are historical and must be refreshed for release.
+
 ## Remediation update
 
 The baseline below is retained as the pre-update audit. The remediation
@@ -161,6 +165,7 @@ bun pm why defu
 bun pm why nanoid
 ```
 
-This audit does not include penetration testing, a full bundle reachability
-analysis, OS/container vulnerability scanning, or fixes. Audit results are a dated
+The historical baseline did not include fixes; the remediation section above
+records the subsequent updates. This audit does not include penetration testing,
+a full bundle reachability analysis, or OS/container vulnerability scanning. Results are a dated
 snapshot and should be refreshed when choosing upgrade versions.

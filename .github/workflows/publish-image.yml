@@ -38,3 +38,4 @@ jobs:
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           tags: ${{ steps.image.outputs.tags }}
+          build-args: VERSION=${{ github.event.release.tag_name }}

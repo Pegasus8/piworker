@@ -108,6 +108,19 @@ esac
         self.assertIn("User=piworker", unit)
         self.assertIn("enable --now piworker.service", (self.root / "services").read_text())
 
+    def test_local_release_never_downloads_and_requires_version(self):
+        self.env["PIWORKER_RELEASE_DIR"] = str(self.release)
+        self.mock("curl", 'case "$*" in *https:*) exit 99 ;; *) exit 0 ;; esac')
+        self.run_ctl("install", ok=False)
+        self.assertFalse(self.path("/usr/local/bin/piworker").exists())
+        self.run_ctl("install", "v2.0.0")
+
+    def test_local_release_checksum_is_required(self):
+        self.env["PIWORKER_RELEASE_DIR"] = str(self.release)
+        (self.release / "piworker-linux-arm64.tar.gz").write_bytes(b"corrupt")
+        self.run_ctl("install", "v2.0.0", ok=False)
+        self.assertFalse(self.path("/usr/local/bin/piworker").exists())
+
     def test_update_preserves_data_config_and_makes_backup(self):
         self.install()
         self.bundle("new")

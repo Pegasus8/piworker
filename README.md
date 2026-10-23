@@ -15,6 +15,11 @@ A **visual flow-based automation system** for Raspberry Pi and other devices. Cr
 
 ## Quick Start
 
+For maintenance and recovery, see the [operations guide](docs/operations.md).
+For automated checks on a Pi, see the [Pi validation script](docs/raspberry-pi-validation.md#automated-checks-recommended-first).
+See [release notes](CHANGELOG.md) for compatibility limits and the
+[release checklist](docs/release-checklist.md) for publication readiness.
+
 ### Install, update and uninstall (Linux / Raspberry Pi)
 
 The native installer sets up PiWorker as an automatically started systemd service.
@@ -93,6 +98,10 @@ export PIWORKER_ADMIN_PASS='replace-with-a-unique-password'
 These variables never overwrite an existing account. Docker Compose reads them
 from the shell or a local, git-ignored `.env` file. Existing installations keep
 their accounts and password hashes; old JWT sessions require one new login.
+Shell exports do not configure the native systemd service: use its TOML file or
+an explicitly configured systemd environment. Browser setup needs no bootstrap
+credentials. Compatibility with databases from the legacy 2020 release has not
+been validated; keep a full backup and test migration on a copy first.
 
 This README describes the revival branch, including changes not yet released.
 Build from source or use `make docker-build` to try this implementation. Published
@@ -104,6 +113,7 @@ binaries/images may still contain the previous implementation; check their relea
 # Production - single container with everything included
 docker run -d \
   --name piworker \
+  --restart unless-stopped \
   -p 8080:8080 \
   -v piworker-data:/app/data \
   -e PIWORKER_ADMIN_USER -e PIWORKER_ADMIN_PASS \
@@ -114,12 +124,20 @@ docker run -d \
 
 ### Option 2: Pre-built Binary (published releases)
 
-Download the latest release from [Releases](https://github.com/Pegasus8/piworker/releases) and run:
+Download the archive for your CPU and `SHA256SUMS` from the same compatible
+[release](https://github.com/Pegasus8/piworker/releases). For example, on Linux ARM64:
 
 ```bash
-./piworker
+# Use amd64 or arm instead for the other supported CPUs.
+awk '$2 == "./piworker-linux-arm64.tar.gz" || $2 == "piworker-linux-arm64.tar.gz"' SHA256SUMS | sha256sum -c - &&
+tar -xzf piworker-linux-arm64.tar.gz &&
+./piworker-linux-arm64
 # Open http://localhost:8080
 ```
+
+Run from a dedicated directory: manual installations store `piworker.db` in the
+working directory by default. These archive names apply to the new revival releases;
+the legacy 2020 release uses its own packaging.
 
 ### Option 3: Build from Source
 
@@ -419,6 +437,7 @@ cors_origins = ["http://localhost:3000", "http://localhost:8080"]
 ./piworker [flags]
 
 Flags:
+  -version              Print the build version and exit (also accepts --version)
   -config string        Path to TOML config file (default: piworker.toml if present)
   -addr string          HTTP server address (default ":8080")
   -db string            SQLite database path (default "piworker.db")
@@ -549,6 +568,9 @@ If you forget your password, choose **Forgot password?** on the sign-in page.
 On the device hosting PiWorker, run this using the **same database as the server**:
 
 ```bash
+# Native managed service (use the service account to preserve file ownership):
+sudo -u piworker /usr/local/bin/piworker -config /etc/piworker/piworker.toml -db /var/lib/piworker/piworker.db -recover-account YOUR_USERNAME
+# Manual binary:
 ./piworker -db /path/to/piworker.db -recover-account YOUR_USERNAME
 # Docker (container remains running):
 docker exec piworker ./piworker -db /app/data/piworker.db -recover-account YOUR_USERNAME
@@ -651,7 +673,7 @@ preserved during migration.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/health` | Health check |
+| GET | `/api/health` | HTTP 200 when healthy; HTTP 503 when storage is closed |
 
 ---
 
@@ -709,6 +731,12 @@ piworker/
 
 ## Validation and releases
 
+Builds accept `VERSION`, for example `make build-release VERSION=vX.Y.Z`.
+CI injects the tag (or commit SHA for branch builds); Docker publication passes
+the release tag as the `VERSION` build argument. `piworker -version` prints that
+value without loading configuration or opening the database. Direct `go build`
+and Docker builds without an explicit version identify themselves as `dev`.
+
 CI runs on pull requests and pushes to `master`, `main`, and `revival`. It checks
 the installer lifecycle with isolated OS/download fixtures and ShellCheck,
 Go formatting, `go vet`, race-enabled tests, frontend unit/browser tests and typechecking/build, Linux
@@ -718,9 +746,12 @@ and SHA256 checksums are available as workflow artifacts.
 Pushing a `v*` tag runs the same checks and prepares a **draft GitHub release**.
 Review the binaries before publishing the draft. Publishing a release triggers
 GHCR image publication for amd64, arm64, and ARMv7; stable releases also update
-`latest`. Make the GHCR package public for anonymous pulls. Install these
-workflows on the default branch before the first release. Creating or editing
-these files locally does not publish anything.
+`latest`. Make the GHCR package public for anonymous pulls. The release tag must
+point to a commit containing both workflows. Publish the draft manually in GitHub;
+publishing it from another workflow with `GITHUB_TOKEN` does not trigger the image
+workflow. See the [release checklist](docs/release-checklist.md) for the complete
+sequence and GitHub event references. Creating or editing these files locally
+does not publish anything.
 
 Dependabot monitors Go modules, the Bun lockfile in `web/`, and GitHub Actions.
 

@@ -24,6 +24,8 @@ GOFMT=gofmt
 # Build output
 BINARY_NAME=piworker
 BUILD_DIR=build
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS = -X main.version=$(VERSION)
 
 # Linux cross-compilers (override with cc when building on the target itself).
 LINUX_CC ?= x86_64-linux-gnu-gcc
@@ -41,16 +43,16 @@ all: test build
 ## Build targets
 
 build: ## Build the binary
-	CGO_ENABLED=1 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME) .
+	CGO_ENABLED=1 $(GOBUILD) -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) .
 
 build-linux: frontend-embed ## Build for Linux
-	CGO_ENABLED=1 CC="$(LINUX_CC)" GOOS=linux GOARCH=amd64 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 .
+	CGO_ENABLED=1 CC="$(LINUX_CC)" GOOS=linux GOARCH=amd64 $(GOBUILD) -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 .
 
 build-arm: frontend-embed ## Build for ARM (Raspberry Pi)
-	CGO_ENABLED=1 CC="$(ARM_CC)" GOOS=linux GOARCH=arm GOARM=7 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm .
+	CGO_ENABLED=1 CC="$(ARM_CC)" GOOS=linux GOARCH=arm GOARM=7 $(GOBUILD) -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm .
 
 build-arm64: frontend-embed ## Build for ARM64
-	CGO_ENABLED=1 CC="$(ARM64_CC)" GOOS=linux GOARCH=arm64 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 .
+	CGO_ENABLED=1 CC="$(ARM64_CC)" GOOS=linux GOARCH=arm64 $(GOBUILD) -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 .
 
 ## Test targets
 
@@ -176,7 +178,7 @@ docs: ## Generate documentation (requires godoc)
 ## Docker targets
 
 docker-build: ## Build production Docker image
-	docker build --build-arg BUILDPLATFORM="$$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')" -t piworker:latest .
+	docker build --build-arg VERSION="$(VERSION)" --build-arg BUILDPLATFORM="$$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')" -t piworker:latest .
 
 docker-run: docker-build ## Build and run production container
 	docker run -d --name piworker -p 8080:8080 -v piworker-data:/app/data -e PIWORKER_ADMIN_USER -e PIWORKER_ADMIN_PASS piworker:latest
@@ -239,7 +241,7 @@ build-all: frontend-embed ## Build everything (frontend + backend)
 	@echo "Full build complete: $(BUILD_DIR)/$(BINARY_NAME)"
 
 build-release: frontend-embed ## Build release binary with embedded frontend
-	CGO_ENABLED=1 $(GOBUILD) -ldflags="-w -s" -o $(BUILD_DIR)/$(BINARY_NAME) .
+	CGO_ENABLED=1 $(GOBUILD) -ldflags="-w -s $(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) .
 	@echo "Release binary: $(BUILD_DIR)/$(BINARY_NAME)"
 
 ## Help target

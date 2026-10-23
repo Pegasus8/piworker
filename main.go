@@ -32,8 +32,12 @@ import (
 	_ "github.com/Pegasus8/piworker/internal/node/builtin"
 )
 
+// Set by release builds with -ldflags "-X main.version=<tag>".
+var version = "dev"
+
 // Configuration flags
 var (
+	showVersion    = flag.Bool("version", false, "Print PiWorker version and exit")
 	sessionSecure  = flag.Bool("session-secure", false, "Require HTTPS for session cookies (env: PIWORKER_SESSION_SECURE)")
 	recoveryUser   = flag.String("recover-account", "", "Generate a one-use password recovery code for this username, then exit")
 	setupCode      = flag.Bool("setup-code", false, "Generate a new first-installation setup code, then exit")
@@ -50,6 +54,10 @@ var (
 
 func main() {
 	flag.Parse()
+	if *showVersion {
+		fmt.Printf("PiWorker %s\n", version)
+		return
+	}
 
 	// Load configuration: defaults < TOML file < env vars < explicit flags.
 	cfg, err := config.Load(config.ResolveConfigPath(*configPath))
@@ -62,7 +70,7 @@ func main() {
 	setupLogging(cfg.Debug)
 
 	log.Info().
-		Str("version", "1.0.0").
+		Str("version", version).
 		Str("addr", cfg.Addr).
 		Str("db", cfg.DBPath).
 		Msg("Starting PiWorker")

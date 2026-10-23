@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+
 jobs:
   checks:
     runs-on: ubuntu-22.04

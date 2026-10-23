@@ -1,5 +1,5 @@
 # PiWorker Production Dockerfile
-# Multi-stage build: Node.js (frontend) → Go (backend + embed) → Runtime
+# Multi-stage build: Bun (frontend) → Go (backend + embed) → Runtime
 
 # =============================================================================
 # Stage 1: Build Frontend with Bun
@@ -27,6 +27,7 @@ RUN bun run build
 # Stage 2: Build Backend with Embedded Frontend
 # =============================================================================
 FROM golang:1.27.1-alpine AS backend-builder
+ARG VERSION=dev
 
 # Install build dependencies
 RUN apk add --no-cache gcc musl-dev
@@ -46,7 +47,7 @@ COPY --from=frontend-builder /app/web/dist ./internal/webui/dist
 # Build the binary
 # CGO is needed for SQLite
 RUN CGO_ENABLED=1 GOOS=linux go build \
-    -ldflags="-w -s -X main.version=$(git describe --tags --always 2>/dev/null || echo 'dev')" \
+    -ldflags="-w -s -X main.version=${VERSION}" \
     -o piworker .
 
 # =============================================================================

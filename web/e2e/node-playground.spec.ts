@@ -100,3 +100,13 @@ test('mobile playground handles failures and keeps its sample after closing the 
  await expect(page.getByRole('textbox', { name: 'Input payload', exact: true })).toHaveValue('{"hello":"lab"}')
  await expect(page.getByRole('alert')).toHaveCount(0)
 })
+
+test('a configured node remains reachable when the editor becomes narrower', async ({ page }) => {
+ await page.getByRole('button', { name: 'Close configuration' }).click()
+ // Wait for the initial desktop layout before simulating a window resize.
+ await expect.poll(async () => (await page.locator('.vue-flow__node').boundingBox())?.x).toBeGreaterThan(375)
+ await page.setViewportSize({ width: 375, height: 812 })
+ await expect(page.locator('.vue-flow__node')).toBeInViewport()
+ await page.locator('.vue-flow__node').click()
+ await expect(page.getByRole('dialog', { name: 'Node configuration' })).toBeVisible()
+})

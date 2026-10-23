@@ -500,7 +500,7 @@ func TestHealthEndpoint(t *testing.T) {
 
 		rr := performRequest(server, "GET", "/api/health", nil)
 
-		assert.Equal(t, http.StatusOK, rr.Code)
+		assert.Equal(t, http.StatusServiceUnavailable, rr.Code)
 
 		var response map[string]string
 		json.Unmarshal(rr.Body.Bytes(), &response)

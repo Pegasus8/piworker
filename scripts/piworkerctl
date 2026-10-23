@@ -25,6 +25,7 @@ Uninstall preserves accounts, flows, configuration and backups.
 Requires Linux with systemd, glibc 2.35+, curl and tar.
 Supports x86_64, aarch64 and ARMv7 (not ARMv6).
 Set PIWORKER_HEALTH_URL if you change the default HTTP address.
+Set PIWORKER_RELEASE_DIR to use local release files (explicit vVERSION required).
 EOF
 }
 
@@ -86,8 +87,9 @@ if [ "$action" = uninstall ]; then
 fi
 if [ "$managed" = 0 ]; then
     [ "$action" != update ] || die "PiWorker is not installed. Run install first."
-    [ ! -e "$BIN/piworker" ] && [ ! -e "$UNIT" ] && [ ! -e "$BIN/piworkerctl" ] ||
+    if [ -e "$BIN/piworker" ] || [ -e "$UNIT" ] || [ -e "$BIN/piworkerctl" ]; then
         die "An unmanaged installation exists. Move it aside before installing; its data is not migrated automatically."
+    fi
 fi
 
 case "$(uname -m)" in
@@ -108,15 +110,24 @@ else
 fi
 download() { curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 "$@"; }
 work=$(mktemp -d)
+if [ -n "${PIWORKER_RELEASE_DIR:-}" ] && [ -z "$version" ]; then
+    die "Local releases require an explicit vVERSION."
+fi
 if [ -z "$version" ]; then
     resolved=$(download -o /dev/null -w '%{url_effective}' "$RELEASES/latest")
     version=${resolved##*/}
     [[ "$version" =~ ^v[0-9][a-zA-Z0-9.+-]*$ ]] || die "Could not resolve a stable release. Specify vVERSION."
 fi
 archive=piworker-linux-$arch.tar.gz
-echo "Downloading PiWorker $version ($arch)..."
-download "$RELEASES/download/$version/$archive" -o "$work/$archive"
-download "$RELEASES/download/$version/SHA256SUMS" -o "$work/SHA256SUMS"
+if [ -n "${PIWORKER_RELEASE_DIR:-}" ]; then
+    echo "Reading local PiWorker $version ($arch)..."
+    cp "$PIWORKER_RELEASE_DIR/$archive" "$work/$archive"
+    cp "$PIWORKER_RELEASE_DIR/SHA256SUMS" "$work/SHA256SUMS"
+else
+    echo "Downloading PiWorker $version ($arch)..."
+    download "$RELEASES/download/$version/$archive" -o "$work/$archive"
+    download "$RELEASES/download/$version/SHA256SUMS" -o "$work/SHA256SUMS"
+fi
 # Check exactly the requested archive; manifests contain other architectures too.
 expected=$(awk -v file="$archive" '$2 == file || $2 == "./" file {print $1}' "$work/SHA256SUMS")
 [[ "$expected" =~ ^[a-fA-F0-9]{64}$ ]] || die "Release checksum missing or ambiguous for $archive."

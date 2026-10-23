@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { validConnection } from '@/lib/ports'
-import { ref, onMounted, watch, markRaw, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, watch, markRaw, nextTick } from 'vue'
 import { VueFlow, useVueFlow, ConnectionMode } from '@vue-flow/core'
 import type { NodeTypesObject } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
@@ -165,11 +165,26 @@ function minimapNodeColor(node: any): string {
   }
 }
 
+let resizeObserver: ResizeObserver | undefined
+let resizeFrame = 0
+let initialFit: ReturnType<typeof setTimeout> | undefined
 onMounted(() => {
+  // Keep the graph reachable when a sidebar or a smaller screen changes the
+  // canvas size. Wait a frame for Vue Flow's own dimensions to update first.
+  resizeObserver = new ResizeObserver(() => {
+    cancelAnimationFrame(resizeFrame)
+    resizeFrame = requestAnimationFrame(() => fitView({ padding: 0.3, maxZoom: 1 }))
+  })
+  if (flowContainer.value) resizeObserver.observe(flowContainer.value)
   // Initial fit
-  setTimeout(() => {
+  initialFit = setTimeout(() => {
     fitView({ padding: 0.3, maxZoom: 1 })
   }, 100)
+})
+onUnmounted(() => {
+  resizeObserver?.disconnect()
+  cancelAnimationFrame(resizeFrame)
+  clearTimeout(initialFit)
 })
 </script>
 

@@ -541,11 +541,13 @@ func NewHealthHandler(store *storage.SQLiteStore) *HealthHandler {
 // GET /api/health
 func (h *HealthHandler) Health(w http.ResponseWriter, r *http.Request) {
 	status := "healthy"
+	code := http.StatusOK
 	if h.store != nil && h.store.IsClosed() {
 		status = "unhealthy"
+		code = http.StatusServiceUnavailable
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
+	writeJSON(w, code, map[string]string{
 		"status": status,
 	})
 }

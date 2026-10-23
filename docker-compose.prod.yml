@@ -13,7 +13,7 @@ services:
     volumes:
       - piworker-data:/app/data
     environment:
-      # Required on first boot; existing users are preserved on restart.
+      # Optional first-account bootstrap; otherwise use the setup code in logs.
       - PIWORKER_ADMIN_USER=${PIWORKER_ADMIN_USER:-}
       - PIWORKER_ADMIN_PASS=${PIWORKER_ADMIN_PASS:-}
       - TZ=America/Argentina/Buenos_Aires
