@@ -87,20 +87,20 @@ func (p *DebugProcess) Process(ctx context.Context, msg *types.Message) ([]*type
 // Ports returns the port definitions for this node.
 func (p *DebugProcess) Ports() (inputs []types.Port, outputs []types.Port) {
 	return []types.Port{
-			{
-				ID:       "input",
-				Name:     "Input",
-				DataType: types.DataTypeAny,
-				Required: true,
-			},
-		}, []types.Port{
-			{
-				ID:       "output",
-				Name:     "Output",
-				DataType: types.DataTypeAny,
-				Multiple: true,
-			},
-		}
+		{
+			ID:       "input",
+			Name:     "Input",
+			DataType: types.DataTypeAny,
+			Required: true,
+		},
+	}, []types.Port{
+		{
+			ID:       "output",
+			Name:     "Output",
+			DataType: types.DataTypeAny,
+			Multiple: true,
+		},
+	}
 }
 
 // Validate checks if the configuration is valid.
