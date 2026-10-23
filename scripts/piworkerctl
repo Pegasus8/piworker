@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+# Manage the native Linux/systemd installation. No build tools required.
+set -Eeuo pipefail
+umask 077
+
+BIN=/usr/local/bin
+CONFIG=/etc/piworker
+DATA=/var/lib/piworker
+BACKUPS=/var/backups/piworker
+UNIT=/etc/systemd/system/piworker.service
+LOCK=/run/lock/piworker-install.lock
+RELEASES=https://github.com/Pegasus8/piworker/releases
+HEALTH_URL=${PIWORKER_HEALTH_URL:-http://127.0.0.1:8080/api/health}
+work='' backup='' rollback=0
+
+die() { echo "PiWorker: $*" >&2; exit 1; }
+usage() {
+    cat <<'EOF'
+Usage: sudo piworkerctl install [vVERSION]
+       sudo piworkerctl update [vVERSION]
+       sudo piworkerctl uninstall
+
+Install/update defaults to the latest stable GitHub release.
+Uninstall preserves accounts, flows, configuration and backups.
+Requires Linux with systemd, glibc 2.35+, curl and tar.
+Supports x86_64, aarch64 and ARMv7 (not ARMv6).
+Set PIWORKER_HEALTH_URL if you change the default HTTP address.
+Set PIWORKER_RELEASE_DIR to use local release files (explicit vVERSION required).
+EOF
+}
+
+action=${1:-help}
+version=${2:-}
+case "$action" in
+    help|-h|--help) usage; exit 0 ;;
+    install|update) [ "$#" -le 2 ] || die "Too many arguments." ;;
+    uninstall) [ "$#" -eq 1 ] || die "Uninstall takes no options; data is always preserved." ;;
+    *) usage >&2; exit 1 ;;
+esac
+if [ -n "$version" ]; then
+    [[ "$version" =~ ^v[0-9][a-zA-Z0-9.+-]*$ ]] || die "Invalid release tag: $version"
+fi
+[ "$(uname -s)" = Linux ] || die "Use Docker on macOS/Windows; this installer requires Linux."
+[ "$(id -u)" = 0 ] || die "Run with sudo (administrator privileges are required)."
+command -v systemctl >/dev/null || die "systemd is required."
+mkdir -p "${LOCK%/*}"
+mkdir "$LOCK" 2>/dev/null || die "Another lifecycle operation is running (lock: $LOCK)."
+
+cleanup() {
+    local result=$?
+    trap - EXIT
+    set +e
+    if [ "$rollback" = 1 ]; then
+        echo "Update failed. Restoring binary and data from $backup" >&2
+        # Never restore a database while its process might still be writing.
+        if systemctl stop piworker.service; then
+            if cp -p "$backup/piworker" "$BIN/piworker.restore" &&
+               mv "$DATA" "$backup/failed-data" &&
+               cp -a "$backup/data" "$DATA" &&
+               mv -f "$BIN/piworker.restore" "$BIN/piworker"; then
+                systemctl start piworker.service || echo "Recovery could not start the service; inspect journalctl -u piworker." >&2
+            else
+                echo "Recovery failed. Service left stopped; restore manually from $backup." >&2
+            fi
+        else
+            echo "Cannot stop service. Restore manually from $backup before restarting." >&2
+        fi
+    fi
+    [ -z "$work" ] || rm -rf "$work"
+    rm -f "$BIN/piworker.new" "$BIN/piworkerctl.new"
+    rmdir "$LOCK"
+    exit "$result"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+managed=0
+[ ! -f "$CONFIG/installed-version" ] || managed=1
+if [ "$action" = uninstall ]; then
+    [ "$managed" = 1 ] || die "No managed installation found; refusing to remove a manual installation."
+    systemctl disable --now piworker.service
+    rm -f "$UNIT" "$BIN/piworker" "$BIN/piworkerctl" "$CONFIG/installed-version"
+    systemctl daemon-reload
+    echo "PiWorker uninstalled. Data: $DATA; configuration: $CONFIG; backups: $BACKUPS."
+    exit 0
+fi
+if [ "$managed" = 0 ]; then
+    [ "$action" != update ] || die "PiWorker is not installed. Run install first."
+    if [ -e "$BIN/piworker" ] || [ -e "$UNIT" ] || [ -e "$BIN/piworkerctl" ]; then
+        die "An unmanaged installation exists. Move it aside before installing; its data is not migrated automatically."
+    fi
+fi
+
+case "$(uname -m)" in
+    x86_64|amd64) arch=amd64 ;;
+    aarch64|arm64) arch=arm64 ;;
+    armv7l|armv8l) arch=arm ;;
+    *) die "Unsupported CPU architecture: $(uname -m). ARMv6 is not supported." ;;
+esac
+for dependency in curl tar install useradd; do
+    command -v "$dependency" >/dev/null || die "Missing $dependency. Install it with your OS package manager first."
+done
+if command -v sha256sum >/dev/null; then
+    checksum=(sha256sum)
+elif command -v shasum >/dev/null; then
+    checksum=(shasum -a 256)
+else
+    die "Install sha256sum or shasum to verify downloads."
+fi
+download() { curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --connect-timeout 15 --max-time 300 "$@"; }
+work=$(mktemp -d)
+if [ -n "${PIWORKER_RELEASE_DIR:-}" ] && [ -z "$version" ]; then
+    die "Local releases require an explicit vVERSION."
+fi
+if [ -z "$version" ]; then
+    resolved=$(download -o /dev/null -w '%{url_effective}' "$RELEASES/latest")
+    version=${resolved##*/}
+    [[ "$version" =~ ^v[0-9][a-zA-Z0-9.+-]*$ ]] || die "Could not resolve a stable release. Specify vVERSION."
+fi
+archive=piworker-linux-$arch.tar.gz
+if [ -n "${PIWORKER_RELEASE_DIR:-}" ]; then
+    echo "Reading local PiWorker $version ($arch)..."
+    cp "$PIWORKER_RELEASE_DIR/$archive" "$work/$archive"
+    cp "$PIWORKER_RELEASE_DIR/SHA256SUMS" "$work/SHA256SUMS"
+else
+    echo "Downloading PiWorker $version ($arch)..."
+    download "$RELEASES/download/$version/$archive" -o "$work/$archive"
+    download "$RELEASES/download/$version/SHA256SUMS" -o "$work/SHA256SUMS"
+fi
+# Check exactly the requested archive; manifests contain other architectures too.
+expected=$(awk -v file="$archive" '$2 == file || $2 == "./" file {print $1}' "$work/SHA256SUMS")
+[[ "$expected" =~ ^[a-fA-F0-9]{64}$ ]] || die "Release checksum missing or ambiguous for $archive."
+actual=$("${checksum[@]}" "$work/$archive")
+[ "${actual%% *}" = "$expected" ] || die "Checksum mismatch; existing installation was not changed."
+# Extract only known regular files, never an entire remote archive as root.
+for member in "piworker-linux-$arch" piworkerctl; do
+    tar -xOzf "$work/$archive" "$member" > "$work/$member"
+    [ -s "$work/$member" ] || die "Release is missing $member."
+done
+chmod 755 "$work/piworker-linux-$arch"
+bash -n "$work/piworkerctl"
+"$work/piworker-linux-$arch" -h >/dev/null 2>&1 || die "Binary cannot run on this OS. Linux with glibc 2.35+ is required."
+
+install -d -m 755 "$BIN" "${UNIT%/*}"
+mkdir -p "$CONFIG"
+if ! id piworker >/dev/null 2>&1; then
+    useradd --system --user-group --home-dir "$DATA" --no-create-home --shell /usr/sbin/nologin piworker
+fi
+install -d -m 750 "$DATA"
+chown piworker:piworker "$DATA"
+if [ ! -f "$CONFIG/piworker.toml" ]; then
+    cat > "$CONFIG/piworker.toml" <<'EOF'
+addr = ":8080"
+auth = true
+EOF
+fi
+chown root:piworker "$CONFIG" "$CONFIG/piworker.toml"
+chmod 750 "$CONFIG"
+chmod 640 "$CONFIG/piworker.toml"
+
+if [ "$managed" = 1 ]; then
+    [ -f "$BIN/piworker" ] || die "Managed binary is missing. Restore it from a backup first."
+    mkdir -p "$BACKUPS"
+    backup=$(mktemp -d "$BACKUPS/$(date +%Y%m%d-%H%M%S).XXXXXX")
+    systemctl stop piworker.service
+    # Copy the whole stopped data directory, including SQLite WAL and sidecars.
+    if ! cp -a "$DATA" "$backup/data" || ! cp -p "$BIN/piworker" "$backup/piworker" ||
+       ! cp -a "$CONFIG" "$backup/config"; then
+        systemctl start piworker.service
+        die "Backup failed. Existing version restarted."
+    fi
+    rollback=1
+    echo "Backup: $backup"
+else
+    cat > "$UNIT" <<EOF
+[Unit]
+Description=PiWorker Automation System
+After=network.target
+
+[Service]
+Type=simple
+User=piworker
+Group=piworker
+WorkingDirectory=$DATA
+ExecStart=$BIN/piworker -config $CONFIG/piworker.toml -db $DATA/piworker.db
+Restart=on-failure
+RestartSec=5
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    chmod 644 "$UNIT"
+fi
+install -m 755 "$work/piworker-linux-$arch" "$BIN/piworker.new"
+mv -f "$BIN/piworker.new" "$BIN/piworker"
+systemctl daemon-reload
+if [ "$managed" = 1 ]; then
+    systemctl restart piworker.service
+else
+    # Mark before startup so a failed first boot can be retried or uninstalled.
+    printf '%s\n' "$version" > "$CONFIG/installed-version"
+    install -m 755 "$work/piworkerctl" "$BIN/piworkerctl"
+    systemctl enable --now piworker.service
+fi
+healthy=0
+for ((attempt=0; attempt<15; attempt++)); do
+    if systemctl is-active --quiet piworker.service &&
+       curl --fail --silent --show-error --noproxy '*' --connect-timeout 2 --max-time 3 "$HEALTH_URL" >/dev/null 2>&1; then
+        healthy=1
+        break
+    fi
+    sleep 1
+done
+[ "$healthy" = 1 ] || die "Health check failed at $HEALTH_URL. Inspect journalctl -u piworker."
+install -m 755 "$work/piworkerctl" "$BIN/piworkerctl.new"
+mv -f "$BIN/piworkerctl.new" "$BIN/piworkerctl"
+printf '%s\n' "$version" > "$CONFIG/installed-version"
+rollback=0
+echo "PiWorker $version is running. Open http://<device-address>:8080 (or your configured address)."
+echo "First setup code: sudo journalctl -u piworker -n 50 --no-pager"
+echo "Update: sudo piworkerctl update | Uninstall (keep data): sudo piworkerctl uninstall"

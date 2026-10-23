@@ -1,0 +1,148 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+    --radius: 0.75rem;
+
+    /* Node colors */
+    --trigger: 38 92% 50%;
+    --trigger-foreground: 0 0% 100%;
+    --process: 217 91% 60%;
+    --process-foreground: 0 0% 100%;
+    --action: 270 76% 60%;
+    --action-foreground: 0 0% 100%;
+  }
+
+  .dark {
+    --background: 222 32% 8%;
+    --foreground: 210 24% 94%;
+    --card: 222 26% 12%;
+    --card-foreground: 210 24% 94%;
+    --popover: 222 26% 12%;
+    --popover-foreground: 210 24% 94%;
+    --primary: 163 70% 65%;
+    --primary-foreground: 222 40% 10%;
+    --secondary: 222 23% 18%;
+    --secondary-foreground: 210 24% 94%;
+    --muted: 222 23% 16%;
+    --muted-foreground: 215 17% 70%;
+    --accent: 222 23% 22%;
+    --accent-foreground: 210 24% 94%;
+    --destructive: 0 78% 70%;
+    --destructive-foreground: 222 40% 10%;
+    --border: 222 20% 23%;
+    --input: 222 20% 28%;
+    --ring: 163 70% 65%;
+
+    /* Node colors - dark mode */
+    --trigger: 38 92% 50%;
+    --trigger-foreground: 0 0% 100%;
+    --process: 217 91% 60%;
+    --process-foreground: 0 0% 100%;
+    --action: 270 76% 60%;
+    --action-foreground: 0 0% 100%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* Vue Flow Customizations */
+.vue-flow {
+  background-color: hsl(var(--background));
+}
+
+.vue-flow__node {
+  @apply rounded-lg shadow-lg;
+}
+
+.vue-flow__edge-path {
+  stroke: hsl(var(--muted-foreground));
+  stroke-width: 2;
+}
+
+.vue-flow__edge.selected .vue-flow__edge-path,
+.vue-flow__edge:hover .vue-flow__edge-path {
+  stroke: hsl(var(--primary));
+}
+
+.vue-flow__handle {
+  @apply w-3 h-3 rounded-full border-2 border-background;
+  background-color: hsl(var(--muted-foreground));
+}
+
+.vue-flow__handle:hover {
+  background-color: hsl(var(--primary));
+}
+
+.vue-flow__minimap {
+  @apply rounded-lg overflow-hidden;
+  background-color: hsl(var(--card));
+}
+
+.vue-flow__controls {
+  @apply rounded-lg overflow-hidden;
+  background-color: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+}
+
+.vue-flow__controls-button {
+  @apply border-none;
+  background-color: hsl(var(--card));
+  color: hsl(var(--foreground));
+}
+
+.vue-flow__controls-button:hover {
+  background-color: hsl(var(--accent));
+}
+
+.vue-flow__background-pattern {
+  stroke: hsl(var(--border));
+}
+
+/* Friendly laboratory: quiet surfaces, expressive actions. */
+@layer base {
+  body { -webkit-font-smoothing: antialiased; }
+  h1, h2, h3 { letter-spacing: -0.025em; }
+  :focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
+  ::selection { background: hsl(var(--primary) / .25); }
+  button, input, textarea, select { transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease; }
+}
+.lab-button { transition: background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
+.lab-button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
+.lab-page { animation: lab-enter 240ms ease-out both; }
+.lab-empty { background-image: radial-gradient(hsl(var(--border)) 1px, transparent 1px); background-size: 24px 24px; }
+.lab-dialog { color: hsl(var(--foreground)); animation: lab-enter 180ms ease-out; }
+.lab-dialog::backdrop { background: rgb(0 0 0 / .65); backdrop-filter: blur(5px); }
+@keyframes lab-enter { from { opacity: 0; translate: 0 6px; } to { opacity: 1; translate: 0 0; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

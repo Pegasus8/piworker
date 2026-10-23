@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+#
+# Pre-commit hook: auto-format staged Go files before committing.
+#
+# Runs gofmt (or goimports, if installed) on every staged .go file and re-stages
+# the result, so committed Go code is always formatted. Install with:
+#
+#     make hooks-install
+#
+set -euo pipefail
+
+# Staged Go files (added/copied/modified), excluding deletions.
+files=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
+[ -z "$files" ] && exit 0
+
+# Prefer goimports (also tidies imports) when available, otherwise gofmt.
+if command -v goimports >/dev/null 2>&1; then
+  formatter="goimports"
+else
+  formatter="gofmt"
+fi
+
+count=0
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  [ -f "$f" ] || continue
+  "$formatter" -w "$f"
+  git add "$f"
+  count=$((count + 1))
+done <<< "$files"
+
+if [ "$count" -gt 0 ]; then
+  echo "pre-commit: formatted and re-staged $count Go file(s) with $formatter"
+fi
+
+exit 0
