@@ -6,7 +6,7 @@ release tooling. This review covers the full PR scope by area; generated bundles
 and removed legacy files were assessed as replacements, not individually audited
 as new application logic. It is not a guarantee that every defect was found.
 
-## Open blocking finding
+## Resolved security finding
 
 **[P1] Quoted command placeholders permit shell substitution.**
 `internal/node/builtin/action_command.go`, `expandVariables` and `shellEscape`:
@@ -23,7 +23,22 @@ the service account. Existing unquoted-placeholder escaping tests do not establi
 safety in quoted contexts. Before merge, add a failing regression covering actual
 execution with quoted payload/topic/meta placeholders and implement a safe binding
 or validation strategy, including quote/backtick/command-substitution contexts.
-The finding is deliberately open; this PR must remain a draft until resolved.
+Resolved by passing placeholder values as separate positional arguments and
+using `mvdan.cc/sh/v3/syntax` to identify ordinary unquoted/single-quoted/double-quoted
+word contexts. Values never become shell source and are not recursively expanded.
+Unsupported expansions, arithmetic, here-documents/strings and escaped placeholders
+are rejected both during deployment validation and before execution. NUL is rejected.
+
+The new real-shell regression tests failed before implementation (including the
+injection and recursive-expansion cases), then passed after the fix. They cover
+payload/topic/metadata, both quote styles, unquoted/adjacent words, shell operators,
+backticks, dollar substitutions, many arguments and byte payloads. Rejected
+contexts are checked for absence of preceding command side effects.
+
+The command template remains trusted shell code: explicit eval/another interpreter
+can deliberately reinterpret values, and positional parameters are reserved for
+bindings. The output's `command` field now returns the configured template, not
+message values. The PR remains a draft at the owner's request.
 
 ## Areas reviewed
 

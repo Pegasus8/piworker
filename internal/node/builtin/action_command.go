@@ -54,11 +54,15 @@ func (a *CommandAction) Process(ctx context.Context, msg *types.Message) ([]*typ
 	execCtx, cancel := context.WithTimeout(ctx, a.timeout)
 	defer cancel()
 
-	// Expand variables in the command
-	expandedCommand := a.expandVariables(a.command, msg)
+	// Bind values as data, never as shell source.
+	expandedCommand, values, err := bindCommand(a.command, msg)
+	if err != nil {
+		return nil, err
+	}
 
 	// Execute the command
-	cmd := exec.CommandContext(execCtx, a.shell, "-c", expandedCommand)
+	args := append([]string{"-c", expandedCommand, a.shell}, values...)
+	cmd := exec.CommandContext(execCtx, a.shell, args...)
 	isolateCommand(cmd)
 
 	var stdout, stderr bytes.Buffer
@@ -66,7 +70,7 @@ func (a *CommandAction) Process(ctx context.Context, msg *types.Message) ([]*typ
 	cmd.Stderr = &stderr
 
 	startTime := time.Now()
-	err := cmd.Run()
+	err = cmd.Run()
 	duration := time.Since(startTime)
 
 	// Build the output payload. Command failures are surfaced in the payload
@@ -74,7 +78,7 @@ func (a *CommandAction) Process(ctx context.Context, msg *types.Message) ([]*typ
 	// branch on the result instead of aborting. This means a failed command does
 	// NOT trigger the runtime's retry/error path.
 	output := map[string]interface{}{
-		"command":  expandedCommand,
+		"command":  a.command,
 		"stdout":   strings.TrimSpace(stdout.String()),
 		"stderr":   strings.TrimSpace(stderr.String()),
 		"duration": duration.Milliseconds(),
@@ -111,76 +115,6 @@ func (a *CommandAction) Process(ctx context.Context, msg *types.Message) ([]*typ
 	return []*types.Message{outputMsg}, nil
 }
 
-// expandVariables replaces placeholders in the command with values from the message.
-// Supported placeholders: {{payload}}, {{topic}}, {{meta.key}}
-// All substituted values are shell-escaped to prevent command injection attacks.
-func (a *CommandAction) expandVariables(command string, msg *types.Message) string {
-	result := command
-
-	// Replace {{payload}}
-	if strings.Contains(result, "{{payload}}") {
-		payloadStr := ""
-		switch p := msg.Payload.(type) {
-		case string:
-			payloadStr = p
-		case []byte:
-			payloadStr = string(p)
-		default:
-			payloadStr = fmt.Sprintf("%v", p)
-		}
-		// Escape to prevent command injection
-		result = strings.ReplaceAll(result, "{{payload}}", shellEscape(payloadStr))
-	}
-
-	// Replace {{topic}}
-	result = strings.ReplaceAll(result, "{{topic}}", shellEscape(msg.Topic))
-
-	// Replace {{timestamp}}
-	// Timestamps are safe (numeric only) but we escape anyway for consistency
-	result = strings.ReplaceAll(result, "{{timestamp}}", fmt.Sprintf("%d", msg.Timestamp.UnixMilli()))
-
-	// Replace meta values: {{meta.key}}
-	for key, value := range msg.Meta {
-		placeholder := fmt.Sprintf("{{meta.%s}}", key)
-		// Escape to prevent command injection
-		result = strings.ReplaceAll(result, placeholder, shellEscape(fmt.Sprintf("%v", value)))
-	}
-
-	return result
-}
-
-// shellEscape escapes a string for safe use in a shell command.
-// It wraps the value in single quotes and escapes any single quotes within the value.
-// This prevents shell metacharacters from being interpreted as commands.
-// Additionally, it filters out null bytes and other control characters that could
-// potentially bypass shell escaping in certain edge cases.
-// Example: "hello; rm -rf /" becomes "'hello; rm -rf /'" (safe literal string)
-// Example: "it's" becomes "'it'\”s'" (properly escaped single quote)
-func shellEscape(s string) string {
-	// If the string is empty, return empty quotes
-	if s == "" {
-		return "''"
-	}
-
-	// Filter null bytes and other dangerous control characters
-	// that could potentially bypass shell escaping
-	s = strings.Map(func(r rune) rune {
-		// Remove null bytes and control characters (except tab and newline)
-		if r == 0 || (r < 32 && r != '\t' && r != '\n') {
-			return -1 // Remove character
-		}
-		return r
-	}, s)
-
-	// Single-quote escaping strategy:
-	// 1. Wrap the entire string in single quotes
-	// 2. For any single quote within the string, end the quote,
-	//    add an escaped single quote, then start a new quote
-	// "it's" -> 'it'\''s'
-	escaped := strings.ReplaceAll(s, "'", "'\\''")
-	return "'" + escaped + "'"
-}
-
 // Ports returns the port definitions for this node.
 func (a *CommandAction) Ports() (inputs []types.Port, outputs []types.Port) {
 	return []types.Port{
@@ -205,7 +139,8 @@ func (a *CommandAction) Validate() error {
 	if a.command == "" {
 		return fmt.Errorf("command is required")
 	}
-	return nil
+	_, _, err := bindCommand(a.command, &types.Message{})
+	return err
 }
 
 // GetConfigSchema returns the configuration schema for UI.
@@ -247,7 +182,7 @@ func CommandActionInfo() node.NodeTypeInfo {
 		Description: "Executes a shell command",
 		Documentation: `## Execute Command
 
-Runs shell commands on the host system. Values are automatically escaped to prevent command injection.
+Runs commands using a POSIX-compatible shell on the host. Placeholder values are passed separately as literal arguments.
 
 ## Configuration
 
@@ -272,13 +207,25 @@ Use placeholders in your command:
 | {{timestamp}} | Unix timestamp in ms |
 | {{meta.key}} | Specific metadata value |
 
-**Security**: All values are shell-escaped to prevent injection attacks.
+Placeholders work as ordinary arguments, with no quotes, single quotes, or double
+quotes, including adjacent text such as "Processing {{topic}}". Their values are
+not expanded again as shell code or as other placeholders. Missing metadata is
+left as its literal placeholder. NUL bytes cannot be passed to a shell argument.
+
+Placeholders inside command substitutions, parameter/arithmetic expansions,
+here-documents, here-strings, or other unsupported shell constructs are rejected
+before any command executes. Do not backslash-escape placeholders. Pass the value
+to an ordinary command argument instead.
+
+The configured command is trusted shell code: do not explicitly reinterpret
+external input using eval, sh -c, or another interpreter. Positional arguments are
+reserved for placeholder values; do not change them with set/shift in the command.
 
 ## Output
 
 Returns an object with:
 
-- **command** - The expanded command that was executed
+- **command** - The configured command template (values are not included)
 - **stdout** - Standard output (trimmed)
 - **stderr** - Standard error (trimmed)
 - **exitCode** - Exit code (0 = success)
@@ -298,7 +245,7 @@ timeout: 10
 
 ` + "```json" + `
 {
-  "command": "echo 'Processing sensor-data'",
+  "command": "echo \"Processing {{topic}}\"",
   "stdout": "Processing sensor-data",
   "stderr": "",
   "exitCode": 0,

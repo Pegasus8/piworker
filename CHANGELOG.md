@@ -20,6 +20,15 @@ version. The version number and release date have not been selected.
 - Health checks return HTTP 503 when storage is closed. Resizing the flow editor
   keeps nodes reachable on smaller screens.
 
+### Security correction
+
+- Command-node payload/topic/metadata values are passed as literal arguments,
+  including in quoted placeholders; data is never recursively expanded into code.
+  Unsupported shell expansion contexts fail validation before execution.
+- Command output reports the configured template instead of inlining message values.
+  Positional shell arguments are reserved for bindings; templates using set/shift
+  or explicit eval/interpreter re-execution must be reviewed.
+
 ### Compatibility and limits
 
 - Native releases require systemd and glibc 2.35+ for the managed installer.

@@ -34,7 +34,7 @@ were blocked by an unaccepted license. Using the installed Command Line Tools
 compiler, Git and SDK explicitly allowed the full CGO scan and Go race tests.
 This audit does not cover bundled SQLite C advisories, container OS packages,
 malicious packages, or application logic vulnerabilities; see the merge review
-for the separate command-template finding. No claim of zero security risk is made.
+for the command-template finding and its subsequent correction. No claim of zero security risk is made.
 
 ---
 
@@ -217,3 +217,10 @@ that build and exercise the real Go backend. Go vet passed as well. The embedded
 frontend was regenerated from the updated lockfile. The initial browser attempt
 failed because Go invoked the Xcode Git shim; the successful run explicitly used
 Command Line Tools Git/compiler/SDK. No test cases were disabled for the refresh.
+
+## Command-template parser addendum
+
+The placeholder correction adds `mvdan.cc/sh/v3` v3.14.1 for shell syntax parsing.
+A full CGO-enabled govulncheck rerun after this addition found 0 reachable and
+0 imported-package vulnerabilities; the one unused module-only finding remains.
+The parser validates context; it does not execute the configured command.
