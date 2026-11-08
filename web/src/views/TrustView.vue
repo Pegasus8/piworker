@@ -26,7 +26,7 @@ const expires = computed(() => info.value?.notAfter ? new Date(info.value.notAft
 const httpsOff = computed(() => info.value ? info.value.mode === 'off' : caAvailable.value === false && !secure)
 const customCert = computed(() => info.value ? info.value.mode === 'custom' : caAvailable.value === false && secure)
 // Links for command-line tools use the ports PiWorker reports (signed in), or
-// this page's own address.
+// this page's own address and the default ports.
 const urls = computed(() => trustUrls(window.location, info.value))
 const httpsBase = computed(() => urls.value.httpsBase)
 const cliDownload = computed(() => urls.value.caDownload)
