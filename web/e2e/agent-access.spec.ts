@@ -31,7 +31,7 @@ function auditPage(from: number, n: number, preview = '{"door":"main"}') {
   return Array.from({ length: n }, (_, i) => ({ id: from - i, ts: iso(-i * 60_000), tokenId: 'tokA', tokenName: 'laptop', tool: i === 0 ? 'reboot_pi' : 'garage_open', flowId: 'f1', runId: `run-${from - i}`, argsPreview: i === 0 ? XSS : preview, outcome: i === 0 ? 'error' : 'completed', durMs: 12, privileged: i === 0 }))
 }
 
-interface MockOptions { toolsMissing?: boolean; pending?: number; extraApprovals?: unknown[]; auditPreview?: string; rejectionRows?: number; settingsFail?: boolean }
+interface MockOptions { toolsMissing?: boolean; pending?: number; extraApprovals?: unknown[]; auditPreview?: string; rejectionRows?: number; settingsFail?: boolean; executionError?: string }
 
 async function mockServer(page: Page, opts: MockOptions = {}) {
   const requests: Req[] = []
@@ -71,6 +71,7 @@ async function mockServer(page: Page, opts: MockOptions = {}) {
         return ok({ approvals: status === 'pending' || status === null ? [...approvals, ...(opts.extraApprovals ?? [])] : [], pending: opts.pending ?? 2 })
       }
       case 'POST /agent/approvals/ap1/approve': return ok({ approval: { ...approvals[0], status: 'approved', decidedBy: 'owner', decidedAt: iso(0) }, executed: false, executionError: 'not available' })
+      case 'POST /agent/approvals/ap3/approve': return ok({ approval: { ...(opts.extraApprovals![0] as object), status: 'approved', decidedBy: 'owner', decidedAt: iso(0) }, executed: false, executionError: opts.executionError })
       case 'POST /agent/approvals/ap1/reject': return ok({ approval: { ...approvals[0], status: 'rejected' }, executed: false })
       case 'GET /agent/audit': {
         const before = Number(url.searchParams.get('beforeId') ?? 0)
@@ -300,7 +301,8 @@ test('hidden and direction-changing characters from agents are shown as escapes'
   const path = `/home/pi/${RLO}gnp.sh`
   await mockServer(page, {
     extraApprovals: [{ ...approvals[0], id: 'ap3', ref: 'n9', flowId: 'f2', args: { path }, summary: `Convert ${LRI}the image${PDI}` }],
-    auditPreview: JSON.stringify({ path })
+    auditPreview: JSON.stringify({ path }),
+    executionError: `cannot open /home/pi/${RLO}gnp.sh`
   })
   await page.goto('/agents/approvals')
   const call = page.getByRole('article', { name: 'Request n9' })
@@ -321,6 +323,12 @@ test('hidden and direction-changing characters from agents are shown as escapes'
   const confirm = page.getByRole('dialog', { name: 'Approve and run?' })
   await expect(confirm).toContainText('3 hidden characters')
   await confirm.getByRole('button', { name: 'Cancel' }).click()
+  // Errors can echo the arguments too.
+  await call.getByRole('button', { name: 'Approve…' }).click()
+  await confirm.getByRole('button', { name: 'Approve and run' }).click()
+  const outcome = page.getByRole('alert').filter({ hasText: 'did not run' })
+  await expect(outcome).toContainText('cannot open /home/pi/\\u202Egnp.sh')
+  expect(await outcome.textContent()).not.toContain(RLO)
 
   await page.goto('/agents/audit')
   const table = page.getByRole('table', { name: 'Agent calls' })

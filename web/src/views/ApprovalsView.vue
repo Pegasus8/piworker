@@ -79,7 +79,8 @@ const hiddenLabel = (n: number) => `${n} hidden character${n === 1 ? '' : 's'}`
 function outcome(d: ApprovalDecision): string {
   if (d.approval.status === 'rejected') return 'Rejected.'
   if (d.executed) return 'Approved and run.'
-  return d.executionError ? `Approved, but it did not run: ${d.executionError}` : 'Approved.'
+  // Execution errors can echo what the agent sent.
+  return d.executionError ? `Approved, but it did not run: ${visibleText(d.executionError)}` : 'Approved.'
 }
 
 async function decide(a: AgentApproval, approve: boolean) {
