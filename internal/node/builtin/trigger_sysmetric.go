@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/Pegasus8/piworker/internal/metrics"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/rs/zerolog/log"
@@ -25,10 +26,7 @@ type SysMetricTrigger struct {
 	comparison string // "above", "below"
 	interval   time.Duration
 
-	mu      sync.Mutex
-	running bool
-	stopCh  chan struct{}
-	wg      sync.WaitGroup
+	run triggerRun
 }
 
 // NewSysMetricTrigger creates a new SysMetricTrigger from configuration.
@@ -47,18 +45,14 @@ func NewSysMetricTrigger(config map[string]interface{}) (node.Node, error) {
 		comparison = "above"
 	}
 
-	intervalSec := base.GetConfigInt("interval", 10)
-	if intervalSec < 1 {
-		intervalSec = 1
-	}
+	interval := secDuration(base.GetConfigInt("interval", 10), time.Second, time.Second, maxTriggerInterval)
 
 	return &SysMetricTrigger{
 		BaseNode:   base,
 		metric:     metric,
 		threshold:  base.GetConfigFloat("threshold", 80),
 		comparison: comparison,
-		interval:   time.Duration(intervalSec) * time.Second,
-		stopCh:     make(chan struct{}),
+		interval:   interval,
 	}, nil
 }
 
@@ -82,18 +76,18 @@ func (t *SysMetricTrigger) Validate() error {
 
 // Start begins polling the metric.
 func (t *SysMetricTrigger) Start(ctx context.Context, out chan<- *types.Message) error {
-	t.mu.Lock()
-	if t.running {
-		t.mu.Unlock()
-		return fmt.Errorf("trigger already running")
+	stopCh, done, err := t.run.begin()
+	if err != nil {
+		return err
 	}
-	t.running = true
-	t.stopCh = make(chan struct{})
-	t.mu.Unlock()
 
-	t.wg.Add(1)
 	go func() {
-		defer t.wg.Done()
+		defer close(done)
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Interface("panic", r).Bytes("stack", debug.Stack()).Msg("sysmetric trigger goroutine panicked")
+			}
+		}()
 		ticker := time.NewTicker(t.interval)
 		defer ticker.Stop()
 
@@ -102,7 +96,7 @@ func (t *SysMetricTrigger) Start(ctx context.Context, out chan<- *types.Message)
 			select {
 			case <-ctx.Done():
 				return
-			case <-t.stopCh:
+			case <-stopCh:
 				return
 			case <-ticker.C:
 				value, err := readSystemMetric(t.metric)
@@ -126,10 +120,11 @@ func (t *SysMetricTrigger) Start(ctx context.Context, out chan<- *types.Message)
 					select {
 					case <-ctx.Done():
 						return
-					case <-t.stopCh:
+					case <-stopCh:
 						return
 					case out <- msg:
 					default:
+						metrics.IncrementMessagesDropped()
 						log.Warn().Str("metric", t.metric).Msg("sysmetric message dropped: channel full")
 					}
 				}
@@ -143,16 +138,7 @@ func (t *SysMetricTrigger) Start(ctx context.Context, out chan<- *types.Message)
 
 // Stop stops polling.
 func (t *SysMetricTrigger) Stop() error {
-	t.mu.Lock()
-	if !t.running {
-		t.mu.Unlock()
-		return nil
-	}
-	close(t.stopCh)
-	t.running = false
-	t.mu.Unlock()
-
-	t.wg.Wait()
+	t.run.end()
 	return nil
 }
 

@@ -34,10 +34,9 @@ type RSSTrigger struct {
 	client *http.Client
 	parser *gofeed.Parser
 
-	mu      sync.Mutex
-	running bool
-	stopCh  chan struct{}
-	wg      sync.WaitGroup
+	run triggerRun
+
+	mu sync.Mutex // guards seen, pollSeq, seeded
 	// seen maps item id -> the poll sequence it was last present in. It is
 	// pruned to the most recently present ids (see newItems), so it doesn't
 	// grow with every item a feed ever published.
@@ -54,10 +53,7 @@ func NewRSSTrigger(config map[string]interface{}) (node.Node, error) {
 	if url == "" {
 		return nil, fmt.Errorf("url is required")
 	}
-	interval := time.Duration(base.GetConfigInt("intervalSec", 300)) * time.Second
-	if interval < rssMinInterval {
-		interval = rssMinInterval
-	}
+	interval := secDuration(base.GetConfigInt("intervalSec", 300), 300*time.Second, rssMinInterval, maxTriggerInterval)
 	allowPrivate := base.GetConfigBool("allowPrivate", false)
 
 	return &RSSTrigger{
@@ -67,7 +63,6 @@ func NewRSSTrigger(config map[string]interface{}) (node.Node, error) {
 		allowPrivate: allowPrivate,
 		client:       newGuardedHTTPClient(30*time.Second, allowPrivate),
 		parser:       gofeed.NewParser(),
-		stopCh:       make(chan struct{}),
 		seen:         make(map[string]uint64),
 	}, nil
 }
@@ -190,18 +185,13 @@ func (t *RSSTrigger) fetch(ctx context.Context) (*gofeed.Feed, error) {
 
 // Start begins polling the feed.
 func (t *RSSTrigger) Start(ctx context.Context, out chan<- *types.Message) error {
-	t.mu.Lock()
-	if t.running {
-		t.mu.Unlock()
-		return fmt.Errorf("trigger already running")
+	stopCh, done, err := t.run.begin()
+	if err != nil {
+		return err
 	}
-	t.running = true
-	t.stopCh = make(chan struct{})
-	t.mu.Unlock()
 
-	t.wg.Add(1)
 	go func() {
-		defer t.wg.Done()
+		defer close(done)
 		defer func() {
 			if r := recover(); r != nil {
 				log.Error().Interface("panic", r).Bytes("stack", debug.Stack()).Msg("rss trigger goroutine panicked")
@@ -222,7 +212,7 @@ func (t *RSSTrigger) Start(ctx context.Context, out chan<- *types.Message) error
 			select {
 			case <-ctx.Done():
 				return
-			case <-t.stopCh:
+			case <-stopCh:
 				return
 			case <-ticker.C:
 				feed, err := t.fetch(ctx)
@@ -237,7 +227,7 @@ func (t *RSSTrigger) Start(ctx context.Context, out chan<- *types.Message) error
 					select {
 					case <-ctx.Done():
 						return
-					case <-t.stopCh:
+					case <-stopCh:
 						return
 					case out <- msg:
 					default:
@@ -253,15 +243,7 @@ func (t *RSSTrigger) Start(ctx context.Context, out chan<- *types.Message) error
 
 // Stop stops polling.
 func (t *RSSTrigger) Stop() error {
-	t.mu.Lock()
-	if !t.running {
-		t.mu.Unlock()
-		return nil
-	}
-	close(t.stopCh)
-	t.running = false
-	t.mu.Unlock()
-	t.wg.Wait()
+	t.run.end()
 	return nil
 }
 
