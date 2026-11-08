@@ -7,7 +7,9 @@ import (
 	flowvars "github.com/Pegasus8/piworker/internal/vars"
 	"io"
 	"net/http"
+	"regexp"
 	"sync"
+	"time"
 
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
@@ -145,13 +147,18 @@ func (h *FlowsHandler) CreateFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate ID if not provided
+	// Generate an ID if none was provided; otherwise only accept IDs that are
+	// safe in URLs, logs and webhook/variable namespaces.
 	if f.ID == "" {
-		newFlow := flow.NewFlow(f.Name)
-		f.ID = newFlow.ID
-		f.CreatedAt = newFlow.CreatedAt
-		f.UpdatedAt = newFlow.UpdatedAt
+		f.ID = flow.NewFlow(f.Name).ID
+	} else if !validFlowID(f.ID) {
+		writeError(w, http.StatusBadRequest, "Flow ID must be 1-64 characters of letters, digits, '-' or '_'")
+		return
 	}
+	// Timestamps are server-owned.
+	now := time.Now()
+	f.CreatedAt = now
+	f.UpdatedAt = now
 
 	// Set default state
 	f.State = flow.FlowStateInactive
@@ -169,6 +176,11 @@ func (h *FlowsHandler) CreateFlow(w http.ResponseWriter, r *http.Request) {
 	h.logger.Info().Str("flowID", f.ID).Str("name", f.Name).Msg("Flow created")
 	writeSuccess(w, http.StatusCreated, &f, "Flow created successfully")
 }
+
+var flowIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// validFlowID reports whether a client-chosen flow ID is acceptable.
+func validFlowID(id string) bool { return flowIDPattern.MatchString(id) }
 
 // cloneForNew builds a fresh, inactive flow (new ID + timestamps) carrying the
 // content of src. Node/connection IDs are flow-scoped, so they can be reused.
@@ -324,9 +336,10 @@ func (h *FlowsHandler) UpdateFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Preserve the ID and creation time
+	// Preserve the ID and creation time; the server owns UpdatedAt.
 	f.ID = id
 	f.CreatedAt = existing.CreatedAt
+	f.UpdatedAt = time.Now()
 
 	// Don't trust the client's state field. The flow is not running (guarded
 	// above), so never persist a "running" state coming from the request body.
