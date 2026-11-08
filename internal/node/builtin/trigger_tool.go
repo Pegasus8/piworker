@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/toolschema"
 	"github.com/Pegasus8/piworker/internal/types"
@@ -32,12 +33,12 @@ const (
 // toolNamePattern is the MCP-compatible tool name syntax.
 var toolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
 
-var (
-	// errToolNotRunning: Emit on a stopped tool (or one whose flow is stopping).
-	errToolNotRunning = errors.New("tool trigger is not running")
-	// errInvalidToolArguments: Emit with arguments outside the input schema.
-	errInvalidToolArguments = errors.New("invalid tool arguments")
-)
+// errToolNotRunning is returned by Emit on a stopped tool, or one whose flow
+// is stopping (a race with FlowRuntime.Call's running check): it matches
+// flow.ErrFlowNotRunning, as the flow is no longer running either. Emit
+// refuses arguments with a *node.ToolArgumentsError, which matches
+// node.ErrInvalidToolArguments.
+var errToolNotRunning = fmt.Errorf("%w: tool trigger stopped", flow.ErrFlowNotRunning)
 
 // ToolTrigger publishes its flow as an MCP tool (trigger-tool). A call
 // validates the arguments against the input schema and starts a run whose
@@ -307,19 +308,16 @@ func (t *ToolTrigger) Emit(ctx context.Context, msg *types.Message) error {
 	if !running {
 		return errToolNotRunning
 	}
-	if msg == nil {
-		return fmt.Errorf("%w: no message", errInvalidToolArguments)
+	var args map[string]any
+	ok := false
+	if msg != nil {
+		args, ok = msg.Payload.(map[string]any)
 	}
-	args, ok := msg.Payload.(map[string]any)
 	if !ok {
-		return fmt.Errorf("%w: arguments must be a JSON object", errInvalidToolArguments)
+		return &node.ToolArgumentsError{Issues: []toolschema.Issue{{Message: "arguments must be a JSON object"}}}
 	}
 	if issues := t.spec.InputSchema.Validate(args); len(issues) > 0 {
-		parts := make([]string, len(issues))
-		for i, issue := range issues {
-			parts[i] = issue.String()
-		}
-		return fmt.Errorf("%w: %s", errInvalidToolArguments, strings.Join(parts, "; "))
+		return &node.ToolArgumentsError{Issues: issues}
 	}
 
 	msg.SourcePort = "output"

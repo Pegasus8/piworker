@@ -2,6 +2,8 @@ package node
 
 import (
 	"encoding/json"
+	"errors"
+	"strings"
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/toolschema"
@@ -82,3 +84,29 @@ func (s ToolSpec) EffectiveMaxConcurrent(readOnly bool) int {
 type ToolProvider interface {
 	ToolSpec() ToolSpec
 }
+
+// ErrInvalidToolArguments is matched (errors.Is) by the error a tool
+// trigger's Emit returns for arguments outside its input schema, through any
+// wrapping (FlowRuntime.Call wraps it). errors.As with *ToolArgumentsError
+// gives the problems.
+var ErrInvalidToolArguments = errors.New("invalid tool arguments")
+
+// ToolArgumentsError lists why a tool's arguments were refused, each issue
+// located by a JSON pointer into the arguments ("" for the whole value).
+type ToolArgumentsError struct {
+	Issues []toolschema.Issue
+}
+
+func (e *ToolArgumentsError) Error() string {
+	if len(e.Issues) == 0 {
+		return ErrInvalidToolArguments.Error()
+	}
+	parts := make([]string, len(e.Issues))
+	for i, issue := range e.Issues {
+		parts[i] = issue.String()
+	}
+	return ErrInvalidToolArguments.Error() + ": " + strings.Join(parts, "; ")
+}
+
+// Unwrap makes errors.Is(err, ErrInvalidToolArguments) hold.
+func (e *ToolArgumentsError) Unwrap() error { return ErrInvalidToolArguments }

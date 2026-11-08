@@ -2,6 +2,8 @@ package node
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -63,4 +65,20 @@ func TestToolSpecEffectiveMaxConcurrent(t *testing.T) {
 		spec := ToolSpec{MaxConcurrent: c.set}
 		assert.Equalf(t, c.want, spec.EffectiveMaxConcurrent(c.readOnly), "%+v", c)
 	}
+}
+
+func TestToolArgumentsError(t *testing.T) {
+	err := error(&ToolArgumentsError{Issues: []toolschema.Issue{
+		{Pointer: "/door", Message: "must be one of the listed values"},
+		{Pointer: "", Message: "unknown property \"x\""},
+	}})
+	assert.Equal(t, `invalid tool arguments: /door: must be one of the listed values; (root): unknown property "x"`, err.Error())
+
+	wrapped := fmt.Errorf("start run on tool: %w", err)
+	assert.True(t, errors.Is(wrapped, ErrInvalidToolArguments))
+	var argErr *ToolArgumentsError
+	require.True(t, errors.As(wrapped, &argErr))
+	assert.Len(t, argErr.Issues, 2)
+
+	assert.Equal(t, "invalid tool arguments", (&ToolArgumentsError{}).Error())
 }

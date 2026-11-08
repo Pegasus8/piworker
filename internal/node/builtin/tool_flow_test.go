@@ -124,6 +124,14 @@ func TestToolFlowRefusesInvalidArguments(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid tool arguments")
 	assert.Empty(t, res.RunID, "no run was started")
+
+	// The service layer tells invalid arguments apart and lists the issues.
+	assert.ErrorIs(t, err, node.ErrInvalidToolArguments)
+	var argErr *node.ToolArgumentsError
+	require.ErrorAs(t, err, &argErr)
+	require.Len(t, argErr.Issues, 1)
+	assert.Equal(t, "/door", argErr.Issues[0].Pointer)
+	assert.NotErrorIs(t, err, flow.ErrFlowNotRunning)
 }
 
 func TestToolFlowWithoutEdgesFailsDeploy(t *testing.T) {

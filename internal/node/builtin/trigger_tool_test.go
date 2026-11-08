@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/toolschema"
 	"github.com/Pegasus8/piworker/internal/types"
@@ -267,7 +268,7 @@ func TestToolTriggerEmit(t *testing.T) {
 	trig := newToolTrigger(t, validToolConfig(name))
 	ctx := context.Background()
 	err := trig.Emit(ctx, toolMessage(map[string]any{"door": "left"}))
-	require.Error(t, err, "not running")
+	require.ErrorIs(t, err, flow.ErrFlowNotRunning, "not running")
 
 	out := make(chan *types.Message, 1)
 	require.NoError(t, trig.Start(ctx, out))
@@ -303,9 +304,22 @@ func TestToolTriggerEmitRefusesInvalidArguments(t *testing.T) {
 		err := trig.Emit(context.Background(), toolMessage(payload))
 		require.Errorf(t, err, "%#v", payload)
 		assert.Contains(t, err.Error(), "invalid tool arguments")
+		assert.ErrorIs(t, err, node.ErrInvalidToolArguments)
+		var argErr *node.ToolArgumentsError
+		if assert.ErrorAs(t, err, &argErr) {
+			assert.NotEmpty(t, argErr.Issues)
+		}
 	}
 	err := trig.Emit(context.Background(), toolMessage(map[string]any{"door": "middle"}))
 	assert.Contains(t, err.Error(), "/door")
+	var argErr *node.ToolArgumentsError
+	require.ErrorAs(t, err, &argErr)
+	require.Len(t, argErr.Issues, 1)
+	assert.Equal(t, "/door", argErr.Issues[0].Pointer)
+
+	err = trig.Emit(context.Background(), toolMessage("left"))
+	require.ErrorAs(t, err, &argErr)
+	assert.Equal(t, []toolschema.Issue{{Pointer: "", Message: "arguments must be a JSON object"}}, argErr.Issues)
 	assert.Len(t, out, 0, "nothing was emitted")
 }
 
@@ -338,7 +352,7 @@ func TestToolTriggerEmitHonoursContexts(t *testing.T) {
 		stopRun()
 		select {
 		case err := <-done:
-			require.Error(t, err)
+			require.ErrorIs(t, err, flow.ErrFlowNotRunning)
 			assert.Contains(t, err.Error(), "not running")
 		case <-time.After(2 * time.Second):
 			t.Fatal("Emit did not return when the trigger's context ended")
@@ -350,7 +364,7 @@ func TestToolTriggerEmitHonoursContexts(t *testing.T) {
 		require.NoError(t, trig.Start(context.Background(), out))
 		require.NoError(t, trig.Stop())
 		err := trig.Emit(context.Background(), toolMessage(map[string]any{"door": "left"}))
-		require.Error(t, err)
+		require.ErrorIs(t, err, flow.ErrFlowNotRunning)
 		assert.Contains(t, err.Error(), "not running")
 	})
 }
