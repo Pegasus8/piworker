@@ -832,8 +832,17 @@ func (m *RuntimeManager) Deploy(ctx context.Context, f *Flow) error {
 	}
 
 	// Validate against the ports supplied by the instantiated nodes, not a
-	// possibly missing or stale cache in an imported/editor definition.
-	if err := f.Validate(); err != nil {
+	// possibly missing or stale cache in an imported/editor definition. Which
+	// nodes are triggers is decided server-side — by the instance implementing
+	// node.TriggerNode or by the registered type's category — never by the
+	// client-supplied Category field.
+	if err := f.validate(func(n *Node) bool {
+		if _, ok := rt.triggers[n.ID]; ok {
+			return true
+		}
+		info, ok := m.registry.Get(n.Type)
+		return ok && info.Category == NodeCategoryInput
+	}); err != nil {
 		metrics.RecordFlowDeployment(false)
 		return err
 	}
