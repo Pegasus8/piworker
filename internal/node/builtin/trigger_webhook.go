@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/metrics"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/Pegasus8/piworker/internal/webhook"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -25,6 +27,12 @@ type WebhookTrigger struct {
 	token  string // optional shared secret; may reference {{secret.NAME}}
 
 	hub *webhook.Hub
+	log zerolog.Logger
+
+	// tokenUnresolved is set while the token's secret is missing or empty, so
+	// that state is logged once when it starts and once when it ends instead
+	// of on every rejected request.
+	tokenUnresolved atomic.Bool
 
 	mu      sync.Mutex
 	running bool
@@ -48,6 +56,7 @@ func NewWebhookTrigger(config map[string]interface{}) (node.Node, error) {
 		method:   strings.ToUpper(strings.TrimSpace(base.GetConfigString("method", ""))),
 		token:    base.GetConfigString("token", ""),
 		hub:      webhook.DefaultHub,
+		log:      log.Logger,
 	}, nil
 }
 
@@ -144,8 +153,13 @@ func (t *WebhookTrigger) handle(req webhook.Request) webhook.Result {
 	if t.token != "" {
 		expected, err := expandSecretsStrict(t.token)
 		if err != nil || expected == "" {
-			log.Warn().Err(err).Str("path", t.path).Msg("webhook token resolves to nothing; rejecting request")
+			if t.tokenUnresolved.CompareAndSwap(false, true) {
+				t.log.Warn().Err(err).Str("path", t.path).Msg("webhook token resolves to nothing; rejecting every request until its secret is set")
+			}
 			return webhook.Unauthorized
+		}
+		if t.tokenUnresolved.CompareAndSwap(true, false) {
+			t.log.Info().Str("path", t.path).Msg("webhook token resolves again; accepting requests with the right token")
 		}
 		if subtle.ConstantTimeCompare([]byte(req.Token), []byte(expected)) != 1 {
 			return webhook.Unauthorized
@@ -178,7 +192,7 @@ func (t *WebhookTrigger) handle(req webhook.Request) webhook.Result {
 		return webhook.Accepted
 	default:
 		metrics.IncrementMessagesDropped()
-		log.Warn().Str("path", t.path).Msg("webhook message dropped: output channel full")
+		t.log.Warn().Str("path", t.path).Msg("webhook message dropped: output channel full")
 		return webhook.Dropped
 	}
 }

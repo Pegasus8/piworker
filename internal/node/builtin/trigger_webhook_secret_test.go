@@ -1,12 +1,15 @@
 package builtin
 
 import (
+	"bytes"
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/Pegasus8/piworker/internal/secrets"
 	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/Pegasus8/piworker/internal/webhook"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -86,4 +89,37 @@ func TestExpandSecretsStrict(t *testing.T) {
 	_, err = expandSecretsStrict("{{secret.absent}}")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `"absent"`)
+}
+
+// A token whose secret was deleted or emptied rejects every request, but logs
+// only when that starts (and when it recovers), not once per request: a
+// device retrying every second would otherwise fill the SD card.
+func TestWebhookUnresolvedTokenLogsOncePerTransition(t *testing.T) {
+	setSecret(t, "hook_tok", "abc")
+	wt, err := startWebhook(t, map[string]interface{}{"path": "secret-hook-logs", "token": "{{secret.hook_tok}}"})
+	require.NoError(t, err)
+	var buf bytes.Buffer
+	wt.log = zerolog.New(&buf)
+	lines := func(level string) int { return strings.Count(buf.String(), `"level":"`+level+`"`) }
+
+	require.NoError(t, secrets.DefaultStore.Delete("hook_tok"))
+	for range 5 {
+		assert.Equal(t, webhook.Unauthorized, dispatchToken("secret-hook-logs", "abc"))
+	}
+	assert.Equal(t, 1, lines("warn"), buf.String())
+
+	require.NoError(t, secrets.DefaultStore.Set("hook_tok", ""))
+	assert.Equal(t, webhook.Unauthorized, dispatchToken("secret-hook-logs", ""))
+	assert.Equal(t, 1, lines("warn"), "still unresolved: no new line")
+
+	require.NoError(t, secrets.DefaultStore.Set("hook_tok", "abc"))
+	assert.Equal(t, webhook.Accepted, dispatchToken("secret-hook-logs", "abc"))
+	assert.Equal(t, webhook.Unauthorized, dispatchToken("secret-hook-logs", "wrong"))
+	assert.Equal(t, 1, lines("info"), "the recovery is logged once")
+
+	require.NoError(t, secrets.DefaultStore.Delete("hook_tok"))
+	assert.Equal(t, webhook.Unauthorized, dispatchToken("secret-hook-logs", "abc"))
+	assert.Equal(t, webhook.Unauthorized, dispatchToken("secret-hook-logs", "abc"))
+	assert.Equal(t, 2, lines("warn"), "a new failure is a new transition")
+	assert.NotContains(t, buf.String(), `"abc"`, "the secret value is never logged")
 }
