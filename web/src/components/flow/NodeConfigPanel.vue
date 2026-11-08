@@ -12,6 +12,7 @@ import { referenceMode, referenceOptions } from '@/lib/references'
 import { useApi } from '@/composables/useApi'
 import NodeDocumentation from './NodeDocumentation.vue'
 import NodePlayground from './NodePlayground.vue'
+import TestTool from './TestTool.vue'
 import type { NodeTestDraft } from '@/types'
 
 const flowsStore = useFlowsStore()
@@ -232,6 +233,16 @@ onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
             </div>
           </div>
 
+          <!-- Agent tools: call the deployed tool (REST twin of an MCP call). -->
+          <TestTool
+            v-if="selectedNode.data.nodeType === 'trigger-tool'"
+            :key="`test-tool:${selectedNode.id}`"
+            :flow-id="flowsStore.currentFlow?.id || undefined"
+            :node-id="selectedNode.id"
+            :schema="selectedNode.data.config?.inputSchema"
+            :running="!!flowsStore.currentFlow?.running"
+            :dirty="flowsStore.isDirty"
+          />
         </section>
         <NodePlayground :flow-id="flowsStore.currentFlow?.id || undefined" v-if="isProcessing" :key="selectedNode.id" :node-type="selectedNode.data.nodeType" :config="localConfig" :draft="playgroundDrafts[selectedNode.id]" @draft="playgroundDrafts[selectedNode.id] = $event" />
         </div>

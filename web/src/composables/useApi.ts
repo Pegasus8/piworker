@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Flow, FlowListItem, FlowEvent, FlowRun, NodeEventRecord, NodeTestResult, TLSInfo } from '@/types'
+import type { CallResult, Flow, FlowListItem, FlowEvent, FlowRun, NodeEventRecord, NodeTestResult, TLSInfo } from '@/types'
 
 const api = axios.create({
   baseURL: '/api',
@@ -133,6 +133,13 @@ export function useApi() {
 
   async function injectNode(flowId: string, nodeId: string, payload?: unknown): Promise<void> {
     await api.post(`/flows/${flowId}/inject/${nodeId}`, payload === undefined ? {} : { payload })
+  }
+
+  // "Test tool": call a trigger-tool of a running flow as the editor (the REST
+  // twin of an agent's MCP call). Refusals reject with the API error envelope.
+  async function callTool(flowId: string, nodeId: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<CallResult> {
+    const { data } = await api.post(`/flows/${encodeURIComponent(flowId)}/call/${encodeURIComponent(nodeId)}`, { args }, { signal })
+    return data.data
   }
 
   // Debug: run a single processing node once against a sample payload.
@@ -269,6 +276,7 @@ export function useApi() {
     stopFlow,
     testNode,
     injectNode,
+    callTool,
     // Lifecycle
     duplicateFlow,
     exportFlow,

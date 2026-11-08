@@ -118,6 +118,14 @@ export interface NodeTestResult {
   error?: string
   durMs?: number
 }
+/** The result of a tool call (flow.CallResult), e.g. the editor's "Test tool". */
+export interface CallResult {
+  status: 'completed' | 'completed_no_reply' | 'error' | 'running' | 'expired' | 'approval_required' | 'rejected'
+  runId: string
+  result?: unknown
+  error?: { nodeId?: string; nodeType?: string; message: string }
+  durationMs: number
+}
 export interface NodeTestDraft {
   mode: 'json' | 'text'
   payload: string
