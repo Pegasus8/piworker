@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Pegasus8/piworker/internal/agentauth"
 	"github.com/Pegasus8/piworker/internal/service"
@@ -316,7 +317,7 @@ func (h *Handler) checkMessage(w http.ResponseWriter, r *http.Request, actor ser
 		return false
 	case m.Method == "tools/call":
 		if scope := h.scopeOfTool(m.Params.Name); !actor.HasScope(scope) {
-			writeJSONError(w, http.StatusForbidden, fmt.Sprintf("This token does not have the %s scope needed to call %q", scope, shorten(m.Params.Name, 128)))
+			writeJSONError(w, http.StatusForbidden, fmt.Sprintf("This token does not have the %s scope needed to call %q", scope, shorten(m.Params.Name, maxToolNameLength)))
 			return false
 		}
 	}
@@ -357,9 +358,14 @@ func writeRPCError(w http.ResponseWriter, status int, id jsontext.Value, code in
 	w.Write(data) //nolint:errcheck // the client went away
 }
 
+// shorten cuts s to at most n bytes (on a character boundary), marking the
+// cut with "…".
 func shorten(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n] + "…"
 }

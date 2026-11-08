@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/service"
@@ -244,10 +245,18 @@ func (h *Handler) callStaticTool(ctx context.Context, actor service.Actor, st *s
 	return res
 }
 
+// toolNamePattern is the syntax of every tool name (trigger-tool's, and
+// the built-in pw_ names): no tool has a name outside it.
+var toolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
+
+// maxToolNameLength is the longest tool name.
+const maxToolNameLength = 128
+
 // routeUnheldTools sends calls of tools the server does not hold to the
 // tool service too, so hidden and unknown tools get the service's answer
 // (not_found, audited), never a JSON-RPC error that would tell them apart,
-// and a call racing with a redeploy is decided on the current tools.
+// and a call racing with a redeploy is decided on the current tools. Names
+// no tool can have are answered as unknown without the service.
 func (h *Handler) routeUnheldTools(actor service.Actor, held map[string]bool) mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -257,6 +266,11 @@ func (h *Handler) routeUnheldTools(actor service.Actor, held map[string]bool) mc
 			call, ok := req.(*mcp.CallToolRequest)
 			if !ok || call.Params == nil || held[call.Params.Name] {
 				return next(ctx, method, req)
+			}
+			if !toolNamePattern.MatchString(call.Params.Name) {
+				// No tool has such a name: answered as unknown here, so an
+				// agent cannot have a name of any length audited.
+				return unknownTool(shorten(call.Params.Name, maxToolNameLength)), nil
 			}
 			if st := h.staticTool(call.Params.Name); st != nil {
 				return errorResult(&service.ToolError{Kind: service.ErrPermissionDenied,

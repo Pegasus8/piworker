@@ -12,7 +12,8 @@ const (
 	DefaultAuditRetentionInterval = time.Hour
 	// DefaultAuditMaxRows caps the audit rows kept within the 30-day
 	// retention (privileged calls are never evicted early). A row holds at
-	// most ~1 KiB (a 512-byte argument preview plus names and IDs), so the
+	// most ~1 KiB (a 512-byte argument preview, a tool name the service caps
+	// at 128 bytes, a token name of at most 64 and IDs), so the
 	// table stays within ~50 MiB on a Raspberry Pi's SD card even when a
 	// token calls at its full rate (30/min) for the whole period.
 	DefaultAuditMaxRows = 50_000

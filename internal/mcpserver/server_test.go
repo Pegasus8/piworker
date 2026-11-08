@@ -456,3 +456,31 @@ func TestStaticToolSchemaIsCanonical(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, string(schema.JSON()), string(got))
 }
+
+// Names no tool can have (trigger-tool names are 1 to 128 letters, digits,
+// '_', '.' or '-') are answered here as unknown, echoed shortened, without
+// reaching the service: an agent cannot have a huge name audited or echoed
+// back. Valid names still go to the service, hidden or unknown alike.
+func TestImpossibleToolNamesAreUnknown(t *testing.T) {
+	e := newTestEnv(t)
+	for _, name := range []string{strings.Repeat("x", 200_000), strings.Repeat("a", 129), "garage door", "ga/rage", "é"} {
+		w := e.serve(withToken(rpc(callBody(name, `{}`)), callToken))
+		res, rpcErr := rpcResult(t, w)
+		require.Nil(t, rpcErr)
+		assert.Equal(t, true, res["isError"])
+		structured, _ := res["structuredContent"].(map[string]any)
+		assert.Equal(t, "not_found", errorCode(structured))
+		assert.Less(t, w.Body.Len(), 2048, "the name is echoed shortened")
+	}
+	assert.Zero(t, e.tools.calls.Load())
+
+	e.tools.call = func(_ context.Context, _ service.Actor, ref service.ToolRef, _ map[string]any) (flow.CallResult, error) {
+		return flow.CallResult{}, &service.ToolError{Kind: service.ErrToolNotFound, Message: fmt.Sprintf("unknown tool %q", ref.Name)}
+	}
+	longest := strings.Repeat("a", 128)
+	unknown, _ := called(t, e, callToken, longest, `{}`)
+	assert.EqualValues(t, 1, e.tools.calls.Load(), "a possible name is the service's to answer")
+	impossible, _ := called(t, e, callToken, longest+"a", `{}`)
+	assert.Equal(t, strings.ReplaceAll(fmt.Sprint(unknown), longest, "X"), strings.ReplaceAll(fmt.Sprint(impossible), longest+"…", "X"),
+		"an impossible name looks like any unknown one")
+}

@@ -27,6 +27,9 @@ const (
 	DefaultPerTokenInflight = 2
 	// maxErrorMessageBytes bounds a CallError message shown to callers.
 	maxErrorMessageBytes = 1024
+	// maxAuditToolBytes bounds the audited tool name (tool names are at
+	// most 128 ASCII characters; an unknown one may be anything).
+	maxAuditToolBytes = 128
 )
 
 // Runtimes is what the service needs from the flow runtime manager
@@ -495,7 +498,7 @@ func (t *Tools) record(actor Actor, ref ToolRef, info *flow.ToolInfo, args map[s
 		TS:        start,
 		TokenID:   actor.TokenID,
 		TokenName: actor.TokenName,
-		Tool:      ref.String(),
+		Tool:      capText(ref.String(), maxAuditToolBytes), // the name an agent sent
 		FlowID:    ref.FlowID,
 		RunID:     res.RunID,
 		DurMs:     t.now().Sub(start).Milliseconds(),
