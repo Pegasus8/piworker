@@ -480,7 +480,11 @@ windows amd64, attached to releases) with `--url`, `--token-file`, `--ca-file`
   request. No HTTP proxy, no redirects.
 - Up to 8 HTTP requests at once, 64 queued, answered in completion order;
   `notifications/cancelled` aborts the matching POST (stateless servers cannot
-  match a forwarded one) and drops its answer; nothing is retried. HTTP
+  match a forwarded one) and drops its answer; nothing is retried. From
+  2026-07-28 the aborted POST cancels the call on PiWorker
+  (`PropagateRequestCancellation`); with earlier protocol versions go-sdk
+  v1.8.0 lets the call run to its end, so a cancelled call may still take
+  effect. HTTP
   401/403/404/429/5xx become JSON-RPC errors `-32000` with clear text and
   `data.httpStatus` (429: `data.retryAfter`); other JSON-RPC error bodies pass
   through. Limits: 4 MiB per stdin message, 16 MiB per answer, 2 min per

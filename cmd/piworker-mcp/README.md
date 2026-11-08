@@ -216,8 +216,12 @@ descriptions or results.
   are written as they arrive, each with its request's id. Beyond 64 waiting,
   requests get an error at once.
 - **Cancellation.** `notifications/cancelled` aborts the matching HTTP request
-  (PiWorker then cancels the call) and its answer is dropped. It is not
-  forwarded: a stateless server could not match it.
+  and drops its answer. It is not forwarded: a stateless server could not
+  match it. With protocol version 2026-07-28 or later, aborting the request
+  cancels the call on PiWorker. With earlier versions (Claude Desktop
+  negotiates a 2025 version today) the call keeps running on PiWorker until
+  it ends or reaches its own timeout, and only its answer is lost: a tool call
+  you cancel may still have its effects.
 - **No retries.** A tool call may have side effects, so nothing is ever sent
   twice. Redirects are not followed and HTTP proxies are not used (PiWorker is
   on your local network).

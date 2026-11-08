@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -22,9 +23,15 @@ type sdkFixture struct {
 	rec       *recorder
 	started   chan struct{} // the slow tool started
 	cancelled chan struct{} // the slow tool saw its context cancelled
-	release   chan struct{} // lets the slow tool finish
+	finished  chan struct{} // the slow tool was released and returned
+	release   chan struct{} // lets the slow tool finish; see releaseSlow
 	calls     atomic.Int32  // tool calls that reached a handler
+
+	releaseOnce sync.Once
 }
+
+// releaseSlow lets every slow call finish.
+func (f *sdkFixture) releaseSlow() { f.releaseOnce.Do(func() { close(f.release) }) }
 
 type echoIn struct {
 	Text string `json:"text"`
@@ -39,9 +46,9 @@ func newSDKFixture(t *testing.T, jsonResponse bool) *sdkFixture {
 	f := &sdkFixture{
 		started:   make(chan struct{}, 4),
 		cancelled: make(chan struct{}, 4),
+		finished:  make(chan struct{}, 4),
 		release:   make(chan struct{}),
 	}
-	t.Cleanup(func() { close(f.release) })
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "piworker-test", Version: "1.0.0"}, nil)
 	mcp.AddTool(server, &mcp.Tool{Name: "echo", Description: "Echoes the text."},
@@ -57,6 +64,7 @@ func newSDKFixture(t *testing.T, jsonResponse bool) *sdkFixture {
 			case <-ctx.Done():
 				f.cancelled <- struct{}{}
 			case <-f.release:
+				f.finished <- struct{}{}
 			}
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "done"}}}, nil, nil
 		})
@@ -75,6 +83,9 @@ func newSDKFixture(t *testing.T, jsonResponse bool) *sdkFixture {
 	})
 	f.ca = newTestCA(t, "PiWorker Local CA test")
 	srv, rec := newTLSServer(t, f.ca.serverCert(t, false, "127.0.0.1"), f.ca, bearer(testToken, handler))
+	// Registered after the server, so it runs before srv.Close, which waits
+	// for slow calls still running.
+	t.Cleanup(f.releaseSlow)
 	f.url, f.rec = srv.URL+"/mcp", rec
 	return f
 }
@@ -255,30 +266,54 @@ func TestBridgeWrongTokenIsAClearError(t *testing.T) {
 	assert.Zero(t, f.calls.Load())
 }
 
-func TestBridgeCancellationReachesTheServer(t *testing.T) {
-	// With 2026-07-28 the POST is the whole request lifecycle, so aborting it
-	// cancels the tool (PiWorker sets PropagateRequestCancellation).
-	f := newSDKFixture(t, false)
-	b, err := connectThroughBridge(t, fixtureConfig(t, f), "2026-07-28")
-	require.NoError(t, err)
+// Cancelling a call aborts its POST. From protocol 2026-07-28 the POST is the
+// whole request, so PiWorker (PropagateRequestCancellation) cancels the call;
+// before that, the SDK lets the call run to its end and the bridge drops the
+// answer. Either way the client is answered at once and the session goes on.
+func TestBridgeCancellation(t *testing.T) {
+	for _, jsonResponse := range []bool{true, false} {
+		for _, version := range []string{"2025-11-25", "2026-07-28"} {
+			name := version + "/sse"
+			if jsonResponse {
+				name = version + "/json"
+			}
+			t.Run(name, func(t *testing.T) {
+				f := newSDKFixture(t, jsonResponse)
+				b, err := connectThroughBridge(t, fixtureConfig(t, f), version)
+				require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	errc := make(chan error, 1)
-	go func() {
-		_, err := b.session.CallTool(ctx, &mcp.CallToolParams{Name: "slow", Arguments: map[string]any{}})
-		errc <- err
-	}()
-	waitFor(t, f.started, "the slow tool to start")
-	cancel()
-	require.ErrorIs(t, <-errc, context.Canceled)
-	waitFor(t, f.cancelled, "the server to see the cancellation")
+				ctx, cancel := context.WithCancel(context.Background())
+				errc := make(chan error, 1)
+				go func() {
+					_, err := b.session.CallTool(ctx, &mcp.CallToolParams{Name: "slow", Arguments: map[string]any{}})
+					errc <- err
+				}()
+				waitFor(t, f.started, "the slow tool to start")
+				cancel()
+				require.ErrorIs(t, <-errc, context.Canceled)
 
-	// The session still works afterwards.
-	res, err := b.session.CallTool(testCtx(t), &mcp.CallToolParams{Name: "echo", Arguments: map[string]any{"text": "still here"}})
-	require.NoError(t, err)
-	assert.Equal(t, map[string]any{"echo": "still here"}, res.StructuredContent)
-	for _, r := range f.rec.requests() {
-		assert.NotEqual(t, "notifications/cancelled", r.BodyMethod, "cancellation is local: the stateless server cannot match it")
+				if version >= "2026-07-28" {
+					waitFor(t, f.cancelled, "the server to see the cancellation")
+				} else {
+					select {
+					case <-f.cancelled:
+						t.Fatal("before 2026-07-28 the call is not cancelled on the server")
+					case <-time.After(300 * time.Millisecond):
+					}
+					f.releaseSlow()
+					waitFor(t, f.finished, "the call to run to its end")
+				}
+
+				// The session still works, and the dropped answer did not
+				// reach the client.
+				res, err := b.session.CallTool(testCtx(t), &mcp.CallToolParams{Name: "echo", Arguments: map[string]any{"text": "still here"}})
+				require.NoError(t, err)
+				assert.Equal(t, map[string]any{"echo": "still here"}, res.StructuredContent)
+				for _, r := range f.rec.requests() {
+					assert.NotEqual(t, "notifications/cancelled", r.BodyMethod, "cancellation is local: the stateless server cannot match it")
+				}
+			})
+		}
 	}
 }
 
