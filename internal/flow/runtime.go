@@ -436,14 +436,44 @@ func (r *FlowRuntime) shutdown(triggerIDs []string) {
 	select {
 	case <-done:
 		r.logger.Debug().Msg("All goroutines stopped gracefully")
+		r.closeNodes()
 	case <-time.After(5 * time.Second):
 		r.logger.Warn().Msg("Timeout waiting for goroutines to stop")
+		// Never close a node while an executor may still be inside it:
+		// release resources once the stragglers finally exit.
+		go func() {
+			<-done
+			r.closeNodes()
+		}()
 	}
 
 	r.mu.Lock()
 	r.running = false
 	r.state = FlowStateInactive
 	r.mu.Unlock()
+}
+
+// closeNodes calls Close on every node (trigger or not) that implements
+// node.Closer, logging failures. It must only run once executors have drained.
+func (r *FlowRuntime) closeNodes() {
+	ids := make([]string, 0, len(r.nodes))
+	for nodeID := range r.nodes {
+		ids = append(ids, nodeID)
+	}
+	sort.Strings(ids)
+	for _, nodeID := range ids {
+		c, ok := r.nodes[nodeID].(node.Closer)
+		if !ok {
+			continue
+		}
+		if err := c.Close(); err != nil {
+			r.logger.Error().
+				Err(err).
+				Str("flowID", r.flow.ID).
+				Str("nodeID", nodeID).
+				Msg("Error closing node")
+		}
+	}
 }
 
 // dispatch reads routed messages from the router and hands each one to its
