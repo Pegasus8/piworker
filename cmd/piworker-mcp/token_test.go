@@ -46,6 +46,33 @@ func TestReadTokenRejectsBadContentWithoutEchoingIt(t *testing.T) {
 	}
 }
 
+func TestReadTokenAcceptsAUTF8ByteOrderMark(t *testing.T) {
+	// PowerShell 5.1 (Set-Content -Encoding UTF8) and Notepad write one.
+	got, err := readToken(writeTokenFile(t, "\xef\xbb\xbf"+testToken+"\r\n", 0o600))
+	require.NoError(t, err)
+	assert.Equal(t, testToken, got)
+}
+
+func TestReadTokenExplainsUTF16(t *testing.T) {
+	// PowerShell 5.1's Out-File and > write UTF-16.
+	for name, bom := range map[string][]byte{"little endian": {0xFF, 0xFE}, "big endian": {0xFE, 0xFF}} {
+		t.Run(name, func(t *testing.T) {
+			content := append([]byte{}, bom...)
+			for _, c := range []byte(testToken) {
+				if name == "little endian" {
+					content = append(content, c, 0)
+				} else {
+					content = append(content, 0, c)
+				}
+			}
+			_, err := readToken(writeTokenFile(t, string(content), 0o600))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "UTF-16")
+			assert.Contains(t, err.Error(), "Set-Content")
+		})
+	}
+}
+
 func TestReadTokenMissingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nope")
 	_, err := readToken(path)

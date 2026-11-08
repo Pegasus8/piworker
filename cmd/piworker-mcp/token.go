@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -57,6 +58,11 @@ func readToken(path string) (string, error) {
 	if len(data) > maxTokenFileBytes {
 		return "", fmt.Errorf("token file %s is too large: it must hold only the agent token (pwk_…)", path)
 	}
+	if bytes.HasPrefix(data, []byte{0xFF, 0xFE}) || bytes.HasPrefix(data, []byte{0xFE, 0xFF}) {
+		return "", fmt.Errorf("token file %s is saved as UTF-16; save it as plain text, e.g. in PowerShell: Set-Content -Path <file> -Value <token> -Encoding ascii", path)
+	}
+	// Notepad and PowerShell's UTF-8 encoding start the file with a BOM.
+	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
 	token := strings.TrimSpace(string(data))
 	switch {
 	case token == "":
