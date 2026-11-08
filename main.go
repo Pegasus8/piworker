@@ -74,6 +74,17 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to load configuration")
 	}
 	applyFlagOverrides(&cfg)
+
+	// Local maintenance commands need only the database and the data
+	// directory, not the listeners: they run before the cross-field checks so
+	// a listener or TLS conflict (which stops the server) never blocks
+	// recovering access offline.
+	if *recoveryUser != "" || *setupCode || *tlsRegenerate {
+		setupLogging(cfg.Debug)
+		runOfflineCommand(cfg)
+		return
+	}
+
 	// Cross-field checks (e.g. MCP without auth) run before anything is opened.
 	if err := cfg.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Invalid configuration")
@@ -81,15 +92,6 @@ func main() {
 
 	// Configure logging
 	setupLogging(cfg.Debug)
-
-	if *tlsRegenerate {
-		fingerprint, err := regenerateCA(cfg)
-		if err != nil {
-			log.Fatal().Err(err).Msg("Cannot regenerate the local CA")
-		}
-		fmt.Printf("New local CA in %s\nCA fingerprint: %s\nRestart PiWorker, then trust the new CA on every device; the old one no longer works.\n", cfg.TLSDir(), fingerprint)
-		return
-	}
 
 	log.Info().
 		Str("version", version).
@@ -105,26 +107,6 @@ func main() {
 	}
 	defer store.Close()
 	log.Info().Msg("Storage initialized")
-
-	// Local-only recovery/setup commands exit before starting flows or HTTP.
-	if *recoveryUser != "" || *setupCode {
-		users, err := storage.NewSQLiteUserStoreWithDB(store.DB())
-		if err != nil {
-			log.Fatal().Err(err).Msg("Cannot open accounts")
-		}
-		purpose := "recovery"
-		username := *recoveryUser
-		if *setupCode {
-			purpose = "setup"
-			username = ""
-		}
-		code, err := users.NewAuthCode(purpose, username, time.Now())
-		if err != nil {
-			log.Fatal().Err(err).Msg("Cannot generate account code")
-		}
-		fmt.Printf("%s code (one use, expires in 30 minutes): %s\nEnter it on the PiWorker sign-in page.\n", purpose, code)
-		return
-	}
 
 	// Load persisted secrets into the process-wide store and enable write-through,
 	// so nodes can reference {{secret.NAME}} instead of embedding plaintext.
@@ -254,6 +236,41 @@ func main() {
 	}
 
 	log.Info().Msg("PiWorker stopped")
+}
+
+// runOfflineCommand runs -tls-regenerate-ca, -setup-code or -recover-account
+// and exits on failure. These are local-only commands: they never start flows
+// or listeners.
+func runOfflineCommand(cfg config.Config) {
+	if *tlsRegenerate {
+		fingerprint, err := regenerateCA(cfg)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Cannot regenerate the local CA")
+		}
+		fmt.Printf("New local CA in %s\nCA fingerprint: %s\nRestart PiWorker, then trust the new CA on every device; the old one no longer works.\n", cfg.TLSDir(), fingerprint)
+		return
+	}
+
+	store, err := storage.NewSQLiteStore(cfg.DBPath)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to initialize storage")
+	}
+	defer store.Close()
+	users, err := storage.NewSQLiteUserStoreWithDB(store.DB())
+	if err != nil {
+		log.Fatal().Err(err).Msg("Cannot open accounts")
+	}
+	purpose := "recovery"
+	username := *recoveryUser
+	if *setupCode {
+		purpose = "setup"
+		username = ""
+	}
+	code, err := users.NewAuthCode(purpose, username, time.Now())
+	if err != nil {
+		log.Fatal().Err(err).Msg("Cannot generate account code")
+	}
+	fmt.Printf("%s code (one use, expires in 30 minutes): %s\nEnter it on the PiWorker sign-in page.\n", purpose, code)
 }
 
 // newHTTPServer builds the HTTP server. Every request context derives from a
