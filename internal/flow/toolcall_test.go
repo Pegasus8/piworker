@@ -896,17 +896,37 @@ func TestCallWaiterLimit(t *testing.T) {
 	assert.Equal(t, CallStatusExpired, got.Status, "the uncollected result made room for the new call")
 }
 
+// TestCallReplyTooLarge: a reply bigger than WithMaxCallResultBytes is never
+// stored; the call reports an error instead.
+func TestCallReplyTooLarge(t *testing.T) {
+	reg := callRegistryFor(t, map[string]node.NodeFactory{
+		"reply": funcFactory(replyFn(func(*Message) any { return strings.Repeat("x", 1024) }, false)),
+	})
+	f := callGraph(map[string]string{"tool": "tool", "r": "reply"}, [2]string{"tool", "r"})
+	rt := startRuntime(t, f, reg, WithMaxCallResultBytes(64))
+
+	res, err := rt.Call(context.Background(), CallRequest{TriggerNodeID: "tool", Args: map[string]any{}, Timeout: 3 * time.Second})
+	require.NoError(t, err)
+	assert.Equal(t, CallStatusError, res.Status)
+	assert.Nil(t, res.Result)
+	require.NotNil(t, res.Error)
+	assert.Contains(t, res.Error.Message, "too large")
+}
+
 func TestCallLimitDefaults(t *testing.T) {
 	reg := callRegistryFor(t, map[string]node.NodeFactory{"pass": funcFactory(passFn)})
 	f := callGraph(map[string]string{"tool": "tool", "p": "pass"}, [2]string{"tool", "p"})
 
-	rt, err := NewFlowRuntime(f, reg, WithMaxCallWaiters(0), WithMaxCallWaiters(-3))
+	rt, err := NewFlowRuntime(f, reg, WithMaxCallWaiters(0), WithMaxCallWaiters(-3),
+		WithMaxCallResultBytes(0), WithMaxCallResultBytes(-1))
 	require.NoError(t, err)
 	assert.Equal(t, DefaultMaxCallWaiters, rt.calls.maxWaiters, "values <= 0 are ignored")
+	assert.Equal(t, DefaultMaxCallResultBytes, rt.calls.maxResultBytes, "values <= 0 are ignored")
 
-	rt, err = NewFlowRuntime(f, reg, WithMaxCallWaiters(7))
+	rt, err = NewFlowRuntime(f, reg, WithMaxCallWaiters(7), WithMaxCallResultBytes(1000))
 	require.NoError(t, err)
 	assert.Equal(t, 7, rt.calls.maxWaiters)
+	assert.Equal(t, 1000, rt.calls.maxResultBytes)
 }
 
 func TestCallResultJSON(t *testing.T) {

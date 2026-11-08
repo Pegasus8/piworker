@@ -41,6 +41,11 @@ const (
 	// DefaultMaxCallWaiters caps how many called runs a runtime tracks at once
 	// (runs still executing plus results not collected yet).
 	DefaultMaxCallWaiters = 64
+	// DefaultMaxCallResultBytes caps the serialized payload of a reply. It is
+	// well above what the service layer passes on to agents (max_result_bytes),
+	// so the service can still truncate and flag; it bounds what a runtime
+	// holds: DefaultMaxCallWaiters * DefaultMaxCallResultBytes = 16 MiB.
+	DefaultMaxCallResultBytes = 256 << 10
 )
 
 // Errors returned by Call before a run is started.
@@ -88,7 +93,10 @@ type CallRequest struct {
 // payload became the call's result: only the first reply of a run that is
 // still waiting wins; replies for unknown or finished correlation IDs (e.g. a
 // run not started by Call) return false. The payload is serialized inside the
-// call, so the caller may keep mutating it afterwards.
+// call, so the caller may keep mutating it afterwards. A payload that cannot
+// be serialized, or whose JSON exceeds the runtime's maximum result size, is
+// not a result: Reply returns false and, unless a later reply wins, the call
+// ends as an error explaining why.
 type Replier interface {
 	Reply(correlationID string, payload any, isError bool) bool
 }
@@ -281,17 +289,20 @@ type callRegistry struct {
 	stopped bool
 	grace   time.Duration
 	now     func() time.Time
-	// maxWaiters caps len(waiters); <= 0 means no cap. Set before start.
-	maxWaiters int
+	// maxWaiters caps len(waiters) and maxResultBytes the serialized reply
+	// payload; <= 0 means no cap. Both are set before start.
+	maxWaiters     int
+	maxResultBytes int
 }
 
 func newCallRegistry(grace time.Duration) *callRegistry {
 	return &callRegistry{
-		waiters:    make(map[string]*callWaiter),
-		stopped:    true,
-		grace:      grace,
-		now:        time.Now,
-		maxWaiters: DefaultMaxCallWaiters,
+		waiters:        make(map[string]*callWaiter),
+		stopped:        true,
+		grace:          grace,
+		now:            time.Now,
+		maxWaiters:     DefaultMaxCallWaiters,
+		maxResultBytes: DefaultMaxCallResultBytes,
 	}
 }
 
@@ -363,6 +374,14 @@ func (c *callRegistry) runDoneChan(runID string) <-chan struct{} {
 func (c *callRegistry) Reply(correlationID string, payload any, isError bool) bool {
 	// Serialize outside the lock; this is the deep copy of the payload.
 	data, err := json.Marshal(payload)
+	failure := ""
+	switch {
+	case err != nil:
+		failure = fmt.Sprintf("reply payload is not serializable: %v", err)
+	case c.maxResultBytes > 0 && len(data) > c.maxResultBytes:
+		failure = fmt.Sprintf("reply payload is too large: %d bytes (limit %d)", len(data), c.maxResultBytes)
+		data = nil
+	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -370,9 +389,9 @@ func (c *callRegistry) Reply(correlationID string, payload any, isError bool) bo
 	if w == nil || w.final {
 		return false
 	}
-	if err != nil {
+	if failure != "" {
 		if w.nodeErr == nil {
-			w.nodeErr = &CallError{Message: fmt.Sprintf("reply payload is not serializable: %v", err)}
+			w.nodeErr = &CallError{Message: failure}
 		}
 		return false
 	}

@@ -166,9 +166,7 @@ type FlowRuntime struct {
 
 	// calls tracks runs started by Call (keyed by correlation ID). It lives on
 	// r.ctx so a reply node can find it (ReplyFromContext).
-	calls          *callRegistry
-	callGrace      time.Duration
-	maxCallWaiters int
+	calls *callRegistry
 }
 
 // RuntimeOption is a functional option for configuring the FlowRuntime.
@@ -232,7 +230,7 @@ func WithStopTimeout(d time.Duration) RuntimeOption {
 func WithCallExpiryGrace(d time.Duration) RuntimeOption {
 	return func(r *FlowRuntime) {
 		if d > 0 {
-			r.callGrace = d
+			r.calls.grace = d
 		}
 	}
 }
@@ -244,7 +242,18 @@ func WithCallExpiryGrace(d time.Duration) RuntimeOption {
 func WithMaxCallWaiters(n int) RuntimeOption {
 	return func(r *FlowRuntime) {
 		if n > 0 {
-			r.maxCallWaiters = n
+			r.calls.maxWaiters = n
+		}
+	}
+}
+
+// WithMaxCallResultBytes caps the serialized payload of a called run's reply:
+// a bigger reply is not stored and the call ends as an error. Default
+// DefaultMaxCallResultBytes; values <= 0 are ignored.
+func WithMaxCallResultBytes(n int) RuntimeOption {
+	return func(r *FlowRuntime) {
+		if n > 0 {
+			r.calls.maxResultBytes = n
 		}
 	}
 }
@@ -267,16 +276,13 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 		stopTimeout:    DefaultStopTimeout,
 		errors:         make(chan error, 100),
 		runInflight:    make(map[string]int),
-		callGrace:      DefaultCallExpiryGrace,
-		maxCallWaiters: DefaultMaxCallWaiters,
+		calls:          newCallRegistry(DefaultCallExpiryGrace),
 	}
 
 	// Apply options
 	for _, opt := range opts {
 		opt(rt)
 	}
-	rt.calls = newCallRegistry(rt.callGrace)
-	rt.calls.maxWaiters = rt.maxCallWaiters
 
 	// Instantiate all nodes from the registry
 	for i := range f.Nodes {

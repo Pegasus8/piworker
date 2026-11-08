@@ -116,6 +116,38 @@ func TestCallRegistryUnserializableReplyIsAnError(t *testing.T) {
 	assert.Contains(t, res.Error.Message, "reply")
 }
 
+// TestCallRegistryReplyTooLarge: a reply whose serialized payload exceeds
+// maxResultBytes is not stored; the call ends as an error instead.
+func TestCallRegistryReplyTooLarge(t *testing.T) {
+	reg := newTestRegistry(t)
+	reg.maxResultBytes = 8
+
+	w, err := reg.register("run-1", time.Second)
+	require.NoError(t, err)
+	assert.False(t, reg.Reply("run-1", "123456789", false), `"123456789" is 11 bytes`)
+	assert.False(t, isClosed(w.done), "an oversized reply is not a result")
+	reg.runFinished("run-1")
+	res := reg.snapshot(w)
+	assert.Equal(t, CallStatusError, res.Status)
+	assert.Nil(t, res.Result)
+	require.NotNil(t, res.Error)
+	assert.Contains(t, res.Error.Message, "too large")
+	assert.Contains(t, res.Error.Message, "11 bytes")
+
+	atLimit, err := reg.register("run-2", time.Second)
+	require.NoError(t, err)
+	assert.True(t, reg.Reply("run-2", "123456", false), `"123456" is exactly 8 bytes`)
+	assert.JSONEq(t, `"123456"`, string(reg.snapshot(atLimit).Result))
+
+	// A later, smaller reply can still win.
+	retry, err := reg.register("run-3", time.Second)
+	require.NoError(t, err)
+	assert.False(t, reg.Reply("run-3", "far too long", false))
+	assert.True(t, reg.Reply("run-3", "short", true))
+	assert.Equal(t, CallStatusError, reg.snapshot(retry).Status)
+	assert.JSONEq(t, `"short"`, string(reg.snapshot(retry).Result))
+}
+
 func TestCallRegistryRunEndWithoutReply(t *testing.T) {
 	reg := newTestRegistry(t)
 	w, err := reg.register("run-1", time.Second)
