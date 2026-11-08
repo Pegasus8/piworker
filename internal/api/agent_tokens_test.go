@@ -101,7 +101,7 @@ func countTokens(t *testing.T, s *storage.SQLiteStore) int {
 
 func TestAgentRoutesRequireSessionAndCSRF(t *testing.T) {
 	env := newAgentTestEnv(t, AgentHandlerOptions{})
-	for _, path := range []string{"/api/agent/tokens"} {
+	for _, path := range []string{"/api/agent/tokens", "/api/agent/audit", "/api/agent/approvals", "/api/agent/settings"} {
 		w := authRequest(env.router, "GET", path, nil, nil)
 		require.Equal(t, http.StatusUnauthorized, w.Code, path)
 	}
