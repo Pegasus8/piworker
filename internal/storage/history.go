@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 )
@@ -15,6 +16,43 @@ type FlowRun struct {
 	Status     string     `json:"status"` // running|success|error
 	NodeCount  int        `json:"nodeCount"`
 	ErrorCount int        `json:"errorCount"`
+	// Actor is who started the run through a synchronous call ("token:<name>",
+	// "editor", …), taken from the run's "actor" meta; empty otherwise.
+	Actor string `json:"actor,omitempty"`
+}
+
+// migrateHistory brings the history tables of databases created by older
+// versions up to date. It is idempotent.
+func migrateHistory(db *sql.DB) error {
+	has, err := historyHasColumn(db, "flow_runs", "actor")
+	if err != nil {
+		return err
+	}
+	if !has {
+		if _, err := db.Exec(`ALTER TABLE flow_runs ADD COLUMN actor TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("failed to add flow_runs.actor: %w", err)
+		}
+	}
+	return nil
+}
+
+// historyHasColumn reports whether table has the named column.
+func historyHasColumn(db *sql.DB, table, column string) (bool, error) {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return false, fmt.Errorf("failed to inspect %s: %w", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return false, fmt.Errorf("failed to inspect %s: %w", table, err)
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 // NodeEventRecord is one persisted node-execution observation belonging to a run.
@@ -35,14 +73,21 @@ type NodeEventRecord struct {
 // the same run ID (one per node event in the run) neither duplicate the row nor
 // move the recorded start time.
 func (s *SQLiteStore) UpsertFlowRun(runID, flowID string, startedAt time.Time) error {
+	return s.UpsertFlowRunWithActor(runID, flowID, "", startedAt)
+}
+
+// UpsertFlowRunWithActor is UpsertFlowRun recording who started the run. A
+// repeated call fills an actor that is still empty but never replaces one.
+func (s *SQLiteStore) UpsertFlowRunWithActor(runID, flowID, actor string, startedAt time.Time) error {
 	if s.isClosed() {
 		return ErrDatabaseClosed
 	}
 	_, err := s.db.Exec(`
-		INSERT INTO flow_runs (id, flow_id, started_at, status)
-		VALUES (?, ?, ?, 'running')
-		ON CONFLICT(id) DO NOTHING
-	`, runID, flowID, startedAt)
+		INSERT INTO flow_runs (id, flow_id, started_at, status, actor)
+		VALUES (?, ?, ?, 'running', ?)
+		ON CONFLICT(id) DO UPDATE SET actor = excluded.actor
+			WHERE flow_runs.actor = '' AND excluded.actor != ''
+	`, runID, flowID, startedAt, actor)
 	if err != nil {
 		return fmt.Errorf("failed to upsert flow run: %w", err)
 	}
@@ -120,7 +165,7 @@ func (s *SQLiteStore) ListFlowRuns(flowID string, limit, offset int) ([]FlowRun,
 		return nil, ErrDatabaseClosed
 	}
 	rows, err := s.db.Query(`
-		SELECT id, flow_id, started_at, finished_at, status, node_count, error_count
+		SELECT id, flow_id, started_at, finished_at, status, node_count, error_count, actor
 		FROM flow_runs
 		WHERE flow_id = ?
 		ORDER BY started_at DESC
@@ -134,7 +179,7 @@ func (s *SQLiteStore) ListFlowRuns(flowID string, limit, offset int) ([]FlowRun,
 	var runs []FlowRun
 	for rows.Next() {
 		var r FlowRun
-		if err := rows.Scan(&r.ID, &r.FlowID, &r.StartedAt, &r.FinishedAt, &r.Status, &r.NodeCount, &r.ErrorCount); err != nil {
+		if err := rows.Scan(&r.ID, &r.FlowID, &r.StartedAt, &r.FinishedAt, &r.Status, &r.NodeCount, &r.ErrorCount, &r.Actor); err != nil {
 			return nil, fmt.Errorf("failed to scan flow run: %w", err)
 		}
 		runs = append(runs, r)
