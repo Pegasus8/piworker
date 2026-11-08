@@ -178,6 +178,13 @@ func TestValidateShortensLongEnums(t *testing.T) {
 	assert.Contains(t, got["/e"], "more)")
 }
 
+// format is an annotation only (design §5): it is advertised, not enforced.
+func TestValidateIgnoresFormat(t *testing.T) {
+	s := mustCompile(t, `{"type":"object","properties":{"s":{"type":"string","format":"email"},"d":{"type":"string","format":"date-time"}}}`)
+	assert.Empty(t, s.Validate(map[string]any{"s": "not an email", "d": "yesterday"}))
+	assert.Contains(t, string(s.JSON()), `"format":"email"`)
+}
+
 // One compiled schema serves every call of a tool at once.
 func TestSchemaIsSafeForConcurrentUse(t *testing.T) {
 	s := mustCompile(t, validateSchema)
