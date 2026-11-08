@@ -5,6 +5,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { Badge, Button, Card, Input, Label } from '@/components/ui'
 import AgentNav from '@/components/agent/AgentNav.vue'
+import AgentText from '@/components/agent/AgentText.vue'
 import { useAgentStore, apiErrorMessage } from '@/stores/agent'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime, type AuditFilters } from '@/lib/agentAccess'
@@ -158,14 +159,14 @@ const inputClass = 'flex h-9 w-full rounded-md border border-input bg-background
                   <td class="whitespace-nowrap px-4 py-2">{{ formatDateTime(e.ts) }}</td>
                   <td class="break-words px-4 py-2">{{ e.tokenName || e.tokenId }}</td>
                   <td class="px-4 py-2">
-                    <span class="break-all font-mono text-xs">{{ e.tool }}</span>
+                    <span class="break-all font-mono text-xs"><AgentText :text="e.tool" /></span>
                     <Badge v-if="e.privileged" variant="destructive" class="ml-1">privileged</Badge>
                   </td>
                   <td class="break-words px-4 py-2">{{ flowName(e.flowId) }}</td>
                   <td class="break-all px-4 py-2 font-mono text-xs">{{ e.runId }}</td>
                   <td class="px-4 py-2"><Badge :variant="outcomeVariant(e.outcome)">{{ e.outcome }}</Badge></td>
                   <td class="whitespace-nowrap px-4 py-2">{{ e.durMs }} ms</td>
-                  <td class="min-w-[12rem] px-4 py-2"><code class="whitespace-pre-wrap break-all text-xs">{{ e.argsPreview }}</code></td>
+                  <td class="min-w-[12rem] px-4 py-2"><code dir="ltr" class="whitespace-pre-wrap break-all text-xs [unicode-bidi:bidi-override]"><AgentText :text="e.argsPreview ?? ''" /></code></td>
                 </tr>
               </tbody>
             </table>

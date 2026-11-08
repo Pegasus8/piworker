@@ -8,10 +8,11 @@ import { Badge, Button, Card, Label, Select } from '@/components/ui'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import OperationFeedback from '@/components/ui/OperationFeedback.vue'
 import AgentNav from '@/components/agent/AgentNav.vue'
+import AgentText from '@/components/agent/AgentText.vue'
 import type { Feedback } from '@/composables/useFeedback'
 import { useAgentStore, apiErrorMessage, type ApprovalFilter } from '@/stores/agent'
 import { useAuthStore } from '@/stores/auth'
-import { formatDateTime, formatJSONText, formatRelative, type AgentApproval, type ApprovalDecision } from '@/lib/agentAccess'
+import { countHidden, formatDateTime, formatRelative, jsonText, visibleText, type AgentApproval, type ApprovalDecision } from '@/lib/agentAccess'
 
 const agent = useAgentStore()
 const auth = useAuthStore()
@@ -58,7 +59,7 @@ watch(() => agent.pendingCount, (count, before) => {
 
 const isTool = (a: AgentApproval) => a.kind === 'tool_call'
 const toolOf = (a: AgentApproval) => isTool(a) ? agent.toolFor(a.flowId, a.ref) : undefined
-const title = (a: AgentApproval) => toolOf(a)?.toolName ?? a.ref
+const title = (a: AgentApproval) => visibleText(toolOf(a)?.toolName ?? a.ref)
 const flowName = (a: AgentApproval) => a.flowId ? (toolOf(a)?.flowName ?? agent.flowNames[a.flowId] ?? a.flowId) : ''
 const kindLabel = (a: AgentApproval) => isTool(a) ? 'Tool call' : a.kind === 'draft_deploy' ? 'Draft deploy' : a.kind
 const statusLabel: Record<string, string> = { pending: 'Waiting', approved: 'Approved', rejected: 'Rejected', expired: 'Expired' }
@@ -66,6 +67,9 @@ const tokenStatusLabel: Record<string, string> = { active: 'active', expired: 't
 const riskVariant = (risk: string) => risk === 'privileged' ? 'destructive' : risk === 'external' ? 'secondary' : 'outline'
 const canApprove = (a: AgentApproval) => a.status === 'pending' && isTool(a) && a.tokenStatus === 'active'
 const hasArgs = (a: AgentApproval) => a.args !== undefined && a.args !== null
+// Invisible or direction-changing characters in what the agent sent.
+const hiddenCount = (a: AgentApproval) => countHidden(a.summary ?? '') + countHidden(jsonText(a.args))
+const hiddenLabel = (n: number) => `${n} hidden character${n === 1 ? '' : 's'}`
 
 function outcome(d: ApprovalDecision): string {
   if (d.approval.status === 'rejected') return 'Rejected.'
@@ -75,8 +79,10 @@ function outcome(d: ApprovalDecision): string {
 
 async function decide(a: AgentApproval, approve: boolean) {
   if (pending.value) return
+  const hidden = hiddenCount(a)
+  const warning = hidden ? ` The request contains ${hiddenLabel(hidden)}, shown highlighted as \\u escapes: check what they change.` : ''
   const asked = approve
-    ? await confirmation.value?.ask('Approve and run?', `“${title(a)}” runs now with the arguments shown, on behalf of the token “${a.tokenName || a.tokenId}”.`, 'Approve and run')
+    ? await confirmation.value?.ask('Approve and run?', `“${title(a)}” runs now with the arguments shown, on behalf of the token “${a.tokenName || a.tokenId}”.${warning}`, 'Approve and run')
     : await confirmation.value?.ask('Reject request?', `“${title(a)}” will not run. The agent is told the request was rejected.`, 'Reject request')
   if (!asked) return
   pending.value = true
@@ -121,7 +127,7 @@ const decisions = computed(() => agent.recentDecisions)
           <ul class="space-y-3">
             <li v-for="d in decisions" :key="d.approval.id" class="space-y-1 text-sm">
               <p><span class="break-all font-mono font-medium">{{ title(d.approval) }}</span> — {{ outcome(d) }}</p>
-              <pre v-if="d.approval.result !== undefined" aria-label="Result" class="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-2 text-xs">{{ formatJSONText(d.approval.result) }}</pre>
+              <pre v-if="d.approval.result !== undefined" aria-label="Result" class="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-2 text-xs"><AgentText :text="jsonText(d.approval.result)" /></pre>
             </li>
           </ul>
         </Card>
@@ -137,6 +143,7 @@ const decisions = computed(() => agent.recentDecisions)
             <h3 class="break-all font-mono font-semibold">{{ title(a) }}</h3>
             <Badge :variant="a.status === 'pending' ? 'default' : 'secondary'">{{ statusLabel[a.status] ?? a.status }}</Badge>
             <Badge v-if="toolOf(a)" :variant="riskVariant(toolOf(a)!.risk)" title="Risk of the tool as published now">{{ toolOf(a)!.risk }}</Badge>
+            <Badge v-if="hiddenCount(a)" variant="destructive" title="Invisible or direction-changing characters, shown highlighted as \u escapes">{{ hiddenLabel(hiddenCount(a)) }}</Badge>
           </div>
           <dl class="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
             <div v-if="flowName(a)"><dt class="text-xs text-muted-foreground">Flow</dt><dd class="break-words">{{ flowName(a) }}</dd></div>
@@ -153,15 +160,15 @@ const decisions = computed(() => agent.recentDecisions)
           </dl>
           <div v-if="a.summary" class="space-y-1">
             <p class="text-xs text-muted-foreground">Summary (from the request, shown as text)</p>
-            <p class="whitespace-pre-wrap break-words rounded-md border p-2 text-sm">{{ a.summary }}</p>
+            <p aria-label="Summary" class="whitespace-pre-wrap break-words rounded-md border p-2 text-sm"><AgentText :text="a.summary" /></p>
           </div>
           <div v-if="hasArgs(a)" class="space-y-1">
             <p class="text-xs text-muted-foreground">Arguments sent by the agent</p>
-            <pre aria-label="Arguments" class="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs">{{ formatJSONText(a.args) }}</pre>
+            <pre aria-label="Arguments" dir="ltr" class="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs [unicode-bidi:bidi-override]"><AgentText :text="jsonText(a.args)" /></pre>
           </div>
           <div v-if="a.result !== undefined" class="space-y-1">
             <p class="text-xs text-muted-foreground">Result</p>
-            <pre aria-label="Result" class="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs">{{ formatJSONText(a.result) }}</pre>
+            <pre aria-label="Result" class="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs"><AgentText :text="jsonText(a.result)" /></pre>
           </div>
           <p v-if="a.kind === 'draft_deploy'" class="text-sm">
             <span class="text-muted-foreground" title="The draft review page arrives in a later version">Review draft (coming soon)</span>

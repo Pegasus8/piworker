@@ -5,6 +5,10 @@ import {
   clientSnippets,
   grantStatus,
   formatJSONText,
+  jsonText,
+  visibleText,
+  revealHidden,
+  countHidden,
   formatRelative,
   auditParams,
   toolKey,
@@ -148,6 +152,49 @@ test('agent-provided values are rendered as indented JSON text', () => {
   expect(formatJSONText(undefined)).toBe('')
   expect(formatJSONText(null)).toBe('null')
   expect(formatJSONText('plain <b>text</b>')).toBe('plain <b>text</b>')
+})
+
+// Trojan Source: bidi controls and invisible characters make text display in
+// a different order, or with different content, than what runs.
+const RLO = '‮'
+const LRI = '⁦'
+const PDI = '⁩'
+
+test('hidden and direction-changing characters are shown as escapes', () => {
+  expect(visibleText(`/home/pi/${RLO}gnp.sh`)).toBe('/home/pi/\\u202E' + 'gnp.sh')
+  expect(visibleText(`a${LRI}b${PDI}c`)).toBe('a\\u2066b\\u2069c')
+  // Zero-width characters, marks, the BOM, the Arabic letter mark and other
+  // invisible or ignorable characters.
+  for (const c of ['​', '‌', '‍', '‎', '‏', '؜', '﻿', '­', '⁠', ' ', ' ', '͏', '️', 'ㅤ', '\u0085', '\u007F', '\u001B']) {
+    const code = c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')
+    expect(visibleText(`x${c}y`)).toBe(`x\\u${code}y`)
+  }
+  // Characters outside the BMP (tag characters) use the long form.
+  expect(visibleText('a\u{E0041}b')).toBe('a\\u{E0041}b')
+  // Ordinary text, line breaks and tabs are untouched, including RTL scripts.
+  const plain = 'Open the door\n\tplease — ¿sí? שלום مرحبا 你好 😀'
+  expect(visibleText(plain)).toBe(plain)
+  expect(countHidden(plain)).toBe(0)
+  expect(countHidden(`${RLO}x${LRI}y${PDI}`)).toBe(3)
+  expect(revealHidden(`ab${RLO}cd`)).toEqual([
+    { text: 'ab', hidden: false },
+    { text: '\\u202E', hidden: true, code: 'U+202E' },
+    { text: 'cd', hidden: false }
+  ])
+  expect(revealHidden('')).toEqual([])
+})
+
+test('JSON text from agents never carries hidden characters', () => {
+  const args = { path: `/home/pi/${RLO}gnp.sh`, [`k${LRI}`]: `v${PDI}` }
+  const text = formatJSONText(args)
+  expect(text).not.toContain(RLO)
+  expect(text).not.toContain(LRI)
+  expect(text).not.toContain(PDI)
+  expect(text).toContain('"path": "/home/pi/\\u202Egnp.sh"')
+  expect(text).toContain('"k\\u2066": "v\\u2069"')
+  expect(formatJSONText(`summary ${RLO}`)).toBe('summary \\u202E')
+  // The raw text keeps them, for counting and highlighting.
+  expect(countHidden(jsonText(args))).toBe(3)
 })
 
 test('relative times read naturally in both directions', () => {

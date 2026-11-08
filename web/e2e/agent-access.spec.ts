@@ -27,11 +27,11 @@ const approvals = [
   { id: 'ap2', kind: 'draft_deploy', tokenId: 'tokA', tokenName: 'laptop', flowId: 'f1', ref: 'draft-1', summary: 'Deploy my draft', status: 'pending', createdAt: iso(-120_000), expiresAt: iso(3_600_000), tokenStatus: 'active' }
 ]
 
-function auditPage(from: number, n: number) {
-  return Array.from({ length: n }, (_, i) => ({ id: from - i, ts: iso(-i * 60_000), tokenId: 'tokA', tokenName: 'laptop', tool: i === 0 ? 'reboot_pi' : 'garage_open', flowId: 'f1', runId: `run-${from - i}`, argsPreview: i === 0 ? XSS : '{"door":"main"}', outcome: i === 0 ? 'error' : 'completed', durMs: 12, privileged: i === 0 }))
+function auditPage(from: number, n: number, preview = '{"door":"main"}') {
+  return Array.from({ length: n }, (_, i) => ({ id: from - i, ts: iso(-i * 60_000), tokenId: 'tokA', tokenName: 'laptop', tool: i === 0 ? 'reboot_pi' : 'garage_open', flowId: 'f1', runId: `run-${from - i}`, argsPreview: i === 0 ? XSS : preview, outcome: i === 0 ? 'error' : 'completed', durMs: 12, privileged: i === 0 }))
 }
 
-interface MockOptions { toolsMissing?: boolean; pending?: number }
+interface MockOptions { toolsMissing?: boolean; pending?: number; extraApprovals?: unknown[]; auditPreview?: string }
 
 async function mockServer(page: Page, opts: MockOptions = {}) {
   const requests: Req[] = []
@@ -68,13 +68,13 @@ async function mockServer(page: Page, opts: MockOptions = {}) {
         return ok(settings)
       case 'GET /agent/approvals': {
         const status = url.searchParams.get('status')
-        return ok({ approvals: status === 'pending' || status === null ? approvals : [], pending: opts.pending ?? 2 })
+        return ok({ approvals: status === 'pending' || status === null ? [...approvals, ...(opts.extraApprovals ?? [])] : [], pending: opts.pending ?? 2 })
       }
       case 'POST /agent/approvals/ap1/approve': return ok({ approval: { ...approvals[0], status: 'approved', decidedBy: 'owner', decidedAt: iso(0) }, executed: false, executionError: 'not available' })
       case 'POST /agent/approvals/ap1/reject': return ok({ approval: { ...approvals[0], status: 'rejected' }, executed: false })
       case 'GET /agent/audit': {
         const before = Number(url.searchParams.get('beforeId') ?? 0)
-        const entries = before ? auditPage(before - 1, 2) : auditPage(200, 50)
+        const entries = before ? auditPage(before - 1, 2) : auditPage(200, 50, opts.auditPreview)
         return ok({ entries, rejections: before ? [] : [{ tokenId: 'tokA', at: iso(-60_000), reason: 'busy', count: 3 }, { tokenId: 'tokA', at: iso(-120_000), reason: 'busy', count: 2 }] })
       }
     }
@@ -249,6 +249,42 @@ test('approvals render agent text as plain text and report the execution', async
   await expect(page.getByRole('alert')).toContainText('Approved, but it did not run: not available')
   await expect(call.getByText('Approved', { exact: true })).toBeVisible()
   await expect(call.getByRole('button', { name: 'Approve…' })).toHaveCount(0)
+})
+
+test('hidden and direction-changing characters from agents are shown as escapes', async ({ page }) => {
+  // Trojan Source: "/home/pi/<RLO>gnp.sh" displays as "/home/pi/hs.png".
+  const RLO = '\u202E'
+  const LRI = '\u2066'
+  const PDI = '\u2069'
+  const path = `/home/pi/${RLO}gnp.sh`
+  await mockServer(page, {
+    extraApprovals: [{ ...approvals[0], id: 'ap3', ref: 'n9', flowId: 'f2', args: { path }, summary: `Convert ${LRI}the image${PDI}` }],
+    auditPreview: JSON.stringify({ path })
+  })
+  await page.goto('/agents/approvals')
+  const call = page.getByRole('article', { name: 'Request n9' })
+  const args = call.getByLabel('Arguments')
+  await expect(args).toContainText('"path": "/home/pi/\\u202Egnp.sh"')
+  expect(await args.textContent()).not.toContain(RLO)
+  await expect(args.locator('mark')).toHaveAttribute('title', 'Hidden character U+202E')
+  // What is displayed is the order in which the arguments are sent.
+  await expect(args).toHaveCSS('unicode-bidi', 'bidi-override')
+  await expect(args).toHaveCSS('direction', 'ltr')
+  const summary = call.getByLabel('Summary')
+  await expect(summary).toContainText('Convert \\u2066the image\\u2069')
+  expect(await summary.textContent()).not.toMatch(/[\u2066\u2069]/)
+  await expect(call.getByText('3 hidden characters')).toBeVisible()
+  // A request without them carries no warning.
+  await expect(page.getByRole('article', { name: 'Request garage_open' }).getByText(/hidden character/)).toHaveCount(0)
+  await call.getByRole('button', { name: 'Approve…' }).click()
+  const confirm = page.getByRole('dialog', { name: 'Approve and run?' })
+  await expect(confirm).toContainText('3 hidden characters')
+  await confirm.getByRole('button', { name: 'Cancel' }).click()
+
+  await page.goto('/agents/audit')
+  const table = page.getByRole('table', { name: 'Agent calls' })
+  await expect(table.getByText('/home/pi/\\u202Egnp.sh').first()).toBeVisible()
+  expect(await table.textContent()).not.toContain(RLO)
 })
 
 test('the audit log filters, pages and counts rejections', async ({ page }) => {

@@ -309,8 +309,57 @@ export function grantStatus(grant: TokenGrant, tool: AgentTool | undefined): Gra
   return { state: 'active', reason: '', needsConfirm: false, confirmFingerprint: current }
 }
 
-/** Renders agent-provided data as indented JSON text (strings stay as they are). */
-export function formatJSONText(value: unknown): string {
+// Characters that are invisible or change how the text around them is shown,
+// so that what an admin reads differs from what runs ("Trojan Source"):
+// format characters (bidi embeddings, overrides and isolates, zero-width
+// characters, the BOM, tag characters…), the other default-ignorable ones
+// (variation selectors, Hangul fillers, the combining grapheme joiner), line
+// and paragraph separators, lone surrogates, and control characters other
+// than tab and line feed. JSON.stringify escapes none of the non-ASCII ones.
+const HIDDEN_CHARS = /[\p{Cf}\p{Default_Ignorable_Code_Point}\p{Zl}\p{Zp}\p{Cs}\x00-\x08\x0B-\x1F\x7F-\x9F]/gu
+
+/** A run of text, or one hidden character shown as an escape. */
+export interface TextPart {
+  text: string
+  hidden: boolean
+  /** "U+202E" for a hidden character. */
+  code?: string
+}
+
+function escapeCodePoint(cp: number): string {
+  const hex = cp.toString(16).toUpperCase()
+  return cp > 0xFFFF ? `\\u{${hex}}` : `\\u${hex.padStart(4, '0')}`
+}
+
+/** Splits text into visible runs and \uXXXX escapes of its hidden characters. */
+export function revealHidden(text: string): TextPart[] {
+  const parts: TextPart[] = []
+  let from = 0
+  for (const m of text.matchAll(HIDDEN_CHARS)) {
+    if (m.index > from) parts.push({ text: text.slice(from, m.index), hidden: false })
+    const cp = m[0].codePointAt(0)!
+    parts.push({ text: escapeCodePoint(cp), hidden: true, code: `U+${cp.toString(16).toUpperCase().padStart(4, '0')}` })
+    from = m.index + m[0].length
+  }
+  if (from < text.length) parts.push({ text: text.slice(from), hidden: false })
+  return parts
+}
+
+/** The text with every hidden or direction-changing character shown as an escape. */
+export function visibleText(text: string): string {
+  return text.replace(HIDDEN_CHARS, c => escapeCodePoint(c.codePointAt(0)!))
+}
+
+/** How many hidden or direction-changing characters the text has. */
+export function countHidden(text: string): number {
+  return text.match(HIDDEN_CHARS)?.length ?? 0
+}
+
+/**
+ * Agent-provided data as indented JSON (strings stay as they are), raw: show
+ * it through revealHidden or visibleText, never as is.
+ */
+export function jsonText(value: unknown): string {
   if (value === undefined) return ''
   if (typeof value === 'string') return value
   try {
@@ -318,6 +367,11 @@ export function formatJSONText(value: unknown): string {
   } catch {
     return String(value)
   }
+}
+
+/** Renders agent-provided data as indented JSON text with hidden characters escaped. */
+export function formatJSONText(value: unknown): string {
+  return visibleText(jsonText(value))
 }
 
 const RELATIVE_LIMIT_MS = 45 * 86_400_000
