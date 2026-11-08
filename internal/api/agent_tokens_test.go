@@ -2,11 +2,13 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -283,7 +285,7 @@ func TestUpdateTokenGrants(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	assert.Equal(t, []storage.TokenGrant{{FlowID: "f", TriggerNodeID: "n", Fingerprint: "v1", Suspended: true}}, grantsNow(), "the verifier sees grant changes at once")
 
-	w = env.do("POST", path, map[string]any{"action": "confirm", "flowId": "f", "triggerNodeId": "n", "fingerprint": "v2"})
+	w = env.do("POST", path, map[string]any{"action": "confirm", "flowId": "f", "triggerNodeId": "n", "fingerprint": "v2", "password": "test-password"})
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	assert.Equal(t, []storage.TokenGrant{{FlowID: "f", TriggerNodeID: "n", Fingerprint: "v2"}}, grantsNow())
 
@@ -317,4 +319,80 @@ func TestUpdateTokenGrants(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, env.do("POST", "/api/agent/tokens/unknown/grants", map[string]any{"action": "suspend", "flowId": "g", "triggerNodeId": "m"}).Code)
 	require.Equal(t, http.StatusOK, env.do("DELETE", "/api/agent/tokens/"+id, nil).Code)
 	require.Equal(t, http.StatusNotFound, env.do("POST", path, map[string]any{"action": "confirm", "flowId": "g", "triggerNodeId": "m", "fingerprint": "w2"}).Code, "revoked tokens cannot be re-enabled through grants")
+}
+
+func TestConcurrentGrantUpdatesAreNotLost(t *testing.T) {
+	env := newAgentTestEnv(t, AgentHandlerOptions{})
+	const n = 12
+	grants := make([]map[string]any, n)
+	for i := range grants {
+		grants[i] = map[string]any{"flowId": fmt.Sprintf("f%d", i), "triggerNodeId": "n", "fingerprint": "v1"}
+	}
+	created := env.createToken(t, map[string]any{"name": "x", "scopes": []string{"call"}, "grants": grants})
+	path := "/api/agent/tokens/" + created.Info.ID + "/grants"
+
+	// Two editor tabs (or a redeploy and a tab) changing different grants at
+	// once must both win: suspend the even grants and remove the odd ones.
+	var wg sync.WaitGroup
+	codes := make([]int, n)
+	for i := range n {
+		action := "suspend"
+		if i%2 == 1 {
+			action = "remove"
+		}
+		wg.Go(func() {
+			codes[i] = env.do("POST", path, map[string]any{"action": action, "flowId": fmt.Sprintf("f%d", i), "triggerNodeId": "n"}).Code
+		})
+	}
+	wg.Wait()
+	for i, code := range codes {
+		require.Equal(t, http.StatusOK, code, "request %d", i)
+	}
+	stored, err := env.store.GetAPIToken(created.Info.ID)
+	require.NoError(t, err)
+	require.Len(t, stored.Grants, n/2, "every removal sticks")
+	for _, g := range stored.Grants {
+		assert.True(t, g.Suspended, "every suspension sticks: %+v", g)
+	}
+}
+
+func TestConfirmGrantNeedsStepUpWhenItWidens(t *testing.T) {
+	env := newAgentTestEnv(t, AgentHandlerOptions{})
+	created := env.createToken(t, map[string]any{
+		"name": "x", "scopes": []string{"call"},
+		"grants": []map[string]any{{"flowId": "f", "triggerNodeId": "n", "fingerprint": "v1"}},
+	})
+	path := "/api/agent/tokens/" + created.Info.ID + "/grants"
+	grant := func() storage.TokenGrant {
+		stored, err := env.store.GetAPIToken(created.Info.ID)
+		require.NoError(t, err)
+		require.Len(t, stored.Grants, 1)
+		return stored.Grants[0]
+	}
+
+	// Narrowing needs no password.
+	require.Equal(t, http.StatusOK, env.do("POST", path, map[string]any{"action": "suspend", "flowId": "f", "triggerNodeId": "n"}).Code)
+
+	// Lifting a suspension (a redeploy raised the risk) is a widening.
+	confirm := map[string]any{"action": "confirm", "flowId": "f", "triggerNodeId": "n", "fingerprint": "v2"}
+	w := env.do("POST", path, confirm)
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	require.Contains(t, errorMessage(t, w), "password")
+	assert.Equal(t, storage.TokenGrant{FlowID: "f", TriggerNodeID: "n", Fingerprint: "v1", Suspended: true}, grant(), "the grant stays suspended")
+	confirm["password"] = "wrong-password"
+	require.Equal(t, http.StatusForbidden, env.do("POST", path, confirm).Code)
+	assert.True(t, grant().Suspended)
+	confirm["password"] = "test-password"
+	require.Equal(t, http.StatusOK, env.do("POST", path, confirm).Code)
+	assert.Equal(t, storage.TokenGrant{FlowID: "f", TriggerNodeID: "n", Fingerprint: "v2"}, grant())
+
+	// So is pointing an active grant at another fingerprint.
+	w = env.do("POST", path, map[string]any{"action": "confirm", "flowId": "f", "triggerNodeId": "n", "fingerprint": "v3"})
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	assert.Equal(t, "v2", grant().Fingerprint)
+
+	// Re-confirming what is already in force changes nothing and needs none.
+	w = env.do("POST", path, map[string]any{"action": "confirm", "flowId": "f", "triggerNodeId": "n", "fingerprint": "v2"})
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Equal(t, storage.TokenGrant{FlowID: "f", TriggerNodeID: "n", Fingerprint: "v2"}, grant())
 }

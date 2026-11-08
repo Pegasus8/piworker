@@ -54,7 +54,7 @@ type createAgentTokenRequest struct {
 
 // Grant actions for POST /api/agent/tokens/{id}/grants.
 const (
-	GrantConfirm = "confirm" // accept the tool's current fingerprint and resume
+	GrantConfirm = "confirm" // accept the tool's current fingerprint and resume: step-up when it widens
 	GrantSuspend = "suspend"
 	GrantRemove  = "remove"
 	GrantAdd     = "add" // widens the token: needs password step-up
@@ -205,7 +205,20 @@ func (h *AgentHandler) RevokeToken(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, http.StatusOK, nil, "Token revoked")
 }
 
+// Errors of the grant mutation run inside the store's transaction.
+var (
+	errGrantNotFound  = errors.New("grant not found")
+	errGrantExists    = errors.New("grant already exists")
+	errStepUpRequired = errors.New("password step-up required")
+)
+
 // UpdateGrant confirms, suspends, removes or adds one grant of a token.
+// Changes that widen what the token may do need password step-up: adding a
+// grant, and confirming one that is suspended or bound to another
+// fingerprint (§7: a redeploy that raised the risk or widened the schema
+// suspends the grant until the admin re-approves it). Suspending and removing
+// only narrow, so they need no password. The change is applied to the stored
+// grants in one transaction, so concurrent updates never overwrite each other.
 // POST /api/agent/tokens/{id}/grants
 func (h *AgentHandler) UpdateGrant(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
@@ -227,48 +240,57 @@ func (h *AgentHandler) UpdateGrant(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid request: fingerprint is required")
 		return
 	}
-	tok, err := h.store.GetAPIToken(id)
-	if errors.Is(err, storage.ErrAPITokenNotFound) || (err == nil && tok.RevokedAt != nil) {
-		writeError(w, http.StatusNotFound, "Token not found or revoked")
-		return
-	}
-	if err != nil {
-		h.logger.Error().Err(err).Str("tokenId", id).Msg("Failed to read agent token")
-		writeError(w, http.StatusInternalServerError, "Cannot read agent token")
-		return
-	}
-	grants := slices.Clone(tok.Grants)
-	idx := slices.IndexFunc(grants, func(g storage.TokenGrant) bool {
-		return g.FlowID == req.FlowID && g.TriggerNodeID == req.TriggerNodeID
-	})
-	if req.Action == GrantAdd {
-		if idx >= 0 {
-			writeError(w, http.StatusConflict, "The token already has a grant for this tool")
-			return
-		}
+	// Whether a confirm widens depends on the stored grant, which is only
+	// known (and stable) inside the transaction, where the password cannot be
+	// checked: the user store shares the single database connection. So a
+	// supplied password is checked first, and the mutation refuses a widening
+	// confirm that came without one.
+	steppedUp := false
+	if req.Action == GrantAdd || req.Password != "" {
 		if !h.auth.verifyStepUp(w, r, req.Password) {
 			return
 		}
-		grants = append(grants, storage.TokenGrant{FlowID: req.FlowID, TriggerNodeID: req.TriggerNodeID, Fingerprint: req.Fingerprint})
-	} else {
+		steppedUp = true
+	}
+	tok, err := h.store.UpdateAPITokenGrants(id, func(grants []storage.TokenGrant) ([]storage.TokenGrant, error) {
+		idx := slices.IndexFunc(grants, func(g storage.TokenGrant) bool {
+			return g.FlowID == req.FlowID && g.TriggerNodeID == req.TriggerNodeID
+		})
+		if req.Action == GrantAdd {
+			if idx >= 0 {
+				return nil, errGrantExists
+			}
+			return append(grants, storage.TokenGrant{FlowID: req.FlowID, TriggerNodeID: req.TriggerNodeID, Fingerprint: req.Fingerprint}), nil
+		}
 		if idx < 0 {
-			writeError(w, http.StatusNotFound, "Grant not found")
-			return
+			return nil, errGrantNotFound
 		}
 		switch req.Action {
 		case GrantConfirm:
-			grants[idx].Fingerprint, grants[idx].Suspended = req.Fingerprint, false
+			g := &grants[idx]
+			if (g.Suspended || g.Fingerprint != req.Fingerprint) && !steppedUp {
+				return nil, errStepUpRequired
+			}
+			g.Fingerprint, g.Suspended = req.Fingerprint, false
 		case GrantSuspend:
 			grants[idx].Suspended = true
 		case GrantRemove:
 			grants = slices.Delete(grants, idx, idx+1)
 		}
-	}
-	err = h.store.SetAPITokenGrants(id, grants)
-	h.tokens.Evict(id)
+		return grants, nil
+	})
 	switch {
 	case errors.Is(err, storage.ErrAPITokenNotFound):
 		writeError(w, http.StatusNotFound, "Token not found or revoked")
+		return
+	case errors.Is(err, errGrantNotFound):
+		writeError(w, http.StatusNotFound, "Grant not found")
+		return
+	case errors.Is(err, errGrantExists):
+		writeError(w, http.StatusConflict, "The token already has a grant for this tool")
+		return
+	case errors.Is(err, errStepUpRequired):
+		writeError(w, http.StatusForbidden, "Confirm your password to continue")
 		return
 	case errors.Is(err, storage.ErrInvalidAPITokenRequest):
 		writeError(w, http.StatusBadRequest, validationMessage(err, storage.ErrInvalidAPITokenRequest))
@@ -278,8 +300,9 @@ func (h *AgentHandler) UpdateGrant(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Cannot update grants")
 		return
 	}
+	h.tokens.Evict(id)
 	h.logger.Info().Str("tokenId", id).Str("action", req.Action).Str("flowId", req.FlowID).
-		Str("triggerNodeId", req.TriggerNodeID).Str("by", sessionUser(r)).Msg("Agent token grant updated")
-	tok.Grants = grants
+		Str("triggerNodeId", req.TriggerNodeID).Bool("steppedUp", steppedUp).Str("by", sessionUser(r)).
+		Msg("Agent token grant updated")
 	writeSuccess(w, http.StatusOK, agentTokenView(*tok, h.now()), "")
 }
