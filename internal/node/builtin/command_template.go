@@ -15,7 +15,9 @@ var commandPlaceholder = regexp.MustCompile(`\{\{(payload|topic|timestamp|meta\.
 // bindCommand never inserts message data into shell source. Only references to
 // positional arguments are inserted, using the shell parser to determine the
 // surrounding quotation context. Unsupported contexts fail before execution.
-func bindCommand(command string, msg *types.Message) (string, []string, error) {
+// Unless allowDash is set, a value starting with '-' is refused: bound to an
+// argument, most programs would read it as an option ("-rf", "--output=…").
+func bindCommand(command string, msg *types.Message, allowDash bool) (string, []string, error) {
 	matches := commandPlaceholder.FindAllStringSubmatchIndex(command, -1)
 	if len(matches) == 0 {
 		return command, nil, nil
@@ -88,6 +90,10 @@ func bindCommand(command string, msg *types.Message) (string, []string, error) {
 			}
 			if strings.ContainsRune(value, 0) {
 				bindErr = fmt.Errorf("command placeholder values cannot contain NUL bytes")
+			}
+			if !allowDash && strings.HasPrefix(value, "-") {
+				bindErr = fmt.Errorf("the value of %s starts with \"-\" and could be read as a command option; "+
+					"set allowDashArgs: true if the command expects such values (e.g. after \"--\")", command[m[0]:m[1]])
 			}
 			args = append(args, value)
 			reference := "${" + strconv.Itoa(len(args)) + "}"
