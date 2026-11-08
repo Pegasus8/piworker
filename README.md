@@ -482,11 +482,28 @@ restarts. Deploying checks every enabled node's settings against its schema
 unit, e.g. `nodes[3].config.interval: expected number (milliseconds), got
 string "5s"`. Choices match exactly as listed (`temperature`, not
 `Temperature`), except where the node itself ignores case, such as the HTTP
-method. Values of credential fields are never quoted in these errors. A
+method. Clearing a number field in the editor removes the setting, so the node
+uses its default. Values of credential fields are never quoted in these errors. A
 node definition without an `enabled` field is enabled. **Stop** ends execution and removes that restoration intent. The list
 switch controls the same lifecycle; there is no separate flow-level “enabled”
 setting. Stop a running flow before saving edits. Failed startup restoration is
 shown as **Failed**.
+
+**Upgrading from versions without these checks.** Earlier versions deployed
+any settings and let nodes silently clamp or replace odd values: an interval
+under 100 ms, a `0` left by a cleared number field, a choice in the wrong case,
+a mistyped value. Flows that were running keep running after the upgrade:
+restoring them at startup skips the schema check and logs each such setting as
+a warning (`Restored flow has a setting that the next deploy will refuse`, with
+its path), and the nodes treat those values exactly as before. Fix them before
+the next explicit deploy, which refuses them. Restoration still marks a flow
+**Failed** for errors that stopped it before too, and for an HTTP Request node
+that would send a secret to a URL whose scheme or host comes from a
+placeholder (see below). HTTP Request headers stored as plain text by older
+editors were always ignored; the editor now shows them with a warning above a
+name/value list, where they can be entered again. A Command node now fails a
+run whose placeholder value starting with `-` would begin an argument (see
+**Command** below).
 
 A deployed flow containing **Manual Inject** offers **Run manually**. Send the
 saved node payload or a one-time JSON/text override; downstream actions execute

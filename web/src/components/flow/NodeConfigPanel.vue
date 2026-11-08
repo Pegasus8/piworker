@@ -5,6 +5,8 @@ import { useNodeTypesStore } from '@/stores/nodeTypes'
 import { Button, Input, Label, Select, Switch, ScrollArea, Dialog } from '@/components/ui'
 import { X, Save, Trash2 } from 'lucide-vue-next'
 import ReferenceInput from './ReferenceInput.vue'
+import KeyValueInput from './KeyValueInput.vue'
+import { setConfigValue } from '@/lib/configValues'
 import { referenceMode, referenceOptions } from '@/lib/references'
 import { useApi } from '@/composables/useApi'
 import NodeDocumentation from './NodeDocumentation.vue'
@@ -69,8 +71,9 @@ watch(
   { immediate: true, deep: true }
 )
 
+// undefined removes the setting, so the node uses its default.
 function updateField(key: string, value: any) {
-  localConfig.value[key] = value
+  setConfigValue(localConfig.value, key, value)
 }
 
 function handleSave() {
@@ -150,8 +153,17 @@ onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
               :id="field.key"
               :aria-required="field.required"
               type="number"
-              :model-value="localConfig[field.key] ?? 0"
-              :placeholder="field.placeholder"
+              :model-value="localConfig[field.key] ?? ''"
+              :placeholder="field.default !== undefined ? `Default: ${field.default}` : ''"
+              @update:model-value="(v) => updateField(field.key, v === '' ? undefined : v)"
+            />
+
+            <!-- Name/value pairs (object settings such as HTTP headers) -->
+            <KeyValueInput
+              v-else-if="field.type === 'keyvalue'"
+              :id="field.key"
+              :label="field.label"
+              :model-value="localConfig[field.key]"
               @update:model-value="(v) => updateField(field.key, v)"
             />
 
