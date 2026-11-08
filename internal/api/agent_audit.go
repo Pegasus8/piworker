@@ -14,9 +14,10 @@ type AuditPage struct {
 	Rejections []storage.MCPRejection  `json:"rejections"`
 }
 
-// ListAudit returns audited agent calls (newest first) and rejection
-// counters. Filters: tokenId, tool, flowId, outcome, since and until
-// (RFC 3339; since inclusive, until exclusive), beforeId (paging) and limit.
+// ListAudit returns audited agent calls (most recently recorded first) and
+// rejection counters. Filters: tokenId, tool, flowId, outcome, since and until
+// (RFC 3339 on the call time; since inclusive, until exclusive), beforeId
+// (paging: pass the id of the last entry of the previous page) and limit.
 // GET /api/agent/audit
 func (h *AgentHandler) ListAudit(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()

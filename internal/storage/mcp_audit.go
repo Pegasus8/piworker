@@ -57,7 +57,7 @@ type MCPAuditFilter struct {
 	Outcome  string
 	Since    time.Time
 	Until    time.Time
-	BeforeID int64 // only rows with a smaller id (paging backwards)
+	BeforeID int64 // only rows recorded before this id (paging backwards)
 	Limit    int   // 0 for DefaultMCPAuditLimit
 }
 
@@ -119,7 +119,11 @@ func (s *SQLiteStore) InsertMCPAudit(batch []MCPAuditEntry, now time.Time) error
 	return nil
 }
 
-// ListMCPAudit returns matching audit rows, newest first.
+// ListMCPAudit returns matching audit rows, most recently recorded first.
+// Rows are ordered by id, the order they were written in, because that is the
+// key BeforeID pages by: ts is when a call happened and is not monotonic in id
+// (calls finish, and so are written, out of order, and the clock can jump), so
+// ordering by ts while paging by id would repeat or skip rows.
 func (s *SQLiteStore) ListMCPAudit(f MCPAuditFilter) ([]MCPAuditEntry, error) {
 	if s.isClosed() {
 		return nil, ErrDatabaseClosed
@@ -154,7 +158,7 @@ func (s *SQLiteStore) ListMCPAudit(f MCPAuditFilter) ([]MCPAuditEntry, error) {
 	rows, err := s.db.Query(`
 		SELECT id, ts, token_id, token_name, tool, flow_id, run_id, args_sha256, args_preview, outcome, dur_ms, privileged
 		FROM mcp_audit WHERE `+strings.Join(where, " AND ")+`
-		ORDER BY ts DESC, id DESC LIMIT ?`, args...)
+		ORDER BY id DESC LIMIT ?`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list audit entries: %w", err)
 	}

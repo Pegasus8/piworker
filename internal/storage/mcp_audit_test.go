@@ -111,6 +111,32 @@ func TestListMCPAuditFilters(t *testing.T) {
 	assert.Equal(t, []string{"run-3", "run-2"}, runIDs(MCPAuditFilter{Limit: 2, BeforeID: page[1].ID}), "BeforeID pages backwards")
 }
 
+func TestListMCPAuditPagesInInsertionOrder(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	// Batches are written as calls finish, so ts (when a call happened) is
+	// not monotonic in id: a long call finishes late, and a Pi without an
+	// RTC can jump its clock at NTP sync.
+	for i, offset := range []time.Duration{-time.Minute, -3 * time.Minute, -2 * time.Minute, -10 * time.Minute, 5 * time.Minute} {
+		require.NoError(t, s.InsertMCPAudit([]MCPAuditEntry{auditEntry(i, testNow.Add(offset))}, testNow))
+	}
+
+	var seen []string
+	var before int64
+	for range 10 {
+		page, err := s.ListMCPAudit(MCPAuditFilter{Limit: 2, BeforeID: before})
+		require.NoError(t, err)
+		if len(page) == 0 {
+			break
+		}
+		for _, e := range page {
+			seen = append(seen, e.RunID)
+		}
+		before = page[len(page)-1].ID
+	}
+	assert.Equal(t, []string{"run-4", "run-3", "run-2", "run-1", "run-0"}, seen, "paging returns every row exactly once, most recently recorded first")
+}
+
 func TestMCPAuditRetentionByTime(t *testing.T) {
 	s := createTestStore(t)
 	defer s.Close()
