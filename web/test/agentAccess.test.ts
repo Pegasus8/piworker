@@ -13,6 +13,7 @@ import {
   approvalToolChange,
   approvalToolName,
   formatRelative,
+  mcpStatus,
   auditParams,
   toolKey,
   EXPIRY_OPTIONS,
@@ -243,6 +244,33 @@ test('a pending approval whose tool changed since the request says it will not r
   // Older approvals did not record the tool: approving them runs nothing.
   expect(approvalToolChange({ kind: 'tool_call', status: 'pending' }, tool())).toContain('did not record')
   expect(approvalToolChange({ kind: 'draft_deploy', status: 'pending' }, undefined)).toBe('')
+})
+
+test('the MCP status says whether agents can connect and how to turn it on', () => {
+  const settings = (over: Record<string, unknown> = {}) => ({ agentDeploy: 'off', authorEnabled: false, mcpEnabled: true, lanAccess: false, ...over }) as any
+  const auto = { mode: 'auto' as const, caFingerprint: FP }
+  const off = mcpStatus(settings({ mcpEnabled: false }), auto)
+  expect(off.state).toBe('off')
+  expect(off.detail).toContain('enabled = true')
+  expect(off.detail).toContain('[mcp]')
+  expect(off.detail).toContain('PIWORKER_MCP_ENABLED=true')
+  expect(off.detail).toContain('restart')
+  expect(mcpStatus(settings(), auto)).toMatchObject({ state: 'on', label: 'MCP is on' })
+  // Settings that cannot be read are not reported as off or on.
+  expect(mcpStatus(null, auto).state).toBe('unknown')
+  expect(mcpStatus(settings({ mcpEnabled: undefined }), auto).state).toBe('unknown')
+  // With TLS off, only this device can connect unless lan_access is set.
+  const plain = { mode: 'off' as const, caFingerprint: '' }
+  const local = mcpStatus(settings(), plain)
+  expect(local.state).toBe('on')
+  expect(local.label).toContain('this device only')
+  expect(local.detail).toContain('lan_access = true')
+  expect(local.detail).toContain('PIWORKER_MCP_LAN_ACCESS=true')
+  const lan = mcpStatus(settings({ lanAccess: true }), plain)
+  expect(lan.label).toBe('MCP is on')
+  expect(lan.detail).toContain('unencrypted')
+  // lan_access only matters with TLS off.
+  expect(mcpStatus(settings({ lanAccess: true }), auto).detail).not.toContain('unencrypted')
 })
 
 test('relative times read naturally in both directions', () => {

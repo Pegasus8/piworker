@@ -40,6 +40,10 @@ type AgentHandlerOptions struct {
 	// AuthorEnabled mirrors mcp.author_enabled: only then can tokens get the
 	// author scope.
 	AuthorEnabled bool
+	// MCPEnabled and LANAccess mirror mcp.enabled and mcp.lan_access, so the
+	// agent pages can say whether agents can connect at all.
+	MCPEnabled bool
+	LANAccess  bool
 	// Executor runs approved requests (default: unavailable).
 	Executor ApprovalExecutor
 	// Now is the clock (default time.Now).
@@ -54,6 +58,8 @@ type AgentHandler struct {
 	auth          *AuthHandler
 	tokens        *agentauth.TokenVerifier
 	authorEnabled bool
+	mcpEnabled    bool
+	lanAccess     bool
 	executor      ApprovalExecutor
 	now           func() time.Time
 	logger        zerolog.Logger
@@ -68,6 +74,8 @@ func NewAgentHandler(store *storage.SQLiteStore, auth *AuthHandler, tokens *agen
 		auth:          auth,
 		tokens:        tokens,
 		authorEnabled: opts.AuthorEnabled,
+		mcpEnabled:    opts.MCPEnabled,
+		lanAccess:     opts.LANAccess,
 		executor:      opts.Executor,
 		now:           opts.Now,
 		logger:        opts.Logger,

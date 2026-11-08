@@ -61,6 +61,10 @@ export interface AgentTool {
 export interface AgentSettings {
   agentDeploy: AgentDeployLevel
   authorEnabled: boolean
+  /** mcp.enabled: whether the /mcp endpoint is mounted. */
+  mcpEnabled: boolean
+  /** mcp.lan_access: whether /mcp accepts LAN clients when TLS is off. */
+  lanAccess: boolean
 }
 
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired'
@@ -283,6 +287,43 @@ export function clientSnippets(opts: { token: string; location: SnippetLocation;
   if (tls?.mode === 'auto' && tls.caFingerprint) args.push('--ca-fingerprint', tls.caFingerprint)
   const claudeDesktop = JSON.stringify({ mcpServers: { piworker: { command: 'piworker-mcp', args } } }, null, 2)
   return { url, claudeCode, tokenFile, claudeDesktop, needsCA }
+}
+
+export interface MCPStatus {
+  state: 'on' | 'off' | 'unknown'
+  label: string
+  /** What it means for agents, and how to change it. */
+  detail: string
+}
+
+/**
+ * Whether agents can connect to the MCP endpoint (mcp.enabled and, with TLS
+ * off, mcp.lan_access; docs/design/mcp.md §2, §8, §11). Both live in
+ * piworker.toml, so the advice names the setting, its environment variable
+ * and the restart. Settings that cannot be read are reported as unknown.
+ */
+export function mcpStatus(settings: AgentSettings | null, tls: SnippetTLS | null): MCPStatus {
+  if (!settings || typeof settings.mcpEnabled !== 'boolean') {
+    return { state: 'unknown', label: 'MCP status unknown', detail: 'The server\'s agent settings could not be read.' }
+  }
+  if (!settings.mcpEnabled) {
+    return {
+      state: 'off',
+      label: 'MCP is off',
+      detail: 'Agents cannot connect yet. To turn it on, set enabled = true in the [mcp] section of piworker.toml (or the environment variable PIWORKER_MCP_ENABLED=true) and restart PiWorker.'
+    }
+  }
+  if (tls?.mode === 'off' && !settings.lanAccess) {
+    return {
+      state: 'on',
+      label: 'MCP is on (this device only)',
+      detail: 'TLS is off, so only clients on this device can connect. To allow other devices, set lan_access = true in the [mcp] section of piworker.toml (or PIWORKER_MCP_LAN_ACCESS=true) and restart; their tokens then travel unencrypted, so prefer turning TLS back on.'
+    }
+  }
+  if (tls?.mode === 'off') {
+    return { state: 'on', label: 'MCP is on', detail: 'TLS is off and lan_access is on: devices on your network connect over unencrypted HTTP.' }
+  }
+  return { state: 'on', label: 'MCP is on', detail: 'Agents connect over HTTPS and send their token as a Bearer header.' }
 }
 
 export interface GrantStatus {

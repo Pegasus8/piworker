@@ -5,9 +5,9 @@
 import { computed, ref, watch } from 'vue'
 import { Copy, KeyRound } from 'lucide-vue-next'
 import { Button, Dialog } from '@/components/ui'
-import { clientSnippets, TOKEN_FILE, TOKEN_FILE_PLACEHOLDER, type CreatedAgentToken, type SnippetTLS } from '@/lib/agentAccess'
+import { clientSnippets, TOKEN_FILE, TOKEN_FILE_PLACEHOLDER, type CreatedAgentToken, type MCPStatus, type SnippetTLS } from '@/lib/agentAccess'
 
-const props = defineProps<{ created: CreatedAgentToken | null; tls: SnippetTLS | null }>()
+const props = defineProps<{ created: CreatedAgentToken | null; tls: SnippetTLS | null; mcp: MCPStatus }>()
 const emit = defineEmits<{ done: [] }>()
 const copied = ref('')
 
@@ -95,8 +95,7 @@ async function copy(text: string, what: string) {
       </section>
 
       <p class="text-xs text-muted-foreground">
-        Agents connect to {{ snippets.url }}. MCP is off until you set enabled = true in the [mcp] section of
-        piworker.toml and restart PiWorker.
+        Agents connect to {{ snippets.url }}.<template v-if="mcp.state !== 'on'"> {{ mcp.label }}: {{ mcp.detail }}</template>
       </p>
 
       <div class="flex justify-end">

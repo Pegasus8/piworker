@@ -399,6 +399,8 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 		authHandler.SetAgentTokenRevoker(agentTokens)
 		api.NewAgentHandler(store, authHandler, agentTokens, api.AgentHandlerOptions{
 			AuthorEnabled: cfg.MCP.AuthorEnabled,
+			MCPEnabled:    cfg.MCP.Enabled,
+			LANAccess:     cfg.MCP.LANAccess,
 			Executor:      services.tools,
 			Logger:        log.Logger,
 		}).RegisterRoutes(router)

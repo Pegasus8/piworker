@@ -31,11 +31,11 @@ function auditPage(from: number, n: number, preview = '{"door":"main"}') {
   return Array.from({ length: n }, (_, i) => ({ id: from - i, ts: iso(-i * 60_000), tokenId: 'tokA', tokenName: 'laptop', tool: i === 0 ? 'reboot_pi' : 'garage_open', flowId: 'f1', runId: `run-${from - i}`, argsPreview: i === 0 ? XSS : preview, outcome: i === 0 ? 'error' : 'completed', durMs: 12, privileged: i === 0 }))
 }
 
-interface MockOptions { toolsMissing?: boolean; pending?: number; extraApprovals?: unknown[]; auditPreview?: string; rejectionRows?: number; settingsFail?: boolean; executionError?: string; approveResult?: unknown }
+interface MockOptions { toolsMissing?: boolean; pending?: number; extraApprovals?: unknown[]; auditPreview?: string; rejectionRows?: number; settingsFail?: boolean; executionError?: string; approveResult?: unknown; mcpEnabled?: boolean }
 
 async function mockServer(page: Page, opts: MockOptions = {}) {
   const requests: Req[] = []
-  let settings = { agentDeploy: 'off', authorEnabled: false }
+  let settings = { agentDeploy: 'off', authorEnabled: false, mcpEnabled: opts.mcpEnabled ?? true, lanAccess: false }
   const handle = async (route: Route) => {
     const req = route.request()
     const url = new URL(req.url())
@@ -239,6 +239,23 @@ test('revoke all is one request, without a password', async ({ page }) => {
   expect(requests.filter(r => r.method === 'POST' && r.path === '/agent/tokens/revoke-all')).toHaveLength(1)
   expect(last(requests, 'POST', '/agent/tokens/revoke-all')!.body).toBeUndefined()
   expect(requests.filter(r => r.method === 'DELETE')).toHaveLength(0)
+})
+
+test('the agent pages say whether MCP is on and how to turn it on', async ({ page }) => {
+  await mockServer(page, { mcpEnabled: false, pending: 0 })
+  await page.goto('/agents/audit')
+  const status = page.getByRole('region', { name: 'MCP endpoint' })
+  await expect(status).toContainText('MCP is off')
+  await expect(status).toContainText('enabled = true in the [mcp] section of piworker.toml')
+  await expect(status).toContainText('PIWORKER_MCP_ENABLED=true')
+  await page.getByRole('link', { name: 'Tokens' }).click()
+  await expect(page.getByRole('region', { name: 'MCP endpoint' })).toContainText('MCP is off')
+
+  await page.unrouteAll()
+  await mockServer(page, { mcpEnabled: true, pending: 0 })
+  await page.goto('/agents/approvals')
+  await expect(page.getByRole('region', { name: 'MCP endpoint' })).toContainText('MCP is on')
+  await expect(page.getByText('PIWORKER_MCP_ENABLED')).toHaveCount(0)
 })
 
 test('the agent deploy level shows its risk and needs the password', async ({ page }) => {

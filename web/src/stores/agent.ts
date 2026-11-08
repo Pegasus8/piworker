@@ -56,6 +56,18 @@ function status(e: unknown): number | undefined {
 
 const path = (id: string) => encodeURIComponent(id)
 
+/**
+ * Wraps a read so that callers asking while it is in flight share it (the
+ * agent pages' header and the page itself both read the settings at mount).
+ */
+function shared(read: () => Promise<void>): () => Promise<void> {
+  let inFlight: Promise<void> | null = null
+  return () => {
+    inFlight ??= read().finally(() => { inFlight = null })
+    return inFlight
+  }
+}
+
 export const useAgentStore = defineStore('agent', () => {
   const tokens = ref<AgentToken[]>([])
   const tools = ref<AgentTool[]>([])
@@ -134,7 +146,7 @@ export const useAgentStore = defineStore('agent', () => {
 
   // Agent deploy level. Settings that cannot be read are unknown (null), never
   // the last ones seen: the page must not claim a level it could not read.
-  async function fetchSettings() {
+  const fetchSettings = shared(async () => {
     try {
       const { data } = await apiClient.get('/agent/settings')
       settings.value = data.data ?? null
@@ -142,7 +154,7 @@ export const useAgentStore = defineStore('agent', () => {
       settings.value = null
       throw e
     }
-  }
+  })
 
   async function saveSettings(agentDeploy: AgentDeployLevel, password: string) {
     const { data } = await apiClient.put('/agent/settings', { agentDeploy, password })
@@ -253,10 +265,10 @@ export const useAgentStore = defineStore('agent', () => {
     flowNames.value = Object.fromEntries(flows.map(f => [f.id, f.name]))
   }
 
-  async function fetchTLS() {
+  const fetchTLS = shared(async () => {
     const info = await useApi().getTLSInfo()
     tls.value = { mode: info.mode, caFingerprint: info.caFingerprint }
-  }
+  })
 
   return {
     tokens, tools, toolsError, settings, approvals, pendingCount, recentDecisions, agentApiAvailable,

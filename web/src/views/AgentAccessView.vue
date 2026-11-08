@@ -15,7 +15,7 @@ import type { Feedback } from '@/composables/useFeedback'
 import { useAgentStore, apiErrorMessage, type GrantChange } from '@/stores/agent'
 import { useAuthStore } from '@/stores/auth'
 import {
-  DEPLOY_LEVELS, clientSnippets, formatDateTime, formatRelative, grantStatus, toolKey,
+  DEPLOY_LEVELS, clientSnippets, formatDateTime, formatRelative, grantStatus, mcpStatus, toolKey,
   type AgentDeployLevel, type AgentToken, type CreatedAgentToken, type TokenGrant
 } from '@/lib/agentAccess'
 
@@ -37,6 +37,7 @@ const levelPassword = ref('')
 const settingsError = ref('')
 
 const endpoint = computed(() => clientSnippets({ token: '', location: window.location, tls: agent.tls }).url)
+const mcp = computed(() => mcpStatus(agent.settings, agent.tls))
 const levelChanged = computed(() => !!agent.settings && !!level.value && level.value !== agent.settings.agentDeploy)
 watch(() => agent.settings?.agentDeploy, v => { level.value = v ?? null }, { immediate: true })
 const authorScope = computed(() => !agent.settings ? 'unknown' : agent.settings.authorEnabled ? 'enabled' : 'disabled')
@@ -293,15 +294,15 @@ function cancelLevel() {
           Agents connect to <code class="break-all">{{ endpoint }}</code> and send their token as a Bearer header. Each new
           token comes with ready-to-paste set-up for Claude Code and Claude Desktop.
         </p>
+        <p v-if="mcp.state !== 'on'" class="text-sm text-muted-foreground">{{ mcp.label }}: {{ mcp.detail }}</p>
         <p class="text-sm text-muted-foreground">
-          MCP is off by default: set <code>enabled = true</code> in the <code>[mcp]</code> section of piworker.toml and
-          restart PiWorker. Clients must trust this PiWorker's certificate:
+          Clients must trust this PiWorker's certificate:
           <RouterLink to="/trust" class="text-primary underline-offset-2 hover:underline">Trust this device</RouterLink>.
         </p>
       </Card>
     </div>
     <CreateTokenDialog v-model:open="showCreate" @created="onCreated" />
-    <TokenSecretDialog :created="created" :tls="agent.tls" @done="created = null" />
+    <TokenSecretDialog :created="created" :tls="agent.tls" :mcp="mcp" @done="created = null" />
     <PasswordPrompt ref="passwordPrompt" />
     <ConfirmDialog ref="confirmation" />
   </main>

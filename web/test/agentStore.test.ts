@@ -160,6 +160,32 @@ test('agent deploy settings are read and changed with the password', async () =>
   expect(store.settings).toBeNull()
 })
 
+test('reads of the settings and TLS details in flight are shared by the views asking at once', async () => {
+  routes['GET /agent/settings'] = () => ({ agentDeploy: 'off', authorEnabled: false, mcpEnabled: true, lanAccess: false })
+  let tlsReads = 0
+  const realTLS = legacy.getTLSInfo
+  legacy.getTLSInfo = async () => { tlsReads++; return realTLS() }
+  try {
+    const store = useAgentStore()
+    await Promise.all([store.fetchSettings(), store.fetchSettings(), store.fetchTLS(), store.fetchTLS()])
+    expect(calls.filter(c => c.url === '/agent/settings')).toHaveLength(1)
+    expect(tlsReads).toBe(1)
+    expect(store.settings?.mcpEnabled).toBe(true)
+    expect(store.tls?.mode).toBe('auto')
+    // A later read asks again.
+    await Promise.all([store.fetchSettings(), store.fetchTLS()])
+    expect(calls.filter(c => c.url === '/agent/settings')).toHaveLength(2)
+    expect(tlsReads).toBe(2)
+    // A failed read fails every caller that shared it.
+    routes['GET /agent/settings'] = () => { throw httpError(503, 'Cannot read agent settings') }
+    const results = await Promise.allSettled([store.fetchSettings(), store.fetchSettings()])
+    expect(results.map(r => r.status)).toEqual(['rejected', 'rejected'])
+    expect(store.settings).toBeNull()
+  } finally {
+    legacy.getTLSInfo = realTLS
+  }
+})
+
 test('approvals are listed by status and keep the pending count for the badge', async () => {
   routes['GET /agent/approvals'] = (c) => ({ approvals: [approval('x')], pending: 3, echo: c.params })
   const store = useAgentStore()
