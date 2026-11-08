@@ -251,12 +251,18 @@ func TestGetRunCapsErrorsAndTheRun(t *testing.T) {
 func TestRunViewsRedactSecrets(t *testing.T) {
 	e := newReadsEnv(t)
 	const value = "Zq9-Secret/Value+7&k"
+	// Quotes, backslashes and HTML characters change when JSON- or
+	// Go-quoted.
+	const quoted = "Kx\"7\\q<9>"
 	require.NoError(t, e.secrets.Set("API_KEY", value))
+	require.NoError(t, e.secrets.Set("QUOTED", quoted))
 	f := e.save(manualFlow("leaky"))
 
 	var events []storage.NodeEventRecord
-	for name, leak := range secretLeaks(value) {
-		events = append(events, storage.NodeEventRecord{NodeID: "http", NodeType: "action-http", Phase: "error", Error: name + ": request failed: " + leak})
+	for _, v := range []string{value, quoted} {
+		for name, leak := range secretLeaks(v) {
+			events = append(events, storage.NodeEventRecord{NodeID: "http", NodeType: "action-http", Phase: "error", Error: name + ": request failed: " + leak})
+		}
 	}
 	events = append(events, storage.NodeEventRecord{NodeID: "http", NodeType: "action-http", Phase: "error",
 		Error: "GET https://admin:pa55word@example.com/x?key=abc123 failed"})
@@ -271,9 +277,11 @@ func TestRunViewsRedactSecrets(t *testing.T) {
 	flows, err := e.reads.ListFlows(ctx, actor)
 	require.NoError(t, err)
 
-	for view, out := range map[string]string{"GetRun": mustJSON(t, run), "ListRuns": mustJSON(t, list), "ListFlows": mustJSON(t, flows)} {
-		for name, form := range secretForms(value) {
-			assert.NotContainsf(t, out, form, "%s leaked the secret as %s", view, name)
+	for view, out := range map[string]string{"GetRun": leakText(t, run), "ListRuns": leakText(t, list), "ListFlows": leakText(t, flows)} {
+		for _, v := range []string{value, quoted} {
+			for name, form := range secretForms(v) {
+				assert.NotContainsf(t, out, form, "%s leaked the secret %q as %s", view, v, name)
+			}
 		}
 		assert.NotContainsf(t, out, "pa55word", "%s leaked URL credentials", view)
 		assert.NotContainsf(t, out, "abc123", "%s leaked a URL query", view)

@@ -2,11 +2,74 @@ package service
 
 import (
 	"encoding/json"
+	"strconv"
+	"strings"
 
 	"github.com/Pegasus8/piworker/internal/node"
 )
 
 // Default-deny redaction of node config for agents (docs/design/mcp.md §6).
+
+// redactor snapshots the secret values the read views redact: the secret
+// store's values and extra (e.g. a flow's Sensitive config values), each
+// in its literal, URL-encoded and base64 forms (secretRedactor) and also as
+// it reads inside JSON or Go-quoted text, where recorded errors that echo a
+// payload carry it.
+func (r *Reads) redactor(extra ...string) secretRedactor {
+	var values []string
+	for _, name := range r.secrets.Names() {
+		if v, ok := r.secrets.Get(name); ok {
+			values = append(values, v)
+		}
+	}
+	values = append(values, extra...)
+	src := make(valueList, 0, 4*len(values))
+	for _, v := range values {
+		src = append(src, v)
+		src = append(src, escapedForms(v)...)
+	}
+	return newSecretRedactor(src)
+}
+
+// escapedForms returns v as it reads inside JSON (with and without HTML
+// escaping) and Go-quoted (%q, also ASCII-only) text, without the quotes,
+// where that differs from v.
+func escapedForms(v string) []string {
+	var out []string
+	add := func(s string) {
+		if s != v {
+			out = append(out, s)
+		}
+	}
+	if data, err := json.Marshal(v); err == nil {
+		add(strings.TrimSuffix(strings.TrimPrefix(string(data), `"`), `"`))
+	}
+	if data, err := marshalNoEscape(v); err == nil {
+		add(strings.TrimSuffix(strings.TrimPrefix(string(data), `"`), `"`))
+	}
+	add(strings.TrimSuffix(strings.TrimPrefix(strconv.Quote(v), `"`), `"`))
+	add(strings.TrimSuffix(strings.TrimPrefix(strconv.QuoteToASCII(v), `"`), `"`))
+	return out
+}
+
+// valueList is a SecretSource of bare values.
+type valueList []string
+
+func (l valueList) Names() []string {
+	names := make([]string, len(l))
+	for i := range l {
+		names[i] = strconv.Itoa(i)
+	}
+	return names
+}
+
+func (l valueList) Get(name string) (string, bool) {
+	i, err := strconv.Atoi(name)
+	if err != nil || i < 0 || i >= len(l) {
+		return "", false
+	}
+	return l[i], true
+}
 
 // truncatedMark ends a value cut to its bound, or replaces an object or list
 // too large to show.

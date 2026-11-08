@@ -116,7 +116,7 @@ func (r *Reads) ListRuns(ctx context.Context, actor Actor, flowID string, limit 
 	if err != nil {
 		return RunList{}, fmt.Errorf("list runs: %w", err)
 	}
-	red := newSecretRedactor(r.secrets)
+	red := r.redactor()
 	for i, run := range runs {
 		if i == limit {
 			out.NextBefore = out.Runs[limit-1].ID
@@ -151,7 +151,7 @@ func (r *Reads) GetRun(ctx context.Context, actor Actor, flowID, runID string) (
 	if err != nil {
 		return RunView{}, fmt.Errorf("get run events: %w", err)
 	}
-	red := newSecretRedactor(r.secrets)
+	red := r.redactor()
 	view := RunView{RunSummary: runSummary(red, *run), Events: []RunEvent{}, TotalEvents: len(events)}
 	budget := maxRunViewBytes
 	for _, e := range events {

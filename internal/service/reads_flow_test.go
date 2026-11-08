@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"strings"
 	"testing"
@@ -117,7 +118,7 @@ func TestGetFlowRedactsSecretValues(t *testing.T) {
 	f := flow.NewFlow("leaky " + value)
 	debug := flow.NewNode("process-debug", flow.NodeCategoryProcessing)
 	debug.ID = "debug"
-	debug.Config = map[string]any{"name": "token is " + value}
+	debug.Config = map[string]any{"name": "token is " + value + ", reply " + secretLeaks(value)["json payload"]}
 	setVar := flow.NewNode("set-var", flow.NodeCategoryProcessing)
 	setVar.ID = "setvar"
 	setVar.Config = map[string]any{"key": url.QueryEscape(value), "scope": "flow"}
@@ -140,7 +141,7 @@ func TestGetFlowRedactsSecretValues(t *testing.T) {
 
 	view, err := e.reads.GetFlow(context.Background(), readsAgent(storage.ScopeRead), f.ID)
 	require.NoError(t, err)
-	out := mustJSON(t, view)
+	out := leakText(t, view)
 	for name, form := range secretForms(value) {
 		assert.NotContainsf(t, out, form, "secret leaked as %s", name)
 	}
@@ -158,7 +159,20 @@ func secretLeaks(v string) map[string]string {
 		"base64":     base64.StdEncoding.EncodeToString([]byte(v)),
 		"base64url":  base64.URLEncoding.EncodeToString([]byte(v)),
 		"basic auth": "Basic " + base64.StdEncoding.EncodeToString([]byte("user:"+v)),
+		// A payload echoed in an error: JSON (HTML-escaped, as
+		// json.Marshal writes it) and Go-quoted.
+		"json payload": `{"payload":` + jsonString(v) + `}`,
+		"go quoted":    fmt.Sprintf("payload %q", v),
 	}
+}
+
+// jsonString is v as json.Marshal encodes it (HTML characters escaped).
+func jsonString(v string) string {
+	data, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return string(data)
 }
 
 // secretForms are the texts that must not appear where secretLeaks were
@@ -172,6 +186,8 @@ func secretForms(v string) map[string]string {
 		"base64":        base64.StdEncoding.EncodeToString([]byte(v)),
 		"base64url":     base64.URLEncoding.EncodeToString([]byte(v)),
 		"base64 inside": strings.TrimRight(base64.StdEncoding.EncodeToString([]byte("user:"+v)), "=")[8:],
+		"json escaped":  strings.Trim(jsonString(v), `"`),
+		"go escaped":    strings.Trim(fmt.Sprintf("%q", v), `"`),
 	}
 }
 

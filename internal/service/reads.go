@@ -180,7 +180,7 @@ func (r *Reads) ListFlows(ctx context.Context, actor Actor) (FlowList, error) {
 	if err != nil {
 		return FlowList{}, fmt.Errorf("list flows: %w", err)
 	}
-	red := newSecretRedactor(r.secrets)
+	red := r.redactor()
 	running := r.runningSet()
 	tools := r.toolsByFlow()
 	out := FlowList{Flows: make([]FlowSummary, 0, len(flows)), Total: total, Truncated: total > len(flows)}

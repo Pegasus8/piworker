@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,6 +118,36 @@ func mustJSON(t *testing.T, v any) string {
 	data, err := marshalNoEscape(v)
 	require.NoError(t, err)
 	return string(data)
+}
+
+// leakText is what a leak check searches: v's JSON text and, decoded, every
+// string and object key in it, so a value the JSON encoding escapes (quotes,
+// backslashes) is still found.
+func leakText(t *testing.T, v any) string {
+	t.Helper()
+	data := mustJSON(t, v)
+	var doc any
+	require.NoError(t, json.Unmarshal([]byte(data), &doc))
+	var b strings.Builder
+	b.WriteString(data)
+	var walk func(any)
+	walk = func(x any) {
+		switch x := x.(type) {
+		case string:
+			b.WriteString("\n" + x)
+		case map[string]any:
+			for k, e := range x {
+				b.WriteString("\n" + k)
+				walk(e)
+			}
+		case []any:
+			for _, e := range x {
+				walk(e)
+			}
+		}
+	}
+	walk(doc)
+	return b.String()
 }
 
 // Every read view needs the read scope; the editor may read everything.
@@ -234,7 +265,7 @@ func TestListFlowsRedactsSecretsInNames(t *testing.T) {
 	e.save(manualFlow("uses hunter2-Value! oops"))
 	list, err := e.reads.ListFlows(context.Background(), EditorActor())
 	require.NoError(t, err)
-	out := mustJSON(t, list)
+	out := leakText(t, list)
 	assert.NotContains(t, out, "hunter2-Value!")
 	assert.Contains(t, out, "uses <redacted> oops")
 }
