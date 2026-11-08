@@ -5,6 +5,7 @@ import (
 	"fmt"
 	flowvars "github.com/Pegasus8/piworker/internal/vars"
 	"runtime/debug"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -271,7 +272,11 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 }
 
 // Start begins executing the flow.
-// This method is non-blocking; the flow runs in background goroutines.
+// This method is non-blocking; the flow runs in background goroutines. Every
+// trigger's Start is called synchronously, so when Start returns nil all
+// triggers are running (and can e.g. be injected into immediately). If any
+// trigger fails to start, the triggers already started are stopped, the
+// runtime is torn down and the error is returned.
 func (r *FlowRuntime) Start(ctx context.Context) error {
 	r.mu.Lock()
 	if r.running {
@@ -310,64 +315,71 @@ func (r *FlowRuntime) Start(ctx context.Context) error {
 	r.wg.Add(1)
 	go r.dispatch()
 
-	// Start all trigger nodes
-	for nodeID, trigger := range r.triggers {
-		nodeID := nodeID // capture for goroutine
-		trigger := trigger
+	// Start all trigger nodes, in a stable order, synchronously.
+	triggerIDs := make([]string, 0, len(r.triggers))
+	for nodeID := range r.triggers {
+		triggerIDs = append(triggerIDs, nodeID)
+	}
+	sort.Strings(triggerIDs)
 
-		// Seed the run counter: the trigger writes to seedChan; this goroutine
-		// assigns the correlation ID and counts the message's downstream targets
-		// (starting a new run) before forwarding to the router. Assigning the
-		// correlation ID here — not later in executeNode — lets the whole cascade
-		// be tracked under one run ID.
-		realChan := r.router.GetInputChannel(nodeID)
-		seedChan := make(chan *types.Message, DefaultExecBuffer)
-		r.wg.Add(1)
-		go func() {
-			defer r.wg.Done()
-			for {
-				select {
-				case <-r.ctx.Done():
-					return
-				case msg, ok := <-seedChan:
-					if !ok {
-						return
-					}
-					corrID := r.ensureCorrelationID(msg)
-					r.runAdd(corrID, r.targetCount(nodeID, msg.SourcePort))
-					select {
-					case <-r.ctx.Done():
-						return
-					case realChan <- msg:
-					}
-				}
+	started := make([]string, 0, len(triggerIDs))
+	for _, nodeID := range triggerIDs {
+		trigger := r.triggers[nodeID]
+		seedChan := r.startSeeder(nodeID)
+
+		r.logger.Debug().
+			Str("nodeID", nodeID).
+			Msg("Starting trigger node")
+
+		if err := trigger.Start(r.ctx, seedChan); err != nil {
+			nodeType := "trigger"
+			if def := r.nodeDefs[nodeID]; def != nil {
+				nodeType = def.Type
 			}
-		}()
-
-		r.wg.Add(1)
-		go func() {
-			defer r.wg.Done()
-
-			r.logger.Debug().
+			r.logger.Error().
+				Err(err).
+				Str("flowID", r.flow.ID).
 				Str("nodeID", nodeID).
-				Msg("Starting trigger node")
-
-			if err := trigger.Start(r.ctx, seedChan); err != nil {
-				r.logger.Error().
-					Err(err).
-					Str("nodeID", nodeID).
-					Msg("Trigger node error")
-
-				select {
-				case r.errors <- NewNodeExecutionError(nodeID, "trigger", err):
-				default:
-					// Error channel full, log and continue
-				}
-			}
-		}()
+				Msg("Trigger node failed to start; aborting flow start")
+			r.shutdown(started)
+			return NewNodeExecutionError(nodeID, nodeType, err)
+		}
+		started = append(started, nodeID)
 	}
 
 	return nil
+}
+
+// startSeeder returns the channel a trigger emits into. A goroutine reads it,
+// assigns the correlation ID and counts the message's downstream targets
+// (starting a new run) before forwarding to the router. Assigning the
+// correlation ID here — not later in executeNode — lets the whole cascade be
+// tracked under one run ID.
+func (r *FlowRuntime) startSeeder(nodeID string) chan *types.Message {
+	realChan := r.router.GetInputChannel(nodeID)
+	seedChan := make(chan *types.Message, DefaultExecBuffer)
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		for {
+			select {
+			case <-r.ctx.Done():
+				return
+			case msg, ok := <-seedChan:
+				if !ok {
+					return
+				}
+				corrID := r.ensureCorrelationID(msg)
+				r.runAdd(corrID, r.targetCount(nodeID, msg.SourcePort))
+				select {
+				case <-r.ctx.Done():
+					return
+				case realChan <- msg:
+				}
+			}
+		}
+	}()
+	return seedChan
 }
 
 // Stop gracefully stops the flow execution.
@@ -383,16 +395,27 @@ func (r *FlowRuntime) Stop() error {
 		Str("flowID", r.flow.ID).
 		Msg("Stopping flow runtime")
 
+	ids := make([]string, 0, len(r.triggers))
+	for nodeID := range r.triggers {
+		ids = append(ids, nodeID)
+	}
+	sort.Strings(ids)
+	r.shutdown(ids)
+	return nil
+}
+
+// shutdown cancels the runtime, stops the given triggers, closes the router and
+// waits (bounded) for every goroutine to exit before marking it stopped.
+func (r *FlowRuntime) shutdown(triggerIDs []string) {
 	// Cancel the context to signal all goroutines to stop
 	r.cancel()
 
-	// Stop all trigger nodes
-	for nodeID, trigger := range r.triggers {
+	for _, nodeID := range triggerIDs {
 		r.logger.Debug().
 			Str("nodeID", nodeID).
 			Msg("Stopping trigger node")
 
-		if err := trigger.Stop(); err != nil {
+		if err := r.triggers[nodeID].Stop(); err != nil {
 			r.logger.Error().
 				Err(err).
 				Str("nodeID", nodeID).
@@ -421,8 +444,6 @@ func (r *FlowRuntime) Stop() error {
 	r.running = false
 	r.state = FlowStateInactive
 	r.mu.Unlock()
-
-	return nil
 }
 
 // dispatch reads routed messages from the router and hands each one to its
