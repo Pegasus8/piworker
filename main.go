@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Pegasus8/piworker/internal/agentauth"
 	"github.com/Pegasus8/piworker/internal/api"
 	"github.com/Pegasus8/piworker/internal/config"
 	"github.com/Pegasus8/piworker/internal/events"
@@ -65,6 +66,10 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to load configuration")
 	}
 	applyFlagOverrides(&cfg)
+	// Cross-field checks (e.g. MCP without auth) run before anything is opened.
+	if err := cfg.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Invalid configuration")
+	}
 
 	// Configure logging
 	setupLogging(cfg.Debug)
@@ -283,6 +288,15 @@ func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *
 		authHandler.RegisterRoutes(router)
 		router.Use(api.AuthMiddleware(authHandler))
 		log.Info().Msg("Session authentication enabled")
+
+		// Agent tokens, approvals, audit and settings (editor side of MCP).
+		// Recovery and password changes revoke tokens through the verifier.
+		agentTokens := agentauth.NewTokenVerifier(store, agentauth.WithLogger(log.Logger))
+		authHandler.SetAgentTokenRevoker(agentTokens)
+		api.NewAgentHandler(store, authHandler, agentTokens, api.AgentHandlerOptions{
+			AuthorEnabled: cfg.MCP.AuthorEnabled,
+			Logger:        log.Logger,
+		}).RegisterRoutes(router)
 	} else {
 		router.HandleFunc("/api/auth/status", api.AuthStatusHandler(false)).Methods(http.MethodGet)
 		log.Warn().Msg("Authentication disabled - API is unprotected")
