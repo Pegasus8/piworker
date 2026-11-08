@@ -6,10 +6,12 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/expr-lang/expr/vm"
+	"github.com/rs/zerolog/log"
 )
 
 // JoinProcess correlates messages arriving on its single input and emits a merged
@@ -20,6 +22,9 @@ import (
 //     object {sourceNode: payload} once all sources have arrived for a key.
 //
 // Stateful; the runtime's serial per-node executor lets the mutex stay simple.
+// Pending groups are bounded: a group not completed within `timeout` is
+// dropped, and at most `maxKeys` groups are kept (oldest evicted first), so
+// keys that never complete can't grow memory without limit.
 type JoinProcess struct {
 	*node.BaseNode
 
@@ -27,11 +32,25 @@ type JoinProcess struct {
 	keyProg *vm.Program
 	count   int
 	sources []string
+	timeout time.Duration
+	maxKeys int
 
-	mu       sync.Mutex
-	byKey    map[string][]interface{}
-	bySource map[string]map[string]interface{}
+	mu     sync.Mutex
+	groups map[string]*joinGroup
+	now    func() time.Time
 }
+
+// joinGroup is one pending correlation group.
+type joinGroup struct {
+	created  time.Time
+	items    []interface{}          // key mode
+	bySource map[string]interface{} // source mode
+}
+
+const (
+	defaultJoinTimeout = 5 * time.Minute
+	defaultJoinMaxKeys = 1000
+)
 
 // NewJoinProcess creates a JoinProcess from configuration.
 func NewJoinProcess(config map[string]interface{}) (node.Node, error) {
@@ -48,12 +67,21 @@ func NewJoinProcess(config map[string]interface{}) (node.Node, error) {
 		return nil, fmt.Errorf("invalid key expression: %w", err)
 	}
 
+	timeoutMs := base.GetConfigInt("timeoutMs", int(defaultJoinTimeout/time.Millisecond))
+	timeout := msDuration(timeoutMs, defaultJoinTimeout, time.Second, 7*24*time.Hour)
+	maxKeys := base.GetConfigInt("maxKeys", defaultJoinMaxKeys)
+	if maxKeys <= 0 {
+		maxKeys = defaultJoinMaxKeys
+	}
+
 	j := &JoinProcess{
 		BaseNode: base,
 		mode:     mode,
 		keyProg:  keyProg,
-		byKey:    make(map[string][]interface{}),
-		bySource: make(map[string]map[string]interface{}),
+		timeout:  timeout,
+		maxKeys:  maxKeys,
+		groups:   make(map[string]*joinGroup),
+		now:      time.Now,
 	}
 
 	if mode == "key" {
@@ -78,36 +106,76 @@ func (j *JoinProcess) Process(ctx context.Context, msg *types.Message) ([]*types
 	}
 	key := tmplStringify(keyVal)
 
+	if j.mode == "source" && !slices.Contains(j.sources, msg.SourceNode) {
+		return nil, nil // not one of the awaited sources
+	}
+
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
+	now := j.now()
+	j.evictExpired(now)
+
+	g := j.groups[key]
+	if g == nil {
+		if len(j.groups) >= j.maxKeys {
+			j.evictOldest()
+		}
+		g = &joinGroup{created: now}
+		j.groups[key] = g
+	}
+
 	if j.mode == "key" {
-		j.byKey[key] = append(j.byKey[key], msg.Payload)
-		if len(j.byKey[key]) < j.count {
+		g.items = append(g.items, msg.Payload)
+		if len(g.items) < j.count {
 			return nil, nil
 		}
-		batch := j.byKey[key]
-		delete(j.byKey, key)
-		return []*types.Message{j.emit(msg, batch, types.DataTypeArray)}, nil
+		delete(j.groups, key)
+		return []*types.Message{j.emit(msg, g.items, types.DataTypeArray)}, nil
 	}
 
 	// mode == "source"
-	if !slices.Contains(j.sources, msg.SourceNode) {
-		return nil, nil // not one of the awaited sources
+	if g.bySource == nil {
+		g.bySource = make(map[string]interface{})
 	}
-	bucket := j.bySource[key]
-	if bucket == nil {
-		bucket = make(map[string]interface{})
-		j.bySource[key] = bucket
-	}
-	bucket[msg.SourceNode] = msg.Payload
+	g.bySource[msg.SourceNode] = msg.Payload
 	for _, s := range j.sources {
-		if _, ok := bucket[s]; !ok {
+		if _, ok := g.bySource[s]; !ok {
 			return nil, nil // still waiting for some source
 		}
 	}
-	delete(j.bySource, key)
-	return []*types.Message{j.emit(msg, bucket, types.DataTypeObject)}, nil
+	delete(j.groups, key)
+	return []*types.Message{j.emit(msg, g.bySource, types.DataTypeObject)}, nil
+}
+
+// evictExpired drops groups older than the timeout. Called with j.mu held.
+func (j *JoinProcess) evictExpired(now time.Time) {
+	for k, g := range j.groups {
+		if now.Sub(g.created) > j.timeout {
+			delete(j.groups, k)
+			log.Debug().Str("key", k).Msg("join: dropped incomplete group after timeout")
+		}
+	}
+}
+
+// evictOldest drops the oldest pending group. Called with j.mu held.
+func (j *JoinProcess) evictOldest() {
+	var oldestKey string
+	var oldest time.Time
+	for k, g := range j.groups {
+		if oldestKey == "" || g.created.Before(oldest) {
+			oldestKey, oldest = k, g.created
+		}
+	}
+	delete(j.groups, oldestKey)
+	log.Warn().Str("key", oldestKey).Int("maxKeys", j.maxKeys).Msg("join: too many pending groups; dropped the oldest")
+}
+
+// pending returns the number of incomplete groups held.
+func (j *JoinProcess) pending() int {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return len(j.groups)
 }
 
 func (j *JoinProcess) emit(msg *types.Message, payload interface{}, dt types.DataType) *types.Message {
@@ -163,6 +231,18 @@ func joinProcessConfigSchema() node.ConfigSchema {
 				Title:       "Sources (source mode)",
 				Description: "Comma-separated source node IDs to await before emitting an object",
 			},
+			"timeoutMs": {
+				Type:        "number",
+				Title:       "Timeout (ms)",
+				Description: "Drop an incomplete group this long after its first message",
+				Default:     int(defaultJoinTimeout / time.Millisecond),
+			},
+			"maxKeys": {
+				Type:        "number",
+				Title:       "Max pending keys",
+				Description: "Maximum incomplete groups kept; the oldest is dropped beyond this",
+				Default:     defaultJoinMaxKeys,
+			},
 		},
 		Required: []string{"mode", "key"},
 	}
@@ -199,6 +279,8 @@ port a message came in on, so correlation is by a **key** expression.
 | key | string | meta.correlationID | Expression for the grouping key |
 | count | number | 2 | key mode: messages per emit |
 | sources | string | - | source mode: CSV of source node IDs |
+| timeoutMs | number | 300000 | Drop an incomplete group after this long |
+| maxKeys | number | 1000 | Max incomplete groups; oldest dropped beyond this |
 
 ## Use Cases
 

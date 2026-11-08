@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/stretchr/testify/assert"
@@ -72,4 +73,44 @@ func TestJoinInvalidConfig(t *testing.T) {
 	assert.Error(t, err)
 	_, err = NewJoinProcess(map[string]interface{}{"mode": "source", "key": "payload.id"})
 	assert.Error(t, err, "source mode needs sources")
+}
+
+func TestJoinExpiresStaleGroups(t *testing.T) {
+	j := newJoin(t, map[string]interface{}{"mode": "key", "key": "payload.id", "count": 2})
+	now := time.Unix(1000, 0)
+	j.now = func() time.Time { return now }
+
+	assert.Nil(t, joinSend(t, j, map[string]interface{}{"id": "a", "v": 1}, "n1"))
+	now = now.Add(5*time.Minute + time.Second) // default TTL is 5 minutes
+	assert.Nil(t, joinSend(t, j, map[string]interface{}{"id": "a", "v": 2}, "n1"),
+		"a partial group older than the timeout must not be completed")
+	assert.Equal(t, 1, j.pending())
+
+	assert.Nil(t, joinSend(t, j, map[string]interface{}{"id": "b"}, "n1"))
+	now = now.Add(time.Hour)
+	assert.Nil(t, joinSend(t, j, map[string]interface{}{"id": "c"}, "n1"))
+	assert.Equal(t, 1, j.pending(), "expired groups are swept even if their key never recurs")
+}
+
+func TestJoinCapsPendingKeys(t *testing.T) {
+	j := newJoin(t, map[string]interface{}{"mode": "source", "key": "payload.id", "sources": "s1,s2", "maxKeys": 3})
+	now := time.Unix(1000, 0)
+	j.now = func() time.Time { now = now.Add(time.Millisecond); return now }
+
+	for _, id := range []string{"k1", "k2", "k3", "k4", "k5"} {
+		assert.Nil(t, joinSend(t, j, map[string]interface{}{"id": id}, "s1"))
+	}
+	assert.Equal(t, 3, j.pending())
+	// The oldest groups were evicted; the newest still completes.
+	assert.Nil(t, joinSend(t, j, map[string]interface{}{"id": "k1"}, "s2"))
+	assert.Len(t, joinSend(t, j, map[string]interface{}{"id": "k5"}, "s2"), 1)
+}
+
+func TestJoinDefaultBoundsAndSchema(t *testing.T) {
+	j := newJoin(t, map[string]interface{}{"mode": "key"})
+	assert.Equal(t, 5*time.Minute, j.timeout)
+	assert.Equal(t, 1000, j.maxKeys)
+	schema := j.GetConfigSchema()
+	assert.Contains(t, schema.Properties, "timeoutMs")
+	assert.Contains(t, schema.Properties, "maxKeys")
 }
