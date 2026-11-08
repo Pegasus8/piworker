@@ -19,7 +19,6 @@ type Config struct {
 	DBPath        string   `toml:"db"`
 	Debug         bool     `toml:"debug"`
 	Auth          bool     `toml:"auth"`
-	JWTSecret     string   `toml:"jwt_secret"` // Deprecated: ignored by session authentication.
 	SessionSecure bool     `toml:"session_secure"`
 	CORSOrigins   []string `toml:"cors_origins"`
 	AdminUser     string   `toml:"admin_user"`
@@ -51,8 +50,16 @@ func Load(path string) (Config, error) {
 
 	if path != "" {
 		if _, err := os.Stat(path); err == nil {
-			if _, err := toml.DecodeFile(path, &cfg); err != nil {
+			md, err := toml.DecodeFile(path, &cfg)
+			if err != nil {
 				return cfg, fmt.Errorf("failed to parse config file %q: %w", path, err)
+			}
+			if undecoded := md.Undecoded(); len(undecoded) > 0 {
+				keys := make([]string, len(undecoded))
+				for i, k := range undecoded {
+					keys[i] = k.String()
+				}
+				return cfg, fmt.Errorf("config file %q has unknown keys: %s", path, strings.Join(keys, ", "))
 			}
 		} else if !os.IsNotExist(err) || path != DefaultConfigPath {
 			return cfg, fmt.Errorf("failed to access config file %q: %w", path, err)
@@ -90,9 +97,6 @@ func (c *Config) applyEnv() error {
 	}
 	if v, ok := os.LookupEnv("PIWORKER_DB"); ok {
 		c.DBPath = v
-	}
-	if v, ok := os.LookupEnv("PIWORKER_JWT_SECRET"); ok {
-		c.JWTSecret = v
 	}
 	if v, ok := os.LookupEnv("PIWORKER_CORS_ORIGINS"); ok {
 		c.CORSOrigins = SplitOrigins(v)

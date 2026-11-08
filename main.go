@@ -46,7 +46,6 @@ var (
 	listenAddr     = flag.String("addr", ":8080", "HTTP server listen address")
 	dbPath         = flag.String("db", "piworker.db", "SQLite database path")
 	debug          = flag.Bool("debug", false, "Enable debug logging")
-	jwtSecret      = flag.String("jwt-secret", "", "Deprecated: ignored; authentication now uses server sessions")
 	authEnabled    = flag.Bool("auth", true, "Enable session authentication (env: PIWORKER_AUTH)")
 	allowedOrigins = flag.String("cors-origins", "http://localhost:3000,http://localhost:8080", "Comma-separated list of allowed CORS origins")
 	adminUser      = flag.String("admin-user", "", "Default admin username (env: PIWORKER_ADMIN_USER)")
@@ -426,8 +425,6 @@ func applyFlagOverrides(cfg *config.Config) {
 			cfg.Auth = *authEnabled
 		case "session-secure":
 			cfg.SessionSecure = *sessionSecure
-		case "jwt-secret":
-			cfg.JWTSecret = *jwtSecret
 		case "cors-origins":
 			cfg.CORSOrigins = config.SplitOrigins(*allowedOrigins)
 		case "admin-user":

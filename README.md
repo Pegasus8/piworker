@@ -96,10 +96,8 @@ export PIWORKER_ADMIN_PASS='replace-with-a-unique-password'
 ```
 
 These variables never overwrite an existing account. Docker Compose reads them
-from the shell or a local, git-ignored `.env` file. Existing installations keep
-their accounts and password hashes; old JWT sessions require one new login.
-Shell exports do not configure the native systemd service: use its TOML file or
-an explicitly configured systemd environment. Browser setup needs no bootstrap
+from the shell or a local, git-ignored `.env` file. Shell exports do not
+configure the native systemd service: use its TOML file or an explicitly configured systemd environment. Browser setup needs no bootstrap
 credentials. Compatibility with databases from the legacy 2020 release has not
 been validated; keep a full backup and test migration on a copy first.
 
@@ -537,7 +535,8 @@ export PIWORKER_ADMIN_PASS=...
 Boolean variables accept `true/false`, `1/0`, `yes/no` or `on/off`; an empty or
 unrecognised value stops startup with an error (it never silently disables
 authentication). A config file named with `-config` or `PIWORKER_CONFIG` must
-exist; only the implicit `piworker.toml` may be absent.
+exist; only the implicit `piworker.toml` may be absent. Unknown keys in the TOML
+file (typos such as `atuh`) are rejected at startup.
 
 Prometheus metrics are served at `/api/metrics` (and `/metrics`). When
 authentication is enabled both require a signed-in session.
@@ -599,8 +598,8 @@ Authentication request bodies must contain one UTF-8 JSON value with unique
 field names; use the documented lowercase/camelCase field names. Duplicate
 fields, invalid UTF-8 and trailing JSON values are rejected.
 Browser origins must match the server or an explicitly configured CORS origin.
-Login/setup/recovery/password attempts are rate limited. Legacy Bearer JWTs are
-no longer accepted; old JWT configuration values are ignored for compatibility.
+Login/setup/recovery/password attempts are rate limited. Only cookie sessions are
+accepted (no Bearer tokens).
 
 ### Webhooks
 
