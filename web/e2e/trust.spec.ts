@@ -60,7 +60,9 @@ test('signed-in users see the CA fingerprint, certificate names and per-OS guide
     await expect(page.getByText(text).first()).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Remove the trust later' })).toBeVisible()
   }
-  await expect(page.getByText('NODE_EXTRA_CA_CERTS')).toBeVisible()
+  // Claude Code trusts the CA for its own command only, never through the shell profile.
+  await expect(page.getByText('NODE_EXTRA_CA_CERTS=~/piworker-ca.crt claude')).toBeVisible()
+  await expect(page.locator('pre', { hasText: 'NODE_EXTRA_CA_CERTS' })).not.toContainText('export')
 })
 
 test('with HTTPS off the page explains how to turn it on', async ({ page }) => {

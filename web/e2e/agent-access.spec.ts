@@ -2,7 +2,7 @@ import { test, expect, type Page, type Route } from '@playwright/test'
 
 // The editor's agent pages against a mocked /api (docs/design/mcp.md §7, §9, §10, §12).
 
-type Req = { method: string; path: string; query: URLSearchParams; body: any }
+type Req = { method: string; path: string; query: URLSearchParams; body: any; headers: Record<string, string> }
 
 const TOKEN = 'pwk_abcdefghijklmnop_' + 'q'.repeat(52)
 const FP = 'SHA256:AB:CD:EF'
@@ -31,7 +31,7 @@ function auditPage(from: number, n: number, preview = '{"door":"main"}') {
   return Array.from({ length: n }, (_, i) => ({ id: from - i, ts: iso(-i * 60_000), tokenId: 'tokA', tokenName: 'laptop', tool: i === 0 ? 'reboot_pi' : 'garage_open', flowId: 'f1', runId: `run-${from - i}`, argsPreview: i === 0 ? XSS : preview, outcome: i === 0 ? 'error' : 'completed', durMs: 12, privileged: i === 0 }))
 }
 
-interface MockOptions { toolsMissing?: boolean; pending?: number; extraApprovals?: unknown[]; auditPreview?: string; rejectionsTruncated?: boolean; settingsFail?: boolean; executionError?: string; approveResult?: unknown; mcpEnabled?: boolean }
+interface MockOptions { toolsMissing?: boolean; pending?: number; extraApprovals?: unknown[]; auditPreview?: string; rejectionsTruncated?: boolean; settingsFail?: boolean; executionError?: string; approveResult?: unknown; mcpEnabled?: boolean; tlsOff?: boolean; pendingCounts?: number[] }
 
 async function mockServer(page: Page, opts: MockOptions = {}) {
   const requests: Req[] = []
@@ -42,7 +42,7 @@ async function mockServer(page: Page, opts: MockOptions = {}) {
     const path = url.pathname.replace(/^\/api/, '')
     const raw = req.postData()
     const body = raw ? JSON.parse(raw) : undefined
-    requests.push({ method: req.method(), path, query: url.searchParams, body })
+    requests.push({ method: req.method(), path, query: url.searchParams, body, headers: req.headers() })
     const ok = (data: unknown, status = 200) => route.fulfill({ status, json: { success: true, data } })
     const fail = (status: number, error: string) => route.fulfill({ status, json: { success: false, error } })
     const key = `${req.method()} ${path}`
@@ -51,7 +51,9 @@ async function mockServer(page: Page, opts: MockOptions = {}) {
       case 'GET /auth/session': return ok({ username: 'owner' })
       case 'POST /auth/password': return ok(null)
       case 'GET /flows': return ok({ flows: [{ id: 'f1', name: 'Garage', state: 'running', nodes: [] }, { id: 'f2', name: 'Maintenance', state: 'running', nodes: [] }] })
-      case 'GET /tls': return ok({ mode: 'auto', caFingerprint: FP, sans: ['localhost'], notAfter: '2027-12-10T00:00:00Z', caCertUrl: '/piworker-ca.crt' })
+      case 'GET /tls': return opts.tlsOff
+        ? ok({ mode: 'off', caFingerprint: '', sans: [], notAfter: null, caCertUrl: '' })
+        : ok({ mode: 'auto', caFingerprint: FP, sans: ['localhost'], notAfter: '2027-12-10T00:00:00Z', caCertUrl: '/piworker-ca.crt' })
       case 'GET /agent/tokens': return ok({ tokens: tokens() })
       case 'POST /agent/tokens':
         if (body.password !== 'right-password') return fail(403, 'The password is incorrect')
@@ -67,7 +69,7 @@ async function mockServer(page: Page, opts: MockOptions = {}) {
       case 'PUT /agent/settings':
         settings = { ...settings, agentDeploy: body.agentDeploy }
         return ok(settings)
-      case 'GET /agent/approvals/pending-count': return ok({ pending: opts.pending ?? 2 })
+      case 'GET /agent/approvals/pending-count': return ok({ pending: opts.pendingCounts?.shift() ?? opts.pending ?? 2 })
       case 'GET /agent/approvals': {
         const status = url.searchParams.get('status')
         return ok({ approvals: status === 'pending' || status === null ? [...approvals, ...(opts.extraApprovals ?? [])] : [], pending: opts.pending ?? 2 })
@@ -174,20 +176,34 @@ test('a new token is shown once, with client snippets for this host', async ({ p
   })
   const secret = page.getByRole('dialog', { name: 'Copy your new token' })
   await expect(secret.getByLabel('New token')).toHaveText(TOKEN)
-  await expect(secret.getByLabel('Claude Code commands')).toContainText('export NODE_EXTRA_CA_CERTS=~/piworker-ca.crt')
+  // The CA is checked, then trusted for the claude command only.
+  await expect(secret.getByLabel('Check the CA certificate')).toHaveText('openssl x509 -in ~/piworker-ca.crt -noout -fingerprint -sha256')
+  await expect(secret.getByLabel('Expected CA fingerprint')).toHaveText(FP.replace(/^SHA256:/, ''))
   await expect(secret.getByLabel('Claude Code commands')).toContainText('claude mcp add --transport http --scope user piworker https://127.0.0.1:8443/mcp')
   await expect(secret.getByLabel('Claude Code commands')).toContainText(`--header "Authorization: Bearer ${TOKEN}"`)
-  await expect(secret.getByLabel('Claude Desktop configuration')).toContainText('"--ca-fingerprint"')
-  await expect(secret.getByLabel('Claude Desktop configuration')).toContainText(FP)
+  await expect(secret.getByLabel('Start Claude Code')).toHaveText('NODE_EXTRA_CA_CERTS=~/piworker-ca.crt claude')
+  for (const label of ['Check the CA certificate', 'Claude Code commands', 'Start Claude Code']) await expect(secret.getByLabel(label)).not.toContainText('export')
+  // Claude Desktop: the bridge by its full path, the token read at a silent prompt.
+  const desktopConfig = secret.getByLabel('Claude Desktop configuration')
+  await expect(desktopConfig).toContainText('"command": "/usr/local/bin/piworker-mcp"')
+  await expect(desktopConfig).toContainText('"~/.piworker-token"')
+  await expect(desktopConfig).toContainText('"--ca-fingerprint"')
+  await expect(desktopConfig).toContainText(FP)
+  await expect(secret).toContainText('"command" must be the full path of piworker-mcp')
+  await expect(secret.getByLabel('Save the token to a file', { exact: true })).toContainText('read -rs t')
+  await expect(secret.getByLabel('Save the token to a file', { exact: true })).not.toContainText(TOKEN)
   await page.screenshot({ path: 'test-results/agent-token-created.png', fullPage: true })
-  // Windows: PowerShell keeps the token file private, and the config names a Windows path.
+  // Windows: PowerShell keeps the token file private, and the config names Windows paths.
   await secret.getByRole('group', { name: 'Operating system' }).getByRole('button', { name: 'Windows' }).click()
   const ps = secret.getByLabel('Save the token to a file (PowerShell)')
   await expect(ps).toContainText('icacls $f /inheritance:r /grant:r')
-  await expect(ps).toContainText(`Set-Content -Path $f -Value '${TOKEN}'`)
+  await expect(ps).toContainText('if ($LASTEXITCODE -ne 0)')
+  await expect(ps).toContainText('-AsSecureString')
+  await expect(ps).not.toContainText(TOKEN)
   const windowsConfig = secret.getByLabel('Claude Desktop configuration (Windows)')
   await expect(windowsConfig).toContainText('"--token-file",')
-  await expect(windowsConfig).toContainText('"C:\\\\Users\\\\YOU\\\\piworker-token"')
+  await expect(windowsConfig).toContainText('"~\\\\.piworker-token"')
+  await expect(windowsConfig).toContainText('piworker-mcp.exe')
   await expect(windowsConfig).toContainText(FP)
   await expect(secret).toContainText('%APPDATA%\\Claude\\claude_desktop_config.json')
   await expect(secret.getByLabel('Save the token to a file', { exact: true })).toHaveCount(0)
@@ -196,6 +212,47 @@ test('a new token is shown once, with client snippets for this host', async ({ p
   await expect(secret).toBeVisible()
   await secret.getByRole('button', { name: 'Done, I saved it' }).click()
   await expect(page.getByText(TOKEN)).toHaveCount(0)
+})
+
+// piworker-mcp takes plain http only to 127.0.0.1 or [::1], and with TLS off
+// /mcp answers only this device unless lan_access is on: the dialog says both.
+test('with TLS off the token dialog points the bridge at this machine and says why', async ({ page }) => {
+  await mockServer(page, { tlsOff: true })
+  await page.goto('/agents')
+  await page.getByRole('button', { name: 'New token' }).click()
+  const dialog = page.getByRole('dialog', { name: 'New agent token' })
+  await dialog.getByLabel('Name').fill('desktop')
+  await dialog.getByLabel('garage_open').check()
+  await dialog.getByLabel('Your password').fill('right-password')
+  await dialog.getByRole('button', { name: 'Create token' }).click()
+  const secret = page.getByRole('dialog', { name: 'Copy your new token' })
+  await expect(secret.getByLabel('Claude Desktop configuration')).toContainText('"http://127.0.0.1:18096/mcp"')
+  await expect(secret.getByLabel('Claude Desktop configuration')).not.toContainText('--ca-fingerprint')
+  await expect(secret.getByRole('note')).toContainText('only to this machine (127.0.0.1 or [::1])')
+  await expect(secret.getByRole('note')).toContainText('mode = "auto"')
+  await expect(secret.getByLabel('Check the CA certificate')).toHaveCount(0)
+  await expect(secret.getByLabel('Start Claude Code')).toHaveCount(0)
+  await expect(secret).toContainText('MCP is on (this device only)')
+  await expect(secret).toContainText('lan_access = true')
+})
+
+// Agents change the pending count at will; the reload it triggers on the
+// Approvals page must not count as the admin's activity.
+test('the approvals page reloads new requests as background requests', async ({ page }) => {
+  const requests = await mockServer(page, { pendingCounts: [2, 3] })
+  await page.clock.install()
+  await page.goto('/agents/approvals')
+  const lists = () => requests.filter(r => r.method === 'GET' && r.path === '/agent/approvals')
+  await expect.poll(() => lists().length).toBeGreaterThanOrEqual(1)
+  expect(lists()[0].headers['x-piworker-background']).toBeUndefined()
+  const before = lists().length
+  await page.clock.runFor(10_500)
+  await expect.poll(() => lists().length).toBeGreaterThan(before)
+  expect(lists().at(-1)!.headers['x-piworker-background']).toBe('1')
+  // A refresh the admin asks for is activity.
+  await page.getByRole('button', { name: 'Refresh' }).click()
+  await expect.poll(() => lists().length).toBeGreaterThan(before + 1)
+  expect(lists().at(-1)!.headers['x-piworker-background']).toBeUndefined()
 })
 
 test('without published tools the token dialog says so', async ({ page }) => {
