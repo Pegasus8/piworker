@@ -62,15 +62,25 @@ type ConfigSchema struct {
 	Required   []string                  `json:"required,omitempty"`
 }
 
-// ConfigProperty describes a single configuration property.
+// ConfigProperty describes a single configuration property. CheckConfig
+// enforces Type, Enum, Minimum and Maximum when a flow is deployed.
 type ConfigProperty struct {
-	Type        string      `json:"type"`                  // string, number, boolean, array, object
+	Type        string      `json:"type"`                  // string, number, integer, boolean, array, object ("" = any)
 	Title       string      `json:"title"`                 // Human-readable title
-	Description string      `json:"description,omitempty"` // Help text
+	Description string      `json:"description,omitempty"` // Help text; states the unit of numeric values
 	Default     interface{} `json:"default,omitempty"`     // Default value
 	Enum        []string    `json:"enum,omitempty"`        // For select inputs
 	Minimum     *float64    `json:"minimum,omitempty"`     // For number inputs
 	Maximum     *float64    `json:"maximum,omitempty"`     // For number inputs
+	Unit        string      `json:"unit,omitempty"`        // Unit of a numeric value (e.g. "milliseconds"), quoted in errors
+
+	// Sensitive marks a credential (password, token, DSN, secret-bearing URL,
+	// …). Its value is never echoed in errors, and agent-authored drafts may
+	// only set it to a {{secret.NAME}} reference.
+	Sensitive bool `json:"sensitive,omitempty"`
+	// AgentVisible marks a value that is harmless to show to MCP agents.
+	// The default (false) means the value is redacted in agent read views.
+	AgentVisible bool `json:"agentVisible,omitempty"`
 }
 
 // BaseNode provides a common implementation for simple nodes.
