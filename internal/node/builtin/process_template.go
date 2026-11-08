@@ -241,6 +241,27 @@ func expandSecrets(s string) string {
 	})
 }
 
+// expandSecretsStrict is expandSecrets for values that must not silently
+// degrade: a reference to an undefined secret is an error, not "".
+func expandSecretsStrict(s string) (string, error) {
+	var missing string
+	out := templateRe.ReplaceAllStringFunc(s, func(match string) string {
+		name, ok := secretRef(placeholderParts(match))
+		if !ok {
+			return match
+		}
+		v, exists := secrets.DefaultStore.Get(name)
+		if !exists && missing == "" {
+			missing = name
+		}
+		return v
+	})
+	if missing != "" {
+		return "", fmt.Errorf("secret %q is not defined (referenced as {{secret.%s}})", missing, missing)
+	}
+	return out, nil
+}
+
 // placeholderParts splits a {{...}} match into its dot-separated head and rest
 // (e.g. "{{payload.user.email}}" → ["payload", "user.email"]).
 func placeholderParts(match string) []string {
