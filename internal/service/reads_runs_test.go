@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -287,4 +288,52 @@ func TestRunViewsRedactSecrets(t *testing.T) {
 		assert.NotContainsf(t, out, "abc123", "%s leaked a URL query", view)
 	}
 	assert.Contains(t, mustJSON(t, run), redactedMark)
+}
+
+// A credential typed literally into a Sensitive property (instead of a
+// {{secret.NAME}} reference) is redacted like a stored secret wherever the
+// flow's views could echo it: node errors of its runs and visible config.
+func TestReadsRedactLiteralSensitiveConfig(t *testing.T) {
+	e := newReadsEnv(t)
+	const botToken = "123456:AAH-literalBotToken"
+	const headerCred = "literal-Header-Cred"
+	f := manualFlow("literal credentials")
+	tg := flow.NewNode("action-telegram", flow.NodeCategoryOutput)
+	tg.ID = "telegram"
+	tg.Config = map[string]any{"botToken": botToken, "chatId": "42", "message": "hi"}
+	httpN := flow.NewNode("action-http", flow.NodeCategoryOutput)
+	httpN.ID = "http"
+	httpN.Config = map[string]any{
+		"url":     "https://example.com/{{secret.API_KEY}}",
+		"headers": map[string]any{"Authorization": "Bearer " + headerCred, "X-Ref": "{{secret.API_KEY}}"},
+	}
+	debug := flow.NewNode("process-debug", flow.NodeCategoryProcessing)
+	debug.ID = "debug"
+	debug.Config = map[string]any{"name": "copy of " + botToken + ", see {{secret.API_KEY}}"}
+	f.AddNode(*tg)
+	f.AddNode(*httpN)
+	f.AddNode(*debug)
+	e.save(f)
+	e.addRun(f.ID, "run-1", "", 0, time.Second, "error",
+		storage.NodeEventRecord{NodeID: "telegram", NodeType: "action-telegram", Phase: "error", Error: "unauthorized bot " + botToken + `; reply {"token":` + jsonString(botToken) + `}`},
+		storage.NodeEventRecord{NodeID: "http", NodeType: "action-http", Phase: "error", Error: "header Bearer " + headerCred + " rejected"},
+	)
+
+	ctx := context.Background()
+	actor := readsAgent(storage.ScopeRead)
+	run, err := e.reads.GetRun(ctx, actor, f.ID, "run-1")
+	require.NoError(t, err)
+	view, err := e.reads.GetFlow(ctx, actor, f.ID)
+	require.NoError(t, err)
+	for name, out := range map[string]string{"GetRun": leakText(t, run), "GetFlow": leakText(t, view)} {
+		for _, cred := range []string{botToken, headerCred} {
+			for form, text := range secretForms(cred) {
+				assert.NotContainsf(t, out, text, "%s leaked %q as %s", name, cred, form)
+			}
+		}
+	}
+	assert.Contains(t, run.Events[0].Error, "unauthorized bot "+redactedMark)
+	// Templated Sensitive values are references, not credentials: a
+	// visible value keeps the same reference.
+	assert.Equal(t, "copy of "+redactedMark+", see {{secret.API_KEY}}", view.Nodes[4].Config["name"])
 }

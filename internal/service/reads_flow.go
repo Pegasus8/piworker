@@ -91,7 +91,7 @@ func (r *Reads) GetFlow(ctx context.Context, actor Actor, flowID string) (FlowVi
 	if err != nil {
 		return FlowView{}, err
 	}
-	red := r.redactor()
+	red := r.redactor(r.sensitiveValues(f)...)
 	id := func(s string) string { return capText(red.text(s), maxViewIDBytes) }
 
 	view := FlowView{

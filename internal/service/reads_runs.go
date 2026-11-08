@@ -134,7 +134,8 @@ func (r *Reads) GetRun(ctx context.Context, actor Actor, flowID, runID string) (
 	if err := r.authorize(ctx, actor); err != nil {
 		return RunView{}, err
 	}
-	if _, err := r.loadFlow(flowID); err != nil {
+	f, err := r.loadFlow(flowID)
+	if err != nil {
 		return RunView{}, err
 	}
 	if r.history == nil {
@@ -151,7 +152,7 @@ func (r *Reads) GetRun(ctx context.Context, actor Actor, flowID, runID string) (
 	if err != nil {
 		return RunView{}, fmt.Errorf("get run events: %w", err)
 	}
-	red := r.redactor()
+	red := r.redactor(r.sensitiveValues(f)...)
 	view := RunView{RunSummary: runSummary(red, *run), Events: []RunEvent{}, TotalEvents: len(events)}
 	budget := maxRunViewBytes
 	for _, e := range events {

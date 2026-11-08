@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
 )
 
@@ -29,6 +30,57 @@ func (r *Reads) redactor(extra ...string) secretRedactor {
 		src = append(src, escapedForms(v)...)
 	}
 	return newSecretRedactor(src)
+}
+
+// minSensitiveWordBytes is the shortest word of a literal Sensitive value
+// that is redacted on its own (the token of "Bearer <token>").
+const minSensitiveWordBytes = 8
+
+// sensitiveValues returns the credentials typed literally into the
+// Sensitive properties of f's nodes (strings without a {{…}} template, at
+// any depth, and their words of at least minSensitiveWordBytes), so the
+// views of the flow redact them like stored secrets. Templated values hold
+// {{secret.NAME}} references, which are names, not credentials.
+func (r *Reads) sensitiveValues(f *flow.Flow) []string {
+	var out []string
+	var walk func(any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case string:
+			if x == "" || strings.Contains(x, "{{") {
+				return
+			}
+			out = append(out, x)
+			if words := strings.Fields(x); len(words) > 1 {
+				for _, w := range words {
+					if len(w) >= minSensitiveWordBytes {
+						out = append(out, w)
+					}
+				}
+			}
+		case map[string]any:
+			for _, e := range x {
+				walk(e)
+			}
+		case []any:
+			for _, e := range x {
+				walk(e)
+			}
+		}
+	}
+	for i := range f.Nodes {
+		n := &f.Nodes[i]
+		info, ok := r.registry.Get(n.Type)
+		if !ok || info.Config == nil {
+			continue
+		}
+		for name, p := range info.Config.Properties {
+			if v, present := n.Config[name]; present && p.Sensitive {
+				walk(redactValue(secretRedactor{}, v))
+			}
+		}
+	}
+	return out
 }
 
 // escapedForms returns v as it reads inside JSON (with and without HTML
