@@ -12,6 +12,37 @@ export function numberFromInput(raw: string): number | undefined {
   return Number.isFinite(n) ? n : undefined
 }
 
+// The integer typed into an integer input, or undefined (unset) for a cleared
+// or invalid input. Fractions are cut toward zero, as the node would read them.
+export function integerFromInput(raw: string): number | undefined {
+  const n = numberFromInput(raw)
+  return n === undefined ? undefined : Math.trunc(n) + 0
+}
+
+// The text to edit for a JSON-object setting: indented JSON, the saved text
+// itself when it is a string (hand-written or older definitions), '' when unset.
+export function jsonText(value: unknown): string {
+  if (value === undefined || value === null) return ''
+  if (typeof value === 'string') return value
+  return JSON.stringify(value, null, 2)
+}
+
+export interface ParsedJsonObject { value?: Record<string, unknown>; error?: string }
+
+// Parses the text of a JSON-object setting. Blank text unsets the setting;
+// anything but one JSON object is an error and must not be stored.
+export function parseJsonObject(text: string): ParsedJsonObject {
+  if (text.trim() === '') return { value: undefined }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch (e) {
+    return { error: `Invalid JSON: ${e instanceof Error ? e.message : String(e)}` }
+  }
+  if (!isPlainObject(parsed)) return { error: 'Enter a JSON object, e.g. {"type": "object"}' }
+  return { value: parsed }
+}
+
 // Stores value under key, or removes the key when value is undefined.
 export function setConfigValue(config: Record<string, unknown>, key: string, value: unknown): void {
   if (value === undefined) delete config[key]
@@ -49,9 +80,11 @@ export function configFieldsFromSchema(schema: any): ConfigField[] {
     const p = props[key]
     const hasEnum = Array.isArray(p.enum) && p.enum.length > 0
     let type: ConfigField['type'] = 'text'
-    if (p.type === 'number' || p.type === 'integer') type = 'number'
+    if (p.type === 'number') type = 'number'
+    else if (p.type === 'integer') type = 'integer'
     else if (p.type === 'boolean') type = 'boolean'
     else if (p.type === 'object') type = 'keyvalue'
+    else if (p.type === 'json') type = 'json'
     else if (hasEnum) type = 'select'
     return {
       key,

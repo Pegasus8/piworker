@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { configFieldsFromSchema, numberFromInput, objectFromRows, objectRows, setConfigValue } from '../src/lib/configValues'
+import { configFieldsFromSchema, integerFromInput, jsonText, numberFromInput, objectFromRows, objectRows, parseJsonObject, setConfigValue } from '../src/lib/configValues'
 
 test('a cleared number input is unset, not 0', () => {
   expect(numberFromInput('')).toBeUndefined()
@@ -46,6 +46,7 @@ test('schema types map to editor fields', () => {
       headers: { type: 'object', title: 'Headers', description: 'HTTP headers' },
       timeout: { type: 'number', title: 'Timeout', default: 30000 },
       count: { type: 'integer', title: 'Count' },
+      schema: { type: 'json', title: 'Schema', default: { type: 'object' } },
       enabled: { type: 'boolean' },
       method: { type: 'string', enum: ['GET', 'POST'] }
     }
@@ -57,9 +58,44 @@ test('schema types map to editor fields', () => {
   expect(byKey.headers.placeholder).toBe('HTTP headers')
   expect(byKey.timeout.type).toBe('number')
   expect(byKey.timeout.default).toBe(30000)
-  expect(byKey.count.type).toBe('number')
+  expect(byKey.count.type).toBe('integer')
+  expect(byKey.schema.type).toBe('json')
+  expect(byKey.schema.default).toEqual({ type: 'object' })
   expect(byKey.enabled.type).toBe('boolean')
   expect(byKey.enabled.label).toBe('enabled')
   expect(byKey.method.type).toBe('select')
   expect(byKey.method.options).toEqual([{ label: 'GET', value: 'GET' }, { label: 'POST', value: 'POST' }])
+})
+
+test('an integer input stores whole numbers', () => {
+  expect(integerFromInput('')).toBeUndefined()
+  expect(integerFromInput('  ')).toBeUndefined()
+  expect(integerFromInput('abc')).toBeUndefined()
+  expect(integerFromInput('3')).toBe(3)
+  expect(integerFromInput('0')).toBe(0)
+  // Fractions are cut toward zero, as the node itself would read them.
+  expect(integerFromInput('3.7')).toBe(3)
+  expect(integerFromInput('-2.5')).toBe(-2)
+  expect(Number.isInteger(integerFromInput('10000.0'))).toBe(true)
+})
+
+test('a JSON setting is shown as indented JSON text', () => {
+  expect(jsonText({ type: 'object', properties: {} })).toBe('{\n  "type": "object",\n  "properties": {}\n}')
+  expect(jsonText(undefined)).toBe('')
+  expect(jsonText(null)).toBe('')
+  // Text saved by hand or by older editors is shown as it is.
+  expect(jsonText('{"type":"object"}')).toBe('{"type":"object"}')
+})
+
+test('JSON text is stored as a parsed object', () => {
+  expect(parseJsonObject('{"type": "object", "n": 1}')).toEqual({ value: { type: 'object', n: 1 } })
+  expect(parseJsonObject('  ')).toEqual({ value: undefined })
+  expect(parseJsonObject('')).toEqual({ value: undefined })
+  for (const text of ['[1]', 'null', '"x"', '3', 'true']) {
+    expect(parseJsonObject(text).error).toBe('Enter a JSON object, e.g. {"type": "object"}')
+    expect(parseJsonObject(text).value).toBeUndefined()
+  }
+  const bad = parseJsonObject('{"type": ')
+  expect(bad.error).toStartWith('Invalid JSON')
+  expect(bad.value).toBeUndefined()
 })

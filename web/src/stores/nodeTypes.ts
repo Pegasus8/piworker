@@ -31,7 +31,9 @@ const iconMap: Record<string, string> = {
   send: 'Send',
   mail: 'Mail',
   variable: 'Variable',
-  activity: 'Activity'
+  activity: 'Activity',
+  wrench: 'Wrench',
+  reply: 'Reply'
 }
 
 export const useNodeTypesStore = defineStore('nodeTypes', () => {

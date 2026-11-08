@@ -6,7 +6,8 @@ import { Button, Input, Label, Select, Switch, ScrollArea, Dialog } from '@/comp
 import { X, Save, Trash2 } from 'lucide-vue-next'
 import ReferenceInput from './ReferenceInput.vue'
 import KeyValueInput from './KeyValueInput.vue'
-import { setConfigValue } from '@/lib/configValues'
+import JsonInput from './JsonInput.vue'
+import { integerFromInput, setConfigValue } from '@/lib/configValues'
 import { referenceMode, referenceOptions } from '@/lib/references'
 import { useApi } from '@/composables/useApi'
 import NodeDocumentation from './NodeDocumentation.vue'
@@ -46,7 +47,14 @@ async function loadReferences() {
  secretNames.value = result[1].status === 'fulfilled' ? result[1].value : []
  referencesError.value = result.some(r => r.status === 'rejected') ? 'Some references could not be loaded. You can still edit the field.' : ''
 }
+// JSON fields whose text does not parse: their value is not applied, so
+// "Apply changes" waits until they are fixed.
+const invalidFields = ref<string[]>([])
+function setInvalid(key: string, invalid: boolean) {
+  invalidFields.value = invalid ? [...new Set([...invalidFields.value, key])] : invalidFields.value.filter(k => k !== key)
+}
 watch(() => selectedNode.value?.id, id => {
+ invalidFields.value = []
  referencesRequest++; variableNames.value = []; flowVariableNames.value = []; secretNames.value = []; referencesError.value = ''
  if (id) void loadReferences()
 })
@@ -77,6 +85,7 @@ function updateField(key: string, value: any) {
 }
 
 function handleSave() {
+  if (invalidFields.value.length) return
   if (selectedNode.value) {
     flowsStore.updateNodeConfig(selectedNode.value.id, { ...localConfig.value })
     flowsStore.selectNode(null)
@@ -158,6 +167,30 @@ onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
               @update:model-value="(v) => updateField(field.key, v === '' ? undefined : v)"
             />
 
+            <!-- Integer Input: stores whole numbers -->
+            <Input
+              v-else-if="field.type === 'integer'"
+              :id="field.key"
+              :aria-required="field.required"
+              type="number"
+              step="1"
+              inputmode="numeric"
+              :model-value="localConfig[field.key] ?? ''"
+              :placeholder="field.default !== undefined ? `Default: ${field.default}` : ''"
+              @update:model-value="(v) => updateField(field.key, integerFromInput(String(v)))"
+            />
+
+            <!-- JSON object (e.g. a tool's input schema) -->
+            <JsonInput
+              v-else-if="field.type === 'json'"
+              :id="field.key"
+              :label="field.label"
+              :required="field.required"
+              :model-value="localConfig[field.key]"
+              @update:model-value="(v) => updateField(field.key, v)"
+              @update:invalid="(bad) => setInvalid(field.key, bad)"
+            />
+
             <!-- Name/value pairs (object settings such as HTTP headers) -->
             <KeyValueInput
               v-else-if="field.type === 'keyvalue'"
@@ -217,7 +250,10 @@ onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
         <Button variant="outline" size="sm" @click="handleCancel">
           Cancel
         </Button>
-        <Button size="sm" class="col-span-2" @click="handleSave">
+        <p v-if="invalidFields.length" role="status" class="col-span-2 text-xs text-destructive sm:self-center">
+          Fix the JSON in {{ invalidFields.length === 1 ? 'one field' : `${invalidFields.length} fields` }} to apply changes.
+        </p>
+        <Button size="sm" class="col-span-2" :disabled="invalidFields.length > 0" @click="handleSave">
           <Save class="mr-2 h-4 w-4" />
           Apply changes
         </Button>
