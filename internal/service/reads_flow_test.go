@@ -148,7 +148,22 @@ func TestGetFlowRedactsSecretValues(t *testing.T) {
 	assert.Contains(t, out, "{{secret.API_KEY}}", "secret references are names, not values")
 }
 
-// secretForms are the encodings of a secret value a leak could take.
+// secretLeaks are texts that leak a secret value in the encodings a leak
+// could take: what the read canaries plant in recorded text.
+func secretLeaks(v string) map[string]string {
+	return map[string]string{
+		"literal":    v,
+		"query":      url.QueryEscape(v),
+		"path":       url.PathEscape(v),
+		"base64":     base64.StdEncoding.EncodeToString([]byte(v)),
+		"base64url":  base64.URLEncoding.EncodeToString([]byte(v)),
+		"basic auth": "Basic " + base64.StdEncoding.EncodeToString([]byte("user:"+v)),
+	}
+}
+
+// secretForms are the texts that must not appear where secretLeaks were
+// planted: every encoding of the value, and the part of an embedded base64
+// encoding that depends on the value alone.
 func secretForms(v string) map[string]string {
 	return map[string]string{
 		"literal":       v,
