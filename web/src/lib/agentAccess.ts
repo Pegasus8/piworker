@@ -113,11 +113,15 @@ export interface AuditEntry {
   privileged: boolean
 }
 
-export interface AuditRejection {
+/** Rejected calls of one token for one reason over the window (GET /api/agent/audit/rejections). */
+export interface RejectionTotal {
   tokenId: string
-  at: string
+  /** '' when the token no longer exists. */
+  tokenName: string
   reason: string
   count: number
+  /** The latest minute with such a rejection. */
+  last: string
 }
 
 export interface AuditFilters {
@@ -529,19 +533,15 @@ export function auditParams(filters: AuditFilters, limit: number, beforeId?: num
 }
 
 /**
- * GET /api/agent/audit parameters for the rejection counters only. The server
- * filters counters by token and time alone, and limits them like entries, so
- * they are read apart with their own limit; beforeId=1 asks for no entries
- * (audit ids start at 1).
+ * GET /api/agent/audit/rejections parameters: the server sums rejections by
+ * token and time window only (the tool, flow and outcome filters do not apply).
  */
-export function rejectionParams(filters: AuditFilters, limit: number): AuditParams {
-  const { tokenId, since, until } = auditParams(filters, limit)
+export function rejectionParams(filters: AuditFilters): AuditParams {
+  const { tokenId, since, until } = auditParams(filters, 0)
   const params: AuditParams = {}
   if (tokenId) params.tokenId = tokenId
   if (since) params.since = since
   if (until) params.until = until
-  params.beforeId = 1
-  params.limit = limit
   return params
 }
 

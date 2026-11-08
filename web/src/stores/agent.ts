@@ -20,7 +20,7 @@ import {
   type ApprovalDecision,
   type AuditEntry,
   type AuditFilters,
-  type AuditRejection,
+  type RejectionTotal,
   type CreateTokenForm,
   type CreatedAgentToken,
   type SnippetTLS
@@ -30,8 +30,6 @@ import {
 export const APPROVAL_POLL_MS = 10_000
 /** Audit rows per page. */
 export const AUDIT_PAGE_SIZE = 50
-/** Rejection counter rows read at once (the server's largest audit limit). */
-export const MAX_REJECTION_ROWS = 1000
 const MAX_RECENT_DECISIONS = 10
 
 export type ApprovalFilter = 'pending' | 'approved' | 'rejected' | 'expired' | 'all'
@@ -78,8 +76,8 @@ export const useAgentStore = defineStore('agent', () => {
   const recentDecisions = ref<ApprovalDecision[]>([])
   const agentApiAvailable = ref(true)
   const audit = ref<AuditEntry[]>([])
-  const rejections = ref<AuditRejection[]>([])
-  /** Whether older counter rows exist than the ones read. */
+  const rejections = ref<RejectionTotal[]>([])
+  /** Whether the server listed only the largest rejection totals. */
   const rejectionsTruncated = ref(false)
   const auditHasMore = ref(false)
   const auditFilters = ref<AuditFilters>({})
@@ -240,13 +238,19 @@ export const useAgentStore = defineStore('agent', () => {
     auditHasMore.value = entries.length === AUDIT_PAGE_SIZE
   }
 
-  // Counters are per token, reason and minute; summing a page of them would
-  // undercount, so they are read with the largest limit.
+  // Rejections are counted per token, reason and minute; the server sums them
+  // per token and reason over the window. A server without the endpoint
+  // (404) has nothing to show.
   async function loadRejections() {
-    const { data } = await apiClient.get('/agent/audit', { params: rejectionParams(auditFilters.value, MAX_REJECTION_ROWS) })
-    const rows: AuditRejection[] = data.data?.rejections ?? []
-    rejections.value = rows
-    rejectionsTruncated.value = rows.length >= MAX_REJECTION_ROWS
+    try {
+      const { data } = await apiClient.get('/agent/audit/rejections', { params: rejectionParams(auditFilters.value) })
+      rejections.value = data.data?.totals ?? []
+      rejectionsTruncated.value = !!data.data?.truncated
+    } catch (e) {
+      rejections.value = []
+      rejectionsTruncated.value = false
+      if (status(e) !== 404) throw e
+    }
   }
 
   async function fetchAudit(filters: AuditFilters) {

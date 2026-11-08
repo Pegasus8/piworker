@@ -396,7 +396,10 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   args_sha256, args_preview, outcome, dur_ms)`; async batched writes; retention
   30 days by time; rejections (`busy`, cooldown, invalid args) stored as
   per-token per-minute counters (`mcp_rejections`); privileged calls never
-  evicted early. The audit API pages by `id` (most recently recorded first).
+  evicted early. The audit API pages by `id` (most recently recorded first);
+  `GET /api/agent/audit/rejections?tokenId&since&until` sums the counters per
+  token and reason in SQL (at most 500 groups, largest first, `truncated`
+  when more matched).
 - Agent-authored text is rendered as plain text only (never `marked`/`v-html`);
   the webui sends `Content-Security-Policy: script-src 'self'`.
 

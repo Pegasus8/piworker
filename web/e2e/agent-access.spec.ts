@@ -31,7 +31,7 @@ function auditPage(from: number, n: number, preview = '{"door":"main"}') {
   return Array.from({ length: n }, (_, i) => ({ id: from - i, ts: iso(-i * 60_000), tokenId: 'tokA', tokenName: 'laptop', tool: i === 0 ? 'reboot_pi' : 'garage_open', flowId: 'f1', runId: `run-${from - i}`, argsPreview: i === 0 ? XSS : preview, outcome: i === 0 ? 'error' : 'completed', durMs: 12, privileged: i === 0 }))
 }
 
-interface MockOptions { toolsMissing?: boolean; pending?: number; extraApprovals?: unknown[]; auditPreview?: string; rejectionRows?: number; settingsFail?: boolean; executionError?: string; approveResult?: unknown; mcpEnabled?: boolean }
+interface MockOptions { toolsMissing?: boolean; pending?: number; extraApprovals?: unknown[]; auditPreview?: string; rejectionsTruncated?: boolean; settingsFail?: boolean; executionError?: string; approveResult?: unknown; mcpEnabled?: boolean }
 
 async function mockServer(page: Page, opts: MockOptions = {}) {
   const requests: Req[] = []
@@ -79,16 +79,15 @@ async function mockServer(page: Page, opts: MockOptions = {}) {
       case 'POST /agent/approvals/ap1/reject': return ok({ approval: { ...approvals[0], status: 'rejected' }, executed: false })
       case 'GET /agent/audit': {
         const before = Number(url.searchParams.get('beforeId') ?? 0)
-        // beforeId=1 asks for the rejection counters alone.
-        if (before === 1) {
-          const rows = opts.rejectionRows
-            ? Array.from({ length: opts.rejectionRows }, (_, i) => ({ tokenId: 'tokA', at: iso(-(i + 1) * 60_000), reason: 'busy', count: 1 }))
-            : [{ tokenId: 'tokA', at: iso(-60_000), reason: 'busy', count: 3 }, { tokenId: 'tokA', at: iso(-120_000), reason: 'busy', count: 2 }]
-          return ok({ entries: [], rejections: rows })
-        }
         const entries = before ? auditPage(before - 1, 2) : auditPage(200, 50, opts.auditPreview)
+        // The per-minute counters of this response are not what the page shows.
         return ok({ entries, rejections: [{ tokenId: 'tokA', at: iso(-60_000), reason: 'cooldown', count: 1 }] })
       }
+      case 'GET /agent/audit/rejections':
+        return ok({
+          totals: [{ tokenId: 'tokA', tokenName: 'laptop ' + XSS, reason: 'busy', count: 5, last: iso(-60_000) }, { tokenId: 'gone', tokenName: '', reason: 'invalid_args', count: 1, last: iso(-120_000) }],
+          truncated: !!opts.rejectionsTruncated
+        })
     }
     return fail(404, `Unexpected ${key}`)
   }
@@ -97,9 +96,8 @@ async function mockServer(page: Page, opts: MockOptions = {}) {
 }
 
 const last = (requests: Req[], method: string, path: string) => [...requests].reverse().find(r => r.method === method && r.path === path)
-const isCounters = (r: Req) => r.path === '/agent/audit' && r.query.get('beforeId') === '1'
-const lastEntries = (requests: Req[]) => [...requests].reverse().find(r => r.method === 'GET' && r.path === '/agent/audit' && !isCounters(r))
-const lastCounters = (requests: Req[]) => [...requests].reverse().find(r => r.method === 'GET' && isCounters(r))
+const lastEntries = (requests: Req[]) => last(requests, 'GET', '/agent/audit')
+const lastTotals = (requests: Req[]) => last(requests, 'GET', '/agent/audit/rejections')
 
 test('the navigation badge counts pending approvals and leads to the agent pages', async ({ page }) => {
   await mockServer(page)
@@ -413,12 +411,15 @@ test('the audit log filters, pages and counts rejections', async ({ page }) => {
   await expect(table.getByText(XSS)).toBeVisible()
   expect(await page.evaluate(() => (window as any).__xss)).toBeUndefined()
   const rejections = page.getByRole('table', { name: 'Rejected calls' })
-  await expect(rejections.getByRole('row').filter({ hasText: 'busy' })).toContainText('5')
-  // Counters come from their own request and only the token and time filters apply.
+  // Totals are summed by the server, per token and reason; only the token and time filters apply.
+  const busy = rejections.getByRole('row').filter({ hasText: 'busy' })
+  await expect(busy).toContainText('5')
+  await expect(busy).toContainText('laptop ' + XSS)
+  await expect(rejections.getByRole('row').filter({ hasText: 'invalid_args' })).toContainText('gone')
   await expect(rejections.getByRole('row').filter({ hasText: 'cooldown' })).toHaveCount(0)
-  expect(lastCounters(requests)!.query.get('limit')).toBe('1000')
+  expect([...lastTotals(requests)!.query.keys()]).toEqual([])
   await expect(page.getByText('the tool, flow and outcome filters do not apply to these counts')).toBeVisible()
-  await expect(page.getByText(/most recent per-minute counts/)).toHaveCount(0)
+  await expect(page.getByText(/largest totals are listed/)).toHaveCount(0)
   await page.getByRole('button', { name: 'Load more' }).click()
   await expect.poll(() => lastEntries(requests)?.query.get('beforeId')).toBe('151')
   await expect(table.getByRole('row')).toHaveCount(53)
@@ -433,17 +434,17 @@ test('the audit log filters, pages and counts rejections', async ({ page }) => {
     return q && [q.get('tool'), q.get('outcome'), q.get('tokenId'), q.get('beforeId')]
   }).toEqual(['garage_open', 'error', 'tokA', null])
   await expect.poll(() => {
-    const q = lastCounters(requests)?.query
-    return q && [q.get('tool'), q.get('outcome'), q.get('tokenId'), q.get('limit')]
-  }).toEqual([null, null, 'tokA', '1000'])
+    const q = lastTotals(requests)?.query
+    return q && [q.get('tool'), q.get('outcome'), q.get('tokenId'), q.get('beforeId'), q.get('limit')]
+  }).toEqual([null, null, 'tokA', null, null])
   await page.screenshot({ path: 'test-results/agent-audit.png', fullPage: true })
 })
 
-test('rejection counters say when older minutes are left out', async ({ page }) => {
-  await mockServer(page, { rejectionRows: 1000 })
+test('rejection totals say when only the largest are listed', async ({ page }) => {
+  await mockServer(page, { rejectionsTruncated: true })
   await page.goto('/agents/audit')
-  await expect(page.getByRole('table', { name: 'Rejected calls' }).getByRole('row').filter({ hasText: 'busy' })).toContainText('1000')
-  await expect(page.getByText(/Only the 1000 most recent per-minute counts are summed, back to .+; older rejections are left out/)).toBeVisible()
+  await expect(page.getByRole('table', { name: 'Rejected calls' }).getByRole('row').filter({ hasText: 'busy' })).toContainText('5')
+  await expect(page.getByText('Only the 2 largest totals are listed; narrow the token or time filters to see the others.')).toBeVisible()
 })
 
 test('a password change can keep agent tokens', async ({ page }) => {
