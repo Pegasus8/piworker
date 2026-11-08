@@ -602,9 +602,20 @@ func (r *FlowRuntime) executeNode(routedMsg RoutedMessage) {
 			}
 		}
 
+		// Outputs inherit the run's correlation ID when the node built a fresh
+		// message, so the cascade stays one traceable run. An explicitly set ID is
+		// respected, and the children are counted under whichever ID they carry.
+		childCorr := correlationID
+		if id, ok := output.GetMeta("correlationID"); ok {
+			if s, ok := id.(string); ok && s != "" {
+				childCorr = s
+			}
+		}
+		output.SetMeta("correlationID", childCorr)
+
 		// Count this output's downstream children into the run BEFORE routing them,
 		// so the counter reflects the pending work before any child can finish.
-		r.runAdd(correlationID, r.targetCount(routedMsg.TargetNode, output.SourcePort))
+		r.runAdd(childCorr, r.targetCount(routedMsg.TargetNode, output.SourcePort))
 		r.router.Route(routedMsg.TargetNode, output)
 	}
 }
