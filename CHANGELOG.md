@@ -51,6 +51,49 @@ version. The version number and release date have not been selected.
   either move it to `:8443` (and keep `http_addr = ":8080"`), set
   `http_addr = ""`, or set `[tls] mode = "off"` to keep plain HTTP.
 
+### Host allowlist
+
+- The API, the web UI and the MCP endpoint answer only requests whose `Host`
+  is a name of this server (403 otherwise), against DNS rebinding: `localhost`,
+  the hostname, `<hostname>.local`, any IP address, plus `allowed_hosts`
+  (`PIWORKER_ALLOWED_HOSTS`, `-allowed-hosts`). Webhooks and the CA download
+  accept any name. The Compose files set `PIWORKER_ALLOWED_HOSTS`.
+
+### AI agents (MCP)
+
+- Flows can be published as tools for AI agents: an **Agent Tool** node
+  (`trigger-tool`) starts the flow with arguments checked against a closed JSON
+  Schema subset, and an **Agent Reply** node (`action-reply`) returns the
+  result. Tool names are unique across running flows (409 on conflict).
+- PiWorker rates each tool `safe`, `external` or `privileged` from the nodes
+  it reaches (including through flow variables) and refuses to deploy a tool
+  whose arguments reach a privileged node without strict constraints.
+- The `/mcp` endpoint is off by default (`[mcp] enabled`, `PIWORKER_MCP_*`)
+  and requires authentication; with TLS off it accepts only local clients
+  unless `lan_access` is set.
+- Agents use scoped tokens (`call`, `read`, `author`, `deploy`), shown once,
+  90-day default expiry, accepted only on `/mcp`. Privileged tools need the
+  token's privileged flag and are never covered by "all tools". Grants are
+  bound to the tool's fingerprint: any change to a tool suspends them until
+  re-confirmed. Recovery and password changes revoke every token.
+- Tools with `confirm: admin` wait for approval in the editor (15 minutes);
+  an approval runs only the tool version that was requested and keeps its
+  result. Every agent call is audited for 30 days.
+- Runs record who started them (editor, agent token or trigger).
+
+### Agent access pages
+
+- New **Agents** pages: tokens and grants (created with your password, with
+  ready-to-paste set-up for Claude Code and for Claude Desktop on macOS/Linux
+  and Windows), revoke one or all tokens, the agent deploy level (password),
+  the approval queue with a badge and an app-wide notice, and the audit log
+  with rejection totals. The pages show whether MCP is on.
+- Text from agents and flows is shown as plain text with hidden and
+  direction-changing characters escaped, and the web UI sends a
+  Content-Security-Policy that allows only its own scripts.
+- The editor's **Test tool** calls an Agent Tool node as an agent would; the
+  canvas shows who started each run.
+
 ### Security correction
 
 - Command-node payload/topic/metadata values are passed as literal arguments,
@@ -89,8 +132,10 @@ version. The version number and release date have not been selected.
 - Existing accounts from the revival session-authentication migration retain
   their password hashes. Legacy JWT sessions must sign in again; Bearer JWT API
   authentication and the `jwt_secret` setting are no longer supported.
-- The server listens over HTTP. HTTPS needs an external reverse proxy;
-  `session_secure` only controls the cookie's Secure flag.
+- HTTPS uses a local CA that each device must trust once (or your own
+  certificate with `[tls] mode = "custom"`). With `mode = "off"` the server
+  listens over HTTP, for example behind a reverse proxy; `session_secure` then
+  only controls the cookie's Secure flag.
 - Secrets have no application-level encryption at rest. Flow exports do not
   include the separate variable or secret stores. Credentials entered literally
   in a node can appear in its exported configuration.
