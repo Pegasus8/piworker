@@ -12,6 +12,7 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/flow"
 	sqlite3 "github.com/mattn/go-sqlite3"
+	"github.com/rs/zerolog/log"
 )
 
 // buildDSN builds a SQLite DSN for the given path. File-backed databases enable
@@ -296,7 +297,15 @@ func (s *SQLiteStore) DeleteFlow(id string) error {
 		return fmt.Errorf("%w: empty flow ID", ErrInvalidFlowData)
 	}
 
-	result, err := s.db.Exec(`DELETE FROM flows WHERE id = ?`, id)
+	// Remove the flow and its run history atomically, so deleting a flow never
+	// leaves orphaned flow_runs/node_events rows filling the SD card.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin delete: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+
+	result, err := tx.Exec(`DELETE FROM flows WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete flow: %w", err)
 	}
@@ -310,7 +319,44 @@ func (s *SQLiteStore) DeleteFlow(id string) error {
 		return ErrFlowNotFound
 	}
 
+	if _, err := tx.Exec(`DELETE FROM node_events WHERE flow_id = ?`, id); err != nil {
+		return fmt.Errorf("failed to delete flow events: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM flow_runs WHERE flow_id = ?`, id); err != nil {
+		return fmt.Errorf("failed to delete flow runs: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit flow deletion: %w", err)
+	}
 	return nil
+}
+
+// scanFlows decodes every row's JSON blob. A row that cannot be decoded (for
+// example after SD-card corruption) is logged and skipped rather than failing
+// the whole listing, so one bad flow cannot hide the rest or stop them from
+// being restored at boot.
+func scanFlows(rows *sql.Rows) ([]*flow.Flow, error) {
+	var flows []*flow.Flow
+	for rows.Next() {
+		var id, data string
+		if err := rows.Scan(&id, &data); err != nil {
+			return nil, fmt.Errorf("failed to scan flow: %w", err)
+		}
+
+		var f flow.Flow
+		if err := json.Unmarshal([]byte(data), &f); err != nil {
+			log.Error().Err(err).Str("flowID", id).Msg("Skipping flow with unreadable stored definition")
+			continue
+		}
+
+		flows = append(flows, &f)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating flows: %w", err)
+	}
+	return flows, nil
 }
 
 // ListFlows returns all flows, optionally filtered by state.
@@ -323,9 +369,9 @@ func (s *SQLiteStore) ListFlows(state *flow.FlowState) ([]*flow.Flow, error) {
 	var err error
 
 	if state != nil {
-		rows, err = s.db.Query(`SELECT data FROM flows WHERE state = ? ORDER BY created_at DESC`, *state)
+		rows, err = s.db.Query(`SELECT id, data FROM flows WHERE state = ? ORDER BY created_at DESC`, *state)
 	} else {
-		rows, err = s.db.Query(`SELECT data FROM flows ORDER BY created_at DESC`)
+		rows, err = s.db.Query(`SELECT id, data FROM flows ORDER BY created_at DESC`)
 	}
 
 	if err != nil {
@@ -333,26 +379,7 @@ func (s *SQLiteStore) ListFlows(state *flow.FlowState) ([]*flow.Flow, error) {
 	}
 	defer rows.Close()
 
-	var flows []*flow.Flow
-	for rows.Next() {
-		var data string
-		if err := rows.Scan(&data); err != nil {
-			return nil, fmt.Errorf("failed to scan flow: %w", err)
-		}
-
-		var f flow.Flow
-		if err := json.Unmarshal([]byte(data), &f); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal flow: %w", err)
-		}
-
-		flows = append(flows, &f)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating flows: %w", err)
-	}
-
-	return flows, nil
+	return scanFlows(rows)
 }
 
 // ListFlowsPaginated returns flows with pagination support.
@@ -369,7 +396,7 @@ func (s *SQLiteStore) ListFlowsPaginated(offset, limit int) ([]*flow.Flow, int, 
 
 	// Get paginated results
 	rows, err := s.db.Query(`
-		SELECT data FROM flows
+		SELECT id, data FROM flows
 		ORDER BY created_at DESC
 		LIMIT ? OFFSET ?
 	`, limit, offset)
@@ -378,25 +405,10 @@ func (s *SQLiteStore) ListFlowsPaginated(offset, limit int) ([]*flow.Flow, int, 
 	}
 	defer rows.Close()
 
-	var flows []*flow.Flow
-	for rows.Next() {
-		var data string
-		if err := rows.Scan(&data); err != nil {
-			return nil, 0, fmt.Errorf("failed to scan flow: %w", err)
-		}
-
-		var f flow.Flow
-		if err := json.Unmarshal([]byte(data), &f); err != nil {
-			return nil, 0, fmt.Errorf("failed to unmarshal flow: %w", err)
-		}
-
-		flows = append(flows, &f)
+	flows, err := scanFlows(rows)
+	if err != nil {
+		return nil, 0, err
 	}
-
-	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("error iterating flows: %w", err)
-	}
-
 	return flows, total, nil
 }
 
@@ -411,7 +423,7 @@ func (s *SQLiteStore) SearchFlows(namePattern string) ([]*flow.Flow, error) {
 	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(namePattern)
 
 	rows, err := s.db.Query(`
-		SELECT data FROM flows
+		SELECT id, data FROM flows
 		WHERE name LIKE ? ESCAPE '\'
 		ORDER BY created_at DESC
 	`, "%"+escaped+"%")
@@ -420,26 +432,7 @@ func (s *SQLiteStore) SearchFlows(namePattern string) ([]*flow.Flow, error) {
 	}
 	defer rows.Close()
 
-	var flows []*flow.Flow
-	for rows.Next() {
-		var data string
-		if err := rows.Scan(&data); err != nil {
-			return nil, fmt.Errorf("failed to scan flow: %w", err)
-		}
-
-		var f flow.Flow
-		if err := json.Unmarshal([]byte(data), &f); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal flow: %w", err)
-		}
-
-		flows = append(flows, &f)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating flows: %w", err)
-	}
-
-	return flows, nil
+	return scanFlows(rows)
 }
 
 // GetRunningFlows returns all flows with state='running'.
