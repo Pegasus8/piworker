@@ -23,6 +23,7 @@ import (
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/secrets"
+	"github.com/Pegasus8/piworker/internal/service"
 	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/Pegasus8/piworker/internal/tlsca"
 	"github.com/Pegasus8/piworker/internal/types"
@@ -209,7 +210,7 @@ func main() {
 		tlsConf = tlsSrc.TLSConfig()
 	}
 
-	router, flowsHandler := buildRouter(cfg, store, runtimeManager, registry, userStore, tlsRoutes(cfg.TLS.Mode, tlsSrc))
+	router, flowsHandler, services := buildApp(cfg, store, runtimeManager, registry, userStore, tlsRoutes(cfg.TLS.Mode, tlsSrc))
 
 	// Bind before restoring flows, so a busy port fails before anything runs.
 	servers, err := listen(cfg, router, tlsConf)
@@ -240,7 +241,7 @@ func main() {
 	}
 
 	log.Info().Msg("Shutting down...")
-	if err := gracefulShutdown(servers.all(), flowsHandler, runtimeManager, 10*time.Second); err != nil {
+	if err := gracefulShutdown(servers.all(), flowsHandler, runtimeManager, 10*time.Second, services.audit.Close); err != nil {
 		log.Error().Err(err).Msg("Error during server shutdown")
 	}
 
@@ -278,7 +279,9 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 // drain every HTTP server (which cancels streams via the base context), and
 // only then stop the flows, so in-flight API calls never observe a
 // half-stopped runtime and nothing can be deployed after StopAll.
-func gracefulShutdown(srvs []*http.Server, flows *api.FlowsHandler, manager *flow.RuntimeManager, timeout time.Duration) error {
+// The flushers (the MCP audit writer) run last, once nothing can record
+// anything any more, while the store is still open.
+func gracefulShutdown(srvs []*http.Server, flows *api.FlowsHandler, manager *flow.RuntimeManager, timeout time.Duration, flushers ...func(context.Context) error) error {
 	flows.BeginShutdown()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -289,15 +292,34 @@ func gracefulShutdown(srvs []*http.Server, flows *api.FlowsHandler, manager *flo
 	}
 	wg.Wait()
 	manager.StopAll()
+	flushCtx, cancelFlush := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelFlush()
+	for _, flush := range flushers {
+		errs = append(errs, flush(flushCtx))
+	}
 	return errors.Join(errs...)
 }
 
 // routerOption registers additional routes before the frontend catch-all.
 type routerOption func(*mux.Router)
 
+// appServices are the long-lived services buildApp creates besides the
+// router: the tool service shared by REST and MCP, and the MCP audit writer
+// that must be flushed on shutdown.
+type appServices struct {
+	tools *service.Tools
+	audit *service.AuditWriter
+}
+
 // buildRouter wires middleware and every HTTP route. users is nil when
 // authentication is disabled.
 func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flow.RuntimeManager, registry *node.Registry, users *storage.SQLiteUserStore, opts ...routerOption) (*mux.Router, *api.FlowsHandler) {
+	router, flows, _ := buildApp(cfg, store, runtimeManager, registry, users, opts...)
+	return router, flows
+}
+
+// buildApp is buildRouter that also returns the services main shuts down.
+func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flow.RuntimeManager, registry *node.Registry, users *storage.SQLiteUserStore, opts ...routerOption) (*mux.Router, *api.FlowsHandler, appServices) {
 	router := mux.NewRouter()
 
 	// CORS allowed origins (from config).
@@ -322,6 +344,26 @@ func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *
 	// the admin's browser from creating and deploying flows.
 	router.Use(api.RequestGuardMiddleware(cfg.SessionSecure, cfg.CORSOrigins))
 
+	// The tool service is shared by the editor's REST twin and the MCP
+	// endpoint; agent tokens only exist with authentication.
+	var agentTokens *agentauth.TokenVerifier
+	var tokenEvictor service.TokenEvictor
+	if users != nil {
+		agentTokens = agentauth.NewTokenVerifier(store, agentauth.WithLogger(log.Logger))
+		tokenEvictor = agentTokens
+	}
+	services := appServices{audit: service.NewAuditWriter(store, service.AuditOptions{Logger: log.Logger})}
+	services.tools = service.NewTools(service.Options{
+		Runtimes:       runtimeManager,
+		Store:          store,
+		Secrets:        secrets.DefaultStore,
+		Audit:          services.audit,
+		Tokens:         tokenEvictor,
+		MaxInflight:    cfg.MCP.MaxInflight,
+		MaxResultBytes: cfg.MCP.MaxResultBytes,
+		Logger:         log.Logger,
+	})
+
 	if users != nil {
 		// With native HTTPS the session cookie is always Secure.
 		authHandler := api.NewAuthHandler(users, cfg.SessionSecure, cfg.CORSOrigins, api.WithSecureCookies(cfg.TLSEnabled()))
@@ -330,13 +372,15 @@ func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *
 		log.Info().Msg("Session authentication enabled")
 
 		// Agent tokens, approvals, audit and settings (editor side of MCP).
-		// Recovery and password changes revoke tokens through the verifier.
-		agentTokens := agentauth.NewTokenVerifier(store, agentauth.WithLogger(log.Logger))
+		// Recovery and password changes revoke tokens through the verifier;
+		// approved tool calls run through the tool service.
 		authHandler.SetAgentTokenRevoker(agentTokens)
 		api.NewAgentHandler(store, authHandler, agentTokens, api.AgentHandlerOptions{
 			AuthorEnabled: cfg.MCP.AuthorEnabled,
+			Executor:      services.tools,
 			Logger:        log.Logger,
 		}).RegisterRoutes(router)
+		api.NewAgentToolsHandler(runtimeManager).RegisterRoutes(router)
 	} else {
 		router.HandleFunc("/api/auth/status", api.AuthStatusHandler(false)).Methods(http.MethodGet)
 		log.Warn().Msg("Authentication disabled - API is unprotected")
@@ -345,6 +389,8 @@ func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *
 	// Register handlers
 	flowsHandler := api.NewFlowsHandler(store, runtimeManager, registry, log.Logger)
 	flowsHandler.RegisterRoutes(router)
+	// The editor's "Test tool" (REST twin of an MCP tool call).
+	api.NewToolCallHandler(services.tools, log.Logger).RegisterRoutes(router)
 
 	nodeTypesHandler := api.NewNodeTypesHandler(registry, log.Logger, store)
 	nodeTypesHandler.RegisterRoutes(router)
@@ -392,7 +438,7 @@ func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *
 	// Error handlers for API routes (these are overridden by the PathPrefix above for non-API)
 	router.NotFoundHandler = http.HandlerFunc(api.NotFoundHandler)
 	router.MethodNotAllowedHandler = http.HandlerFunc(api.MethodNotAllowedHandler)
-	return router, flowsHandler
+	return router, flowsHandler, services
 }
 
 // setupLogging configures the global logger.
