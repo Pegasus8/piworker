@@ -13,6 +13,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -460,4 +461,41 @@ func TestRedirectOmitsDefaultHTTPSPort(t *testing.T) {
 		assert.Equal(t, http.StatusPermanentRedirect, w.Code)
 		assert.Equal(t, want, w.Header().Get("Location"))
 	}
+}
+
+// The default database lives in the working directory, so running PiWorker
+// from the repository root creates ./tls with the CA private key. Neither git
+// nor a Docker build context may pick those files up.
+func TestLocalCAFilesAreIgnoredByGitAndDocker(t *testing.T) {
+	dirs := []string{config.Default().TLSDir(), filepath.Join("data", "tls")}
+	var files []string
+	for _, dir := range dirs {
+		for _, name := range []string{tlsca.CACertFile, tlsca.CAKeyFile, tlsca.ServerCertFile, tlsca.ServerKeyFile} {
+			files = append(files, filepath.ToSlash(filepath.Join(dir, name)))
+		}
+	}
+
+	t.Run("git", func(t *testing.T) {
+		if _, err := exec.LookPath("git"); err != nil {
+			t.Skip("git is not installed")
+		}
+		if out, err := exec.Command("git", "rev-parse", "--is-inside-work-tree").Output(); err != nil || strings.TrimSpace(string(out)) != "true" {
+			t.Skip("not a git work tree")
+		}
+		for _, f := range files {
+			// Exit status 0: ignored; 1: not ignored.
+			assert.NoError(t, exec.Command("git", "check-ignore", "-q", "--no-index", f).Run(), "%s is not ignored by git", f)
+		}
+	})
+
+	t.Run("docker", func(t *testing.T) {
+		data, err := os.ReadFile(".dockerignore")
+		require.NoError(t, err)
+		var patterns []string
+		for _, line := range strings.Split(string(data), "\n") {
+			patterns = append(patterns, strings.TrimSpace(line))
+		}
+		// "**/" also matches the root of the build context.
+		assert.Contains(t, patterns, "**/tls/", ".dockerignore must exclude every tls directory")
+	})
 }

@@ -55,6 +55,8 @@ bin/
 # Certificates
 server.crt
 server.key
+# Local CA and server certificate created next to the database (CA private key)
+tls/
 
 # Variables/Config
 .variables/
