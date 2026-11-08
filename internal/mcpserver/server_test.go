@@ -438,19 +438,24 @@ func TestServerCache(t *testing.T) {
 	assert.Equal(t, 2, e.h.servers.len(), "one server per token")
 }
 
+// The cache holds at most MaxServers servers and drops the least recently
+// used one first.
 func TestServerCacheIsBounded(t *testing.T) {
 	e := newTestEnv(t, func(o *Options) { o.MaxServers = 2 })
-	for i := range 5 {
-		raw := fmt.Sprintf("pwk_token%011d_%s", i, strings.Repeat("a", 52))
-		e.verifier.mu.Lock()
-		e.verifier.tokens[raw] = agentauth.TokenInfo{ID: fmt.Sprintf("token%011d", i), Scopes: []string{storage.ScopeCall}}
-		e.verifier.mu.Unlock()
-		require.NotNil(t, e.h.serverFor(e.verified(raw)))
-		assert.LessOrEqual(t, e.h.servers.len(), 2)
+	token := func(name string) verified { return e.verified(e.verifier.add(fmt.Sprintf("%-16s", name))) }
+	a, b, c := token("a"), token("b"), token("c")
+	firstA, firstB := e.h.serverFor(a), e.h.serverFor(b)
+	require.Same(t, firstA, e.h.serverFor(a), "a is now the most recently used")
+	e.h.serverFor(c) // evicts b, the least recently used
+	assert.Equal(t, 2, e.h.servers.len())
+	assert.Same(t, firstA, e.h.serverFor(a), "a stayed")
+	assert.NotSame(t, firstB, e.h.serverFor(b), "b was dropped and is rebuilt")
+	assert.Equal(t, 2, e.h.servers.len())
+
+	for i := range 10 {
+		e.h.serverFor(token(fmt.Sprint(i)))
+		require.LessOrEqual(t, e.h.servers.len(), 2)
 	}
-	// The most recently used server stays.
-	last := e.verified(fmt.Sprintf("pwk_token%011d_%s", 4, strings.Repeat("a", 52)))
-	assert.Same(t, e.h.serverFor(last), e.h.serverFor(last))
 }
 
 // Concurrent requests of many tokens are safe.
