@@ -166,14 +166,17 @@ func TestFingerprintPinsTheCANotJustAnyCertificate(t *testing.T) {
 	assert.Empty(t, rec.requests())
 }
 
-func TestFingerprintPinWorksWithPiWorkerCertificates(t *testing.T) {
+// newPiWorkerServer serves /mcp (204) and /piworker-ca.crt like PiWorker in
+// tls.mode = "auto", with a real tlsca.Manager's certificates.
+func newPiWorkerServer(t *testing.T) (m *tlsca.Manager, base string, rec *recorder) {
+	t.Helper()
 	m, err := tlsca.NewManager(tlsca.Options{
 		Dir:        t.TempDir(),
 		Hostname:   func() (string, error) { return "piworker-test", nil },
 		Interfaces: func() ([]net.IP, error) { return nil, nil },
 	})
 	require.NoError(t, err)
-	rec := &recorder{}
+	rec = &recorder{}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /piworker-ca.crt", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(m.CACertPEM()) })
 	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
@@ -184,14 +187,29 @@ func TestFingerprintPinWorksWithPiWorkerCertificates(t *testing.T) {
 	srv := &http.Server{Handler: rec.wrap(mux), ErrorLog: discardLogger()}
 	go func() { _ = srv.Serve(tls.NewListener(ln, m.TLSConfig())) }()
 	t.Cleanup(func() { _ = srv.Close() })
-	base := "https://" + ln.Addr().String()
+	return m, "https://" + ln.Addr().String(), rec
+}
 
+func TestFingerprintPinWorksWithPiWorkerCertificates(t *testing.T) {
+	m, base, rec := newPiWorkerServer(t)
 	c, err := newConnector(mustURL(t, base+"/mcp"), trustOptions{CAFingerprint: m.CAFingerprint()})
 	require.NoError(t, err)
 	resp, err := get(testCtx(t), c, base+"/mcp")
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
-	assert.Equal(t, []string{"GET /piworker-ca.crt", "POST /mcp"}, rec.paths())
+	assert.Equal(t, []string{"POST /mcp"}, rec.paths(), "PiWorker presents its CA: nothing is downloaded")
+}
+
+func TestWrongFingerprintAgainstPiWorkerSendsNothing(t *testing.T) {
+	m, base, rec := newPiWorkerServer(t)
+	pinned := newTestCA(t, "PiWorker Local CA other")
+	c, err := newConnector(mustURL(t, base+"/mcp"), trustOptions{CAFingerprint: pinned.fingerprint()})
+	require.NoError(t, err)
+	_, err = get(testCtx(t), c, base+"/mcp")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not match --ca-fingerprint")
+	assert.Contains(t, err.Error(), m.CAFingerprint(), "the CA PiWorker presented is shown")
+	assert.Empty(t, rec.requests(), "not even the public CA download")
 }
 
 func TestCAFilePinsTheGivenCA(t *testing.T) {

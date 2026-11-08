@@ -3,7 +3,9 @@
 // signed by it. The server certificate is re-issued automatically (and served
 // hot through tls.Config.GetCertificate) when it nears expiry or when the
 // device's names or addresses change, so clients that trust the CA once never
-// notice. The CA itself is only replaced explicitly, with RegenerateCA.
+// notice. It is presented with the CA certificate after it, so clients that
+// pin the CA by fingerprint find it in the handshake. The CA itself is only
+// replaced explicitly, with RegenerateCA.
 package tlsca
 
 import (
@@ -423,7 +425,9 @@ func Fingerprint(der []byte) string {
 }
 
 // loadServer returns the stored server certificate, or nil when it is missing
-// or unreadable (it is then simply re-issued).
+// or unreadable (it is then simply re-issued). It is served with the current
+// CA after it, whatever else the file holds: earlier versions stored the
+// server certificate alone.
 func (m *Manager) loadServer() *tls.Certificate {
 	certPEM, err := os.ReadFile(m.path(ServerCertFile))
 	if err != nil {
@@ -437,7 +441,17 @@ func (m *Manager) loadServer() *tls.Certificate {
 	if err != nil || cert.Leaf == nil {
 		return nil
 	}
+	cert.Certificate = m.chain(cert.Certificate[0])
 	return &cert
+}
+
+// chain is what the server presents: the server certificate, then the CA.
+// Clients that pin the CA by fingerprint (piworker-mcp --ca-fingerprint)
+// find it in the handshake instead of downloading it from the server;
+// clients that trust the CA are unaffected, since a chain may include its
+// root.
+func (m *Manager) chain(leafDER []byte) [][]byte {
+	return [][]byte{leafDER, m.ca.Raw}
 }
 
 // replace issues a certificate for sans, serves it and persists it.
@@ -452,7 +466,10 @@ func (m *Manager) replace(sans sanSet) error {
 	if err := writeFileAtomic(m.path(ServerKeyFile), keyPEM, 0o600); err != nil {
 		return err
 	}
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]})
+	var certPEM []byte
+	for _, der := range cert.Certificate {
+		certPEM = append(certPEM, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
+	}
 	return writeFileAtomic(m.path(ServerCertFile), certPEM, 0o644)
 }
 
@@ -501,7 +518,7 @@ func (m *Manager) issue(sans sanSet) (*tls.Certificate, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return &tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key, Leaf: leaf}, keyPEM, nil
+	return &tls.Certificate{Certificate: m.chain(der), PrivateKey: key, Leaf: leaf}, keyPEM, nil
 }
 
 // hostname returns the normalized host name, or "" when it is unavailable or

@@ -432,3 +432,92 @@ func TestRealHandshakeTrustsOnlyTheLocalCA(t *testing.T) {
 	_, err = tls.Dial("tcp", ln.Addr().String(), &tls.Config{RootCAs: x509.NewCertPool(), ServerName: "127.0.0.1", Time: f.clock.Now})
 	require.Error(t, err, "a client that does not trust the CA must fail")
 }
+
+// chain returns the DER certificates m serves, leaf first.
+func chain(t *testing.T, m *Manager) [][]byte {
+	t.Helper()
+	cert, err := m.TLSConfig().GetCertificate(&tls.ClientHelloInfo{ServerName: "raspberrypi.local"})
+	require.NoError(t, err)
+	return cert.Certificate
+}
+
+// requireLeafAndCA checks that m serves its current leaf followed by its CA,
+// so clients pinning the CA by fingerprint find it in the handshake.
+func requireLeafAndCA(t *testing.T, m *Manager) {
+	t.Helper()
+	certs := chain(t, m)
+	require.Equal(t, 2, len(certs), "the chain is [server certificate, CA certificate]")
+	assert.Equal(t, serve(t, m).Raw, certs[0], "the server certificate comes first")
+	block, _ := pem.Decode(m.CACertPEM())
+	require.NotNil(t, block)
+	assert.Equal(t, block.Bytes, certs[1], "the current CA follows it")
+}
+
+func TestServedChainCarriesTheCA(t *testing.T) {
+	f := newFixture(t)
+	m := f.manager(t)
+	requireLeafAndCA(t, m)
+
+	// A re-issued certificate (new address) carries it too.
+	f.net.set("192.168.1.20")
+	require.NoError(t, m.Refresh())
+	requireLeafAndCA(t, m)
+
+	// So does the certificate loaded at the next start, and the file holds
+	// the whole chain for tools that read it.
+	again := f.manager(t)
+	requireLeafAndCA(t, again)
+	data, err := os.ReadFile(filepath.Join(f.dir, ServerCertFile))
+	require.NoError(t, err)
+	assert.Equal(t, 2, strings.Count(string(data), "-----BEGIN CERTIFICATE-----"))
+}
+
+func TestLeafOnlyFileFromAnEarlierVersionGetsTheCA(t *testing.T) {
+	f := newFixture(t)
+	m := f.manager(t)
+	leaf := serve(t, m)
+	// Earlier versions stored only the server certificate.
+	leafPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw})
+	require.NoError(t, os.WriteFile(filepath.Join(f.dir, ServerCertFile), leafPEM, 0o644))
+
+	again := f.manager(t)
+	assert.Equal(t, leaf.SerialNumber, serve(t, again).SerialNumber, "the stored certificate is still reused")
+	requireLeafAndCA(t, again)
+}
+
+func TestRegeneratedCAIsTheOneServed(t *testing.T) {
+	f := newFixture(t)
+	old := f.manager(t)
+	require.NoError(t, RegenerateCA(f.dir))
+	m := f.manager(t)
+	require.NotEqual(t, old.CAFingerprint(), m.CAFingerprint())
+	requireLeafAndCA(t, m)
+}
+
+func TestHandshakePresentsTheCAAndClientsTrustingItVerify(t *testing.T) {
+	f := newFixture(t)
+	m := f.manager(t)
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", m.TLSConfig())
+	require.NoError(t, err)
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.(*tls.Conn).Handshake()
+			c.Close()
+		}
+	}()
+
+	// Like a browser or curl --cacert: only the CA is trusted.
+	conn, err := tls.Dial("tcp", ln.Addr().String(), &tls.Config{RootCAs: caPool(t, m), ServerName: "127.0.0.1", Time: f.clock.Now})
+	require.NoError(t, err)
+	state := conn.ConnectionState()
+	conn.Close()
+	require.Equal(t, 2, len(state.PeerCertificates))
+	assert.Equal(t, m.CAFingerprint(), Fingerprint(state.PeerCertificates[1].Raw), "the CA is presented after the server certificate")
+	require.NotEmpty(t, state.VerifiedChains)
+	assert.Equal(t, m.CAFingerprint(), Fingerprint(state.VerifiedChains[0][len(state.VerifiedChains[0])-1].Raw))
+}

@@ -128,13 +128,15 @@ func (c *connector) client(ctx context.Context) (*http.Client, error) {
 	return c.httpClient, nil
 }
 
-// discoverCA finds the certificate whose SHA-256 fingerprint is fp. PiWorker
-// presents only its server certificate, so the CA is looked for first in the
-// presented chain and then downloaded from /caPath, both without trusting the
-// server: only a certificate with the pinned fingerprint is ever returned,
-// and every later connection is verified against it. Neither step sends the
-// token. When the server presents a root that is not the pinned CA, nothing
-// is requested at all.
+// discoverCA finds the certificate whose SHA-256 fingerprint is fp, without
+// trusting the server: only a certificate with the pinned fingerprint is ever
+// returned, and every later connection is verified against it. PiWorker
+// presents its CA after its server certificate (tls.mode = "auto"), so the
+// CA is normally found in the handshake and nothing is requested; when the
+// server presents a root that is not the pinned CA, nothing is requested at
+// all. Only a server that presents no root (e.g. tls.mode = "custom" with a
+// leaf-only chain) gets a GET of the public /caPath. Neither step sends the
+// token.
 func discoverCA(ctx context.Context, endpoint *url.URL, fp [sha256.Size]byte, timeout time.Duration) (*x509.Certificate, error) {
 	addr := hostPort(endpoint)
 	dialer := &tls.Dialer{
