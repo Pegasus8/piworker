@@ -333,7 +333,10 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   `GET /api/agent/approvals/pending-count` (the editor badge's poll: a
   read-only count of pending, unexpired approvals, authenticated without
   extending the session's idle expiry),
-  `GET/PUT /api/agent/settings` (agent deploy level; PUT needs step-up),
+  `GET/PUT /api/agent/settings` (agent deploy level; PUT needs step-up; also
+  reports the read-only TOML settings `authorEnabled`, `mcpEnabled` and
+  `lanAccess`, so the editor can say whether agents can connect),
+  `GET /api/agent/audit/rejections` (rejection totals, §9),
   `GET /api/agent/tools` (the published tools, for grant pickers):
   ```json
   {"version": 7, "tools": [{"flowId": "…", "flowName": "…", "triggerNodeId": "…",
