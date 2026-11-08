@@ -48,6 +48,7 @@ var (
 	debug          = flag.Bool("debug", false, "Enable debug logging")
 	authEnabled    = flag.Bool("auth", true, "Enable session authentication (env: PIWORKER_AUTH)")
 	allowedOrigins = flag.String("cors-origins", "http://localhost:3000,http://localhost:8080", "Comma-separated list of allowed CORS origins")
+	allowedHosts   = flag.String("allowed-hosts", "", "Comma-separated extra Host names accepted besides localhost, the hostname, hostname.local and IPs (env: PIWORKER_ALLOWED_HOSTS)")
 	adminUser      = flag.String("admin-user", "", "Default admin username (env: PIWORKER_ADMIN_USER)")
 	adminPass      = flag.String("admin-pass", "", "Default admin password (env: PIWORKER_ADMIN_PASS)")
 )
@@ -272,6 +273,11 @@ func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *
 	router.Use(api.RecoveryMiddleware(log.Logger))
 	router.Use(api.LoggingMiddleware(log.Logger))
 	router.Use(api.MetricsMiddleware)
+	// Host allowlist (DNS rebinding) before CORS, so preflights from unknown
+	// names are refused too. /webhooks/ and the CA certificate are exempt.
+	hostGuard := api.NewHostGuard(api.HostGuardOptions{AllowedHosts: cfg.AllowedHosts})
+	log.Info().Strs("hosts", hostGuard.Names()).Msg("Accepted Host names (plus any IP address)")
+	router.Use(hostGuard.Middleware)
 	router.Use(makeCorsMiddleware(corsOrigins))
 	// CSRF + JSON Content-Type enforcement for unsafe /api/ requests. Installed
 	// unconditionally: with auth disabled it is the only thing stopping a page in
@@ -425,6 +431,8 @@ func applyFlagOverrides(cfg *config.Config) {
 			cfg.SessionSecure = *sessionSecure
 		case "cors-origins":
 			cfg.CORSOrigins = config.SplitOrigins(*allowedOrigins)
+		case "allowed-hosts":
+			cfg.AllowedHosts = config.SplitList(*allowedHosts)
 		case "admin-user":
 			cfg.AdminUser = *adminUser
 		case "admin-pass":

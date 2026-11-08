@@ -35,6 +35,7 @@ func newTestApp(t *testing.T, auth bool) testApp {
 	t.Cleanup(manager.StopAll)
 	cfg := config.Default()
 	cfg.Auth = auth
+	cfg.AllowedHosts = []string{"piworker.local"} // the Host the tests use
 	var users *storage.SQLiteUserStore
 	if auth {
 		users, err = storage.NewSQLiteUserStoreWithDB(store.DB())

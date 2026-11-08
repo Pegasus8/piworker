@@ -16,6 +16,10 @@ services:
       # Optional first-account bootstrap; otherwise use the setup code in logs.
       - PIWORKER_ADMIN_USER=${PIWORKER_ADMIN_USER:-}
       - PIWORKER_ADMIN_PASS=${PIWORKER_ADMIN_PASS:-}
+      # Names you use to open PiWorker (comma-separated). Inside the container
+      # the hostname is the container's, so list the Docker host's name here;
+      # localhost and IP addresses are always accepted.
+      - PIWORKER_ALLOWED_HOSTS=${PIWORKER_ALLOWED_HOSTS:-raspberrypi,raspberrypi.local}
       - TZ=America/Argentina/Buenos_Aires
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
