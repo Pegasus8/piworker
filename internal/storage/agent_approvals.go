@@ -1,0 +1,348 @@
+package storage
+
+import (
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// Agent approvals (docs/design/mcp.md §9): a tool call with confirm "admin" or
+// an agent's draft deploy waits here until the admin approves or rejects it in
+// the editor, or it expires.
+
+// Approval kinds.
+const (
+	ApprovalKindToolCall    = "tool_call"
+	ApprovalKindDraftDeploy = "draft_deploy"
+)
+
+// Approval statuses.
+const (
+	ApprovalPending  = "pending"
+	ApprovalApproved = "approved"
+	ApprovalRejected = "rejected"
+	ApprovalExpired  = "expired"
+)
+
+const (
+	// ToolCallApprovalLifetime is how long a tool call waits for the admin.
+	ToolCallApprovalLifetime = 15 * time.Minute
+	// DraftDeployApprovalLifetime is how long a draft deploy request waits.
+	DraftDeployApprovalLifetime = 7 * 24 * time.Hour
+	// AgentApprovalRetention is how long decided approvals are kept.
+	AgentApprovalRetention = 30 * 24 * time.Hour
+	// MaxApprovalArgsBytes bounds the stored arguments.
+	MaxApprovalArgsBytes = 64 << 10
+	// MaxApprovalSummaryLength bounds the summary (bytes).
+	MaxApprovalSummaryLength = 2048
+	// DefaultApprovalListLimit and MaxApprovalListLimit bound listings.
+	DefaultApprovalListLimit = 100
+	MaxApprovalListLimit     = 500
+)
+
+var (
+	ErrAgentApprovalNotFound = errors.New("approval not found")
+	ErrAgentApprovalExists   = errors.New("approval already exists")
+	ErrAgentApprovalDecided  = errors.New("approval already decided")
+	ErrAgentApprovalExpired  = errors.New("approval expired")
+	ErrInvalidAgentApproval  = errors.New("invalid approval")
+)
+
+// AgentApproval is one request waiting for (or decided by) the admin.
+// TokenName is read from api_tokens and is not stored with the approval.
+type AgentApproval struct {
+	ID        string          `json:"id"`
+	Kind      string          `json:"kind"`
+	TokenID   string          `json:"tokenId"`
+	TokenName string          `json:"tokenName,omitempty"`
+	FlowID    string          `json:"flowId,omitempty"`
+	Ref       string          `json:"ref"`
+	Args      json.RawMessage `json:"args,omitempty"`
+	Summary   string          `json:"summary"`
+	Status    string          `json:"status"`
+	CreatedAt time.Time       `json:"createdAt"`
+	DecidedAt *time.Time      `json:"decidedAt,omitempty"`
+	DecidedBy string          `json:"decidedBy,omitempty"`
+	ExpiresAt time.Time       `json:"expiresAt"`
+}
+
+// EffectiveStatus is Status, except that a pending approval at or past its
+// expiry reports "expired" even before ExpireAgentApprovals marks it.
+func (a *AgentApproval) EffectiveStatus(now time.Time) string {
+	if a.Status == ApprovalPending && !now.Before(a.ExpiresAt) {
+		return ApprovalExpired
+	}
+	return a.Status
+}
+
+// AgentApprovalFilter selects approvals for ListAgentApprovals.
+type AgentApprovalFilter struct {
+	Status string // "" for every status
+	Limit  int    // 0 for DefaultApprovalListLimit
+}
+
+func invalidApproval(format string, args ...any) error {
+	return fmt.Errorf("%w: %s", ErrInvalidAgentApproval, fmt.Sprintf(format, args...))
+}
+
+// CreateAgentApproval stores a new pending approval. An empty ID is generated
+// (callers may pass the run id); a zero ExpiresAt defaults per kind.
+func (s *SQLiteStore) CreateAgentApproval(a AgentApproval, now time.Time) (*AgentApproval, error) {
+	if s.isClosed() {
+		return nil, ErrDatabaseClosed
+	}
+	var lifetime time.Duration
+	switch a.Kind {
+	case ApprovalKindToolCall:
+		lifetime = ToolCallApprovalLifetime
+	case ApprovalKindDraftDeploy:
+		lifetime = DraftDeployApprovalLifetime
+	default:
+		return nil, invalidApproval("unknown kind %q", a.Kind)
+	}
+	if a.TokenID == "" || a.Ref == "" {
+		return nil, invalidApproval("token and ref are required")
+	}
+	if len(a.Args) > MaxApprovalArgsBytes {
+		return nil, invalidApproval("arguments exceed %d bytes", MaxApprovalArgsBytes)
+	}
+	if len(a.Args) > 0 && !json.Valid(a.Args) {
+		return nil, invalidApproval("arguments are not valid JSON")
+	}
+	if len(a.Summary) > MaxApprovalSummaryLength {
+		return nil, invalidApproval("summary exceeds %d bytes", MaxApprovalSummaryLength)
+	}
+	if a.ExpiresAt.IsZero() {
+		a.ExpiresAt = now.Add(lifetime)
+	}
+	if !a.ExpiresAt.After(now) {
+		return nil, invalidApproval("expiry must be in the future")
+	}
+	if a.ID == "" {
+		a.ID = uuid.NewString()
+	}
+	a.Status = ApprovalPending
+	a.TokenName = ""
+	a.DecidedAt, a.DecidedBy = nil, ""
+	a.CreatedAt = time.Unix(now.Unix(), 0).UTC()
+	a.ExpiresAt = time.Unix(a.ExpiresAt.Unix(), 0).UTC()
+	var args any
+	if len(a.Args) > 0 {
+		args = string(a.Args)
+	} else {
+		a.Args = nil
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO agent_approvals (id, kind, token_id, flow_id, ref, args_json, summary, status, created_at, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, a.ID, a.Kind, a.TokenID, a.FlowID, a.Ref, args, a.Summary, a.Status, a.CreatedAt.Unix(), a.ExpiresAt.Unix())
+	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, ErrAgentApprovalExists
+		}
+		return nil, fmt.Errorf("failed to create approval: %w", err)
+	}
+	return &a, nil
+}
+
+const agentApprovalSelect = `
+	SELECT a.id, a.kind, a.token_id, COALESCE(t.name, ''), a.flow_id, a.ref, a.args_json, a.summary,
+	       a.status, a.created_at, a.decided_at, a.decided_by, a.expires_at
+	FROM agent_approvals a LEFT JOIN api_tokens t ON t.id = a.token_id`
+
+func scanAgentApproval(row rowScanner) (*AgentApproval, error) {
+	var (
+		a                AgentApproval
+		args             sql.NullString
+		created, expires int64
+		decided          sql.NullInt64
+	)
+	if err := row.Scan(&a.ID, &a.Kind, &a.TokenID, &a.TokenName, &a.FlowID, &a.Ref, &args, &a.Summary, &a.Status, &created, &decided, &a.DecidedBy, &expires); err != nil {
+		return nil, err
+	}
+	if args.Valid {
+		a.Args = json.RawMessage(args.String)
+	}
+	a.CreatedAt = time.Unix(created, 0).UTC()
+	a.ExpiresAt = time.Unix(expires, 0).UTC()
+	a.DecidedAt = unixPtr(decided)
+	return &a, nil
+}
+
+// GetAgentApproval returns an approval as stored (see EffectiveStatus).
+func (s *SQLiteStore) GetAgentApproval(id string) (*AgentApproval, error) {
+	if s.isClosed() {
+		return nil, ErrDatabaseClosed
+	}
+	a, err := scanAgentApproval(s.db.QueryRow(agentApprovalSelect+` WHERE a.id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrAgentApprovalNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get approval: %w", err)
+	}
+	return a, nil
+}
+
+// ListAgentApprovals returns approvals newest first.
+func (s *SQLiteStore) ListAgentApprovals(f AgentApprovalFilter) ([]AgentApproval, error) {
+	if s.isClosed() {
+		return nil, ErrDatabaseClosed
+	}
+	switch f.Status {
+	case "", ApprovalPending, ApprovalApproved, ApprovalRejected, ApprovalExpired:
+	default:
+		return nil, invalidApproval("unknown status %q", f.Status)
+	}
+	limit := f.Limit
+	if limit <= 0 {
+		limit = DefaultApprovalListLimit
+	}
+	limit = min(limit, MaxApprovalListLimit)
+	rows, err := s.db.Query(agentApprovalSelect+`
+		WHERE (? = '' OR a.status = ?)
+		ORDER BY a.created_at DESC, a.rowid DESC
+		LIMIT ?`, f.Status, f.Status, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list approvals: %w", err)
+	}
+	defer rows.Close()
+	out := []AgentApproval{}
+	for rows.Next() {
+		a, err := scanAgentApproval(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan approval: %w", err)
+		}
+		out = append(out, *a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating approvals: %w", err)
+	}
+	return out, nil
+}
+
+// CountPendingAgentApprovals counts approvals still awaiting a decision at now.
+func (s *SQLiteStore) CountPendingAgentApprovals(now time.Time) (int, error) {
+	if s.isClosed() {
+		return 0, ErrDatabaseClosed
+	}
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM agent_approvals WHERE status = ? AND expires_at > ?`, ApprovalPending, now.Unix()).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count approvals: %w", err)
+	}
+	return n, nil
+}
+
+// DecideAgentApproval approves or rejects a pending, unexpired approval. A
+// decision is final: deciding again returns ErrAgentApprovalDecided, and a
+// pending approval past its expiry is marked expired and returns
+// ErrAgentApprovalExpired.
+func (s *SQLiteStore) DecideAgentApproval(id string, approve bool, decidedBy string, now time.Time) (*AgentApproval, error) {
+	if s.isClosed() {
+		return nil, ErrDatabaseClosed
+	}
+	status := ApprovalRejected
+	if approve {
+		status = ApprovalApproved
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin approval decision: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	res, err := tx.Exec(`
+		UPDATE agent_approvals SET status = ?, decided_at = ?, decided_by = ?
+		WHERE id = ? AND status = ? AND expires_at > ?
+	`, status, now.Unix(), decidedBy, id, ApprovalPending, now.Unix())
+	if err != nil {
+		return nil, fmt.Errorf("failed to decide approval: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	var decideErr error
+	if n == 0 {
+		var current string
+		err := tx.QueryRow(`SELECT status FROM agent_approvals WHERE id = ?`, id).Scan(&current)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return nil, ErrAgentApprovalNotFound
+		case err != nil:
+			return nil, fmt.Errorf("failed to read approval: %w", err)
+		case current == ApprovalPending:
+			if _, err := tx.Exec(`UPDATE agent_approvals SET status = ?, decided_at = expires_at WHERE id = ?`, ApprovalExpired, id); err != nil {
+				return nil, fmt.Errorf("failed to expire approval: %w", err)
+			}
+			decideErr = ErrAgentApprovalExpired
+		case current == ApprovalExpired:
+			return nil, ErrAgentApprovalExpired
+		default:
+			return nil, ErrAgentApprovalDecided
+		}
+	}
+	a, err := scanAgentApproval(tx.QueryRow(agentApprovalSelect+` WHERE a.id = ?`, id))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read approval: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit approval decision: %w", err)
+	}
+	if decideErr != nil {
+		return nil, decideErr
+	}
+	return a, nil
+}
+
+// ExpireAgentApprovals marks pending approvals past their expiry as expired,
+// returns how many changed, and deletes decided approvals older than
+// AgentApprovalRetention.
+func (s *SQLiteStore) ExpireAgentApprovals(now time.Time) (int, error) {
+	if s.isClosed() {
+		return 0, ErrDatabaseClosed
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin approval expiry: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	res, err := tx.Exec(`UPDATE agent_approvals SET status = ?, decided_at = expires_at WHERE status = ? AND expires_at <= ?`, ApprovalExpired, ApprovalPending, now.Unix())
+	if err != nil {
+		return 0, fmt.Errorf("failed to expire approvals: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`DELETE FROM agent_approvals WHERE status != ? AND decided_at < ?`, ApprovalPending, now.Add(-AgentApprovalRetention).Unix()); err != nil {
+		return 0, fmt.Errorf("failed to prune approvals: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("failed to commit approval expiry: %w", err)
+	}
+	return int(n), nil
+}
+
+const agentApprovalsSchema = `
+	CREATE TABLE IF NOT EXISTS agent_approvals (
+		id         TEXT PRIMARY KEY,
+		kind       TEXT NOT NULL,
+		token_id   TEXT NOT NULL,
+		flow_id    TEXT NOT NULL DEFAULT '',
+		ref        TEXT NOT NULL,
+		args_json  TEXT,
+		summary    TEXT NOT NULL DEFAULT '',
+		status     TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		decided_at INTEGER,
+		decided_by TEXT NOT NULL DEFAULT '',
+		expires_at INTEGER NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_agent_approvals_status ON agent_approvals(status, expires_at);
+	CREATE INDEX IF NOT EXISTS idx_agent_approvals_created ON agent_approvals(created_at);
+`

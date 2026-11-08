@@ -491,7 +491,7 @@ const apiTokensSchema = `
 // migrateAgent creates the agent tables (tokens, approvals, audit). Every
 // statement is idempotent.
 func (s *SQLiteStore) migrateAgent() error {
-	for _, schema := range []string{apiTokensSchema} {
+	for _, schema := range []string{apiTokensSchema, agentApprovalsSchema} {
 		if _, err := s.db.Exec(schema); err != nil {
 			return fmt.Errorf("failed to migrate agent tables: %w", err)
 		}
