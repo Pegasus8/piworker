@@ -172,6 +172,10 @@ type FlowRuntime struct {
 	// nodes clamp or default mismatched values as before it existed. Only
 	// RuntimeManager.Restore sets it.
 	lenientConfig bool
+
+	// tools are the tools this flow publishes, computed by the risk analysis
+	// at deploy (see analyzeRuntimeTools) and immutable afterwards.
+	tools []ToolInfo
 }
 
 // RuntimeOption is a functional option for configuring the FlowRuntime.
@@ -1061,6 +1065,9 @@ type RuntimeManager struct {
 	observer    NodeEventHook
 	runtimeOpts []RuntimeOption
 	mu          sync.RWMutex
+	// toolsVersion (guarded by mu) changes whenever the set of running flows,
+	// and so the published tools, may have changed (see Tools).
+	toolsVersion uint64
 }
 
 // ManagerOption configures a RuntimeManager.
@@ -1161,6 +1168,11 @@ func (m *RuntimeManager) deploy(ctx context.Context, f *Flow, extra ...RuntimeOp
 		metrics.RecordFlowDeployment(false)
 		return err
 	}
+	// Tool risk analysis (ADR-0013): security checks, never lenient.
+	if err := m.analyzeRuntimeTools(rt); err != nil {
+		metrics.RecordFlowDeployment(false)
+		return err
+	}
 
 	// Start the runtime
 	if err := rt.Start(ctx); err != nil {
@@ -1169,6 +1181,7 @@ func (m *RuntimeManager) deploy(ctx context.Context, f *Flow, extra ...RuntimeOp
 	}
 
 	m.runtimes[f.ID] = rt
+	m.toolsVersion++
 
 	// Record metrics
 	metrics.RecordFlowDeployment(true)
@@ -1202,6 +1215,7 @@ func (m *RuntimeManager) Undeploy(flowID string) error {
 	}
 
 	delete(m.runtimes, flowID)
+	m.toolsVersion++
 	if !rt.Drained() {
 		m.stopping[flowID] = rt
 	}
@@ -1269,6 +1283,7 @@ func (m *RuntimeManager) StopAll() {
 			metrics.DecrementFlowsRunning()
 		}
 	}
+	m.toolsVersion++
 
 	m.logger.Info().Msg("All flows stopped")
 }
