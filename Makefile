@@ -4,6 +4,7 @@
 .PHONY: frontend-test frontend-test-e2e
 .PHONY: test-installer
 .PHONY: build-linux build-arm build-arm64 build-all build-release frontend-embed check
+.PHONY: build-mcp-bridge build-mcp-bridge-all test-mcp-bridge
 .PHONY: all build test test-coverage test-race test-short test-verbose \
         clean lint fmt vet deps help hooks-install \
         docker-build docker-run docker-dev docker-dev-down docker-prod docker-prod-down \
@@ -26,6 +27,12 @@ BINARY_NAME=piworker
 BUILD_DIR=build
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS = -X main.version=$(VERSION)
+
+# Claude Desktop stdio bridge (cmd/piworker-mcp): pure Go, so it cross-compiles
+# for every platform without a C toolchain.
+MCP_BRIDGE=piworker-mcp
+MCP_BRIDGE_PKG=./cmd/piworker-mcp
+MCP_BRIDGE_FLAGS=-trimpath -ldflags="-s -w -X main.version=$(VERSION)"
 
 # Linux cross-compilers (override with cc when building on the target itself).
 LINUX_CC ?= x86_64-linux-gnu-gcc
@@ -53,6 +60,17 @@ build-arm: frontend-embed ## Build for ARM (Raspberry Pi)
 
 build-arm64: frontend-embed ## Build for ARM64
 	CGO_ENABLED=1 CC="$(ARM64_CC)" GOOS=linux GOARCH=arm64 $(GOBUILD) -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 .
+
+build-mcp-bridge: ## Build the Claude Desktop stdio bridge (piworker-mcp) for this machine
+	CGO_ENABLED=0 $(GOBUILD) $(MCP_BRIDGE_FLAGS) -o $(BUILD_DIR)/$(MCP_BRIDGE)$(shell $(GOCMD) env GOEXE) $(MCP_BRIDGE_PKG)
+
+build-mcp-bridge-all: ## Cross-build piworker-mcp for Linux, macOS and Windows
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOBUILD) $(MCP_BRIDGE_FLAGS) -o $(BUILD_DIR)/$(MCP_BRIDGE)-linux-amd64 $(MCP_BRIDGE_PKG)
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GOBUILD) $(MCP_BRIDGE_FLAGS) -o $(BUILD_DIR)/$(MCP_BRIDGE)-linux-arm64 $(MCP_BRIDGE_PKG)
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 $(GOBUILD) $(MCP_BRIDGE_FLAGS) -o $(BUILD_DIR)/$(MCP_BRIDGE)-linux-armv7 $(MCP_BRIDGE_PKG)
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(GOBUILD) $(MCP_BRIDGE_FLAGS) -o $(BUILD_DIR)/$(MCP_BRIDGE)-darwin-amd64 $(MCP_BRIDGE_PKG)
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(GOBUILD) $(MCP_BRIDGE_FLAGS) -o $(BUILD_DIR)/$(MCP_BRIDGE)-darwin-arm64 $(MCP_BRIDGE_PKG)
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GOBUILD) $(MCP_BRIDGE_FLAGS) -o $(BUILD_DIR)/$(MCP_BRIDGE)-windows-amd64.exe $(MCP_BRIDGE_PKG)
 
 ## Test targets
 
@@ -102,6 +120,9 @@ test-api: ## Run API package tests
 
 test-builtin: ## Run builtin nodes tests
 	$(GOTEST) -v ./internal/node/builtin/...
+
+test-mcp-bridge: ## Run the piworker-mcp stdio bridge tests
+	$(GOTEST) -v ./cmd/piworker-mcp/...
 
 ## Code quality targets
 
