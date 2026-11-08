@@ -19,6 +19,9 @@ const (
 	// maxTokenLength bounds the token itself. Real tokens are 73 characters;
 	// the exact shape is checked by the server.
 	maxTokenLength = 512
+	// tokenIDLength is the length of the id after the prefix
+	// (pwk_<16-character id>_<52-character secret>).
+	tokenIDLength = 16
 )
 
 // readToken reads the agent token from path. The token never comes from the
@@ -73,6 +76,27 @@ func readToken(path string) (string, error) {
 		return "", fmt.Errorf("token file %s does not hold a valid agent token: it must contain only the token (pwk_ followed by letters, digits and underscores) on one line", path)
 	}
 	return token, nil
+}
+
+// looksLikeToken reports whether s holds an agent token, or enough of one to
+// include its id: "pwk_" followed by at least 16 letters or digits, in any
+// letter case. A file merely named "pwk_token" does not match.
+func looksLikeToken(s string) bool {
+	lower := strings.ToLower(s)
+	for {
+		i := strings.Index(lower, tokenPrefix)
+		if i < 0 {
+			return false
+		}
+		lower = lower[i+len(tokenPrefix):]
+		n := 0
+		for n < len(lower) && (lower[n] >= 'a' && lower[n] <= 'z' || lower[n] >= '0' && lower[n] <= '9') {
+			n++
+		}
+		if n >= tokenIDLength {
+			return true
+		}
+	}
 }
 
 // isTokenText reports whether s only has characters a token can have, so it

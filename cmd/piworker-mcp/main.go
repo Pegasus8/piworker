@@ -77,6 +77,16 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		}
 		return usageError(stderr, flagError(err))
 	}
+	// Checked before anything can echo a value: errors quote paths and URLs.
+	var pasted []string
+	fs.Visit(func(f *flag.Flag) {
+		if looksLikeToken(f.Value.String()) {
+			pasted = append(pasted, "--"+f.Name)
+		}
+	})
+	if len(pasted) > 0 {
+		return usageError(stderr, "the value of "+strings.Join(pasted, " and ")+" looks like an agent token; put the token in the file given with --token-file, never on the command line")
+	}
 	if *showVersion {
 		_, _ = fmt.Fprintf(stdout, "piworker-mcp %s\n", version)
 		return 0

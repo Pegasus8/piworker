@@ -176,6 +176,10 @@ IP address; PiWorker's certificate covers its interface addresses.
 Without `--ca-fingerprint` and `--ca-file` the system's trusted CAs are used
 (for a certificate from a public CA, e.g. behind a reverse proxy).
 
+A token pasted into any flag (a value with `pwk_` followed by a token id, such
+as the token itself where the token file's path should be) is refused before
+anything else, with a message that does not repeat it.
+
 ## How the server is verified
 
 Every connection that carries the token is verified for the host name in

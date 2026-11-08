@@ -121,3 +121,43 @@ func TestRunRefusesAnOpenTokenFile(t *testing.T) {
 	assert.Contains(t, stderr, "chmod 600")
 	assert.NotContains(t, stderr, testToken)
 }
+
+// testSecret is the part of testToken that must never be echoed.
+var testSecret = testToken[len("pwk_abcdefghijklmnop_"):]
+
+func TestRunRefusesATokenPastedIntoAFlagWithoutEchoingIt(t *testing.T) {
+	tokenFile := writeTokenFile(t, testToken, 0o600)
+	url := "https://127.0.0.1:8443/mcp"
+	for name, tc := range map[string]struct {
+		args []string
+		flag string
+	}{
+		"token-file":        {[]string{"--url", url, "--token-file", testToken}, "--token-file"},
+		"token-file with =": {[]string{"--url", url, "--token-file=" + testToken}, "--token-file"},
+		"ca-file":           {[]string{"--url", url, "--token-file", tokenFile, "--ca-file", "/tmp/" + testToken}, "--ca-file"},
+		"ca-fingerprint":    {[]string{"--url", url, "--token-file", tokenFile, "--ca-fingerprint", testToken}, "--ca-fingerprint"},
+		"url port":          {[]string{"--url", "https://127.0.0.1:" + testToken + "/mcp", "--token-file", tokenFile}, "--url"},
+		"url path":          {[]string{"--url", "https://127.0.0.1:8443/" + testToken, "--token-file", tokenFile}, "--url"},
+		"url host":          {[]string{"--url", "https://" + testToken + ".local:8443/mcp", "--token-file", tokenFile}, "--url"},
+		"timeout":           {[]string{"--url", url, "--token-file", tokenFile, "--timeout", testToken}, "--timeout"},
+		"upper case":        {[]string{"--url", url, "--token-file", strings.ToUpper(testToken)}, "--token-file"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			code, stdout, stderr := runCLI(t, tc.args...)
+			assert.Equal(t, 2, code)
+			assert.Empty(t, stdout)
+			assert.NotContains(t, strings.ToLower(stderr), testSecret, "the token is never echoed")
+			assert.Contains(t, stderr, "the value of "+tc.flag+" looks like an agent token")
+			assert.Contains(t, stderr, "--token-file")
+		})
+	}
+}
+
+func TestRunAcceptsFileNamesThatMerelyStartLikeAToken(t *testing.T) {
+	// Only "pwk_" followed by a token id is refused, not a file named so.
+	path := filepath.Join(t.TempDir(), "pwk_token")
+	require.NoError(t, os.WriteFile(path, []byte(testToken), 0o600))
+	require.NoError(t, os.Chmod(path, 0o600))
+	code, _, stderr := runCLI(t, "--url", "https://127.0.0.1:8443/mcp", "--token-file", path)
+	assert.Equal(t, 0, code, stderr)
+}
