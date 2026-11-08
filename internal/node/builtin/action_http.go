@@ -176,6 +176,77 @@ func isBlockedIP(ip net.IP) bool {
 		ip.IsUnspecified()
 }
 
+// urlEscaperAt picks the escaping for a template value placed in a URL after
+// the literal text prefix:
+//   - before the scheme separator (e.g. "{{payload.url}}" or "{{vars.base}}/x"):
+//     raw, so a whole URL or base URL can still come from a variable;
+//   - authority and path: url.PathEscape, so a value stays within one segment
+//     ("/" "?" "#" are escaped);
+//   - query: url.QueryEscape, so "&" and "=" can't add parameters;
+//   - fragment: url.PathEscape.
+func urlEscaperAt(prefix string) func(string) string {
+	switch {
+	case strings.Contains(prefix, "#"):
+		return url.PathEscape
+	case strings.Contains(prefix, "?"):
+		return url.QueryEscape
+	case strings.Contains(prefix, "://"):
+		return url.PathEscape
+	default:
+		return nil
+	}
+}
+
+// bodyEscaperAt picks the escaping for a template value in the request body.
+// json: values inside a JSON string literal are JSON-string escaped; values
+// outside strings (numbers, objects, a whole-body "{{payload}}") are inserted
+// raw, as before. form: values are query-escaped unless the placeholder
+// starts the body (whole-value template). text: always raw.
+func (a *HTTPAction) bodyEscaperAt(prefix string) func(string) string {
+	switch a.bodyType {
+	case "json":
+		if insideJSONString(prefix) {
+			return jsonStringEscape
+		}
+	case "form":
+		if prefix != "" {
+			return url.QueryEscape
+		}
+	}
+	return nil
+}
+
+// insideJSONString reports whether the end of the JSON fragment s lies inside
+// a string literal.
+func insideJSONString(s string) bool {
+	in, escaped := false, false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case escaped:
+			escaped = false
+		case in && c == '\\':
+			escaped = true
+		case c == '"':
+			in = !in
+		}
+	}
+	return in
+}
+
+// jsonStringEscape escapes s for use inside a JSON string literal (without
+// the surrounding quotes).
+func jsonStringEscape(s string) string {
+	var b strings.Builder
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(s); err != nil {
+		return ""
+	}
+	out := strings.TrimSuffix(b.String(), "\n")
+	return out[1 : len(out)-1]
+}
+
 // isIdempotent reports whether the HTTP method is safe to retry on a transient
 // failure without risking duplicate side effects.
 func (a *HTTPAction) isIdempotent() bool {
@@ -189,8 +260,8 @@ func (a *HTTPAction) isIdempotent() bool {
 
 // Process makes the HTTP request and returns the response.
 func (a *HTTPAction) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
-	// Expand templates in URL
-	expandedURL := renderTemplate(a.url, msg, ctx)
+	// Expand templates in URL, escaping each value for where it lands.
+	expandedURL := renderTemplateEscaped(a.url, msg, ctx, urlEscaperAt)
 
 	// Validate URL: reject parse errors, non-http(s) schemes, and empty hosts.
 	// url.Parse is very lenient (it accepts relative paths and exotic schemes),
@@ -209,7 +280,7 @@ func (a *HTTPAction) Process(ctx context.Context, msg *types.Message) ([]*types.
 	// Prepare request body
 	var bodyReader io.Reader
 	if a.body != "" && (a.method == "POST" || a.method == "PUT" || a.method == "PATCH") {
-		expandedBody := renderTemplate(a.body, msg, ctx)
+		expandedBody := renderTemplateEscaped(a.body, msg, ctx, a.bodyEscaperAt)
 		bodyReader = strings.NewReader(expandedBody)
 	}
 
@@ -469,6 +540,21 @@ Use ` + "`{{variable}}`" + ` in URL, headers, and body:
 | {{topic}} | Message topic |
 | {{id}} | Message ID |
 | {{timestamp}} | ISO timestamp |
+
+## Escaping
+
+Values are escaped for the place they are inserted, so payload data can't
+change the structure of the request:
+
+| Where | Escaping |
+|-------|----------|
+| URL, before ` + "`://`" + ` (e.g. ` + "`{{payload.url}}`" + `, ` + "`{{vars.base}}/x`" + `) | none: a whole/base URL may come from a variable |
+| URL path segment | percent-encoded; ` + "`/ ? #`" + ` stay inside the segment |
+| URL query string | query-encoded; ` + "`& =`" + ` can't add parameters |
+| JSON body, inside a "string" | JSON string escaping (quotes, backslashes, newlines) |
+| JSON body, outside strings | inserted as is (numbers, objects, whole ` + "`{{payload}}`" + `) |
+| form body | query-encoded, except a whole-body placeholder |
+| text body, headers | none |
 
 ## Output Modes
 
