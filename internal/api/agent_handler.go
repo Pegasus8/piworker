@@ -85,6 +85,7 @@ func NewAgentHandler(store *storage.SQLiteStore, auth *AuthHandler, tokens *agen
 func (h *AgentHandler) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/agent/tokens", h.ListTokens).Methods(http.MethodGet)
 	r.HandleFunc("/api/agent/tokens", h.CreateToken).Methods(http.MethodPost)
+	r.HandleFunc("/api/agent/tokens/revoke-all", h.RevokeAllTokens).Methods(http.MethodPost)
 	r.HandleFunc("/api/agent/tokens/{id}", h.RevokeToken).Methods(http.MethodDelete)
 	r.HandleFunc("/api/agent/tokens/{id}/grants", h.UpdateGrant).Methods(http.MethodPost)
 	r.HandleFunc("/api/agent/audit", h.ListAudit).Methods(http.MethodGet)

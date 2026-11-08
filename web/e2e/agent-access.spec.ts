@@ -57,6 +57,7 @@ async function mockServer(page: Page, opts: MockOptions = {}) {
         if (body.password !== 'right-password') return fail(403, 'The password is incorrect')
         return ok({ token: TOKEN, info: { ...tokens()[0], id: 'tokN', name: body.name } }, 201)
       case 'DELETE /agent/tokens/tokA': return ok(null)
+      case 'POST /agent/tokens/revoke-all': return ok({ revoked: 1 })
       case 'POST /agent/tokens/tokA/grants': {
         const grants = tokens()[0].grants.map(g => ({ ...g, suspended: body.action === 'suspend', fingerprint: body.fingerprint ?? g.fingerprint }))
         return ok({ ...tokens()[0], grants: body.action === 'remove' ? [] : grants })
@@ -225,6 +226,19 @@ test('grants show why they are suspended and are re-confirmed with the password'
   await page.getByRole('dialog', { name: 'Revoke token?' }).getByRole('button', { name: 'Revoke token' }).click()
   await expect.poll(() => last(requests, 'DELETE', '/agent/tokens/tokA')).toBeTruthy()
   await page.screenshot({ path: 'test-results/agent-tokens.png', fullPage: true })
+})
+
+test('revoke all is one request, without a password', async ({ page }) => {
+  const requests = await mockServer(page, { pending: 0 })
+  await page.goto('/agents')
+  await page.getByRole('button', { name: 'Revoke all' }).click()
+  const confirm = page.getByRole('dialog', { name: 'Revoke all tokens?' })
+  await expect(confirm).toContainText('requests waiting for approval are rejected')
+  await confirm.getByRole('button', { name: 'Revoke all tokens' }).click()
+  await expect(page.getByText('Revoked 1 token.')).toBeVisible()
+  expect(requests.filter(r => r.method === 'POST' && r.path === '/agent/tokens/revoke-all')).toHaveLength(1)
+  expect(last(requests, 'POST', '/agent/tokens/revoke-all')!.body).toBeUndefined()
+  expect(requests.filter(r => r.method === 'DELETE')).toHaveLength(0)
 })
 
 test('the agent deploy level shows its risk and needs the password', async ({ page }) => {

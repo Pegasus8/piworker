@@ -106,18 +106,24 @@ test('revoking one token encodes its id and refreshes the list', async () => {
   expect(store.tokens[0].status).toBe('revoked')
 })
 
-test('revoke all revokes every active token and reports the ones that failed', async () => {
+test('revoke all is one request that revokes every token at once, then refreshes the list', async () => {
   let listed = [token('a'), token('b'), token('c', 'expired'), token('d', 'revoked')]
   routes['GET /agent/tokens'] = () => ({ tokens: listed })
-  routes['DELETE /agent/tokens/a'] = () => null
-  routes['DELETE /agent/tokens/b'] = () => { throw httpError(500) }
+  routes['POST /agent/tokens/revoke-all'] = () => {
+    listed = listed.map(t => ({ ...t, status: 'revoked' }))
+    return { revoked: 3 }
+  }
   const store = useAgentStore()
   await store.fetchTokens()
-  const result = await store.revokeAllTokens()
-  expect(result).toEqual({ revoked: 1, failed: ['token b'] })
-  const deletes = calls.filter(c => c.method === 'DELETE').map(c => c.url)
-  expect(deletes).toEqual(['/agent/tokens/a', '/agent/tokens/b'])
-  listed = []
+  calls = []
+  expect(await store.revokeAllTokens()).toBe(3)
+  expect(calls.map(c => `${c.method} ${c.url}`)).toEqual(['POST /agent/tokens/revoke-all', 'GET /agent/tokens'])
+  expect(calls[0].body).toBeUndefined()
+  expect(store.activeTokens).toEqual([])
+
+  // A failure is reported to the caller; nothing is half done on the server.
+  routes['POST /agent/tokens/revoke-all'] = () => { throw httpError(500, 'Cannot revoke the agent tokens') }
+  await expect(store.revokeAllTokens()).rejects.toThrow('Cannot revoke the agent tokens')
 })
 
 test('grant changes send only the fields the action needs and update the token', async () => {

@@ -98,20 +98,14 @@ export const useAgentStore = defineStore('agent', () => {
     await fetchTokens()
   }
 
-  /** Revokes every active token; tokens that could not be revoked are named. */
-  async function revokeAllTokens(): Promise<{ revoked: number; failed: string[] }> {
-    let revoked = 0
-    const failed: string[] = []
-    for (const t of activeTokens.value) {
-      try {
-        await apiClient.delete(`/agent/tokens/${path(t.id)}`)
-        revoked++
-      } catch {
-        failed.push(t.name)
-      }
-    }
+  /**
+   * Revokes every token in one server transaction (their pending approvals
+   * are rejected too) and returns how many were still unrevoked.
+   */
+  async function revokeAllTokens(): Promise<number> {
+    const { data } = await apiClient.post('/agent/tokens/revoke-all')
     try { await fetchTokens() } catch { /* shown on the next refresh */ }
-    return { revoked, failed }
+    return data.data?.revoked ?? 0
   }
 
   async function updateGrant(tokenId: string, change: GrantChange) {

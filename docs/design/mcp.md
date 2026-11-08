@@ -326,6 +326,8 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 - Recovery-code redemption and password change revoke all tokens (password
   change: unless "keep agent tokens" is ticked), in the server process.
 - API (cookie): `GET/POST /api/agent/tokens`, `DELETE /api/agent/tokens/{id}`,
+  `POST /api/agent/tokens/revoke-all` (no password; one transaction that
+  also voids pending approvals and bumps `tokens_epoch`; returns the count),
   `POST /api/agent/tokens/{id}/grants` (re-confirm), `GET /api/agent/audit`,
   `GET/POST /api/agent/approvals[/{id}/approve|reject]`,
   `GET /api/agent/approvals/pending-count` (the editor badge's poll: a

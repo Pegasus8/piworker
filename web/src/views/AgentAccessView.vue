@@ -104,17 +104,11 @@ async function revoke(t: AgentToken) {
 
 async function revokeAll() {
   const n = agent.activeTokens.length
-  if (pending.value || !n || !await confirmation.value?.ask('Revoke all tokens?', `All ${n} active token${n === 1 ? '' : 's'} stop working immediately. Agents need new tokens to connect again.`, 'Revoke all tokens')) return
-  if (pending.value) return
-  pending.value = true
-  feedback.value = { kind: 'pending', text: 'Revoking…' }
-  try {
-    const { revoked, failed } = await agent.revokeAllTokens()
-    feedback.value = failed.length
-      ? { kind: 'error', text: `Revoked ${revoked}; could not revoke: ${failed.join(', ')}. Try again.` }
-      : { kind: 'success', text: `Revoked ${revoked} token${revoked === 1 ? '' : 's'}.` }
-  } finally {
-    pending.value = false
+  if (pending.value || !n || !await confirmation.value?.ask('Revoke all tokens?', `All ${n} active token${n === 1 ? '' : 's'} stop working immediately, and their requests waiting for approval are rejected. Agents need new tokens to connect again.`, 'Revoke all tokens')) return
+  // One request revokes every token in one transaction: all of them or none.
+  let revoked = 0
+  if (await act(async () => { revoked = await agent.revokeAllTokens() }, '', 'Could not revoke the tokens. Try again.')) {
+    feedback.value = { kind: 'success', text: `Revoked ${revoked} token${revoked === 1 ? '' : 's'}.` }
   }
 }
 
