@@ -231,7 +231,12 @@ search over the pattern's compiled program, so it covers every accepted value.
   with static credentials (headers/userinfo/password) is a deploy error.
 - Taint through shared state for flows reachable from a `trigger-tool`:
   `set-var` must use `scope: flow`; reaching `action-mqtt` or `action-file`
-  makes the tool `privileged`.
+  makes the tool `privileged`. Flow variables are read by every branch of the
+  flow, so a tool that reaches a `set-var` also reaches every enabled node that
+  reads flow variables (`get-var` with `scope: flow`, or config text naming
+  `flowVars` or `$env`) and everything downstream of them: the risk, credential
+  and `set-var` rules apply to those nodes too (the stateful-node rules below
+  only to the tool's own branch).
 - Stateful nodes reachable from `trigger-tool`: `process-aggregate` → error;
   `process-join` → error unless its key is `meta.correlationID`;
   `process-delay` with `delayMs > timeoutMs` → warning.

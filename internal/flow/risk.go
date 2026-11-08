@@ -25,6 +25,12 @@ import (
 // stateful nodes that would mix calls. Deploy refuses a flow with an error
 // issue (HTTP 400, ADR-0007's single validation path); flow.Lint can collect
 // the same issues.
+//
+// A tool may set flow variables, which every branch of its flow can read. So
+// when a tool reaches a set-var, the nodes of the flow that read flow
+// variables, and everything downstream of them, count as reached by the tool
+// too (for its risk, credentials and shared state, not for the rules on
+// stateful nodes, which concern the tool's own calls).
 
 // IssueSeverity says whether an Issue fails the deploy.
 type IssueSeverity string
@@ -121,6 +127,7 @@ func AnalyzeTools(f *Flow, reg *node.Registry, specs map[string]node.ToolSpec) (
 	g := newToolGraph(f)
 	var tools []ToolInfo
 	issues := newIssueSet()
+	var flowVarReach []int // computed once, when a tool sets a flow variable
 	for _, idx := range g.order {
 		n := &f.Nodes[idx]
 		spec, ok := specs[n.ID]
@@ -133,8 +140,25 @@ func AnalyzeTools(f *Flow, reg *node.Registry, specs map[string]node.ToolSpec) (
 			continue
 		}
 		a := toolAnalysis{risk: node.RiskSafe, readOnly: true, spec: spec, issues: issues}
-		for _, r := range g.reachable(n.ID) {
-			a.visit(r, &f.Nodes[r], reg)
+		direct := g.reachable(n.ID)
+		reached := map[int]bool{idx: true}
+		setsVars := false
+		for _, r := range direct {
+			reached[r] = true
+			setsVars = setsVars || f.Nodes[r].Type == "set-var"
+			a.visit(r, &f.Nodes[r], reg, true)
+		}
+		if setsVars {
+			// A set-var of scope flow (any other scope is an error) is
+			// read by every branch of the flow that reads flow variables.
+			if flowVarReach == nil {
+				flowVarReach = g.flowVariableReach(f)
+			}
+			for _, r := range flowVarReach {
+				if !reached[r] {
+					a.visit(r, &f.Nodes[r], reg, false)
+				}
+			}
 		}
 		if a.risk == node.RiskPrivileged {
 			for _, si := range spec.InputSchema.RequireStrictFor(nil) {
@@ -197,9 +221,38 @@ func newToolGraph(f *Flow) *toolGraph {
 // reachable returns the indexes of the enabled nodes reachable from root
 // (root excluded), in definition order.
 func (g *toolGraph) reachable(root string) []int {
-	seen := map[string]bool{root: true}
-	queue := []string{root}
+	return g.reachableFrom([]string{root}, false)
+}
+
+// flowVariableReach returns the indexes of the enabled nodes that read flow
+// variables (readsFlowVariables) and of every node reachable from them, in
+// definition order; never nil.
+func (g *toolGraph) flowVariableReach(f *Flow) []int {
+	var readers []string
+	for _, idx := range g.order {
+		n := &f.Nodes[idx]
+		if n.Enabled && g.index[n.ID] == idx && readsFlowVariables(n) {
+			readers = append(readers, n.ID)
+		}
+	}
+	return append([]int{}, g.reachableFrom(readers, true)...)
+}
+
+// reachableFrom returns the indexes of the enabled nodes reachable from
+// roots, and of the roots themselves when withRoots is set, in definition
+// order.
+func (g *toolGraph) reachableFrom(roots []string, withRoots bool) []int {
+	seen := map[string]bool{}
+	queue := append([]string(nil), roots...)
 	var out []int
+	for _, root := range roots {
+		if !seen[root] {
+			seen[root] = true
+			if withRoots {
+				out = append(out, g.index[root])
+			}
+		}
+	}
 	for len(queue) > 0 {
 		id := queue[0]
 		queue = queue[1:]
@@ -276,8 +329,10 @@ func (a *toolAnalysis) issue(idx int, key, code string, sev IssueSeverity, forma
 	a.issues.add(Issue{Path: path, Code: code, Severity: sev, Message: fmt.Sprintf(format, args...)})
 }
 
-// visit applies the rules of one reachable node.
-func (a *toolAnalysis) visit(idx int, n *Node, reg *node.Registry) {
+// visit applies the rules of one reachable node. direct is false for a node
+// the tool reaches only through flow variables: it shares the tool's data,
+// not its calls, so the rules on stateful nodes do not apply.
+func (a *toolAnalysis) visit(idx int, n *Node, reg *node.Registry, direct bool) {
 	if !readOnlyTypes[n.Type] && !strings.HasPrefix(n.Type, "process-") {
 		a.readOnly = false
 	}
@@ -330,9 +385,14 @@ func (a *toolAnalysis) visit(idx int, n *Node, reg *node.Registry) {
 				scope = "global"
 			}
 			a.issue(idx, "scope", IssueToolGlobalVariable, IssueError,
-				"set-var writes the %s variable %q, which other flows can read; a node reachable from a tool may only set flow variables (scope: flow)",
+				"set-var writes the %s variable %q, which other flows can read; a node reachable from a tool (directly, or through the flow variables a tool sets) may only set flow variables (scope: flow)",
 				scope, configString(cfg, "key"))
 		}
+	}
+	if !direct {
+		return
+	}
+	switch n.Type {
 	case "process-aggregate":
 		a.issue(idx, "", IssueToolAggregate, IssueError,
 			"process-aggregate would batch the arguments of different tool calls together; it cannot be reached from a tool")
@@ -406,6 +466,43 @@ func toolFingerprint(risk node.Risk, ann Annotations, schema json.RawMessage, co
 	}
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// readsFlowVariables reports whether a node may read the flow's variables:
+// a get-var of scope flow, or any config text naming flowVars (templates and
+// expressions) or $env (an expression reading its whole environment, which
+// holds flowVars). It errs on the side of yes.
+func readsFlowVariables(n *Node) bool {
+	if n.Type == "get-var" && configString(n.Config, "scope") == "flow" {
+		return true
+	}
+	return configTextContains(n.Config, "flowVars", "$env")
+}
+
+// configTextContains reports whether a string anywhere in v (a config value:
+// nested maps and lists included) contains one of subs.
+func configTextContains(v any, subs ...string) bool {
+	switch x := v.(type) {
+	case string:
+		for _, sub := range subs {
+			if strings.Contains(x, sub) {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, e := range x {
+			if configTextContains(e, subs...) {
+				return true
+			}
+		}
+	case []any:
+		for _, e := range x {
+			if configTextContains(e, subs...) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // placeholderRe matches template placeholders the way the builtin nodes'

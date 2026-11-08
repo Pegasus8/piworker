@@ -451,3 +451,124 @@ func TestToolIssuesAreReportedOncePerNode(t *testing.T) {
 	assert.Len(t, tools, 2)
 	assert.Equal(t, []string{"error:" + flow.IssueToolGlobalVariable + "@nodes[1].config.scope"}, issueCodes(issues))
 }
+
+// freeStringToolConfig is a trigger-tool whose only argument is a free
+// string, which a privileged tool may not take.
+func freeStringToolConfig() map[string]any {
+	cfg := strictToolConfig()
+	cfg["inputSchema"] = map[string]any{
+		"type":       "object",
+		"required":   []any{"cmd"},
+		"properties": map[string]any{"cmd": map[string]any{"type": "string"}},
+	}
+	return cfg
+}
+
+// withBranch adds trigger-manual "manual" → steps[0] → steps[1] → … to f, a
+// branch the tool cannot reach through connections.
+func withBranch(f *flow.Flow, steps ...riskStep) *flow.Flow {
+	manual := flow.NewNode("trigger-manual", flow.NodeCategoryInput)
+	manual.ID = "manual"
+	f.AddNode(*manual)
+	prev := "manual"
+	for _, s := range steps {
+		n := flow.NewNode(s.typ, flow.NodeCategoryProcessing)
+		n.ID, n.Config, n.Enabled = s.id, s.config, !s.disabled
+		if n.Config == nil {
+			n.Config = map[string]any{}
+		}
+		f.AddNode(*n)
+		f.AddConnection(*flow.NewConnection(prev, "output", s.id, "input"))
+		prev = s.id
+	}
+	return f
+}
+
+func setFlowVar(key string) riskStep {
+	return riskStep{id: "set", typ: "set-var", config: map[string]any{"key": key, "scope": "flow", "value": "payload.cmd"}}
+}
+
+// A flow variable a tool writes is read by every branch of the flow: the
+// risk of what another trigger's branch does with it is the tool's risk.
+func TestToolTaintThroughFlowVariables(t *testing.T) {
+	f := withBranch(chainFlow(freeStringToolConfig(), setFlowVar("cmd"), reply()),
+		riskStep{id: "cmd", typ: "action-command", config: map[string]any{"command": "echo {{flowVars.cmd}}"}})
+	tools, issues := analyze(t, f)
+	require.Len(t, tools, 1)
+	info := tools[0]
+	assert.Equal(t, node.RiskPrivileged, info.Risk)
+	assert.True(t, info.Annotations.DestructiveHint)
+	assert.True(t, info.Annotations.OpenWorldHint)
+	require.Equal(t, []string{"error:" + flow.IssueToolStrictArguments + "@nodes[0].config.inputSchema"}, issueCodes(issues))
+	assert.Contains(t, issues[0].Message, "/cmd")
+}
+
+func TestToolTaintThroughFlowVariableReaders(t *testing.T) {
+	command := riskStep{id: "cmd", typ: "action-command", config: map[string]any{"command": "echo {{payload.value}}"}}
+	cases := []struct {
+		name   string
+		branch []riskStep
+	}{
+		{"get-var of a flow variable", []riskStep{{id: "get", typ: "get-var", config: map[string]any{"key": "cmd", "scope": "flow"}}, command}},
+		{"an expression reading flowVars", []riskStep{{id: "shape", typ: "process-transform", config: map[string]any{"expression": `{"value": flowVars["cmd"]}`}}, command}},
+		{"an expression reading the whole environment", []riskStep{{id: "shape", typ: "process-transform", config: map[string]any{"expression": `{"value": $env["flow" + "Vars"]["cmd"]}`}}, command}},
+		{"a template with spaces", []riskStep{{id: "cmd", typ: "action-command", config: map[string]any{"command": "echo {{ flowVars.cmd }}"}}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := withBranch(chainFlow(strictToolConfig(), setFlowVar("cmd"), reply()), tc.branch...)
+			info, issues := onlyTool(t, f)
+			assert.Empty(t, issues)
+			assert.Equal(t, node.RiskPrivileged, info.Risk)
+		})
+	}
+}
+
+// Every rule on what a value can reach holds through flow variables:
+// credentials sent to a destination the tool's value picks, and global
+// variables that carry it on to other flows.
+func TestToolTaintThroughFlowVariablesKeepsTheRules(t *testing.T) {
+	f := withBranch(chainFlow(strictToolConfig(), setFlowVar("host"), reply()),
+		riskStep{id: "http", typ: "action-http", config: map[string]any{
+			"url": "https://{{flowVars.host}}/x", "headers": map[string]any{"Authorization": "Bearer abc123"},
+		}})
+	_, issues := analyze(t, f)
+	assert.Equal(t, []string{"error:" + flow.IssueDynamicDestinationCredentials + "@nodes[4].config.headers"}, issueCodes(issues))
+
+	f = withBranch(chainFlow(strictToolConfig(), setFlowVar("door"), reply()),
+		riskStep{id: "get", typ: "get-var", config: map[string]any{"key": "door", "scope": "flow"}},
+		riskStep{id: "publish", typ: "set-var", config: map[string]any{"key": "door", "scope": "global"}})
+	_, issues = analyze(t, f)
+	assert.Equal(t, []string{"error:" + flow.IssueToolGlobalVariable + "@nodes[5].config.scope"}, issueCodes(issues))
+}
+
+// Only the tool's own run mixes calls: stateful nodes on a branch that just
+// reads the flow's variables are not tool issues.
+func TestToolTaintThroughFlowVariablesSkipsCallRules(t *testing.T) {
+	f := withBranch(chainFlow(strictToolConfig(), setFlowVar("door"), reply()),
+		riskStep{id: "get", typ: "get-var", config: map[string]any{"key": "door", "scope": "flow"}},
+		riskStep{id: "agg", typ: "process-aggregate", config: map[string]any{"count": float64(3)}},
+		riskStep{id: "log", typ: "action-log"})
+	info, issues := onlyTool(t, f)
+	assert.Empty(t, issues)
+	assert.Equal(t, node.RiskSafe, info.Risk)
+}
+
+// Without a set-var the tool writes no flow variable, so the readers of the
+// flow's variables do not count; nor do branches that read none.
+func TestToolTaintNeedsAFlowVariableWrittenAndRead(t *testing.T) {
+	readsFlowVars := riskStep{id: "cmd", typ: "action-command", config: map[string]any{"command": "echo {{flowVars.cmd}}"}}
+	info, issues := onlyTool(t, withBranch(chainFlow(strictToolConfig(), reply()), readsFlowVars))
+	assert.Empty(t, issues)
+	assert.Equal(t, node.RiskSafe, info.Risk, "the tool writes no flow variable")
+
+	info, issues = onlyTool(t, withBranch(chainFlow(strictToolConfig(), setFlowVar("cmd"), reply()),
+		riskStep{id: "cmd", typ: "action-command", config: map[string]any{"command": "echo hi"}}))
+	assert.Empty(t, issues)
+	assert.Equal(t, node.RiskSafe, info.Risk, "the branch reads no flow variable")
+
+	info, issues = onlyTool(t, withBranch(chainFlow(strictToolConfig(), setFlowVar("cmd"), reply()),
+		riskStep{id: "cmd", typ: "action-command", config: map[string]any{"command": "echo {{flowVars.cmd}}"}, disabled: true}))
+	assert.Empty(t, issues)
+	assert.Equal(t, node.RiskSafe, info.Risk, "a disabled reader does not run")
+}

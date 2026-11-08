@@ -471,7 +471,9 @@ Arguments that reach command, file, database, GPIO or I2C nodes must be strict:
 strings need an `enum` or a pattern that accepts no value starting with `-`,
 with a `..` path segment, or containing `/`, whitespace, a line break, `$`, `;`,
 `|` or a backtick anywhere (each can be acknowledged per property with
-`x-piworker-allow`), and numbers need `minimum` and `maximum`. Patterns use the
+`x-piworker-allow`), and numbers need `minimum` and `maximum`. A tool that
+sets a flow variable also reaches every branch of its flow that reads flow
+variables, so those branches count towards its risk. Patterns use the
 syntax Go and JavaScript share (no `(?i)`, `\z`, `[[:alpha:]]`…), since MCP
 clients read them as JavaScript. The editor edits schemas as JSON and shows each
 node's documentation.
