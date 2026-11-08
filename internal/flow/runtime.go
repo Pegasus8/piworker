@@ -6,6 +6,7 @@ import (
 	flowvars "github.com/Pegasus8/piworker/internal/vars"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/metrics"
@@ -27,8 +28,12 @@ const (
 const (
 	// DefaultMaxConcurrency bounds how many nodes execute simultaneously per flow.
 	DefaultMaxConcurrency = 16
-	// DefaultExecBuffer is the buffer size of each per-node execution channel.
+	// DefaultExecBuffer is the buffer size of the trigger seed channels.
 	DefaultExecBuffer = 256
+	// DefaultNodeQueueLimit caps how many messages may wait for one node. A
+	// node whose backlog is full has further messages dropped (with a warning
+	// and a dropped-message metric) instead of stalling the rest of the flow.
+	DefaultNodeQueueLimit = 1000
 )
 
 // RetryConfig configures retry behavior for node execution.
@@ -107,11 +112,16 @@ type FlowRuntime struct {
 	// RWLock or linearly scanning the node slice on every message.
 	nodeDefs map[string]*Node
 
-	// Per-node execution channels. Each node drains its own channel serially
+	// Per-node FIFO queues. Each node drains its own queue serially
 	// (preserving message order for stateful nodes like batch/dedupe) while
-	// different nodes run concurrently, so one blocking node no longer stalls
-	// the whole flow.
-	execChans map[string]chan RoutedMessage
+	// different nodes run concurrently. Pushing never blocks the dispatcher, so
+	// one slow node can't stall unrelated branches; a full queue drops.
+	queues     map[string]*nodeQueue
+	queueLimit int
+
+	// droppedMessages counts messages discarded by this runtime (node queue
+	// overflow, router send timeouts, disabled/unknown targets).
+	droppedMessages atomic.Int64
 
 	// sem bounds how many nodes execute concurrently across the entire flow.
 	sem            chan struct{}
@@ -181,6 +191,16 @@ func WithMaxConcurrency(n int) RuntimeOption {
 	}
 }
 
+// WithNodeQueueLimit caps how many messages may wait for a single node before
+// further ones are dropped. Values <= 0 are ignored.
+func WithNodeQueueLimit(n int) RuntimeOption {
+	return func(r *FlowRuntime) {
+		if n > 0 {
+			r.queueLimit = n
+		}
+	}
+}
+
 // NewFlowRuntime creates a new FlowRuntime for the given flow.
 func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*FlowRuntime, error) {
 	logger := zerolog.Nop()
@@ -195,6 +215,7 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 		state:          FlowStateInactive,
 		retryConfig:    DefaultRetryConfig(),
 		maxConcurrency: DefaultMaxConcurrency,
+		queueLimit:     DefaultNodeQueueLimit,
 		errors:         make(chan error, 100),
 		runInflight:    make(map[string]int),
 	}
@@ -267,12 +288,12 @@ func (r *FlowRuntime) Start(ctx context.Context) error {
 
 	// Initialise the concurrency limiter and one serial executor per node.
 	r.sem = make(chan struct{}, r.maxConcurrency)
-	r.execChans = make(map[string]chan RoutedMessage, len(r.nodes))
+	r.queues = make(map[string]*nodeQueue, len(r.nodes))
 	for nodeID := range r.nodes {
-		ch := make(chan RoutedMessage, DefaultExecBuffer)
-		r.execChans[nodeID] = ch
+		q := newNodeQueue(r.queueLimit)
+		r.queues[nodeID] = q
 		r.wg.Add(1)
-		go r.nodeExecutor(nodeID, ch)
+		go r.nodeExecutor(nodeID, q)
 	}
 
 	// Start the dispatcher that fans routed messages out to per-node executors.
@@ -395,9 +416,9 @@ func (r *FlowRuntime) Stop() error {
 }
 
 // dispatch reads routed messages from the router and hands each one to its
-// target node's serial executor. Because distinct nodes execute concurrently,
-// a slow or blocking node (a delay, a long HTTP call) no longer stalls
-// unrelated branches of the flow.
+// target node's queue. The hand-off never blocks: a slow or blocking node (a
+// delay, a long HTTP call) only grows its own queue, so unrelated branches
+// keep flowing. A node whose queue is full has the message dropped.
 func (r *FlowRuntime) dispatch() {
 	defer r.wg.Done()
 
@@ -413,7 +434,7 @@ func (r *FlowRuntime) dispatch() {
 				return
 			}
 
-			ch, exists := r.execChans[routedMsg.TargetNode]
+			q, exists := r.queues[routedMsg.TargetNode]
 			if !exists {
 				r.logger.Error().
 					Str("nodeID", routedMsg.TargetNode).
@@ -421,40 +442,56 @@ func (r *FlowRuntime) dispatch() {
 				continue
 			}
 
-			select {
-			case ch <- routedMsg:
-			case <-r.ctx.Done():
-				return
+			if !q.push(routedMsg) {
+				r.logger.Warn().
+					Str("flowID", r.flow.ID).
+					Str("nodeID", routedMsg.TargetNode).
+					Str("msgID", routedMsg.Message.ID).
+					Int("queueLimit", r.queueLimit).
+					Msg("Node queue full; dropping message")
+				r.dropMessage(routedMsg)
 			}
 		}
 	}
 }
 
-// nodeExecutor drains a single node's channel serially. Serial per-node
+// dropMessage accounts for a routed message that will never execute: it counts
+// the drop and releases the message's slot in its run so the run can finish.
+func (r *FlowRuntime) dropMessage(routedMsg RoutedMessage) {
+	r.droppedMessages.Add(1)
+	metrics.IncrementMessagesDropped()
+	r.runDone(r.ensureCorrelationID(routedMsg.Message))
+}
+
+// DroppedMessages reports how many messages this runtime discarded.
+func (r *FlowRuntime) DroppedMessages() int64 {
+	return r.droppedMessages.Load()
+}
+
+// nodeExecutor drains a single node's queue serially. Serial per-node
 // execution preserves message ordering for stateful nodes (batch, dedupe,
 // throttle), while the shared sem caps how many nodes run at once across the
 // whole flow so an unbounded fan-out can't spawn unbounded work.
-func (r *FlowRuntime) nodeExecutor(nodeID string, ch chan RoutedMessage) {
+func (r *FlowRuntime) nodeExecutor(nodeID string, q *nodeQueue) {
 	defer r.wg.Done()
 
 	for {
+		routedMsg, ok := q.pop(r.ctx)
+		if !ok {
+			return
+		}
+
+		// Acquire a global concurrency slot, respecting cancellation.
 		select {
+		case r.sem <- struct{}{}:
 		case <-r.ctx.Done():
 			return
-
-		case routedMsg := <-ch:
-			// Acquire a global concurrency slot, respecting cancellation.
-			select {
-			case r.sem <- struct{}{}:
-			case <-r.ctx.Done():
-				return
-			}
-
-			func() {
-				defer func() { <-r.sem }()
-				r.executeNode(routedMsg)
-			}()
 		}
+
+		func() {
+			defer func() { <-r.sem }()
+			r.executeNode(routedMsg)
+		}()
 	}
 }
 
