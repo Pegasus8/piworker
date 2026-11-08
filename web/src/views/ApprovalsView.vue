@@ -37,13 +37,13 @@ const filters = [
 // Loads can overlap (filter, refresh, new requests); the store shows only the
 // latest list, and the page stays loading until none is in flight.
 let loads = 0
-async function load() {
+async function load(opts: { background?: boolean } = {}) {
   if (!auth.authEnabled) return
   loads++
   loading.value = true
   loadError.value = ''
   try {
-    await agent.fetchApprovals(filter.value)
+    await agent.fetchApprovals(filter.value, opts)
   } catch (e) {
     loadError.value = apiErrorMessage(e, 'Could not load the approvals.')
   } finally {
@@ -58,10 +58,12 @@ onMounted(async () => {
   if (auth.authEnabled) await Promise.allSettled([agent.fetchTools(), agent.fetchFlowNames()])
 })
 onBeforeUnmount(() => clearInterval(clock))
-watch(filter, load)
-// New requests arrive through the badge's polling.
+watch(filter, () => load())
+// New requests arrive through the badge's polling. Agents can change the count
+// at will, so this reload is a background request: an open tab alone must not
+// keep the session alive.
 watch(() => agent.pendingCount, (count, before) => {
-  if (filter.value === 'pending' && count !== before && !pending.value) void load()
+  if (filter.value === 'pending' && count !== before && !pending.value) void load({ background: true })
 })
 
 const isTool = (a: AgentApproval) => a.kind === 'tool_call'
@@ -131,7 +133,7 @@ const decisions = computed(() => agent.recentDecisions)
               <Label for="approval-filter" class="text-xs">Show</Label>
               <Select id="approval-filter" v-model="filter" aria-label="Approval status" :options="filters" class="h-9 w-36" />
             </div>
-            <Button variant="outline" size="icon" aria-label="Refresh" :disabled="loading" @click="load"><RefreshCw class="h-4 w-4" /></Button>
+            <Button variant="outline" size="icon" aria-label="Refresh" :disabled="loading" @click="load()"><RefreshCw class="h-4 w-4" /></Button>
           </div>
         </div>
 

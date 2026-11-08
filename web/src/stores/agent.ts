@@ -28,6 +28,12 @@ import {
 
 /** How often the navigation badge refreshes the pending approvals count. */
 export const APPROVAL_POLL_MS = 10_000
+/**
+ * Marks a request the editor sends by itself, not on the admin's behalf: the
+ * server then checks the session without extending its idle expiry
+ * (api.BackgroundRequestHeader).
+ */
+export const BACKGROUND_HEADERS: Readonly<Record<string, string>> = { 'X-PiWorker-Background': '1' }
 /** Audit rows per page. */
 export const AUDIT_PAGE_SIZE = 50
 const MAX_RECENT_DECISIONS = 10
@@ -162,12 +168,16 @@ export const useAgentStore = defineStore('agent', () => {
   // Approvals. Lists can be requested while others are in flight (filter
   // changes, refreshes, new requests); only the latest one is shown, and a
   // decision supersedes lists requested before it. Returns false, without
-  // throwing, when the response was superseded.
+  // throwing, when the response was superseded. A background reload (one the
+  // page starts by itself) does not extend the session.
   let approvalsSeq = 0
-  async function fetchApprovals(filter: ApprovalFilter = 'pending'): Promise<boolean> {
+  async function fetchApprovals(filter: ApprovalFilter = 'pending', opts: { background?: boolean } = {}): Promise<boolean> {
     const seq = ++approvalsSeq
     try {
-      const { data } = await apiClient.get('/agent/approvals', { params: { status: filter } })
+      const { data } = await apiClient.get('/agent/approvals', {
+        params: { status: filter },
+        ...(opts.background ? { headers: BACKGROUND_HEADERS } : {})
+      })
       if (seq !== approvalsSeq) return false
       approvals.value = data.data?.approvals ?? []
       pendingCount.value = data.data?.pending ?? 0

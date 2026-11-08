@@ -1,7 +1,7 @@
 import { beforeEach, expect, mock, test } from 'bun:test'
 import { createPinia, setActivePinia } from 'pinia'
 
-type Call = { method: string; url: string; body?: unknown; params?: unknown }
+type Call = { method: string; url: string; body?: unknown; params?: unknown; headers?: Record<string, string> }
 type Responder = (call: Call) => unknown
 let calls: Call[] = []
 let routes: Record<string, Responder> = {}
@@ -19,7 +19,8 @@ async function respond(call: Call) {
 }
 
 const apiClient = {
-  get: (url: string, config?: { params?: unknown }) => respond({ method: 'GET', url, params: config?.params }),
+  get: (url: string, config?: { params?: unknown; headers?: Record<string, string> }) =>
+    respond({ method: 'GET', url, params: config?.params, ...(config?.headers ? { headers: config.headers } : {}) }),
   post: (url: string, body?: unknown) => respond({ method: 'POST', url, body }),
   put: (url: string, body?: unknown) => respond({ method: 'PUT', url, body }),
   delete: (url: string) => respond({ method: 'DELETE', url })
@@ -240,6 +241,19 @@ test('a slower, older approvals response never replaces a newer one', async () =
   } finally {
     apiClient.get = realGet
   }
+})
+
+// The Approvals page reloads its list when the badge count changes, which an
+// agent can cause at will; those reloads are background requests, which do
+// not extend the session (api.BackgroundRequestHeader).
+test('a background reload of the approvals marks itself so the session is not extended', async () => {
+  routes['GET /agent/approvals'] = () => ({ approvals: [approval('x')], pending: 1 })
+  const store = useAgentStore()
+  await store.fetchApprovals('pending', { background: true })
+  expect(calls[0].headers).toEqual({ 'X-PiWorker-Background': '1' })
+  expect(calls[0].params).toEqual({ status: 'pending' })
+  await store.fetchApprovals('pending')
+  expect(calls[1].headers).toBeUndefined()
 })
 
 test('a decision is not undone by a list requested before it', async () => {

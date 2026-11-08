@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -80,4 +81,34 @@ func TestPendingCountIgnoresExpiredApprovals(t *testing.T) {
 	got, err := env.store.GetAgentApproval(short.ID)
 	require.NoError(t, err)
 	assert.Equal(t, storage.ApprovalPending, got.Status, "counting writes nothing; the expiry pass closes it later")
+}
+
+// Refreshes the editor starts by itself (the Approvals page reloading its
+// list when the badge count changes) mark themselves as background
+// requests. An agent can change that count at will by queueing approvals, so
+// these refreshes must not extend the session either. The header can only
+// make a request passive, never extend anything, so any path accepts it.
+func TestBackgroundRequestsDoNotExtendTheSession(t *testing.T) {
+	env := newAgentTestEnv(t, AgentHandlerOptions{})
+	ageSession(t, env, time.Hour)
+	before := sessionLastSeen(t, env)
+
+	r := httptest.NewRequest("GET", "http://piworker.local/api/agent/approvals?status=pending", nil)
+	r.Header.Set("X-PiWorker-Request", "1")
+	r.Header.Set(BackgroundRequestHeader, "1")
+	r.AddCookie(env.cookie)
+	w := httptest.NewRecorder()
+	env.router.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Equal(t, before, sessionLastSeen(t, env), "a background refresh leaves the idle expiry alone")
+
+	// The same list requested by the admin is activity.
+	require.Equal(t, http.StatusOK, env.do("GET", "/api/agent/approvals?status=pending", nil).Code)
+	assert.Greater(t, sessionLastSeen(t, env), before)
+
+	// A background request still needs a live session.
+	ageSession(t, env, storage.SessionIdleTimeout+time.Minute)
+	w = httptest.NewRecorder()
+	env.router.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized, w.Code)
 }

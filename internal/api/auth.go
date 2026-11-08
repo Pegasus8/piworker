@@ -339,11 +339,20 @@ var passiveSessionPaths = map[string]bool{
 	PendingApprovalsCountPath: true,
 }
 
+// BackgroundRequestHeader marks a request the editor sends by itself (a
+// refresh triggered by polling), not on the admin's behalf. Set to "1", the
+// session is authenticated without extending its idle expiry. A client can
+// only shorten its own session with it, so every guarded path accepts it.
+const BackgroundRequestHeader = "X-PiWorker-Background"
+
 // AuthMiddleware requires a valid session on guarded /api paths and extends
-// its idle expiry, except on passiveSessionPaths, which it authenticates
-// with the non-touching variant.
+// its idle expiry, except on passiveSessionPaths and background requests
+// (BackgroundRequestHeader), which it authenticates with the non-touching
+// variant.
 func AuthMiddleware(h *AuthHandler) mux.MiddlewareFunc {
-	return authMiddleware(h, func(r *http.Request) bool { return !passiveSessionPaths[r.URL.Path] })
+	return authMiddleware(h, func(r *http.Request) bool {
+		return !passiveSessionPaths[r.URL.Path] && r.Header.Get(BackgroundRequestHeader) != "1"
+	})
 }
 
 // authMiddleware authenticates the session; touch says whether a request
