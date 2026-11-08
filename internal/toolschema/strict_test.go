@@ -24,7 +24,7 @@ const strictSchema = `{
 		"free":    {"type": "string"},
 		"loose":   {"type": "string", "pattern": "^.*$"},
 		"dashy":   {"type": "string", "pattern": "^[a-z-]+$"},
-		"acked":   {"type": "string", "pattern": "^[a-z-]+$", "x-piworker-allow": ["-x"]},
+		"acked":   {"type": "string", "pattern": "^-?[a-z]+$", "x-piworker-allow": ["-x"]},
 		"path":    {"type": "string", "pattern": "^[a-z./]+$", "x-piworker-allow": ["/", ".."]},
 		"nosemi":  {"type": "string", "pattern": "^[^;|]*$"},
 		"bounded": {"type": "integer", "minimum": 0, "maximum": 10},
@@ -64,10 +64,8 @@ func TestRequireStrictForEveryLeaf(t *testing.T) {
 		assert.Contains(t, got["/nosemi"], strconv.Quote("\n"))
 		assert.Contains(t, got["/nosemi"], strconv.Quote("$("))
 		assert.NotContains(t, got["/nosemi"], strconv.Quote(";"))
-		for _, probe := range Probes() {
-			if probe != "\n" { // ^.*$ does not match a line break
-				assert.Contains(t, got["/loose"], strconv.Quote(probe))
-			}
+		for _, probe := range Probes() { // "." matches "\r", a line break
+			assert.Contains(t, got["/loose"], strconv.Quote(probe))
 		}
 		assert.Contains(t, got["/loose"], "x-piworker-allow")
 	}
@@ -119,6 +117,89 @@ func TestRequireStrictForAllowanceIsPerProbe(t *testing.T) {
 		assert.Contains(t, msg, strconv.Quote(probe))
 	}
 	assert.Equal(t, 1, strings.Count(msg, "accepts"))
+}
+
+// A pattern is judged on every value it accepts, not on the probes as whole
+// values: "-x" and "--a=b" stand for any value starting with - or --, ".."
+// for a .. path segment, and the other probes for their character anywhere
+// (" " any whitespace, "\n" any line break).
+func TestPatternProbes(t *testing.T) {
+	all := Probes()
+	notPrefix := []string{"..", "/", " ", "\n", "$(", ";", "|", "`"}
+	cases := []struct {
+		pattern string
+		want    []string
+	}{
+		{`^[a-z][a-z0-9_]*$`, nil},
+		{`^[a-z0-9_]+$`, nil},
+		{`^(?i)[a-z]+$`, nil},
+		{`^(on|off)$`, nil},
+		{`^[a-z]+(-[a-z]+)*$`, nil},
+		{`^[a-z]+(\.[a-z]+)*$`, nil},
+		{`^[a-z][a-z0-9.]*$`, nil}, // no / and never only dots: no .. segment
+		{`^.*$`, all},
+		{`^(?s).*$`, all},
+		// Loose patterns that reject every probe as a whole value.
+		{`^[a-z].*$`, notPrefix},
+		{`^x(.|\s)*$`, notPrefix},
+		{`^(?s)a.*$`, notPrefix},
+		{`^[a-z][^a-z]*$`, notPrefix},
+		// Option flags: any value starting with - or --.
+		{`^-[a-w]+$`, []string{"-x"}},
+		{`^-?[0-9]+$`, []string{"-x"}},
+		{`^[a-z-]+$`, []string{"-x", "--a=b"}},
+		{`^--[a-z]+=[a-z]+$`, []string{"-x", "--a=b"}},
+		// Path traversal: a .. segment, which needs / unless it is the value.
+		{`^[a-z0-9.]+$`, []string{".."}},
+		{`^\.\.$`, []string{".."}},
+		{`^[a-z][a-z./]*$`, []string{"..", "/"}},
+		{`^x/\.\.$`, []string{"..", "/"}},
+		{`^x/\.\.y$`, []string{"/"}},
+		{`^[a-z0-9_]+(/[a-z0-9_]+)*$`, []string{"/"}},
+		// Whitespace and line breaks of any kind.
+		{`^[a-z]+\t[a-z]+$`, []string{" "}},
+		{"^[a-z\u00a0]+$", []string{" "}},
+		{`^a\r?$`, []string{"\n"}},
+		{"^[a-z\u2028]+$", []string{"\n"}},
+		{`^[^\n]*$`, all},
+		// Shell syntax.
+		{`^a[$]b$`, []string{"$("}},
+		{`^[a-z;]+$`, []string{";"}},
+		{`^\|$`, []string{"|"}},
+		{"^a`$", []string{"`"}},
+		// A single character can be neither -- nor ..
+		{`^[^a-z]$`, []string{"-x", "/", " ", "\n", "$(", ";", "|", "`"}},
+	}
+	for _, c := range cases {
+		t.Run(c.pattern, func(t *testing.T) {
+			got, err := patternProbes(c.pattern)
+			require.NoError(t, err)
+			assert.Equal(t, c.want, got)
+		})
+	}
+}
+
+// A non-expert's loose pattern is not strict, wherever it is checked.
+func TestRequireStrictForLoosePatterns(t *testing.T) {
+	for _, pattern := range []string{`^[a-z].*$`, `^x(.|\\s)*$`, `^-[a-w]+$`, `^[a-z][a-z./]*$`} {
+		s := mustCompile(t, `{"type":"object","properties":{"p":{"type":"string","pattern":"`+pattern+`"}}}`)
+		got := issuesByPointer(s.RequireStrictFor(nil))
+		assert.Containsf(t, got, "/p", "%s must not be strict", pattern)
+	}
+	strict := mustCompile(t, `{"type":"object","properties":{"p":{"type":"string","pattern":"^[a-z][a-z0-9_]*$"}}}`)
+	assert.Empty(t, strict.RequireStrictFor(nil))
+
+	// Acknowledging short options does not acknowledge long ones.
+	s := mustCompile(t, `{"type":"object","properties":{"p":{"type":"string","pattern":"^[a-z-]+$","x-piworker-allow":["-x"]}}}`)
+	msg := issuesByPointer(s.RequireStrictFor(nil))["/p"]
+	assert.Contains(t, msg, strconv.Quote("--a=b"))
+	assert.NotContains(t, msg, strconv.Quote("-x"))
+
+	// Acknowledging / does not acknowledge traversal.
+	s = mustCompile(t, `{"type":"object","properties":{"p":{"type":"string","pattern":"^[a-z][a-z./]*$","x-piworker-allow":["/"]}}}`)
+	msg = issuesByPointer(s.RequireStrictFor(nil))["/p"]
+	assert.Contains(t, msg, strconv.Quote(".."))
+	assert.NotContains(t, msg, strconv.Quote("/"))
 }
 
 func keys(m map[string]string) []string {

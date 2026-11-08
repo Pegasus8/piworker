@@ -13,7 +13,19 @@ import (
 // and shell metacharacters ($(, ;, |, backtick).
 var probes = []string{"-x", "--a=b", "..", "/", " ", "\n", "$(", ";", "|", "`"}
 
-// Probes returns a copy of the probe corpus.
+// Probes returns a copy of the probe corpus. Each probe stands for a class
+// of values, and a pattern accepts a probe when it accepts any value of the
+// class (see patternProbes):
+//
+//   - "-x": a value starting with - (an option flag);
+//   - "--a=b": a value starting with -- (a long option);
+//   - "..": a value with a .. path segment (the whole value, or between
+//     slashes, at the start or at the end);
+//   - "/": a / anywhere;
+//   - " ": whitespace anywhere (space, tab and every other Unicode space
+//     that is not a line break);
+//   - "\n": a line break anywhere (\n, \r, U+0085, U+2028, U+2029);
+//   - "$(", ";", "|", "`": a $, ;, | or backtick anywhere.
 func Probes() []string {
 	return append([]string(nil), probes...)
 }
@@ -36,8 +48,10 @@ func probeList() string {
 //
 // A string needs an enum, or a pattern (always anchored) that rejects every
 // probe of the corpus (see Probes) other than those the property lists in
-// x-piworker-allow. An integer or number needs an enum, or both minimum and
-// maximum. Booleans are always fine. The result has one issue per offending
+// x-piworker-allow. A probe is judged on every value the pattern accepts,
+// not just as a whole value: ^[a-z].*$ rejects "/" but accepts "a/b", so it
+// accepts the "/" probe. An integer or number needs an enum, or both minimum
+// and maximum. Booleans are always fine. The result has one issue per offending
 // property (naming the probes its pattern accepts) and one per path that is
 // not a property, sorted by pointer; nil when everything is strict.
 func (s *Schema) RequireStrictFor(paths []string) []Issue {
@@ -121,9 +135,13 @@ func strictProblem(n *node) string {
 		if n.re == nil {
 			return "needs an enum or an anchored pattern: it reaches a privileged node"
 		}
+		found, err := patternProbes(n.pattern)
+		if err != nil {
+			return "pattern cannot be analysed: " + err.Error()
+		}
 		var accepted []string
-		for _, probe := range probes {
-			if !slices.Contains(n.allow, probe) && n.re.MatchString(probe) {
+		for _, probe := range found {
+			if !slices.Contains(n.allow, probe) {
 				accepted = append(accepted, strconv.Quote(probe))
 			}
 		}

@@ -514,11 +514,21 @@ any other keyword.
 ` + "```" + `
 
 Arguments that reach a **privileged** node (command, file, database, GPIO,
-I2C) must be strict: strings need an ` + "`enum`" + ` or a pattern that rejects
-option flags (` + "`-x`, `--a=b`" + `), paths (` + "`..`, `/`" + `), spaces, line breaks and
-shell syntax (` + "`$(`, `;`, `|`" + `, backtick); numbers need ` + "`minimum`" + ` and
-` + "`maximum`" + `. To accept one of these on purpose, list it in
-` + "`\"x-piworker-allow\": [\"/\"]`" + ` on that property (agents do not see it).
+I2C) must be strict: numbers need ` + "`minimum`" + ` and ` + "`maximum`" + `, and strings
+need an ` + "`enum`" + ` or a pattern that accepts **no value** with one of
+these probes:
+
+- ` + "`-x`" + `: starts with ` + "`-`" + ` (an option flag); ` + "`--a=b`" + `: starts with ` + "`--`" + `
+- ` + "`..`" + `: a ` + "`..`" + ` path segment (` + "`..`, `../x`, `x/../y`, `x/..`" + `)
+- ` + "`/`" + `: a slash anywhere
+- ` + "`\" \"`" + `: whitespace anywhere (space, tab, …); ` + "`\"\\n\"`" + `: a line break
+  anywhere (` + "`\\n`, `\\r`" + `, …)
+- ` + "`$(`, `;`, `|`" + ` and backtick: that character anywhere (` + "`$`" + ` for ` + "`$(`" + `)
+
+Every value the pattern allows counts, not just the probe itself:
+` + "`^[a-z].*$`" + ` rejects ` + "`/`" + ` but accepts ` + "`a/b`" + `, so it is not strict;
+` + "`^[a-z][a-z0-9_]*$`" + ` is. To accept one of these on purpose, list its probe
+in ` + "`\"x-piworker-allow\": [\"/\"]`" + ` on that property (agents do not see it).
 
 ## Calls and replies
 
