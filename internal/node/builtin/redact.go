@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"github.com/Pegasus8/piworker/internal/redact"
 )
 
 // redactedURLError hides a secret-bearing request URL (a bot token in the
@@ -57,11 +59,6 @@ func displayURL(raw string) string {
 }
 
 // urlWithoutSecrets returns scheme://host/path, dropping userinfo, query and
-// fragment so errors keep enough to debug without exposing credentials.
-func urlWithoutSecrets(u *url.URL) string {
-	shown := url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path}
-	if u.RawQuery != "" {
-		return shown.String() + "?<redacted>"
-	}
-	return shown.String()
-}
+// fragment so errors keep enough to debug without exposing credentials. The
+// service layer redacts agent results with the same helper.
+func urlWithoutSecrets(u *url.URL) string { return redact.URLWithoutSecrets(u) }
