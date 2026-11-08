@@ -150,29 +150,8 @@ func main() {
 	// Restore previously running flows
 	restoreRunningFlows(store, runtimeManager)
 
-	// Create the router
-	router := mux.NewRouter()
-
-	// CORS allowed origins (from config).
-	corsOrigins := cfg.CORSOrigins
-	log.Info().
-		Strs("origins", corsOrigins).
-		Msg("CORS allowed origins configured")
-
-	// Setup middleware. Recovery is outermost so it catches panics from every
-	// downstream handler; then logging, metrics, and CORS.
-	router.Use(api.RecoveryMiddleware(log.Logger))
-	router.Use(api.LoggingMiddleware(log.Logger))
-	router.Use(api.MetricsMiddleware)
-	router.Use(makeCorsMiddleware(corsOrigins))
-
-	// Resolve auth setting from config.
-	authIsEnabled := cfg.Auth
-
-	// Setup auth handler if enabled
-	var authHandler *api.AuthHandler
 	var userStore *storage.SQLiteUserStore
-	if authIsEnabled {
+	if cfg.Auth {
 		// Share the flow store's database handle to avoid a second connection
 		// pool on the same file.
 		var err error
@@ -198,60 +177,10 @@ func main() {
 			}
 			fmt.Printf("Setup code (one use, expires in 30 minutes): %s\nOpen PiWorker to create your administrator account.\n", code)
 		}
-		authHandler = api.NewAuthHandler(userStore, cfg.SessionSecure, cfg.CORSOrigins)
-		authHandler.RegisterRoutes(router)
-		router.Use(api.AuthMiddleware(authHandler))
-		log.Info().Msg("Session authentication enabled")
-	} else {
-		router.HandleFunc("/api/auth/status", api.AuthStatusHandler(false)).Methods(http.MethodGet)
-		log.Warn().Msg("Authentication disabled - API is unprotected")
 	}
 
-	// Register handlers
-	flowsHandler := api.NewFlowsHandler(store, runtimeManager, registry, log.Logger)
-	flowsHandler.RegisterRoutes(router)
-
-	nodeTypesHandler := api.NewNodeTypesHandler(registry, log.Logger, store)
-	nodeTypesHandler.RegisterRoutes(router)
-
-	// Observability endpoints: live SSE stream + run/event history. Registered
-	// under /api so AuthMiddleware applies; the frontend consumes the stream with
-	// fetch + ReadableStream with the same HttpOnly session cookie as other
-	// API calls (no token in JavaScript or URLs).
-	eventsHandler := api.NewEventsHandler(events.DefaultHub, store, log.Logger)
-	eventsHandler.RegisterRoutes(router)
-
-	// Secrets management (names listable, values write-only).
-	secretsHandler := api.NewSecretsHandler(secrets.DefaultStore, log.Logger)
-	secretsHandler.RegisterRoutes(router)
-	api.NewVariablesHandler(vars.DefaultStore).RegisterRoutes(router)
-
-	healthHandler := api.NewHealthHandler(store)
-	router.HandleFunc("/api/health", healthHandler.Health).Methods(http.MethodGet)
-
-	// Prometheus metrics endpoint
-	router.Handle("/metrics", promhttp.Handler()).Methods(http.MethodGet)
-	log.Info().Msg("Prometheus metrics endpoint available at /metrics")
-
-	// Webhook endpoints: trigger-webhook nodes register their paths on the shared
-	// hub, and incoming requests are dispatched to them. Public (the node's
-	// optional token provides authentication); mounted before the frontend
-	// catch-all so it takes precedence.
-	router.PathPrefix(webhook.PathPrefix).Handler(webhook.DefaultHub.HandlerFunc())
-	log.Info().Str("prefix", webhook.PathPrefix).Msg("Webhook endpoint mounted")
-
-	// Serve embedded frontend for non-API routes
-	if webui.IsAvailable() {
-		log.Info().Msg("Serving embedded frontend")
-		router.PathPrefix("/").Handler(webui.Handler())
-	} else {
-		log.Warn().Msg("Embedded frontend not available - run frontend dev server separately")
-		router.PathPrefix("/").Handler(webui.Handler()) // Serves placeholder page
-	}
-
-	// Error handlers for API routes (these are overridden by the PathPrefix above for non-API)
-	router.NotFoundHandler = http.HandlerFunc(api.NotFoundHandler)
-	router.MethodNotAllowedHandler = http.HandlerFunc(api.MethodNotAllowedHandler)
+	router, flowsHandler := buildRouter(cfg, store, runtimeManager, registry, userStore)
+	_ = flowsHandler
 
 	// Handle graceful shutdown
 	shutdownCtx, cancel := context.WithCancel(context.Background())
@@ -317,6 +246,89 @@ func main() {
 	}
 
 	log.Info().Msg("PiWorker stopped")
+}
+
+// buildRouter wires middleware and every HTTP route. users is nil when
+// authentication is disabled.
+func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flow.RuntimeManager, registry *node.Registry, users *storage.SQLiteUserStore) (*mux.Router, *api.FlowsHandler) {
+	router := mux.NewRouter()
+
+	// CORS allowed origins (from config).
+	corsOrigins := cfg.CORSOrigins
+	log.Info().
+		Strs("origins", corsOrigins).
+		Msg("CORS allowed origins configured")
+
+	// Setup middleware. Recovery is outermost so it catches panics from every
+	// downstream handler; then logging, metrics, and CORS.
+	router.Use(api.RecoveryMiddleware(log.Logger))
+	router.Use(api.LoggingMiddleware(log.Logger))
+	router.Use(api.MetricsMiddleware)
+	router.Use(makeCorsMiddleware(corsOrigins))
+	// CSRF + JSON Content-Type enforcement for unsafe /api/ requests. Installed
+	// unconditionally: with auth disabled it is the only thing stopping a page in
+	// the admin's browser from creating and deploying flows.
+	router.Use(api.RequestGuardMiddleware(cfg.SessionSecure, cfg.CORSOrigins))
+
+	if users != nil {
+		authHandler := api.NewAuthHandler(users, cfg.SessionSecure, cfg.CORSOrigins)
+		authHandler.RegisterRoutes(router)
+		router.Use(api.AuthMiddleware(authHandler))
+		log.Info().Msg("Session authentication enabled")
+	} else {
+		router.HandleFunc("/api/auth/status", api.AuthStatusHandler(false)).Methods(http.MethodGet)
+		log.Warn().Msg("Authentication disabled - API is unprotected")
+	}
+
+	// Register handlers
+	flowsHandler := api.NewFlowsHandler(store, runtimeManager, registry, log.Logger)
+	flowsHandler.RegisterRoutes(router)
+
+	nodeTypesHandler := api.NewNodeTypesHandler(registry, log.Logger, store)
+	nodeTypesHandler.RegisterRoutes(router)
+
+	// Observability endpoints: live SSE stream + run/event history. Registered
+	// under /api so AuthMiddleware applies; the frontend consumes the stream with
+	// fetch + ReadableStream with the same HttpOnly session cookie as other
+	// API calls (no token in JavaScript or URLs).
+	eventsHandler := api.NewEventsHandler(events.DefaultHub, store, log.Logger)
+	eventsHandler.RegisterRoutes(router)
+
+	// Secrets management (names listable, values write-only).
+	secretsHandler := api.NewSecretsHandler(secrets.DefaultStore, log.Logger)
+	secretsHandler.RegisterRoutes(router)
+	api.NewVariablesHandler(vars.DefaultStore).RegisterRoutes(router)
+
+	healthHandler := api.NewHealthHandler(store)
+	router.HandleFunc("/api/health", healthHandler.Health).Methods(http.MethodGet)
+
+	// Prometheus metrics. With auth enabled both paths require a session; the
+	// session cookie is scoped to /api, so authenticated scrapes and browsers
+	// use /api/metrics. /metrics stays for auth-disabled setups.
+	router.Handle("/api/metrics", promhttp.Handler()).Methods(http.MethodGet)
+	router.Handle("/metrics", promhttp.Handler()).Methods(http.MethodGet)
+	log.Info().Msg("Prometheus metrics endpoint available at /api/metrics (and /metrics)")
+
+	// Webhook endpoints: trigger-webhook nodes register their paths on the shared
+	// hub, and incoming requests are dispatched to them. Public (the node's
+	// optional token provides authentication); mounted before the frontend
+	// catch-all so it takes precedence.
+	router.PathPrefix(webhook.PathPrefix).Handler(webhook.DefaultHub.HandlerFunc())
+	log.Info().Str("prefix", webhook.PathPrefix).Msg("Webhook endpoint mounted")
+
+	// Serve embedded frontend for non-API routes
+	if webui.IsAvailable() {
+		log.Info().Msg("Serving embedded frontend")
+		router.PathPrefix("/").Handler(webui.Handler())
+	} else {
+		log.Warn().Msg("Embedded frontend not available - run frontend dev server separately")
+		router.PathPrefix("/").Handler(webui.Handler()) // Serves placeholder page
+	}
+
+	// Error handlers for API routes (these are overridden by the PathPrefix above for non-API)
+	router.NotFoundHandler = http.HandlerFunc(api.NotFoundHandler)
+	router.MethodNotAllowedHandler = http.HandlerFunc(api.MethodNotAllowedHandler)
+	return router, flowsHandler
 }
 
 // setupLogging configures the global logger.

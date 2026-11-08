@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/storage"
-	"github.com/Pegasus8/piworker/internal/webhook"
 	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -250,23 +249,12 @@ func (h *AuthHandler) Password(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, 200, nil, "")
 }
 func (h *AuthHandler) csrfAllowed(r *http.Request) bool {
-	if r.Header.Get("X-PiWorker-Request") != "1" {
-		return false
-	}
-	origin := r.Header.Get("Origin")
-	if origin == "" {
-		return r.Header.Get("Sec-Fetch-Site") != "cross-site"
-	}
-	scheme := "http"
-	if r.TLS != nil || h.secure {
-		scheme = "https"
-	}
-	return origin == scheme+"://"+r.Host || h.origins[origin]
+	return csrfAllowed(r, h.secure, h.origins)
 }
 func AuthMiddleware(h *AuthHandler) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, webhook.PathPrefix) {
+			if !isGuardedAPIPath(r.URL.Path) && r.URL.Path != "/metrics" {
 				next.ServeHTTP(w, r)
 				return
 			}
