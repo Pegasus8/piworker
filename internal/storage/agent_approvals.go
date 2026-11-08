@@ -181,6 +181,11 @@ func (s *SQLiteStore) CreateAgentApproval(a AgentApproval, now time.Time) (*Agen
 	default:
 		return nil, invalidApproval("unknown tool risk %q", a.ToolRisk)
 	}
+	// A tool call that names its tool is shown with its recorded risk; an
+	// empty one would pass for an approval stored before risks were recorded.
+	if a.Kind == ApprovalKindToolCall && (a.ToolName != "" || a.ToolFingerprint != "") && a.ToolRisk == "" {
+		return nil, invalidApproval("a tool call that names its tool must record the tool's risk")
+	}
 	if a.ExpiresAt.IsZero() {
 		a.ExpiresAt = now.Add(lifetime)
 	}

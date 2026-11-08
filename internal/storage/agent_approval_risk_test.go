@@ -52,6 +52,32 @@ func TestAgentApprovalRecordsTheToolRisk(t *testing.T) {
 	}
 }
 
+// A tool call that names its tool is shown in the editor as a request made
+// with the tool's risk recorded (ADR-0015), so it must record one: an empty
+// risk would be taken for an approval stored before risks were recorded.
+func TestAgentApprovalNamingItsToolNeedsItsRisk(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	tok, _ := newTestToken(t, s, NewAPIToken{})
+	named := newToolCallApproval(tok.ID)
+	named.ToolName = "gpio.set"
+	named.ToolFingerprint = "sha256:ab"
+	_, err := s.CreateAgentApproval(named, testNow)
+	require.ErrorIs(t, err, ErrInvalidAgentApproval)
+	onlyFingerprint := newToolCallApproval(tok.ID)
+	onlyFingerprint.ToolFingerprint = "sha256:ab"
+	_, err = s.CreateAgentApproval(onlyFingerprint, testNow)
+	require.ErrorIs(t, err, ErrInvalidAgentApproval)
+
+	named.ToolRisk = ApprovalToolRiskSafe
+	_, err = s.CreateAgentApproval(named, testNow)
+	require.NoError(t, err)
+	// Without the tool's identity it is an approval of the old shape, which
+	// approving never runs.
+	_, err = s.CreateAgentApproval(newToolCallApproval(tok.ID), testNow)
+	require.NoError(t, err)
+}
+
 // Databases created before tool_risk existed gain the column; their
 // approvals report no recorded risk.
 func TestAgentApprovalToolRiskMigration(t *testing.T) {

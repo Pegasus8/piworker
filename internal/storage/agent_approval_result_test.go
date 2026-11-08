@@ -126,6 +126,7 @@ func TestAgentApprovalRecordsTheTool(t *testing.T) {
 	req := newToolCallApproval(tok.ID)
 	req.ToolName = "gpio.set"
 	req.ToolFingerprint = "sha256:" + strings.Repeat("ab", 32)
+	req.ToolRisk = ApprovalToolRiskPrivileged
 	a, err := s.CreateAgentApproval(req, testNow)
 	require.NoError(t, err)
 	assert.Equal(t, req.ToolName, a.ToolName)
