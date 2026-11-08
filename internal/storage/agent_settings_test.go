@@ -56,3 +56,16 @@ func TestParseAgentDeployLevel(t *testing.T) {
 	_, err := ParseAgentDeployLevel("ALL")
 	require.ErrorIs(t, err, ErrInvalidAgentDeployLevel)
 }
+
+// Cached per-token MCP servers expose deploy tools according to the level, and
+// are keyed by the tokens epoch; changing the level must invalidate them.
+func TestSetAgentDeployLevelBumpsTokensEpoch(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	before, err := s.TokensEpoch()
+	require.NoError(t, err)
+	require.NoError(t, s.SetAgentDeployLevel(AgentDeployAll))
+	after, err := s.TokensEpoch()
+	require.NoError(t, err)
+	assert.Greater(t, after, before)
+}

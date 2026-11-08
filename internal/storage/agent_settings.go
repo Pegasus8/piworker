@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 )
@@ -52,10 +53,21 @@ func (s *SQLiteStore) AgentDeployLevel() (AgentDeployLevel, error) {
 	return level, nil
 }
 
-// SetAgentDeployLevel stores a validated level.
+// SetAgentDeployLevel stores a validated level and bumps the tokens epoch in
+// the same transaction, so per-token MCP servers cached with the old level's
+// deploy tools are rebuilt.
 func (s *SQLiteStore) SetAgentDeployLevel(level AgentDeployLevel) error {
 	if _, err := ParseAgentDeployLevel(string(level)); err != nil {
 		return err
 	}
-	return s.SetSetting(agentDeploySettingKey, string(level))
+	return s.inTokenTx(func(tx *sql.Tx) error {
+		_, err := tx.Exec(`
+			INSERT INTO settings (key, value) VALUES (?, ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value
+		`, agentDeploySettingKey, string(level))
+		if err != nil {
+			return fmt.Errorf("failed to set %s: %w", agentDeploySettingKey, err)
+		}
+		return nil
+	})
 }
