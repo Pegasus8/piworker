@@ -143,6 +143,7 @@ func TestApprovingAToolCallRunsIt(t *testing.T) {
 	require.NoError(t, err)
 	a, err := app.store.CreateAgentApproval(storage.AgentApproval{
 		Kind: storage.ApprovalKindToolCall, TokenID: tok.ID, FlowID: f.ID, Ref: "tool",
+		ToolName: tools[0].ToolName, ToolFingerprint: tools[0].Fingerprint,
 		Args: json.RawMessage(`{"door":"right"}`), Summary: "garage",
 	}, time.Now())
 	require.NoError(t, err)
