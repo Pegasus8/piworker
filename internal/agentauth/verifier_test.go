@@ -421,3 +421,26 @@ func TestConcurrentVerifyAndRevoke(t *testing.T) {
 		}
 	}
 }
+
+// Epoch reports the tokens epoch the verifier last read, so caches built
+// from verified tokens (the per-token MCP servers) notice changes that do not
+// show in a token's own info, such as the agent deploy level.
+func TestEpochReportsTheLastReadEpoch(t *testing.T) {
+	v, cs, clock := newVerifier(t)
+	_, raw := createToken(t, cs.SQLiteStore, storage.NewAPIToken{})
+	_, err := v.Verify(raw)
+	require.NoError(t, err)
+	before := v.Epoch()
+	want, err := cs.TokensEpoch()
+	require.NoError(t, err)
+	assert.Equal(t, want, before)
+
+	require.NoError(t, cs.SetAgentDeployLevel(storage.AgentDeployLow)) // bumps the epoch
+	_, err = v.Verify(raw)
+	require.NoError(t, err)
+	assert.Equal(t, before, v.Epoch(), "re-read only after the interval")
+	clock.Advance(DefaultEpochInterval)
+	_, err = v.Verify(raw)
+	require.NoError(t, err)
+	assert.Greater(t, v.Epoch(), before)
+}

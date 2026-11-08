@@ -268,6 +268,16 @@ func (v *TokenVerifier) touch(id string, now time.Time) {
 	}
 }
 
+// Epoch returns the tokens epoch as last read by Verify (0 before the first
+// read). It changes, at most one epoch interval late, after every revocation,
+// grant change or agent deploy level change made by any process, so callers
+// can key caches built from verified tokens on it.
+func (v *TokenVerifier) Epoch() int64 {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.epoch
+}
+
 // Evict drops one cached token, e.g. after its grants changed.
 func (v *TokenVerifier) Evict(id string) {
 	v.mu.Lock()
