@@ -3,25 +3,8 @@ import { ref, computed } from 'vue'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
 import { Input, ScrollArea, Badge } from '@/components/ui'
 import { cn } from '@/lib/utils'
-import {
-  Clock,
-  Webhook,
-  Radio,
-  Cpu,
-  Code,
-  GitBranch,
-  Timer,
-  FileText,
-  Globe,
-  Send,
-  Zap,
-  Bug,
-  Mail,
-  HelpCircle,
-  Search,
-  ChevronDown,
-  ChevronRight
-} from 'lucide-vue-next'
+import { Search, ChevronDown, ChevronRight } from 'lucide-vue-next'
+import { nodeIcon } from '@/lib/nodeIcons'
 import type { NodeCategory } from '@/types'
 
 const emit = defineEmits<{ add: [nodeType: string] }>()
@@ -29,23 +12,7 @@ const nodeTypesStore = useNodeTypesStore()
 
 const searchQuery = ref('')
 
-const iconComponents: Record<string, any> = {
-  Clock,
-  Webhook,
-  Radio,
-  Cpu,
-  Code,
-  GitBranch,
-  Timer,
-  FileText,
-  Globe,
-  Send,
-  Zap,
-  Bug,
-  Mail
-}
-
-const getIcon = (iconName: string) => iconComponents[iconName] || HelpCircle
+const getIcon = nodeIcon
 
 const expandedCategories = ref<Set<NodeCategory>>(new Set(['trigger', 'process', 'action']))
 
