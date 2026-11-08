@@ -550,15 +550,28 @@ token.
 
 ### Connecting Claude Code
 
-Trust PiWorker's CA once (see the editor's **Trust this device** page for the
-fingerprint check), then add the server with the token:
+Save PiWorker's CA, check its fingerprint, add the server with the token,
+and start Claude Code trusting the CA:
 
 ```bash
 curl -fo ~/piworker-ca.crt http://raspberrypi.local:8080/piworker-ca.crt
-export NODE_EXTRA_CA_CERTS=~/piworker-ca.crt   # add to your shell profile
+openssl x509 -in ~/piworker-ca.crt -noout -fingerprint -sha256
+# Stop unless it prints the CA fingerprint shown by `piworkerctl install`,
+# the PiWorker log or the editor's Trust this device page.
 claude mcp add --transport http --scope user piworker https://raspberrypi.local:8443/mcp \
   --header "Authorization: Bearer pwk_…"
+NODE_EXTRA_CA_CERTS=~/piworker-ca.crt claude   # for this command only
 ```
+
+The CA is downloaded over plain HTTP, so the fingerprint check is what makes
+it trustworthy. Node.js trusts `NODE_EXTRA_CA_CERTS` for **every** site, so
+set it for the `claude` command only (an alias such as
+`alias claude='NODE_EXTRA_CA_CERTS=~/piworker-ca.crt claude'` keeps it that
+way) and never export it from your shell profile. To avoid trusting the CA
+at all, run Claude Code through the piworker-mcp bridge instead, which pins
+the CA for PiWorker only:
+`claude mcp add --scope user piworker -- /usr/local/bin/piworker-mcp --url https://raspberrypi.local:8443/mcp --token-file ~/.piworker-token --ca-fingerprint SHA256:…`
+(see below for the token file).
 
 ### Connecting Claude Desktop
 
@@ -566,7 +579,13 @@ Claude Desktop starts local (stdio) servers, so it connects through the
 **piworker-mcp** bridge, which pins PiWorker's CA fingerprint and reads the
 token from a private file (`--url`, `--token-file`, `--ca-fingerprint`). The
 editor shows the exact commands for macOS/Linux and Windows when you create a
-token; see [cmd/piworker-mcp/README.md](cmd/piworker-mcp/README.md).
+token; see [cmd/piworker-mcp/README.md](cmd/piworker-mcp/README.md) for
+installing it. In `claude_desktop_config.json`, `"command"` must be the
+**full path** of the bridge (Claude Desktop does not use your shell's
+`PATH`); `--token-file ~/.piworker-token` may start with `~`. The bridge
+accepts plain `http://` only to `127.0.0.1` or `[::1]`: with
+`[tls] mode = "off"`, Claude Desktop must run on the PiWorker device itself,
+so turn HTTPS on (`mode = "auto"`) to connect from other computers.
 
 ### Security notes
 
@@ -873,7 +892,9 @@ itself is never replaced automatically.
 use the system trust. Save the CA (for example
 `curl -o ~/piworker-ca.crt http://raspberrypi.local:8080/piworker-ca.crt`), check
 its fingerprint, then use `curl --cacert ~/piworker-ca.crt …` or, for Claude Code,
-`export NODE_EXTRA_CA_CERTS=~/piworker-ca.crt` before starting it.
+start it with `NODE_EXTRA_CA_CERTS=~/piworker-ca.crt claude`: for that command
+only, never exported from your shell profile, since Node.js then trusts the CA
+for every site (see [Connecting Claude Code](#connecting-claude-code)).
 
 **What trusting the CA means.** A trusted CA can vouch for any website on that
 device. PiWorker stores the CA key only in its data directory (`tls/ca.key`), but

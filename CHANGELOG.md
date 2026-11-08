@@ -75,7 +75,8 @@ version. The version number and release date have not been selected.
   90-day default expiry, accepted only on `/mcp`. Privileged tools need the
   token's privileged flag and are never covered by "all tools". Grants are
   bound to the tool's fingerprint: any change to a tool suspends them until
-  re-confirmed. Recovery and password changes revoke every token.
+  re-confirmed. Account recovery revokes every token; a password change does
+  too unless "keep agent tokens" is ticked.
 - Tools with `confirm: admin` wait for approval in the editor (15 minutes);
   an approval runs only the tool version that was requested and keeps its
   result. Every agent call is audited for 30 days.

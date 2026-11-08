@@ -333,7 +333,7 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   `GET/POST /api/agent/approvals[/{id}/approve|reject]`,
   `GET /api/agent/approvals/pending-count` (the editor badge's poll: a
   read-only count of pending, unexpired approvals, authenticated without
-  extending the session's idle expiry),
+  extending the session's idle expiry and without a write transaction),
   `GET/PUT /api/agent/settings` (agent deploy level; PUT needs step-up; also
   reports the read-only TOML settings `authorEnabled`, `mcpEnabled` and
   `lanAccess`, so the editor can say whether agents can connect),
@@ -346,6 +346,11 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
     "destructiveHint": true, "idempotentHint": false, "openWorldHint": true},
     "fingerprint": "sha256:…", "confirm": "admin", "inputSchema": {…}}]}
   ```
+- Requests the editor starts by itself, not on the admin's behalf (the
+  Approvals page reloading its list when the badge count changes, which an
+  agent can cause at will), carry `X-PiWorker-Background: 1`; any guarded
+  path then checks the session without extending its idle expiry. The header
+  can only shorten a session, so it needs no allowlist (CORS allows it).
 
 ## 8. `/mcp` endpoint — `internal/mcpserver`
 
@@ -469,18 +474,28 @@ Environment: `PIWORKER_TLS_MODE`, `PIWORKER_HTTP_ADDR`, `PIWORKER_ALLOWED_HOSTS`
 
 ## 12. Clients
 
-Claude Code (trust the CA once via `NODE_EXTRA_CA_CERTS`):
+Claude Code (check the CA's fingerprint, then trust it through
+`NODE_EXTRA_CA_CERTS` for the `claude` command only: Node.js trusts it for
+every site, so it is never exported from the shell profile):
 ```bash
-export NODE_EXTRA_CA_CERTS=~/piworker-ca.crt
+openssl x509 -in ~/piworker-ca.crt -noout -fingerprint -sha256   # must match
 claude mcp add --transport http --scope user piworker https://raspberrypi.local:8443/mcp \
   --header "Authorization: Bearer pwk_…"
+NODE_EXTRA_CA_CERTS=~/piworker-ca.crt claude
 ```
 Claude Desktop: stdio bridge `piworker-mcp` (pure Go, `CGO_ENABLED=0`,
 darwin/windows/linux builds) with `--url`, `--token-file`, `--ca-file` /
 `--ca-fingerprint` pinning; it relays tools and prompts. The editor's new-token
-dialog gives the token-file command for macOS/Linux (`umask 077`) and for
-Windows (PowerShell, `icacls` restricted to the current user), with the
-matching `claude_desktop_config.json` paths.
+dialog gives the token-file command for macOS/Linux (`umask 077`, file
+recreated) and for Windows (PowerShell, file recreated, `icacls` restricted to
+the current user's SID, stopping before the token is written if it fails),
+both reading the token at a silent prompt so it stays out of the shell
+history, with the matching `claude_desktop_config.json`: `"command"` is the
+bridge's full path (Claude Desktop does not use the shell `PATH`),
+`--token-file ~/.piworker-token` (the bridge expands `~`), and with TLS off
+`--url http://127.0.0.1:<port>/mcp` (or `[::1]`), the only plain-HTTP
+destinations the bridge accepts, with a note recommending `mode = "auto"`
+for other computers.
 
 ## 13. Testing
 
