@@ -66,19 +66,19 @@ func (h *Handler) staticTool(name string) *staticTool {
 
 // serverKey identifies what a per-token server holds: the tools snapshot it
 // was built from, the tokens epoch (agent deploy level, revocations) and
-// what the token may do (scopes, flags and grants).
+// the actor it serves (scopes, flags and grants).
 type serverKey struct {
 	tokenID string
 	tools   uint64
 	epoch   int64
-	access  string
+	actor   string
 }
 
 // serverFor returns the server for a verified token, holding only the tools
 // and prompts it may use now, from the cache when nothing changed.
 func (h *Handler) serverFor(v verified) *mcp.Server {
 	version, tools := h.tools.List(v.actor)
-	key := serverKey{tokenID: v.info.ID, tools: version, epoch: h.tokens.Epoch(), access: accessHash(v.actor)}
+	key := serverKey{tokenID: v.info.ID, tools: version, epoch: h.tokens.Epoch(), actor: accessHash(v.actor)}
 	if srv := h.servers.get(key); srv != nil {
 		return srv
 	}
@@ -86,14 +86,11 @@ func (h *Handler) serverFor(v verified) *mcp.Server {
 	return h.servers.put(key, srv)
 }
 
-// accessHash digests what the actor may do.
+// accessHash digests the whole actor (what the token may do, and its name):
+// a cached server's handlers act as the actor it was built for, so it must
+// equal the requesting one.
 func accessHash(actor service.Actor) string {
-	data, _ := json.Marshal(struct {
-		Scopes     []string
-		Privileged bool
-		AllTools   bool
-		Grants     []storage.TokenGrant
-	}{actor.Scopes, actor.Privileged, actor.AllTools, actor.Grants})
+	data, _ := json.Marshal(actor)
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }

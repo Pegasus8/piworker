@@ -402,7 +402,13 @@ func TestServerCache(t *testing.T) {
 	assert.NotSame(t, redeployed, regranted, "a grant change rebuilds")
 
 	e.verifier.bumpEpoch()
-	assert.NotSame(t, regranted, e.h.serverFor(e.verified(callToken)), "an epoch change rebuilds")
+	rebuilt := e.h.serverFor(e.verified(callToken))
+	assert.NotSame(t, regranted, rebuilt, "an epoch change rebuilds")
+
+	// The server's handlers act as the actor it was built for, so any
+	// change of the actor rebuilds it (here its name, shown in run history).
+	e.verifier.set(callToken, func(info *agentauth.TokenInfo) { info.Name = "renamed" })
+	assert.NotSame(t, rebuilt, e.h.serverFor(e.verified(callToken)), "a renamed token rebuilds")
 	assert.Equal(t, 2, e.h.servers.len(), "one server per token")
 }
 
