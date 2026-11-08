@@ -36,19 +36,22 @@ func TestBridgeIsPureGo(t *testing.T) {
 		"github.com/mattn/go-sqlite3",
 		"github.com/Pegasus8/piworker/internal/storage",
 	}
-	deps := goList(t, []string{"CGO_ENABLED=1"}, "-deps", "-f", `{{.ImportPath}}{{"\t"}}{{.Standard}}{{"\t"}}{{join .CgoFiles " "}}`)
-	for _, line := range strings.Split(strings.TrimSpace(deps), "\n") {
-		path, rest, _ := strings.Cut(line, "\t")
-		standard, cgoFiles, _ := strings.Cut(rest, "\t")
-		for _, f := range forbidden {
-			require.NotEqual(t, f, path, "piworker-mcp must not import %s (cgo)", f)
+	// Each release platform has its own files (token_windows.go, …).
+	for _, goos := range []string{"linux", "darwin", "windows"} {
+		deps := goList(t, []string{"GOOS=" + goos, "CGO_ENABLED=1"}, "-deps", "-f", `{{.ImportPath}}{{"\t"}}{{.Standard}}{{"\t"}}{{join .CgoFiles " "}}`)
+		for _, line := range strings.Split(strings.TrimSpace(deps), "\n") {
+			path, rest, _ := strings.Cut(line, "\t")
+			standard, cgoFiles, _ := strings.Cut(rest, "\t")
+			for _, f := range forbidden {
+				require.NotEqual(t, f, path, "piworker-mcp must not import %s (cgo) on %s", f, goos)
+			}
+			if standard == "false" {
+				require.Empty(t, cgoFiles, "piworker-mcp imports %s, which uses cgo on %s", path, goos)
+			}
 		}
-		if standard == "false" {
-			require.Empty(t, cgoFiles, "piworker-mcp imports %s, which uses cgo", path)
-		}
-	}
 
-	// And every package resolves without cgo.
-	broken := goList(t, []string{"CGO_ENABLED=0"}, "-e", "-deps", "-f", `{{with .Error}}{{.}}{{"\n"}}{{end}}{{range .DepsErrors}}{{.}}{{"\n"}}{{end}}`)
-	require.Empty(t, strings.TrimSpace(broken), "piworker-mcp does not build with CGO_ENABLED=0")
+		// And every package resolves without cgo.
+		broken := goList(t, []string{"GOOS=" + goos, "CGO_ENABLED=0"}, "-e", "-deps", "-f", `{{with .Error}}{{.}}{{"\n"}}{{end}}{{range .DepsErrors}}{{.}}{{"\n"}}{{end}}`)
+		require.Empty(t, strings.TrimSpace(broken), "piworker-mcp does not build with CGO_ENABLED=0 for %s", goos)
+	}
 }

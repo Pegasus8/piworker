@@ -35,9 +35,9 @@ Flags:
   --url URL             PiWorker's MCP endpoint, https://HOST:8443/mcp. Plain
                         http is only accepted to 127.0.0.1 or [::1].
   --token-file PATH     File holding the agent token (pwk_…) created under
-                        Agents in the PiWorker editor. On macOS and Linux it
-                        must be private to you (chmod 600). A leading ~ is
-                        your home directory.
+                        Agents in the PiWorker editor. It must be private to
+                        you (chmod 600; on Windows, see the README's icacls
+                        step). A leading ~ is your home directory.
   --ca-fingerprint FP   Trust only the CA with this SHA-256 fingerprint, as
                         shown under Settings → Trust this device.
   --ca-file PATH        Trust only the CA certificate(s) in this PEM or DER

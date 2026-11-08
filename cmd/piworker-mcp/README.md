@@ -86,9 +86,11 @@ icacls $token   # should list only you
 ```
 
 `/inheritance:r` drops the permissions inherited from your profile folder and
-`/grant:r` leaves read and write for you alone. (Windows permissions are ACLs
-the bridge cannot check, so this step is up to you.) Do not use `Out-File` or
-`>` in Windows PowerShell 5.1: they write UTF-16, which the bridge refuses.
+`/grant:r` leaves read and write for you alone. The bridge refuses a token file
+that accounts other than you, SYSTEM and Administrators can read or change
+(for example `Users` or `Everyone`, typical outside your profile folder), or
+that another user owns, and shows this `icacls` command. Do not use `Out-File`
+or `>` in Windows PowerShell 5.1: they write UTF-16, which the bridge refuses.
 
 ## 4. Configure Claude Desktop
 
@@ -167,7 +169,7 @@ IP address; PiWorker's certificate covers its interface addresses.
 | Flag | Meaning |
 |---|---|
 | `--url URL` | PiWorker's MCP endpoint, `https://HOST:8443/mcp`. Required. Plain `http://` is only accepted to `127.0.0.1` or `[::1]` (PiWorker on the same computer with `tls.mode = "off"`); credentials, queries and fragments are refused. |
-| `--token-file PATH` | File holding the agent token (`pwk_…`). Required. Whitespace and a UTF-8 BOM are ignored. On macOS and Linux it must not be accessible to group or others. |
+| `--token-file PATH` | File holding the agent token (`pwk_…`). Required. Whitespace and a UTF-8 BOM are ignored. On macOS and Linux it must not be accessible to group or others; on Windows only you, SYSTEM and Administrators may read or change it. |
 | `--ca-fingerprint FP` | Trust only the CA with this SHA-256 fingerprint. Accepts `SHA256:AB:CD:…` as PiWorker shows it, in any case, with or without the prefix and colons. |
 | `--ca-file PATH` | Trust only the CA certificate(s) in this PEM or DER file, e.g. the `piworker-ca.crt` from **Trust this device**, or your own CA with `tls.mode = "custom"`. With `--ca-fingerprint` too, only the certificate with that fingerprint. |
 | `--timeout DURATION` | Give up on a request after this long (default `2m0s`). |
