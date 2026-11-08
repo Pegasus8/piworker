@@ -6,8 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
+
+	"github.com/Pegasus8/piworker/internal/node"
+	"github.com/Pegasus8/piworker/internal/types"
+	"github.com/google/uuid"
 )
 
 // CallStatus is the outcome of a synchronous call (FlowRuntime.Call / Wait).
@@ -80,6 +85,125 @@ type CallRequest struct {
 // call, so the caller may keep mutating it afterwards.
 type Replier interface {
 	Reply(correlationID string, payload any, isError bool) bool
+}
+
+// Call starts a run on a callable trigger (one implementing node.Emitter, such
+// as trigger-tool) and waits for its reply, the end of the run, the timeout, or
+// ctx cancellation (whichever first). On timeout it returns Status "running";
+// the run continues and Wait can be used later. On ctx cancellation it returns
+// the same "running" result together with ctx.Err().
+//
+// The run ID is a server-generated UUID set as the run's correlationID, with
+// req.Actor as its "actor" meta. The payload is a deep copy of req.Args (an
+// empty object when nil). An error without a run ID means no run was started.
+func (r *FlowRuntime) Call(ctx context.Context, req CallRequest) (CallResult, error) {
+	if !r.IsRunning() {
+		return CallResult{}, ErrFlowNotRunning
+	}
+	trigger, ok := r.triggers[req.TriggerNodeID]
+	if !ok {
+		return CallResult{}, fmt.Errorf("%w: %s is not an enabled trigger of this flow", ErrNodeNotFound, req.TriggerNodeID)
+	}
+	emitter, ok := trigger.(node.Emitter)
+	if !ok {
+		return CallResult{}, fmt.Errorf("%w: node %s", ErrTriggerNotCallable, req.TriggerNodeID)
+	}
+	if r.ActiveTargets(req.TriggerNodeID) == 0 {
+		return CallResult{}, fmt.Errorf("%w: node %s", ErrNoActiveTargets, req.TriggerNodeID)
+	}
+	timeout := req.Timeout
+	if timeout <= 0 {
+		timeout = DefaultCallTimeout
+	}
+
+	runID := uuid.New().String()
+	w, err := r.calls.register(runID, timeout)
+	if err != nil {
+		return CallResult{}, err
+	}
+
+	args := req.Args
+	if args == nil {
+		args = map[string]any{}
+	}
+	// Clone so the run owns its payload and the caller keeps req.Args.
+	msg := types.NewMessage(args, types.DataTypeObject).Clone()
+	msg.SetMeta("correlationID", runID)
+	if req.Actor != "" {
+		msg.SetMeta("actor", req.Actor)
+	}
+	if err := emitter.Emit(ctx, msg); err != nil {
+		r.calls.remove(runID)
+		return CallResult{}, fmt.Errorf("start run on %s: %w", req.TriggerNodeID, err)
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-w.done:
+	case <-timer.C:
+	case <-ctx.Done():
+		return r.calls.snapshotOrErr(w, ctx.Err())
+	}
+	return r.calls.snapshot(w), nil
+}
+
+// Wait returns the final result of a run started by Call, blocking until it is
+// final or ctx ends (then: the "running" result and ctx.Err()). A run that is
+// unknown or whose waiter outlived its hard lifetime reports "expired".
+func (r *FlowRuntime) Wait(ctx context.Context, runID string) (CallResult, error) {
+	w := r.calls.get(runID)
+	if w == nil {
+		return CallResult{Status: CallStatusExpired, RunID: runID}, nil
+	}
+	select {
+	case <-w.done:
+		return r.calls.snapshot(w), nil
+	case <-ctx.Done():
+		return r.calls.snapshotOrErr(w, ctx.Err())
+	}
+}
+
+// RunDone returns a channel closed when the run identified by runID finishes
+// (all of its in-flight work drained). It is also closed when the flow stops
+// or the run's waiter expires, so a stuck run cannot hold a caller's resources
+// forever, and it is already closed for runs that are not tracked.
+func (r *FlowRuntime) RunDone(runID string) <-chan struct{} {
+	return r.calls.runDoneChan(runID)
+}
+
+// ActiveTargets returns how many enabled nodes a message leaving nodeID (on
+// any of its output ports) is routed to. Connections to disabled nodes do not
+// count. Unknown or disabled nodes have none.
+func (r *FlowRuntime) ActiveTargets(nodeID string) int {
+	if _, ok := r.nodes[nodeID]; !ok {
+		return 0
+	}
+	return r.targetCount(nodeID, "")
+}
+
+// ValidateCallTriggers fails when a callable trigger (node.Emitter) has no
+// active downstream connection: calls to it could never do anything. Deploy
+// runs it; the error is a *ValidationError.
+func (r *FlowRuntime) ValidateCallTriggers() error {
+	ids := make([]string, 0, len(r.triggers))
+	for id, trigger := range r.triggers {
+		if _, ok := trigger.(node.Emitter); ok {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		if r.ActiveTargets(id) > 0 {
+			continue
+		}
+		nodeType := ""
+		if def := r.nodeDefs[id]; def != nil {
+			nodeType = def.Type
+		}
+		return NewValidationError("callable trigger %s (%s) has no active connection: connect it to at least one enabled node", id, nodeType)
+	}
+	return nil
 }
 
 type callRegistryKey struct{}
@@ -315,6 +439,16 @@ func (c *callRegistry) snapshot(w *callWaiter) CallResult {
 		res.Error = &e
 	}
 	return res
+}
+
+// snapshotOrErr is snapshot for a wait interrupted by err: a result that is
+// already final wins over the interruption.
+func (c *callRegistry) snapshotOrErr(w *callWaiter, err error) (CallResult, error) {
+	res := c.snapshot(w)
+	if res.Status == CallStatusRunning {
+		return res, err
+	}
+	return res, nil
 }
 
 // finalize sets the final result. Callers hold c.mu and check !w.final.
