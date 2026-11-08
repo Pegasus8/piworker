@@ -52,7 +52,6 @@ func Default() Config {
 		CORSOrigins: []string{"http://localhost:3000", "http://localhost:8080"},
 		MCP:         DefaultMCP(),
 
-
 		HTTPAddr:     ":8080",
 		WebhooksHTTP: true,
 		TLS:          TLSConfig{Mode: TLSModeAuto},

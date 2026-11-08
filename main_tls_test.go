@@ -262,6 +262,7 @@ func TestSessionCookieSecureFollowsTLSMode(t *testing.T) {
 			app := newTestApp(t, true)
 			cfg := config.Default()
 			cfg.TLS.Mode = mode
+			cfg.AllowedHosts = []string{"piworker.local"} // the Host testApp.do uses
 			router, _ := buildRouter(cfg, app.store, app.manager, node.DefaultRegistry, app.users)
 			// A plain-HTTP request: the flag comes from the configuration, not r.TLS.
 			w := testApp{handler: router}.do("POST", "/api/auth/login", "application/json", `{"username":"admin","password":"test-password"}`, editorHeaders)
@@ -498,4 +499,30 @@ func TestLocalCAFilesAreIgnoredByGitAndDocker(t *testing.T) {
 		// "**/" also matches the root of the build context.
 		assert.Contains(t, patterns, "**/tls/", ".dockerignore must exclude every tls directory")
 	})
+}
+
+// Health checks (systemd, Docker, monitoring) must work without the local CA,
+// so the plain listener answers GET /api/health itself instead of redirecting.
+// Anything else under /api still redirects.
+func TestRedirectListenerServesHealthWithoutRedirect(t *testing.T) {
+	app := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	})
+	h := redirectHandler("8443", app, false)
+	for _, tc := range []struct {
+		method, target string
+		want           int
+	}{
+		{http.MethodGet, "/api/health", http.StatusTeapot},
+		{http.MethodHead, "/api/health", http.StatusTeapot},
+		{http.MethodPost, "/api/health", http.StatusPermanentRedirect},
+		{http.MethodGet, "/api/health/../flows", http.StatusPermanentRedirect},
+		{http.MethodGet, "/api/healthz", http.StatusPermanentRedirect},
+		{http.MethodGet, "/api/flows", http.StatusPermanentRedirect},
+	} {
+		r := httptest.NewRequest(tc.method, "http://pi.local:8080"+tc.target, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		assert.Equal(t, tc.want, w.Code, "%s %s", tc.method, tc.target)
+	}
 }

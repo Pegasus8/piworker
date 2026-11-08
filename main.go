@@ -362,7 +362,7 @@ func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *
 	api.NewVariablesHandler(vars.DefaultStore).RegisterRoutes(router)
 
 	healthHandler := api.NewHealthHandler(store)
-	router.HandleFunc("/api/health", healthHandler.Health).Methods(http.MethodGet)
+	router.HandleFunc(healthPath, healthHandler.Health).Methods(http.MethodGet, http.MethodHead)
 
 	// Prometheus metrics live under /api so they share the API's auth (and the
 	// session cookie, which is scoped to /api).

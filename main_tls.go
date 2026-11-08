@@ -135,13 +135,15 @@ func (s *serverSet) all() []*http.Server {
 }
 
 // redirectHandler answers the plain-HTTP listener: everything is
-// 308-redirected to HTTPS (keeping method and body), except the CA download
-// and, when webhooksHTTP is set, webhooks.
+// 308-redirected to HTTPS (keeping method and body), except the CA download,
+// GET/HEAD /api/health (so health checks need no CA) and, when webhooksHTTP is
+// set, webhooks.
 func redirectHandler(httpsPort string, app http.Handler, webhooksHTTP bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// The router may clean dot segments, so decide on the cleaned path.
 		clean := path.Clean("/" + r.URL.Path)
-		if r.URL.Path == api.CACertPath || (webhooksHTTP && strings.HasPrefix(clean, webhook.PathPrefix) && strings.HasPrefix(r.URL.Path, webhook.PathPrefix)) {
+		health := r.URL.Path == healthPath && (r.Method == http.MethodGet || r.Method == http.MethodHead)
+		if r.URL.Path == api.CACertPath || health || (webhooksHTTP && strings.HasPrefix(clean, webhook.PathPrefix) && strings.HasPrefix(r.URL.Path, webhook.PathPrefix)) {
 			app.ServeHTTP(w, r)
 			return
 		}
@@ -161,6 +163,9 @@ func redirectHandler(httpsPort string, app http.Handler, webhooksHTTP bool) http
 		http.Redirect(w, r, "https://"+authority+r.URL.RequestURI(), http.StatusPermanentRedirect)
 	})
 }
+
+// healthPath is the liveness endpoint, also answered on the plain listener.
+const healthPath = "/api/health"
 
 // publicURL is the address printed for browsers on the local network:
 // the mDNS name of this host (or localhost) and the listening port.
