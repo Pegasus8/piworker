@@ -197,7 +197,7 @@ func (t *Tools) call(ctx context.Context, actor Actor, ref ToolRef, args map[str
 		Timeout:       ti.Timeout,
 	})
 	if res.RunID == "" {
-		release()
+		release(false) // nothing ran: no cooldown
 		return flow.CallResult{}, callError(err)
 	}
 	done := rt.RunDone(res.RunID)
@@ -217,7 +217,7 @@ func (t *Tools) call(ctx context.Context, actor Actor, ref ToolRef, args map[str
 	}
 	go func() {
 		<-done
-		release()
+		release(true)
 		if running {
 			final := t.collect(rt, res.RunID)
 			if approvalID != "" {

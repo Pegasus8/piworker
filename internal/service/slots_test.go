@@ -36,8 +36,8 @@ func TestSlotsPerTool(t *testing.T) {
 	requireKind(t, err, ErrBusy)
 	_, err = s.acquire("f/b", 1, 0, "token:y")
 	require.NoError(t, err, "another tool has its own slots")
-	release()
-	release() // harmless
+	release(true)
+	release(true) // harmless
 	_, err = s.acquire("f/a", 1, 0, "token:y")
 	require.NoError(t, err)
 }
@@ -50,7 +50,7 @@ func TestSlotsGlobal(t *testing.T) {
 	require.NoError(t, err)
 	_, err = s.acquire("f/c", 4, 0, "token:z")
 	requireKind(t, err, ErrBusy)
-	r2()
+	r2(true)
 	_, err = s.acquire("f/c", 4, 0, "token:z")
 	require.NoError(t, err)
 }
@@ -79,7 +79,7 @@ func TestSlotsCooldownStartsAtRunEnd(t *testing.T) {
 	require.NoError(t, err, "no run has ended yet")
 
 	clock.advance(5 * time.Second)
-	release()
+	release(true)
 	clock.advance(400 * time.Millisecond)
 	te := requireKind(t, func() error { _, err := s.acquire("f/a", 2, time.Second, "token:z"); return err }(), ErrCooldown)
 	assert.Equal(t, 600*time.Millisecond, te.RetryAfter)
@@ -94,6 +94,26 @@ func TestSlotsInflight(t *testing.T) {
 	r, err := s.acquire("f/a", 4, 0, "token:x")
 	require.NoError(t, err)
 	assert.Equal(t, 1, s.inflight("f/a"))
-	r()
+	r(true)
 	assert.Equal(t, 0, s.inflight("f/a"))
+}
+
+// A slot released without a run (the runtime refused to start it) frees
+// the slot but starts no cooldown: nothing ran.
+func TestSlotsCooldownNeedsARun(t *testing.T) {
+	s, clock := newTestSlots(10, 10)
+	release, err := s.acquire("f/a", 1, time.Second, "token:x")
+	require.NoError(t, err)
+	release(false)
+	release(true) // a second call does nothing, not even start the cooldown
+	_, err = s.acquire("f/a", 1, time.Second, "token:x")
+	require.NoError(t, err, "no run ended, so no cooldown")
+	assert.Equal(t, 1, s.inflight("f/a"))
+
+	clock.advance(time.Hour)
+	release2, err := s.acquire("f/b", 1, time.Second, "token:y")
+	require.NoError(t, err)
+	release2(true)
+	_, err = s.acquire("f/b", 1, time.Second, "token:y")
+	requireKind(t, err, ErrCooldown)
 }

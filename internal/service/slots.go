@@ -39,9 +39,9 @@ func newSlots(maxGlobal, maxPerToken int, now func() time.Time) *slots {
 // acquire takes a slot of tool (at most maxConcurrent at once, cooldown
 // after each run) for tokenKey ("" for callers without a per-token limit).
 // It never waits: a full limit is ErrBusy, a running cooldown ErrCooldown.
-// release frees the slot and starts the cooldown; calling it again does
-// nothing.
-func (s *slots) acquire(tool string, maxConcurrent int, cooldown time.Duration, tokenKey string) (release func(), err error) {
+// release frees the slot and, when ran is set (a run started and ended),
+// starts the cooldown; calling it again does nothing.
+func (s *slots) acquire(tool string, maxConcurrent int, cooldown time.Duration, tokenKey string) (release func(ran bool), err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ts := s.tools[tool]
@@ -69,15 +69,17 @@ func (s *slots) acquire(tool string, maxConcurrent int, cooldown time.Duration, 
 		s.perToken[tokenKey]++
 	}
 	var once sync.Once
-	return func() { once.Do(func() { s.release(tool, tokenKey) }) }, nil
+	return func(ran bool) { once.Do(func() { s.release(tool, tokenKey, ran) }) }, nil
 }
 
-func (s *slots) release(tool, tokenKey string) {
+func (s *slots) release(tool, tokenKey string, ran bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if ts := s.tools[tool]; ts != nil {
 		ts.inflight--
-		ts.lastEnd = s.now()
+		if ran {
+			ts.lastEnd = s.now()
+		}
 	}
 	s.global--
 	if tokenKey != "" {

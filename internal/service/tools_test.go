@@ -565,6 +565,44 @@ func TestTooManyRuntimeCallsIsBusy(t *testing.T) {
 	assert.Equal(t, 1, e.tools.slots.inflight(toolKey(info)), "the refused call holds no slot")
 }
 
+// A call the runtime refuses to start (its waiter cap is full, here filled
+// by another tool of the same flow) runs nothing, so it starts no cooldown.
+func TestRefusedStartDoesNotStartTheCooldown(t *testing.T) {
+	e := newEnv(t, func(_ *Options, m *[]flow.ManagerOption) {
+		*m = append(*m, flow.WithRuntimeOptions(flow.WithMaxCallWaiters(1)))
+	})
+	f := fan(toolConfig(map[string]any{"cooldownMs": float64(60000)}), echo())
+	other := flow.NewNode("trigger-tool", flow.NodeCategoryInput)
+	other.ID, other.Config = "other", toolConfig(nil)
+	f.AddNode(*other)
+	slow := flow.NewNode("process-delay", flow.NodeCategoryProcessing)
+	slow.ID, slow.Config = "slow", map[string]any{"delay": float64(300)}
+	f.AddNode(*slow)
+	f.AddConnection(*flow.NewConnection("other", "output", "reply", "input"))
+	f.AddConnection(*flow.NewConnection("other", "output", "slow", "input"))
+	require.NoError(t, e.manager.Deploy(context.Background(), f))
+	rt, ok := e.manager.GetRuntime(f.ID)
+	require.True(t, ok)
+	var cooled, busy flow.ToolInfo
+	for _, ti := range rt.Tools() {
+		if ti.TriggerNodeID == "tool" {
+			cooled = ti
+		} else {
+			busy = ti
+		}
+	}
+
+	_, err := e.call(EditorActor(), busy, map[string]any{"door": "left"})
+	require.NoError(t, err, "holds the flow's only waiter until its slow branch ends")
+	_, err = e.call(EditorActor(), cooled, map[string]any{"door": "left"})
+	requireKind(t, err, ErrBusy)
+
+	e.waitIdle(busy)
+	res, err := e.call(EditorActor(), cooled, map[string]any{"door": "left"})
+	require.NoError(t, err, "the refused call did not start the cooldown")
+	assert.Equal(t, flow.CallStatusCompleted, res.Status)
+}
+
 func TestRedactionCanaries(t *testing.T) {
 	e := newEnv(t)
 	require.NoError(t, e.secrets.Set("api_key", canary))
