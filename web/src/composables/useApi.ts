@@ -27,6 +27,10 @@ api.interceptors.response.use(
   }
 )
 
+// The configured client (CSRF header, 401 handling) for stores that keep
+// their own endpoints, such as stores/agent.ts.
+export const apiClient = api
+
 export function useApi() {
   // Flows
   async function getFlows(): Promise<FlowListItem[]> {
