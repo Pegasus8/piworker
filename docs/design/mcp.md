@@ -401,7 +401,11 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   token and reason in SQL (at most 500 groups, largest first, `truncated`
   when more matched).
 - Agent-authored text is rendered as plain text only (never `marked`/`v-html`);
-  the webui sends `Content-Security-Policy: script-src 'self'`.
+  every webui response sends `Content-Security-Policy` (`webui.ContentSecurityPolicy`:
+  `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+  img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none';
+  base-uri 'self'; form-action 'self'; frame-ancestors 'none'`). The built
+  `index.html` has no inline script (tested).
 
 ## 10. Authoring and agent deploy
 
