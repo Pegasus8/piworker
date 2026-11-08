@@ -115,9 +115,10 @@ docker run -d \
   -p 8080:8080 \
   -v piworker-data:/app/data \
   -e PIWORKER_ADMIN_USER -e PIWORKER_ADMIN_PASS \
+  -e PIWORKER_ALLOWED_HOSTS="$(hostname),$(hostname).local" \
   ghcr.io/pegasus8/piworker:latest
 
-# Open http://localhost:8080
+# Open http://localhost:8080 (or http://<hostname>.local:8080 on the LAN)
 ```
 
 ### Option 2: Pre-built Binary (published releases)
@@ -256,6 +257,7 @@ docker run -d \
   -p 8080:8080 \
   -v piworker-data:/app/data \
   -e PIWORKER_ADMIN_USER -e PIWORKER_ADMIN_PASS \
+  -e PIWORKER_ALLOWED_HOSTS="$(hostname),$(hostname).local" \
   --restart unless-stopped \
   piworker:latest
 ```
@@ -394,7 +396,7 @@ sudo systemctl start piworker
 | Node | Type | Description |
 |------|------|-------------|
 | **Log** | `action-log` | Log messages with a configurable level |
-| **Command** | `action-command` | Execute shell commands (inputs are shell-escaped) |
+| **Command** | `action-command` | Execute shell commands (inputs are passed as literal arguments; values starting with `-` need `allowDashArgs`) |
 | **HTTP Request** | `action-http` | Call an HTTP API (SSRF-guarded, size-capped) |
 | **Notify** | `action-notify` | Send to Discord / Slack / ntfy |
 | **Telegram** | `action-telegram` | Send a message via a Telegram bot |
@@ -407,6 +409,19 @@ sudo systemctl start piworker
 
 > Each node ships an in-app documentation card and a configuration schema, so the
 > editor renders its settings form automatically.
+
+Each node type also declares a **risk** in `/api/node-types` (`risk`): `privileged`
+for nodes that act on the host (Command, Write File, Database, GPIO Write, I2C
+Read), `external` for nodes that send data elsewhere (HTTP Request, MQTT
+Publish, Email, Telegram, Notify) and `safe` for the rest. Schema properties
+may be marked `sensitive` (credentials, never echoed) and `agentVisible`
+(harmless values that agents may read); numeric properties state their `unit`.
+
+**Command** refuses a placeholder value that starts with `-` (for example
+`-rf` or `--output=/etc/passwd` arriving in a payload), because the program
+would read it as an option. If a command really expects such values, end its
+options with `--` before the placeholders and turn on **allowDashArgs**, a
+deliberate opt-in to that risk.
 
 ---
 
@@ -427,6 +442,7 @@ db = "piworker.db"
 auth = true
 session_secure = false # Secure cookies only; does not enable an HTTPS listener
 cors_origins = ["http://localhost:3000", "http://localhost:8080"]
+allowed_hosts = [] # extra Host names, see "Host names" below
 ```
 
 ### Command Line Flags
@@ -445,6 +461,7 @@ Flags:
   -setup-code           Generate a new setup code and exit (only before setup)
   -recover-account name Generate a password recovery code and exit
   -cors-origins string  Comma-separated allowed CORS origins
+  -allowed-hosts string Comma-separated extra Host names (see "Host names")
   -admin-user string    Bootstrap admin username (or env PIWORKER_ADMIN_USER)
   -admin-pass string    Bootstrap admin password (or env PIWORKER_ADMIN_PASS)
 ```
@@ -457,7 +474,11 @@ Connections use the input/output ports declared by each node, including the
 from older definitions are flagged for reconnection before deployment.
 
 **Deploy** starts the saved flow and schedules it for restoration when PiWorker
-restarts. **Stop** ends execution and removes that restoration intent. The list
+restarts. Deploying checks every enabled node's settings against its schema
+(types, choices, ranges) and fails with the offending path and the expected
+unit, e.g. `nodes[3].config.interval: expected number (milliseconds), got
+string "5s"`. Values of credential fields are never quoted in these errors. A
+node definition without an `enabled` field is enabled. **Stop** ends execution and removes that restoration intent. The list
 switch controls the same lifecycle; there is no separate flow-level “enabled”
 setting. Stop a running flow before saving edits. Failed startup restoration is
 shown as **Failed**.
@@ -509,9 +530,24 @@ only names. In compatible credential fields, autocomplete inserts
 `{{secret.NAME}}`. Supported fields are Telegram's bot token, Notify's URL,
 Database's DSN, and the username/password fields of Email, MQTT Publish and MQTT
 Subscribe. These references resolve when the node is created: stop and redeploy
-an existing flow after rotating a secret. HTTP Request headers do not currently
-resolve secret placeholders. General templates and expressions cannot read the
-secret store; missing credential references currently resolve to an empty string.
+an existing flow after rotating a secret; missing references resolve to an
+empty string.
+
+Two places read secrets on every use instead, so rotation applies at once:
+
+- **HTTP Request**: header values (`Authorization: Bearer {{secret.api_token}}`)
+  and the URL's `user:password@` part and query string
+  (`?apikey={{secret.api_key}}`, query-encoded). A secret placed in the scheme,
+  host, path or fragment, or one that does not exist, fails the request before
+  anything is sent; `meta.httpURL` and errors show the placeholder. The request
+  body never resolves secrets.
+- **Webhook** token: deploying fails if the secret does not exist; if it is
+  deleted or emptied later, every request is rejected (the check is never
+  turned off).
+
+Secrets are only resolved where they are written in a node's configuration,
+never inside message data, so a payload cannot extract them. General templates
+and expressions cannot read the secret store.
 
 Secrets are stored in SQLite without application-level encryption at rest. They
 are excluded from flow exports when referenced by name; literal credentials
@@ -528,6 +564,7 @@ export PIWORKER_DEBUG=true
 export PIWORKER_AUTH=true
 export PIWORKER_SESSION_SECURE=false # true when the browser connects via HTTPS
 export PIWORKER_CORS_ORIGINS=http://localhost:3000,http://localhost:8080
+export PIWORKER_ALLOWED_HOSTS=piworker.example.com,backend
 export PIWORKER_ADMIN_USER=admin
 export PIWORKER_ADMIN_PASS=...
 ```
@@ -544,6 +581,27 @@ they require a signed-in session.
 Write requests to `/api/` must come from the editor
 even when authentication is disabled: they need the `X-PiWorker-Request: 1`
 header, a same-origin or `cors_origins` Origin, and a JSON body.
+
+### Host names (DNS rebinding protection)
+
+The API, the web UI and the MCP endpoint only answer requests whose `Host`
+header is a name of this server; others get `403` with a JSON error. This stops
+a malicious web page whose DNS name is re-pointed at your Pi from using your
+browser to reach PiWorker. Accepted without configuration:
+
+- `localhost`, the machine's hostname and `<hostname>.local` (mDNS),
+- the current interface addresses and, in fact, any IP address
+  (an attack needs a DNS name),
+
+ignoring the port and letter case. The hostname and addresses are re-read
+every 30 seconds. Add any other name you use (a DNS name, a reverse proxy's
+name, the Docker host's name) with `allowed_hosts` in the TOML file,
+`PIWORKER_ALLOWED_HOSTS` (comma-separated) or `-allowed-hosts`. Webhooks
+(`/webhooks/`) and the CA certificate download (`/piworker-ca.crt`) accept any
+name, because external devices call them. The Compose files set
+`PIWORKER_ALLOWED_HOSTS` (`backend` for the Vite proxy in development;
+`raspberrypi,raspberrypi.local` by default in production, override it with
+your host's name).
 
 ### Sessions and account recovery
 
@@ -607,7 +665,8 @@ Deploy a flow with a **Webhook** trigger and external services can start it by
 calling `http://<host>/webhooks/<path>` (or HTTPS through a configured proxy).
 These endpoints live outside `/api`, so the administrator's session cookie is
 never sent to them, and they use their own optional token authentication. Set a token on the node to
-require `?token=...` or an `X-Webhook-Token` header.
+require `?token=...` or an `X-Webhook-Token` header; prefer storing it as a
+secret and writing `{{secret.NAME}}` in the token field.
 
 ---
 
