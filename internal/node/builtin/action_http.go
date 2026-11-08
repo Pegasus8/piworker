@@ -99,8 +99,26 @@ func NewHTTPAction(config map[string]interface{}) (node.Node, error) {
 		maxBytes = DefaultMaxResponseBytes
 	}
 
+	// Secrets may only go to a destination written in the configuration.
+	urlSecret := usesSecret(urlStr)
+	var secretHeaders []string
+	for k, v := range headers {
+		if usesSecret(v) {
+			secretHeaders = append(secretHeaders, k)
+		}
+	}
+	if urlSecret || len(secretHeaders) > 0 {
+		if err := checkSecretDestination(urlStr); err != nil {
+			return nil, err
+		}
+	}
+
 	timeout := time.Duration(timeoutMs) * time.Millisecond
 	allowPrivate := base.GetConfigBool("allowPrivate", false)
+	client := newGuardedHTTPClient(timeout, allowPrivate)
+	if urlSecret || len(secretHeaders) > 0 {
+		client.CheckRedirect = keepSecretsOnHost(secretHeaders, urlSecret)
+	}
 
 	action := &HTTPAction{
 		BaseNode:     base,
@@ -114,7 +132,7 @@ func NewHTTPAction(config map[string]interface{}) (node.Node, error) {
 		allowPrivate: allowPrivate,
 		maxBytes:     maxBytes,
 		retryable:    base.GetConfigBool("retryable", false),
-		client:       newGuardedHTTPClient(timeout, allowPrivate),
+		client:       client,
 	}
 
 	return action, nil
@@ -514,7 +532,7 @@ func httpActionConfigSchema() node.ConfigSchema {
 			"url": {
 				Type:        "string",
 				Title:       "URL",
-				Description: "Request URL (supports {{payload.field}} templates; {{secret.NAME}} only in the user:password@ part and the query string)",
+				Description: "Request URL (supports {{payload.field}} templates; {{secret.NAME}} only in the user:password@ part and the query string, and only when the URL starts with a literal scheme and host)",
 				Default:     "",
 			},
 			"method": {
@@ -657,9 +675,18 @@ credential:
 Secrets are read when each request is sent, so rotating one takes effect
 without redeploying. They are only resolved where they are written in this
 node's configuration, never inside message data, and never in the body. A
-secret in the scheme, host, path or fragment of the URL, or a secret that does
-not exist, fails the request before anything is sent. **meta.httpURL** and
-error messages show the placeholder, not the value.
+secret in the scheme, host, path or fragment of the URL fails the deploy; a
+secret that does not exist fails the request before anything is sent.
+**meta.httpURL** and error messages show the placeholder, not the value.
+
+When the URL or a header uses a secret, the URL must start with a literal
+scheme and host (` + "`https://api.example.com/...`" + `): a URL that starts with a
+placeholder (` + "`{{payload.url}}`" + `, ` + "`{{flowVars.base}}/x`" + `) or takes part of
+its scheme, host or port from one fails the deploy with *secrets require a
+fixed scheme and host*, because message data could then send the secret
+anywhere. Placeholders in the path, query string and fragment stay allowed.
+On a redirect to another host, headers that carry secrets and a Referer that
+would repeat a query secret are dropped.
 
 ## Output Modes
 

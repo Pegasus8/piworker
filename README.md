@@ -543,9 +543,16 @@ Two places read secrets on every use instead, so rotation applies at once:
 - **HTTP Request**: header values (`Authorization: Bearer {{secret.api_token}}`)
   and the URL's `user:password@` part and query string
   (`?apikey={{secret.api_key}}`, query-encoded). A secret placed in the scheme,
-  host, path or fragment, or one that does not exist, fails the request before
-  anything is sent; `meta.httpURL` and errors show the placeholder. The request
-  body never resolves secrets.
+  host, path or fragment fails the deploy, and one that does not exist fails
+  the request before anything is sent; `meta.httpURL` and errors show the
+  placeholder. The request body never resolves secrets. When the URL or a
+  header uses a secret, the URL must start with a literal scheme and host
+  (`https://api.example.com/...`), so that message data or a variable such as
+  `{{payload.url}}` or `{{flowVars.base}}` cannot choose where the secret goes;
+  otherwise the deploy fails with `secrets require a fixed scheme and host`.
+  Placeholders after the host stay allowed. A redirect to another host does
+  not receive the headers that carry secrets, nor a `Referer` repeating a
+  query secret.
 - **Webhook** token: deploying fails if the secret does not exist; if it is
   deleted or emptied later, every request is rejected (the check is never
   turned off).

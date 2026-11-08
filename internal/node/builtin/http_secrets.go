@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -129,4 +131,89 @@ func (s *requestSecrets) requestURL(tmpl string, msg *types.Message, ctx context
 		return "", "", s.err
 	}
 	return u.String(), shown, nil
+}
+
+// usesSecret reports whether a configured template references {{secret.NAME}}.
+func usesSecret(tmpl string) bool {
+	for _, m := range templateRe.FindAllString(tmpl, -1) {
+		if _, ok := secretRef(placeholderParts(m)); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// errDynamicSecretDestination refuses a configuration that would let message
+// data choose where secrets are sent.
+var errDynamicSecretDestination = errors.New("secrets require a fixed scheme and host: " +
+	"when the URL or a header uses {{secret.NAME}}, the URL must start with a literal " +
+	"scheme and host (e.g. https://api.example.com/...), not with a placeholder or variable")
+
+// checkSecretDestination is the deploy-time check behind
+// errDynamicSecretDestination. Every placeholder other than a secret is
+// replaced by a random marker (a payload, meta or variable value may hold any
+// text, and a variable may have been set from a payload); the URL is then
+// parsed, and its scheme and host must be present and free of the marker.
+// Placeholders in the userinfo, path, query and fragment stay allowed: their
+// values are escaped so that they cannot move the host (urlEscaperAt). A
+// secret outside the userinfo and query string is refused here too, as it
+// would be on every request.
+func checkSecretDestination(urlTmpl string) error {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Errorf("cannot generate marker: %w", err)
+	}
+	marker := "pwdynamic" + hex.EncodeToString(b)
+	var refs []string
+	rendered := templateRe.ReplaceAllStringFunc(urlTmpl, func(m string) string {
+		if name, ok := secretRef(placeholderParts(m)); ok {
+			refs = append(refs, name)
+			return marker + "s" + strconv.Itoa(len(refs)-1) + "z"
+		}
+		return marker
+	})
+	u, err := url.Parse(rendered)
+	if err != nil {
+		return fmt.Errorf("invalid URL %q: %w", urlTmpl, errDynamicSecretDestination)
+	}
+	for i, name := range refs {
+		sentinel := marker + "s" + strconv.Itoa(i) + "z"
+		for _, part := range []string{u.Scheme, u.Opaque, u.Host, u.Path, u.RawPath, u.Fragment, u.RawFragment} {
+			if strings.Contains(part, sentinel) {
+				return fmt.Errorf("{{secret.%s}} may only be used in the URL's user:password@ part or query string", name)
+			}
+		}
+	}
+	if strings.HasPrefix(rendered, marker) || u.Scheme == "" || u.Host == "" ||
+		strings.Contains(u.Scheme, marker) || strings.Contains(u.Host, marker) {
+		return errDynamicSecretDestination
+	}
+	return nil
+}
+
+// maxRedirects matches net/http's default redirect limit.
+const maxRedirects = 10
+
+// keepSecretsOnHost returns a CheckRedirect policy that sends secrets only to
+// the host of the original request: on a redirect to any other host it drops
+// the headers whose configured value uses a secret and, when the URL uses one
+// (in the query string), the Referer that would repeat it. Without it a fixed
+// host's open redirect, reachable through a payload-chosen path, could
+// forward them.
+func keepSecretsOnHost(secretHeaders []string, urlSecret bool) func(*http.Request, []*http.Request) error {
+	return func(req *http.Request, via []*http.Request) error {
+		if len(via) >= maxRedirects {
+			return fmt.Errorf("stopped after %d redirects", maxRedirects)
+		}
+		if strings.EqualFold(req.URL.Host, via[0].URL.Host) {
+			return nil
+		}
+		for _, name := range secretHeaders {
+			req.Header.Del(name)
+		}
+		if urlSecret {
+			req.Header.Del("Referer")
+		}
+		return nil
+	}
 }

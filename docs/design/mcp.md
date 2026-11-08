@@ -90,7 +90,10 @@ func RegenerateCA(dir string) error
   403 on mismatch. Compose files set `PIWORKER_ALLOWED_HOSTS`.
 - `action-http` resolves `{{secret.NAME}}` in headers and in the URL userinfo/
   query at request time (never in payload-derived text); `trigger-webhook`
-  `token` is `Sensitive` and supports `{{secret.NAME}}`.
+  `token` is `Sensitive` and supports `{{secret.NAME}}`. When the URL or a
+  header uses a secret, the URL must start with a literal scheme and host
+  (deploy error otherwise; §5 extends this to static credentials), and
+  cross-host redirects drop secret-bearing headers and the Referer.
 - `action-command` rejects placeholder values starting with `-` unless
   `allowDashArgs: true`.
 - `ConfigProperty` gains `Sensitive bool` and `AgentVisible bool` (default

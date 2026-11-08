@@ -8,7 +8,9 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/secrets"
 	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/stretchr/testify/assert"
@@ -144,7 +146,8 @@ func TestHTTPUserinfoResolvesSecrets(t *testing.T) {
 }
 
 // In the scheme, host, path or fragment a secret would end up in logs,
-// metadata and redirects, or choose the destination: refuse before sending.
+// metadata and redirects, or choose the destination: refuse before sending,
+// at deploy time (or, should that check be bypassed, on the request).
 func TestHTTPSecretsOutsideUserinfoAndQueryAreRejected(t *testing.T) {
 	setSecret(t, "api_key", "s3cr3t")
 	srv, _, hits := secretServer(t)
@@ -156,7 +159,13 @@ func TestHTTPSecretsOutsideUserinfoAndQueryAreRejected(t *testing.T) {
 		"http://{{secret.api_key}}.example.com/x",
 		"http://" + host + "{{secret.api_key}}/",
 	} {
-		_, err := runHTTP(t, map[string]interface{}{"url": u}, nil)
+		_, err := NewHTTPAction(map[string]interface{}{"url": u})
+		require.Error(t, err, u)
+		assert.Contains(t, err.Error(), "{{secret.api_key}}", u)
+
+		a := &HTTPAction{BaseNode: node.NewBaseNode(nil), url: u, method: http.MethodGet, outputMode: "body",
+			maxBytes: DefaultMaxResponseBytes, client: newGuardedHTTPClient(time.Second, true)}
+		_, err = a.Process(context.Background(), types.NewMessage(nil, types.DataTypeAny))
 		require.Error(t, err, u)
 		assert.Contains(t, err.Error(), "{{secret.api_key}}", u)
 		assert.NotContains(t, err.Error(), "s3cr3t", u)
