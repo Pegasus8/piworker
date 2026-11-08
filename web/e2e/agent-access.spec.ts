@@ -66,6 +66,7 @@ async function mockServer(page: Page, opts: MockOptions = {}) {
       case 'PUT /agent/settings':
         settings = { ...settings, agentDeploy: body.agentDeploy }
         return ok(settings)
+      case 'GET /agent/approvals/pending-count': return ok({ pending: opts.pending ?? 2 })
       case 'GET /agent/approvals': {
         const status = url.searchParams.get('status')
         return ok({ approvals: status === 'pending' || status === null ? [...approvals, ...(opts.extraApprovals ?? [])] : [], pending: opts.pending ?? 2 })
@@ -121,10 +122,12 @@ test('polling pauses while the tab is hidden', async ({ page }) => {
   await page.clock.install()
   await page.goto('/')
   await expect(page.getByRole('button', { name: 'Agents', exact: true })).toBeVisible()
-  const polls = () => requests.filter(r => r.path === '/agent/approvals').length
+  // The badge polls the lightweight count only.
+  const polls = () => requests.filter(r => r.path === '/agent/approvals/pending-count').length
   await expect.poll(polls).toBe(1)
   await page.clock.runFor(10_500)
   await expect.poll(polls).toBe(2)
+  expect(requests.filter(r => r.path === '/agent/approvals')).toHaveLength(0)
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
     document.dispatchEvent(new Event('visibilitychange'))

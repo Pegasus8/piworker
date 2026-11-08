@@ -94,6 +94,30 @@ func (h *AgentHandler) ListApprovals(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, http.StatusOK, ApprovalList{Approvals: views, Pending: pending}, "")
 }
 
+// PendingApprovalsCountPath serves the editor badge's poll. AuthMiddleware
+// authenticates it without extending the session's idle expiry (see
+// passiveSessionPaths), so an open tab alone does not keep a session alive.
+const PendingApprovalsCountPath = "/api/agent/approvals/pending-count"
+
+// PendingApprovalsCount is the GET PendingApprovalsCountPath payload.
+type PendingApprovalsCount struct {
+	Pending int `json:"pending"`
+}
+
+// PendingCount counts the approvals still awaiting a decision. It is
+// read-only: approvals past their expiry are not counted but are left for
+// the expiry pass (ListApprovals, CreateAgentApproval) to close.
+// GET /api/agent/approvals/pending-count
+func (h *AgentHandler) PendingCount(w http.ResponseWriter, _ *http.Request) {
+	n, err := h.store.CountPendingAgentApprovals(h.now())
+	if err != nil {
+		h.logger.Error().Err(err).Msg("Failed to count agent approvals")
+		writeError(w, http.StatusInternalServerError, "Cannot read approvals")
+		return
+	}
+	writeSuccess(w, http.StatusOK, PendingApprovalsCount{Pending: n}, "")
+}
+
 // Approve records the approval, then asks the ApprovalExecutor to run it.
 // POST /api/agent/approvals/{id}/approve
 func (h *AgentHandler) Approve(w http.ResponseWriter, r *http.Request) { h.decide(w, r, true) }

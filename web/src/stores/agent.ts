@@ -174,9 +174,12 @@ export const useAgentStore = defineStore('agent', () => {
     }
   }
 
+  // The badge's poll: a read-only count that the server answers without
+  // extending the session's idle expiry, so an open tab alone does not keep
+  // a session alive.
   async function refreshPendingCount() {
     try {
-      const { data } = await apiClient.get('/agent/approvals', { params: { status: 'pending', limit: 1 } })
+      const { data } = await apiClient.get('/agent/approvals/pending-count')
       pendingCount.value = data.data?.pending ?? 0
       agentApiAvailable.value = true
     } catch (e) {

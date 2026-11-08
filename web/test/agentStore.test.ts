@@ -161,8 +161,12 @@ test('approvals are listed by status and keep the pending count for the badge', 
   expect(calls[0].params).toEqual({ status: 'all' })
   expect(store.approvals.map(a => a.id)).toEqual(['x'])
   expect(store.pendingCount).toBe(3)
+  // The badge polls the lightweight count, which does not keep the session alive.
+  routes['GET /agent/approvals/pending-count'] = () => ({ pending: 1 })
   await store.refreshPendingCount()
-  expect(calls[1].params).toEqual({ status: 'pending', limit: 1 })
+  expect(`${calls[1].method} ${calls[1].url}`).toBe('GET /agent/approvals/pending-count')
+  expect(calls[1].params).toBeUndefined()
+  expect(store.pendingCount).toBe(1)
 })
 
 test('a slower, older approvals response never replaces a newer one', async () => {
@@ -319,7 +323,7 @@ test('server error messages are preferred over the fallback', async () => {
 })
 
 test('the approval badge polls once for all watchers and stops with the last one', async () => {
-  routes['GET /agent/approvals'] = () => ({ approvals: [], pending: 2 })
+  routes['GET /agent/approvals/pending-count'] = () => ({ pending: 2 })
   const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' })
   let timers = 0
   const opts = { document: doc as any, setInterval: () => ++timers, clearInterval: () => { timers-- } }

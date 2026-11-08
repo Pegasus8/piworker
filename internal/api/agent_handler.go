@@ -89,6 +89,7 @@ func (h *AgentHandler) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/agent/tokens/{id}/grants", h.UpdateGrant).Methods(http.MethodPost)
 	r.HandleFunc("/api/agent/audit", h.ListAudit).Methods(http.MethodGet)
 	r.HandleFunc("/api/agent/approvals", h.ListApprovals).Methods(http.MethodGet)
+	r.HandleFunc(PendingApprovalsCountPath, h.PendingCount).Methods(http.MethodGet)
 	r.HandleFunc("/api/agent/approvals/{id}/approve", h.Approve).Methods(http.MethodPost)
 	r.HandleFunc("/api/agent/approvals/{id}/reject", h.Reject).Methods(http.MethodPost)
 	r.HandleFunc("/api/agent/settings", h.GetSettings).Methods(http.MethodGet)

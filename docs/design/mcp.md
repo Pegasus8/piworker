@@ -328,6 +328,9 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 - API (cookie): `GET/POST /api/agent/tokens`, `DELETE /api/agent/tokens/{id}`,
   `POST /api/agent/tokens/{id}/grants` (re-confirm), `GET /api/agent/audit`,
   `GET/POST /api/agent/approvals[/{id}/approve|reject]`,
+  `GET /api/agent/approvals/pending-count` (the editor badge's poll: a
+  read-only count of pending, unexpired approvals, authenticated without
+  extending the session's idle expiry),
   `GET/PUT /api/agent/settings` (agent deploy level; PUT needs step-up),
   `GET /api/agent/tools` (the published tools, for grant pickers):
   ```json

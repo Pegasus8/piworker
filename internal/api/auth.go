@@ -330,7 +330,26 @@ func (h *AuthHandler) Password(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) csrfAllowed(r *http.Request) bool {
 	return csrfAllowed(r, h.secure, h.origins)
 }
+
+// passiveSessionPaths are polled in the background by every open editor tab.
+// They need a valid session but are not activity: authenticating them never
+// extends the session's idle expiry, so a forgotten tab does not keep a
+// session alive past SessionIdleTimeout.
+var passiveSessionPaths = map[string]bool{
+	PendingApprovalsCountPath: true,
+}
+
+// AuthMiddleware requires a valid session on guarded /api paths and extends
+// its idle expiry, except on passiveSessionPaths, which it authenticates
+// with the non-touching variant.
 func AuthMiddleware(h *AuthHandler) mux.MiddlewareFunc {
+	return authMiddleware(h, func(r *http.Request) bool { return !passiveSessionPaths[r.URL.Path] })
+}
+
+// authMiddleware authenticates the session; touch says whether a request
+// counts as activity that extends the session's idle expiry (false: the
+// session is only checked, as live event streams re-check it).
+func authMiddleware(h *AuthHandler, touch func(*http.Request) bool) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !isGuardedAPIPath(r.URL.Path) {
@@ -352,7 +371,7 @@ func AuthMiddleware(h *AuthHandler) mux.MiddlewareFunc {
 				writeError(w, 401, "Sign in to continue")
 				return
 			}
-			session, err := h.store.GetSession(cookie.Value, time.Now(), true)
+			session, err := h.store.GetSession(cookie.Value, time.Now(), touch(r))
 			if errors.Is(err, storage.ErrSessionNotFound) {
 				h.setCookie(w, r, "", -1)
 				writeError(w, 401, "Session expired. Please sign in again.")
