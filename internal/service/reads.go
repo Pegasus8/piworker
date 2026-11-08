@@ -86,7 +86,20 @@ type ReadsOptions struct {
 	Secrets SecretSource
 	// Settings provides the agent deploy level (nil: reported as off).
 	Settings AgentSettings
-	Now      func() time.Time
+	// Version is the PiWorker version (empty: "unknown").
+	Version string
+	// StartedAt is when the server started (zero: when NewReads ran).
+	StartedAt time.Time
+	// DataDir is the data directory (the database's), whose disk usage
+	// SystemStatus reports; empty: disk usage is not reported.
+	DataDir string
+	// MCP holds the limits SystemStatus reports (zero fields: the
+	// defaults of config.DefaultMCP).
+	MCP config.MCPConfig
+	// Host probes host health for SystemStatus (default: what Linux shows
+	// cheaply; nothing elsewhere).
+	Host func(dataDir string) HostStatus
+	Now  func() time.Time
 }
 
 // Reads builds the read views for agents (MCP read tools) and the editor.
@@ -99,7 +112,12 @@ type Reads struct {
 	secrets  SecretSource
 	settings AgentSettings
 	now      func() time.Time
-	mcp      config.MCPConfig
+
+	version   string
+	startedAt time.Time
+	dataDir   string
+	mcp       config.MCPConfig
+	host      func(dataDir string) HostStatus
 }
 
 // NewReads returns the read views.
@@ -112,6 +130,12 @@ func NewReads(opts ReadsOptions) *Reads {
 		secrets:  opts.Secrets,
 		settings: opts.Settings,
 		now:      opts.Now,
+
+		version:   opts.Version,
+		startedAt: opts.StartedAt,
+		dataDir:   opts.DataDir,
+		mcp:       opts.MCP,
+		host:      opts.Host,
 	}
 	if r.registry == nil {
 		r.registry = node.DefaultRegistry
@@ -121,6 +145,19 @@ func NewReads(opts ReadsOptions) *Reads {
 	}
 	if r.now == nil {
 		r.now = time.Now
+	}
+	if r.startedAt.IsZero() {
+		r.startedAt = r.now()
+	}
+	defaults := config.DefaultMCP()
+	if r.mcp.MaxInflight <= 0 {
+		r.mcp.MaxInflight = defaults.MaxInflight
+	}
+	if r.mcp.MaxResultBytes <= 0 {
+		r.mcp.MaxResultBytes = defaults.MaxResultBytes
+	}
+	if r.host == nil {
+		r.host = probeHost
 	}
 	return r
 }
