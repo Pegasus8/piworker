@@ -308,7 +308,7 @@ func (c *callRegistry) register(runID string, timeout time.Duration) (*callWaite
 		done:    make(chan struct{}),
 		runDone: make(chan struct{}),
 	}
-	w.expiry = time.AfterFunc(timeout+c.grace, func() { c.expire(runID) })
+	w.expiry = time.AfterFunc(timeout+c.grace, func() { c.expire(w) })
 	c.waiters[runID] = w
 	return w, nil
 }
@@ -321,9 +321,8 @@ func (c *callRegistry) remove(runID string) {
 	if w == nil {
 		return
 	}
-	w.expiry.Stop()
 	c.closeRun(w)
-	delete(c.waiters, runID)
+	c.forget(w)
 }
 
 // get returns the waiter of runID, or nil.
@@ -404,8 +403,9 @@ func (c *callRegistry) runFinished(correlationID string) {
 	}
 }
 
-// stop cancels every waiting call ("flow stopped") and refuses new ones.
-// Finished results stay retrievable until their waiters expire.
+// stop cancels every waiting call ("flow stopped"), refuses new ones and
+// forgets every waiter: nothing can reach a stopped runtime's calls any more.
+// Callers already blocked in Call or Wait get the final result they hold.
 func (c *callRegistry) stop() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -415,23 +415,23 @@ func (c *callRegistry) stop() {
 			c.finalize(w, CallResult{Status: CallStatusError, Error: &CallError{Message: flowStoppedMessage}})
 		}
 		c.closeRun(w)
+		c.forget(w)
 	}
 }
 
 // expire ends a waiter's hard lifetime: an unfinished call reports expired,
 // and the waiter is forgotten.
-func (c *callRegistry) expire(runID string) {
+func (c *callRegistry) expire(w *callWaiter) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	w := c.waiters[runID]
-	if w == nil {
-		return
+	if c.waiters[w.runID] != w {
+		return // already forgotten
 	}
 	if !w.final {
 		c.finalize(w, CallResult{Status: CallStatusExpired})
 	}
 	c.closeRun(w)
-	delete(c.waiters, runID)
+	c.forget(w)
 }
 
 // snapshot returns the waiter's current result: the final one, or "running".

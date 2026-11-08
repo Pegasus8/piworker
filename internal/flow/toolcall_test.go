@@ -488,7 +488,8 @@ func TestStopCancelsWaiters(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, rt.Start(context.Background()))
 
-	// Call A times out and keeps running; call B is still blocked in Call.
+	// Call A times out and keeps running, a Wait for it blocks; call B is
+	// still blocked in Call.
 	resA, err := rt.Call(context.Background(), CallRequest{TriggerNodeID: "toolA", Args: map[string]any{}, Timeout: 10 * time.Millisecond})
 	require.NoError(t, err)
 	require.Equal(t, CallStatusRunning, resA.Status)
@@ -497,6 +498,11 @@ func TestStopCancelsWaiters(t *testing.T) {
 		res CallResult
 		err error
 	}
+	outA := make(chan callOut, 1)
+	go func() {
+		r, err := rt.Wait(context.Background(), resA.RunID)
+		outA <- callOut{r, err}
+	}()
 	outB := make(chan callOut, 1)
 	go func() {
 		r, err := rt.Call(context.Background(), CallRequest{TriggerNodeID: "toolB", Args: map[string]any{}, Timeout: 30 * time.Second})
@@ -504,6 +510,7 @@ func TestStopCancelsWaiters(t *testing.T) {
 	}()
 	waitClosed(t, enteredA, "node a did not start")
 	waitClosed(t, enteredB, "node b did not start")
+	require.Eventually(t, func() bool { return rt.calls.count() == 2 }, 2*time.Second, time.Millisecond)
 
 	require.NoError(t, rt.Stop())
 
@@ -518,12 +525,22 @@ func TestStopCancelsWaiters(t *testing.T) {
 		t.Fatal("Stop must release a blocked Call")
 	}
 
+	select {
+	case out := <-outA:
+		require.NoError(t, out.err)
+		assert.Equal(t, CallStatusError, out.res.Status)
+		require.NotNil(t, out.res.Error)
+		assert.Equal(t, "flow stopped", out.res.Error.Message)
+	case <-time.After(3 * time.Second):
+		t.Fatal("Stop must release a blocked Wait")
+	}
+	assert.True(t, isClosed(rt.RunDone(resA.RunID)))
+
+	// The stopped runtime keeps no waiter (nothing can reach it any more).
+	assert.Equal(t, 0, rt.calls.count())
 	gotA, err := rt.Wait(context.Background(), resA.RunID)
 	require.NoError(t, err)
-	assert.Equal(t, CallStatusError, gotA.Status)
-	require.NotNil(t, gotA.Error)
-	assert.Equal(t, "flow stopped", gotA.Error.Message)
-	assert.True(t, isClosed(rt.RunDone(resA.RunID)))
+	assert.Equal(t, CallStatusExpired, gotA.Status)
 
 	_, err = rt.Call(context.Background(), CallRequest{TriggerNodeID: "toolA", Args: map[string]any{}, Timeout: time.Second})
 	assert.ErrorIs(t, err, ErrFlowNotRunning)

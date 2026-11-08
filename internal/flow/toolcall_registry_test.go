@@ -191,8 +191,15 @@ func TestCallRegistryStopCancelsWaiters(t *testing.T) {
 	require.NotNil(t, res.Error)
 	assert.Equal(t, "flow stopped", res.Error.Message)
 
-	assert.Equal(t, CallStatusCompleted, reg.snapshot(done).Status, "a finished call keeps its result")
+	assert.Equal(t, CallStatusCompleted, reg.snapshot(done).Status, "holders of the waiter keep the final result")
 	assert.True(t, isClosed(done.runDone))
+
+	// Nothing can reach a stopped runtime's calls any more: free them.
+	assert.Equal(t, 0, reg.count(), "stop forgets every waiter")
+	assert.Nil(t, reg.get("done"))
+	assert.True(t, timerStopped(pending.expiry), "stop stops the expiry timers")
+	assert.True(t, timerStopped(done.expiry), "stop stops the expiry timers")
+	assert.False(t, reg.Reply("done", "late", false))
 
 	_, err = reg.register("late", time.Second)
 	assert.ErrorIs(t, err, ErrFlowNotRunning, "no new calls on a stopped flow")
