@@ -23,7 +23,7 @@ function tokens() {
 const now = Date.now()
 const iso = (offsetMs: number) => new Date(now + offsetMs).toISOString()
 const approvals = [
-  { id: 'ap1', kind: 'tool_call', tokenId: 'tokA', tokenName: 'laptop', flowId: 'f1', ref: 'n1', args: { door: 'main', note: XSS }, summary: 'Open it please ' + XSS, status: 'pending', createdAt: iso(-60_000), expiresAt: iso(14 * 60_000), tokenStatus: 'active' },
+  { id: 'ap1', kind: 'tool_call', tokenId: 'tokA', tokenName: 'laptop', flowId: 'f1', ref: 'n1', toolName: 'garage_open', toolFingerprint: 'sha256:new', toolRisk: 'external', args: { door: 'main', note: XSS }, summary: 'Open it please ' + XSS, status: 'pending', createdAt: iso(-60_000), expiresAt: iso(14 * 60_000), tokenStatus: 'active' },
   { id: 'ap2', kind: 'draft_deploy', tokenId: 'tokA', tokenName: 'laptop', flowId: 'f1', ref: 'draft-1', summary: 'Deploy my draft', status: 'pending', createdAt: iso(-120_000), expiresAt: iso(3_600_000), tokenStatus: 'active' }
 ]
 
@@ -31,7 +31,7 @@ function auditPage(from: number, n: number, preview = '{"door":"main"}') {
   return Array.from({ length: n }, (_, i) => ({ id: from - i, ts: iso(-i * 60_000), tokenId: 'tokA', tokenName: 'laptop', tool: i === 0 ? 'reboot_pi' : 'garage_open', flowId: 'f1', runId: `run-${from - i}`, argsPreview: i === 0 ? XSS : preview, outcome: i === 0 ? 'error' : 'completed', durMs: 12, privileged: i === 0 }))
 }
 
-interface MockOptions { toolsMissing?: boolean; pending?: number; extraApprovals?: unknown[]; auditPreview?: string; rejectionRows?: number; settingsFail?: boolean; executionError?: string }
+interface MockOptions { toolsMissing?: boolean; pending?: number; extraApprovals?: unknown[]; auditPreview?: string; rejectionRows?: number; settingsFail?: boolean; executionError?: string; approveResult?: unknown }
 
 async function mockServer(page: Page, opts: MockOptions = {}) {
   const requests: Req[] = []
@@ -70,7 +70,9 @@ async function mockServer(page: Page, opts: MockOptions = {}) {
         const status = url.searchParams.get('status')
         return ok({ approvals: status === 'pending' || status === null ? [...approvals, ...(opts.extraApprovals ?? [])] : [], pending: opts.pending ?? 2 })
       }
-      case 'POST /agent/approvals/ap1/approve': return ok({ approval: { ...approvals[0], status: 'approved', decidedBy: 'owner', decidedAt: iso(0) }, executed: false, executionError: 'not available' })
+      case 'POST /agent/approvals/ap1/approve':
+        if (opts.approveResult !== undefined) return ok({ approval: { ...approvals[0], status: 'approved', decidedBy: 'owner', decidedAt: iso(0), result: opts.approveResult }, executed: true })
+        return ok({ approval: { ...approvals[0], status: 'approved', decidedBy: 'owner', decidedAt: iso(0) }, executed: false, executionError: 'not available' })
       case 'POST /agent/approvals/ap3/approve': return ok({ approval: { ...(opts.extraApprovals![0] as object), status: 'approved', decidedBy: 'owner', decidedAt: iso(0) }, executed: false, executionError: opts.executionError })
       case 'POST /agent/approvals/ap1/reject': return ok({ approval: { ...approvals[0], status: 'rejected' }, executed: false })
       case 'GET /agent/audit': {
@@ -282,7 +284,8 @@ test('approvals render agent text as plain text and report the execution', async
 })
 
 test('an approval for a tool that is not published says its risk is unknown', async ({ page }) => {
-  await mockServer(page, { extraApprovals: [{ ...approvals[0], id: 'ap4', ref: 'gone', flowId: 'f2', args: {} }] })
+  // An approval stored before the tool's name and risk were recorded.
+  await mockServer(page, { extraApprovals: [{ ...approvals[0], id: 'ap4', ref: 'gone', flowId: 'f2', args: {}, toolName: undefined, toolFingerprint: undefined, toolRisk: undefined }] })
   await page.goto('/agents/approvals')
   const call = page.getByRole('article', { name: 'Request gone' })
   await expect(call.getByText('risk unknown', { exact: true })).toBeVisible()
@@ -293,6 +296,38 @@ test('an approval for a tool that is not published says its risk is unknown', as
   await expect(page.getByRole('article', { name: 'Request draft-1' }).getByText(/risk/i)).toHaveCount(0)
 })
 
+test('approvals show the tool and risk recorded with the request, and refuse a tool that changed since', async ({ page }) => {
+  // The node now publishes reboot_pi (privileged, sha256:p1); the agent asked for an earlier version.
+  await mockServer(page, { extraApprovals: [{ ...approvals[0], id: 'ap5', flowId: 'f2', ref: 'n2', toolName: 'reboot_v1', toolFingerprint: 'sha256:p0', toolRisk: 'safe', args: {} }] })
+  await page.goto('/agents/approvals')
+  const stale = page.getByRole('article', { name: 'Request reboot_v1' })
+  await expect(stale.getByText('safe', { exact: true })).toBeVisible()
+  await expect(stale.getByText('privileged', { exact: true })).toHaveCount(0)
+  await expect(stale.getByRole('note')).toContainText('The tool changed since the request')
+  await expect(stale.getByRole('button', { name: 'Approve…' })).toBeDisabled()
+  await expect(stale.getByRole('button', { name: 'Reject…' })).toBeEnabled()
+  // The current request still matches the published tool.
+  const current = page.getByRole('article', { name: 'Request garage_open' })
+  await expect(current.getByRole('note')).toHaveCount(0)
+  await expect(current.getByRole('button', { name: 'Approve…' })).toBeEnabled()
+})
+
+test('an approved call shows its stored result as plain text', async ({ page }) => {
+  await mockServer(page, { approveResult: { status: 'completed', runId: 'ap1', result: { message: XSS }, durationMs: 5 } })
+  await page.goto('/agents/approvals')
+  const call = page.getByRole('article', { name: 'Request garage_open' })
+  await call.getByRole('button', { name: 'Approve…' }).click()
+  await page.getByRole('dialog', { name: 'Approve and run?' }).getByRole('button', { name: 'Approve and run' }).click()
+  await expect(page.getByText('garage_open: Approved and run.')).toBeVisible()
+  const result = call.getByLabel('Result')
+  await expect(result).toContainText('"status": "completed"')
+  await expect(result).toContainText('"message": "<img src=x onerror=\\"window.__xss=1\\">"')
+  // The "Decided just now" summary shows it too.
+  await expect(page.getByLabel('Result')).toHaveCount(2)
+  await expect(page.locator('main img')).toHaveCount(0)
+  expect(await page.evaluate(() => (window as any).__xss)).toBeUndefined()
+})
+
 test('hidden and direction-changing characters from agents are shown as escapes', async ({ page }) => {
   // Trojan Source: "/home/pi/<RLO>gnp.sh" displays as "/home/pi/hs.png".
   const RLO = '\u202E'
@@ -300,12 +335,12 @@ test('hidden and direction-changing characters from agents are shown as escapes'
   const PDI = '\u2069'
   const path = `/home/pi/${RLO}gnp.sh`
   await mockServer(page, {
-    extraApprovals: [{ ...approvals[0], id: 'ap3', ref: 'n9', flowId: 'f2', args: { path }, summary: `Convert ${LRI}the image${PDI}` }],
+    extraApprovals: [{ ...approvals[0], id: 'ap3', ref: 'n9', flowId: 'f2', toolName: 'convert_image', toolFingerprint: 'sha256:c1', toolRisk: 'privileged', args: { path }, summary: `Convert ${LRI}the image${PDI}` }],
     auditPreview: JSON.stringify({ path }),
     executionError: `cannot open /home/pi/${RLO}gnp.sh`
   })
   await page.goto('/agents/approvals')
-  const call = page.getByRole('article', { name: 'Request n9' })
+  const call = page.getByRole('article', { name: 'Request convert_image' })
   const args = call.getByLabel('Arguments')
   await expect(args).toContainText('"path": "/home/pi/\\u202Egnp.sh"')
   expect(await args.textContent()).not.toContain(RLO)

@@ -72,6 +72,10 @@ export interface AgentApproval {
   tokenName?: string
   flowId?: string
   ref: string
+  /** The tool as published when the agent asked (tool calls; absent on older approvals). */
+  toolName?: string
+  toolFingerprint?: string
+  toolRisk?: AgentRisk
   args?: unknown
   summary: string
   status: ApprovalStatus
@@ -316,19 +320,52 @@ export interface ApprovalRisk {
   reason: string
 }
 
+const RISKS: readonly string[] = ['safe', 'external', 'privileged']
+
 /**
- * The risk shown on an approval. Approvals do not record the tool's risk, so
- * it is the risk of the tool as published now; a tool call whose tool is not
- * published (or when the tools could not be loaded) says its risk is unknown
- * rather than showing none. Draft deploys get their risk on the draft review.
+ * The risk shown on an approval: the one recorded with the request
+ * (ADR-0015), which is what approving runs. Approvals stored before the risk
+ * was recorded fall back to the tool as published now; a tool call whose tool
+ * is not published (or when the tools could not be loaded) says its risk is
+ * unknown rather than showing none. Draft deploys get their risk on the
+ * draft review.
  */
-export function approvalRisk(kind: string, tool: AgentTool | undefined, toolsUnavailable: boolean): ApprovalRisk | null {
-  if (kind !== 'tool_call') return null
-  if (tool) return { risk: tool.risk, label: tool.risk, reason: 'Risk of the tool as published now.' }
+export function approvalRisk(approval: Pick<AgentApproval, 'kind' | 'toolRisk'>, tool: AgentTool | undefined, toolsUnavailable: boolean): ApprovalRisk | null {
+  if (approval.kind !== 'tool_call') return null
+  const recorded = approval.toolRisk
+  if (recorded && RISKS.includes(recorded)) {
+    return { risk: recorded, label: recorded, reason: 'Risk of the tool when the agent asked.' }
+  }
+  if (recorded) return { risk: 'unknown', label: 'risk unknown', reason: 'Risk unknown: the request recorded an unexpected value.' }
+  if (tool) return { risk: tool.risk, label: tool.risk, reason: 'Risk of the tool as published now (this request did not record it).' }
   const reason = toolsUnavailable
     ? 'Risk unknown: the published tools could not be loaded.'
     : 'Risk unknown: the tool is not published now (its flow is stopped or the node was removed).'
   return { risk: 'unknown', label: 'risk unknown', reason }
+}
+
+/** The tool an approval names: as recorded with the request, else as published now, else the node id. */
+export function approvalToolName(approval: Pick<AgentApproval, 'kind' | 'ref' | 'toolName'>, tool: AgentTool | undefined): string {
+  if (approval.kind !== 'tool_call') return approval.ref
+  return approval.toolName || tool?.toolName || approval.ref
+}
+
+/**
+ * Why approving a pending tool call would run nothing: the server runs it
+ * only when the tool still has the name and fingerprint recorded with the
+ * request (ADR-0015). '' when it would run, or when the published tool is not
+ * known here (the server then decides).
+ */
+export function approvalToolChange(approval: Pick<AgentApproval, 'kind' | 'status' | 'toolName' | 'toolFingerprint'>, tool: AgentTool | undefined): string {
+  if (approval.kind !== 'tool_call' || approval.status !== 'pending') return ''
+  if (!approval.toolName || !approval.toolFingerprint) {
+    return 'This request did not record which version of the tool it was for, so approving it runs nothing. The agent can ask again.'
+  }
+  if (!tool) return ''
+  if (tool.toolName !== approval.toolName || tool.fingerprint !== approval.toolFingerprint) {
+    return 'The tool changed since the request (it was redeployed with another name, risk, input or confirmation), so approving it runs nothing. The agent can ask again.'
+  }
+  return ''
 }
 
 // Characters that are invisible or change how the text around them is shown,

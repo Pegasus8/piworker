@@ -10,6 +10,8 @@ import {
   revealHidden,
   countHidden,
   approvalRisk,
+  approvalToolChange,
+  approvalToolName,
   formatRelative,
   auditParams,
   toolKey,
@@ -198,18 +200,49 @@ test('JSON text from agents never carries hidden characters', () => {
   expect(countHidden(jsonText(args))).toBe(3)
 })
 
-test('approvals show the tool risk, or say why it is unknown', () => {
-  expect(approvalRisk('tool_call', tool({ risk: 'privileged' }), false)).toMatchObject({ risk: 'privileged', label: 'privileged' })
-  expect(approvalRisk('tool_call', tool({ risk: 'privileged' }), false)!.reason).toContain('as published now')
+test('approvals show the risk recorded with the request', () => {
+  // The recorded risk wins over the tool as published now (ADR-0015).
+  const recorded = approvalRisk({ kind: 'tool_call', toolRisk: 'privileged' }, tool({ risk: 'safe' }), false)!
+  expect(recorded).toMatchObject({ risk: 'privileged', label: 'privileged' })
+  expect(recorded.reason).toContain('when the agent asked')
+  expect(approvalRisk({ kind: 'tool_call', toolRisk: 'safe' }, undefined, true)).toMatchObject({ risk: 'safe', label: 'safe' })
+  // An unexpected recorded value is not trusted as a risk level.
+  expect(approvalRisk({ kind: 'tool_call', toolRisk: 'bogus' as any }, undefined, false)).toMatchObject({ risk: 'unknown' })
+})
+
+test('older approvals without a recorded risk fall back to the published tool, or say why it is unknown', () => {
+  const old = { kind: 'tool_call' }
+  expect(approvalRisk(old, tool({ risk: 'privileged' }), false)).toMatchObject({ risk: 'privileged', label: 'privileged' })
+  expect(approvalRisk(old, tool({ risk: 'privileged' }), false)!.reason).toContain('as published now')
   // A tool that is not published now has no known risk: never show none.
-  const missing = approvalRisk('tool_call', undefined, false)!
+  const missing = approvalRisk(old, undefined, false)!
   expect(missing).toMatchObject({ risk: 'unknown', label: 'risk unknown' })
   expect(missing.reason).toContain('not published')
-  const unavailable = approvalRisk('tool_call', undefined, true)!
+  const unavailable = approvalRisk(old, undefined, true)!
   expect(unavailable).toMatchObject({ risk: 'unknown', label: 'risk unknown' })
   expect(unavailable.reason).toContain('could not be loaded')
   // Draft deploys are reviewed with their own risk on the draft page.
-  expect(approvalRisk('draft_deploy', undefined, false)).toBeNull()
+  expect(approvalRisk({ kind: 'draft_deploy' }, undefined, false)).toBeNull()
+})
+
+test('approvals name the tool recorded with the request', () => {
+  expect(approvalToolName({ kind: 'tool_call', ref: 'n1', toolName: 'garage_open' }, tool({ toolName: 'renamed' }))).toBe('garage_open')
+  expect(approvalToolName({ kind: 'tool_call', ref: 'n1' }, tool({ toolName: 'published' }))).toBe('published')
+  expect(approvalToolName({ kind: 'tool_call', ref: 'n1' }, undefined)).toBe('n1')
+  expect(approvalToolName({ kind: 'draft_deploy', ref: 'draft-1' }, undefined)).toBe('draft-1')
+})
+
+test('a pending approval whose tool changed since the request says it will not run', () => {
+  const a = { kind: 'tool_call', status: 'pending', toolName: 'garage_open', toolFingerprint: 'sha256:aaa' }
+  expect(approvalToolChange(a, tool())).toBe('')
+  expect(approvalToolChange(a, tool({ fingerprint: 'sha256:bbb' }))).toContain('changed since the request')
+  expect(approvalToolChange(a, tool({ toolName: 'other' }))).toContain('changed since the request')
+  // Unknown is not "changed": the server decides when the tools cannot be read.
+  expect(approvalToolChange(a, undefined)).toBe('')
+  expect(approvalToolChange({ ...a, status: 'approved' }, tool({ fingerprint: 'sha256:bbb' }))).toBe('')
+  // Older approvals did not record the tool: approving them runs nothing.
+  expect(approvalToolChange({ kind: 'tool_call', status: 'pending' }, tool())).toContain('did not record')
+  expect(approvalToolChange({ kind: 'draft_deploy', status: 'pending' }, undefined)).toBe('')
 })
 
 test('relative times read naturally in both directions', () => {
