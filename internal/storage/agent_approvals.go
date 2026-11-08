@@ -49,6 +49,8 @@ const (
 	MaxApprovalResultBytes = 2 << 20
 	// MaxApprovalSummaryLength bounds the summary (bytes).
 	MaxApprovalSummaryLength = 2048
+	// MaxApprovalToolRefLength bounds ToolName and ToolFingerprint (bytes).
+	MaxApprovalToolRefLength = 256
 	// MaxPendingApprovalsPerToken bounds the approvals of one kind that one
 	// token may have waiting at a time.
 	MaxPendingApprovalsPerToken = 20
@@ -74,19 +76,24 @@ var (
 // AgentApproval is one request waiting for (or decided by) the admin.
 // TokenName is read from api_tokens and is not stored with the approval.
 type AgentApproval struct {
-	ID        string          `json:"id"`
-	Kind      string          `json:"kind"`
-	TokenID   string          `json:"tokenId"`
-	TokenName string          `json:"tokenName,omitempty"`
-	FlowID    string          `json:"flowId,omitempty"`
-	Ref       string          `json:"ref"`
-	Args      json.RawMessage `json:"args,omitempty"`
-	Summary   string          `json:"summary"`
-	Status    string          `json:"status"`
-	CreatedAt time.Time       `json:"createdAt"`
-	DecidedAt *time.Time      `json:"decidedAt,omitempty"`
-	DecidedBy string          `json:"decidedBy,omitempty"`
-	ExpiresAt time.Time       `json:"expiresAt"`
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	TokenID   string `json:"tokenId"`
+	TokenName string `json:"tokenName,omitempty"`
+	FlowID    string `json:"flowId,omitempty"`
+	Ref       string `json:"ref"`
+	// ToolName and ToolFingerprint identify the tool a tool call asks for,
+	// as published when the call was made: an approval runs only that
+	// version of the tool (empty for other kinds).
+	ToolName        string          `json:"toolName,omitempty"`
+	ToolFingerprint string          `json:"toolFingerprint,omitempty"`
+	Args            json.RawMessage `json:"args,omitempty"`
+	Summary         string          `json:"summary"`
+	Status          string          `json:"status"`
+	CreatedAt       time.Time       `json:"createdAt"`
+	DecidedAt       *time.Time      `json:"decidedAt,omitempty"`
+	DecidedBy       string          `json:"decidedBy,omitempty"`
+	ExpiresAt       time.Time       `json:"expiresAt"`
 	// Result is the JSON CallResult of an approved tool call once it ran
 	// (SetAgentApprovalResult); nil before.
 	Result json.RawMessage `json:"result,omitempty"`
@@ -154,6 +161,9 @@ func (s *SQLiteStore) CreateAgentApproval(a AgentApproval, now time.Time) (*Agen
 	if len(a.Summary) > MaxApprovalSummaryLength {
 		return nil, invalidApproval("summary exceeds %d bytes", MaxApprovalSummaryLength)
 	}
+	if len(a.ToolName) > MaxApprovalToolRefLength || len(a.ToolFingerprint) > MaxApprovalToolRefLength {
+		return nil, invalidApproval("tool name and fingerprint must not exceed %d bytes", MaxApprovalToolRefLength)
+	}
 	if a.ExpiresAt.IsZero() {
 		a.ExpiresAt = now.Add(lifetime)
 	}
@@ -195,9 +205,9 @@ func (s *SQLiteStore) CreateAgentApproval(a AgentApproval, now time.Time) (*Agen
 		return nil, err
 	}
 	_, err = tx.Exec(`
-		INSERT INTO agent_approvals (id, kind, token_id, flow_id, ref, args_json, summary, status, created_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, a.ID, a.Kind, a.TokenID, a.FlowID, a.Ref, args, a.Summary, a.Status, a.CreatedAt.Unix(), a.ExpiresAt.Unix())
+		INSERT INTO agent_approvals (id, kind, token_id, flow_id, ref, tool_name, tool_fingerprint, args_json, summary, status, created_at, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, a.ID, a.Kind, a.TokenID, a.FlowID, a.Ref, a.ToolName, a.ToolFingerprint, args, a.Summary, a.Status, a.CreatedAt.Unix(), a.ExpiresAt.Unix())
 	if err != nil {
 		if isUniqueViolation(err) {
 			return nil, ErrAgentApprovalExists
@@ -236,7 +246,7 @@ func expireAgentApprovals(tx *sql.Tx, now time.Time) (int64, error) {
 }
 
 const agentApprovalSelect = `
-	SELECT a.id, a.kind, a.token_id, COALESCE(t.name, ''), a.flow_id, a.ref, a.args_json, a.summary,
+	SELECT a.id, a.kind, a.token_id, COALESCE(t.name, ''), a.flow_id, a.ref, a.tool_name, a.tool_fingerprint, a.args_json, a.summary,
 	       a.status, a.created_at, a.decided_at, a.decided_by, a.expires_at, t.revoked_at, t.expires_at, a.result_json
 	FROM agent_approvals a LEFT JOIN api_tokens t ON t.id = a.token_id`
 
@@ -253,7 +263,7 @@ func scanAgentApproval(row rowScanner) (*AgentApproval, error) {
 		decided                    sql.NullInt64
 		tokenRevoked, tokenExpires sql.NullInt64
 	)
-	if err := row.Scan(&a.ID, &a.Kind, &a.TokenID, &a.TokenName, &a.FlowID, &a.Ref, &args, &a.Summary, &a.Status, &created, &decided, &a.DecidedBy, &expires, &tokenRevoked, &tokenExpires, &result); err != nil {
+	if err := row.Scan(&a.ID, &a.Kind, &a.TokenID, &a.TokenName, &a.FlowID, &a.Ref, &a.ToolName, &a.ToolFingerprint, &args, &a.Summary, &a.Status, &created, &decided, &a.DecidedBy, &expires, &tokenRevoked, &tokenExpires, &result); err != nil {
 		return nil, err
 	}
 	if args.Valid {
@@ -443,6 +453,8 @@ const agentApprovalsSchema = `
 		token_id   TEXT NOT NULL,
 		flow_id    TEXT NOT NULL DEFAULT '',
 		ref        TEXT NOT NULL,
+		tool_name  TEXT NOT NULL DEFAULT '',
+		tool_fingerprint TEXT NOT NULL DEFAULT '',
 		args_json  TEXT,
 		summary    TEXT NOT NULL DEFAULT '',
 		status     TEXT NOT NULL,
@@ -489,13 +501,20 @@ func (s *SQLiteStore) SetAgentApprovalResult(id string, result json.RawMessage) 
 // migrateAgentApprovals adds the columns newer versions need to an existing
 // agent_approvals table. It is idempotent.
 func migrateAgentApprovals(db *sql.DB) error {
-	has, err := historyHasColumn(db, "agent_approvals", "result_json")
-	if err != nil {
-		return err
-	}
-	if !has {
-		if _, err := db.Exec(`ALTER TABLE agent_approvals ADD COLUMN result_json TEXT`); err != nil {
-			return fmt.Errorf("failed to add agent_approvals.result_json: %w", err)
+	for _, col := range []struct{ name, def string }{
+		{"result_json", "TEXT"},
+		{"tool_name", "TEXT NOT NULL DEFAULT ''"},
+		{"tool_fingerprint", "TEXT NOT NULL DEFAULT ''"},
+	} {
+		has, err := historyHasColumn(db, "agent_approvals", col.name)
+		if err != nil {
+			return err
+		}
+		if has {
+			continue
+		}
+		if _, err := db.Exec(`ALTER TABLE agent_approvals ADD COLUMN ` + col.name + ` ` + col.def); err != nil {
+			return fmt.Errorf("failed to add agent_approvals.%s: %w", col.name, err)
 		}
 	}
 	return nil

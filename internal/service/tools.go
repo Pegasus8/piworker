@@ -144,11 +144,18 @@ func NewTools(opts Options) *Tools {
 // call's slot is held until the run ends. An error with a non-empty RunID
 // (ctx ended while waiting) still started a run.
 func (t *Tools) Call(ctx context.Context, actor Actor, ref ToolRef, args map[string]any) (flow.CallResult, error) {
-	return t.call(ctx, actor, ref, args, false)
+	return t.call(ctx, actor, ref, args, nil)
 }
 
-// call is Call; approved skips the confirm policy (an approved request).
-func (t *Tools) call(ctx context.Context, actor Actor, ref ToolRef, args map[string]any, approved bool) (res flow.CallResult, err error) {
+// approvedTool is the tool an approved request was made for, as recorded on
+// its approval: the call runs only that version of the tool.
+type approvedTool struct {
+	name, fingerprint string
+}
+
+// call is Call. approved (an approved request) skips the confirm policy and
+// refuses a tool whose name or fingerprint differs from the approved one.
+func (t *Tools) call(ctx context.Context, actor Actor, ref ToolRef, args map[string]any, approved *approvedTool) (res flow.CallResult, err error) {
 	start := t.now()
 	var info *flow.ToolInfo
 	if actor.isAgent() {
@@ -158,6 +165,9 @@ func (t *Tools) call(ctx context.Context, actor Actor, ref ToolRef, args map[str
 	ti, rt, err := t.resolve(ref)
 	if err != nil {
 		return flow.CallResult{}, err
+	}
+	if approved != nil && (approved.fingerprint == "" || ti.ToolName != approved.name || ti.Fingerprint != approved.fingerprint) {
+		return flow.CallResult{}, toolError(ErrUnavailable, "the tool changed since the request; ask again")
 	}
 	if err := t.authorize(actor, ti); err != nil {
 		if errors.Is(err, ErrToolNotFound) {
@@ -170,7 +180,7 @@ func (t *Tools) call(ctx context.Context, actor Actor, ref ToolRef, args map[str
 	if issues := ti.Schema.Validate(args); len(issues) > 0 {
 		return flow.CallResult{}, invalidArguments(issues)
 	}
-	if actor.isAgent() && !approved && ti.Confirm == node.ToolConfirmAdmin {
+	if actor.isAgent() && approved == nil && ti.Confirm == node.ToolConfirmAdmin {
 		return t.requestApproval(actor, ti, args)
 	}
 
@@ -315,12 +325,14 @@ func (t *Tools) requestApproval(actor Actor, info flow.ToolInfo, args map[string
 	}
 	summary := fmt.Sprintf("Agent token %q asks to run tool %q (%s risk)", actor.TokenName, info.ToolName, info.Risk)
 	a, err := t.store.CreateAgentApproval(storage.AgentApproval{
-		Kind:    storage.ApprovalKindToolCall,
-		TokenID: actor.TokenID,
-		FlowID:  info.FlowID,
-		Ref:     info.TriggerNodeID,
-		Args:    data,
-		Summary: capText(summary, storage.MaxApprovalSummaryLength),
+		Kind:            storage.ApprovalKindToolCall,
+		TokenID:         actor.TokenID,
+		FlowID:          info.FlowID,
+		Ref:             info.TriggerNodeID,
+		ToolName:        info.ToolName,
+		ToolFingerprint: info.Fingerprint,
+		Args:            data,
+		Summary:         capText(summary, storage.MaxApprovalSummaryLength),
 	}, t.now())
 	if errors.Is(err, storage.ErrTooManyPendingApprovals) {
 		return flow.CallResult{}, toolError(ErrBusy, "too many calls of this token are already waiting for the admin's approval")

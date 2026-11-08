@@ -320,6 +320,8 @@ func TestConfirmAdminCreatesAnApproval(t *testing.T) {
 	assert.Equal(t, info.TriggerNodeID, a.Ref)
 	assert.JSONEq(t, `{"door":"left"}`, string(a.Args))
 	assert.Contains(t, a.Summary, info.ToolName)
+	assert.Equal(t, info.ToolName, a.ToolName)
+	assert.Equal(t, info.Fingerprint, a.ToolFingerprint)
 	assert.Equal(t, storage.ApprovalPending, a.Status)
 
 	got, err := e.tools.Result(context.Background(), agent, res.RunID)
@@ -404,6 +406,82 @@ func TestExecuteApprovalRespectsRevokedTokens(t *testing.T) {
 	require.NoError(t, json.Unmarshal(stored.Result, &final))
 	assert.Equal(t, flow.CallStatusRejected, final.Status)
 	assert.Equal(t, 0, e.tools.slots.inflight(toolKey(info)), "nothing ran")
+}
+
+// An approval runs the tool the admin was shown. When the flow is redeployed
+// with the tool renamed or changed (risk, annotations, schema, confirm)
+// before the approval is executed, nothing runs, even for an all_tools token,
+// which no grant fingerprint binds.
+func TestExecuteApprovalRefusesAChangedTool(t *testing.T) {
+	cases := []struct {
+		name    string
+		over    map[string]any
+		changed bool
+	}{
+		{"unchanged", nil, false},
+		{"schema", map[string]any{"inputSchema": map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"door": map[string]any{"type": "string", "maxLength": float64(64)}},
+		}}, true},
+		{"name", map[string]any{"toolName": "svc_renamed_" + strings.ReplaceAll(uuid.NewString(), "-", "")}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			cfg := toolConfig(map[string]any{"confirm": "admin"})
+			f := fan(cfg, echo())
+			info := e.deploy(f)
+			agent := e.agent(storage.NewAPIToken{AllTools: true})
+			res, err := e.call(agent, info, map[string]any{"door": "left"})
+			require.NoError(t, err)
+			require.Equal(t, flow.CallStatusApprovalRequired, res.Status)
+
+			require.NoError(t, e.manager.Undeploy(f.ID))
+			for k, v := range tc.over {
+				cfg[k] = v
+			}
+			redeployed := e.deploy(f)
+			require.Equal(t, tc.changed, redeployed.Fingerprint != info.Fingerprint || redeployed.ToolName != info.ToolName)
+
+			approved, err := e.store.DecideAgentApproval(res.RunID, true, "admin", time.Now())
+			require.NoError(t, err)
+			err = e.tools.ExecuteApproval(context.Background(), *approved)
+			stored, getErr := e.store.GetAgentApproval(res.RunID)
+			require.NoError(t, getErr)
+			var final flow.CallResult
+			require.NoError(t, json.Unmarshal(stored.Result, &final))
+			if !tc.changed {
+				require.NoError(t, err)
+				assert.Equal(t, flow.CallStatusCompleted, final.Status)
+				return
+			}
+			te := requireKind(t, err, ErrUnavailable)
+			assert.Contains(t, te.Message, "changed since")
+			assert.Equal(t, flow.CallStatusError, final.Status)
+			assert.Equal(t, res.RunID, final.RunID)
+			require.NotNil(t, final.Error)
+			assert.Contains(t, final.Error.Message, "the tool changed since the request")
+			assert.Empty(t, e.tools.results.runs, "nothing ran")
+		})
+	}
+}
+
+// An approval recorded without the tool's identity (made before it was
+// recorded) cannot prove which tool the admin saw, so it runs nothing.
+func TestExecuteApprovalNeedsTheToolIdentity(t *testing.T) {
+	e := newEnv(t)
+	info := e.deploy(fan(toolConfig(map[string]any{"confirm": "admin"}), echo()))
+	agent := e.agent(storage.NewAPIToken{AllTools: true})
+	a, err := e.store.CreateAgentApproval(storage.AgentApproval{
+		Kind: storage.ApprovalKindToolCall, TokenID: agent.TokenID, FlowID: info.FlowID, Ref: info.TriggerNodeID,
+		Args: json.RawMessage(`{"door":"left"}`), Summary: "legacy",
+	}, time.Now())
+	require.NoError(t, err)
+	approved, err := e.store.DecideAgentApproval(a.ID, true, "admin", time.Now())
+	require.NoError(t, err)
+	err = e.tools.ExecuteApproval(context.Background(), *approved)
+	requireKind(t, err, ErrUnavailable)
+	assert.Empty(t, e.tools.results.runs, "nothing ran")
 }
 
 func TestExecuteApprovalRefusesOtherKinds(t *testing.T) {

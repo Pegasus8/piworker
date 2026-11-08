@@ -111,6 +111,47 @@ func TestAgentApprovalResultMigration(t *testing.T) {
 		got, err := store.GetAgentApproval("legacy")
 		require.NoError(t, err)
 		assert.Nil(t, got.Result)
+		assert.Empty(t, got.ToolName)
+		assert.Empty(t, got.ToolFingerprint)
 		require.NoError(t, store.Close())
 	}
+}
+
+// A tool call records which tool the admin is asked about (its name and
+// fingerprint), so an approval never runs a tool that changed since.
+func TestAgentApprovalRecordsTheTool(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	tok, _ := newTestToken(t, s, NewAPIToken{})
+	req := newToolCallApproval(tok.ID)
+	req.ToolName = "gpio.set"
+	req.ToolFingerprint = "sha256:" + strings.Repeat("ab", 32)
+	a, err := s.CreateAgentApproval(req, testNow)
+	require.NoError(t, err)
+	assert.Equal(t, req.ToolName, a.ToolName)
+	assert.Equal(t, req.ToolFingerprint, a.ToolFingerprint)
+
+	got, err := s.GetAgentApproval(a.ID)
+	require.NoError(t, err)
+	assert.Equal(t, req.ToolName, got.ToolName)
+	assert.Equal(t, req.ToolFingerprint, got.ToolFingerprint)
+	list, err := s.ListAgentApprovals(AgentApprovalFilter{})
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, req.ToolName, list[0].ToolName)
+	assert.Equal(t, req.ToolFingerprint, list[0].ToolFingerprint)
+
+	data, err := json.Marshal(got)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"toolName":"gpio.set"`)
+	assert.Contains(t, string(data), `"toolFingerprint":"sha256:`)
+
+	long := newToolCallApproval(tok.ID)
+	long.ToolName = strings.Repeat("x", MaxApprovalToolRefLength+1)
+	_, err = s.CreateAgentApproval(long, testNow)
+	require.ErrorIs(t, err, ErrInvalidAgentApproval)
+	long = newToolCallApproval(tok.ID)
+	long.ToolFingerprint = strings.Repeat("x", MaxApprovalToolRefLength+1)
+	_, err = s.CreateAgentApproval(long, testNow)
+	require.ErrorIs(t, err, ErrInvalidAgentApproval)
 }

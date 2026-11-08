@@ -18,9 +18,10 @@ const approvalFollowTimeout = 5 * time.Second
 // ExecuteApproval runs an approved tool call (api.ApprovalExecutor) as the
 // token that requested it, with the stored arguments, and stores its
 // CallResult on the approval so the agent can fetch it with Result. The
-// token must still be active, and its permission is checked again against
-// the tool as it is now. A call that cannot run is stored as a failed (or,
-// for a revoked token, rejected) result and returned as an error.
+// token must still be active, the tool must still be the one the admin was
+// shown (same name and fingerprint), and the token's permission is checked
+// again against it. A call that cannot run is stored as a failed (or, for a
+// revoked token, rejected) result and returned as an error.
 func (t *Tools) ExecuteApproval(ctx context.Context, a storage.AgentApproval) error {
 	if a.Kind != storage.ApprovalKindToolCall {
 		return toolError(ErrUnavailable, fmt.Sprintf("%s approvals are not run by the tool service", a.Kind))
@@ -46,7 +47,7 @@ func (t *Tools) ExecuteApproval(ctx context.Context, a storage.AgentApproval) er
 		}
 	}
 	actor := actorFromToken(tok)
-	res, err := t.call(ctx, actor, ToolByNode(a.FlowID, a.Ref), args, true)
+	res, err := t.call(ctx, actor, ToolByNode(a.FlowID, a.Ref), args, &approvedTool{name: a.ToolName, fingerprint: a.ToolFingerprint})
 	if res.RunID == "" {
 		msg := "the approved call did not run"
 		if err != nil {
