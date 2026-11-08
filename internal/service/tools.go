@@ -126,7 +126,7 @@ func NewTools(opts Options) *Tools {
 		perToken = DefaultPerTokenInflight
 	}
 	t.slots = newSlots(maxInflight, perToken, t.now)
-	t.results = newResultStore(t.now)
+	t.results = newResultStore(t.now, maxKeptResults, maxKeptResultBytes)
 	return t
 }
 
@@ -148,13 +148,15 @@ func (t *Tools) Call(ctx context.Context, actor Actor, ref ToolRef, args map[str
 }
 
 // approvedTool is the tool an approved request was made for, as recorded on
-// its approval: the call runs only that version of the tool.
+// its approval (id): the call runs only that version of the tool.
 type approvedTool struct {
-	name, fingerprint string
+	id, name, fingerprint string
 }
 
-// call is Call. approved (an approved request) skips the confirm policy and
-// refuses a tool whose name or fingerprint differs from the approved one.
+// call is Call. approved (an approved request) skips the confirm policy,
+// refuses a tool whose name or fingerprint differs from the approved one,
+// and stores the call's result on the approval (the final one too, once a
+// run that reported running ends).
 func (t *Tools) call(ctx context.Context, actor Actor, ref ToolRef, args map[string]any, approved *approvedTool) (res flow.CallResult, err error) {
 	start := t.now()
 	var info *flow.ToolInfo
@@ -199,18 +201,50 @@ func (t *Tools) call(ctx context.Context, actor Actor, ref ToolRef, args map[str
 		return flow.CallResult{}, callError(err)
 	}
 	done := rt.RunDone(res.RunID)
-	go func() {
-		<-done
-		release()
-	}()
 	res = t.finish(res)
+	running := res.Status == flow.CallStatusRunning
 	t.results.put(res.RunID, &callRecord{
 		owner:  actor.key(),
 		rt:     rt,
 		result: res,
-		final:  res.Status != flow.CallStatusRunning,
+		final:  !running,
 	}, ti.Timeout)
+	approvalID := ""
+	if approved != nil {
+		approvalID = approved.id
+		// Stored before the run's end can store the final result.
+		t.storeApprovalResult(approvalID, res)
+	}
+	go func() {
+		<-done
+		release()
+		if running {
+			final := t.collect(rt, res.RunID)
+			if approvalID != "" {
+				t.storeApprovalResult(approvalID, final)
+			}
+		}
+	}()
 	return res, err
+}
+
+// collectTimeout bounds reading the result of a run that just ended.
+const collectTimeout = 5 * time.Second
+
+// collect reads the final result of a run that ended (its RunDone closed)
+// after Call reported it running, and keeps it for Result, so it outlives
+// the runtime's waiter. It returns the final result kept.
+func (t *Tools) collect(rt *flow.FlowRuntime, runID string) flow.CallResult {
+	ctx, cancel := context.WithTimeout(context.Background(), collectTimeout)
+	defer cancel()
+	res, _ := rt.Wait(ctx, runID)
+	if res.Status == flow.CallStatusRunning {
+		// RunDone closes only once the result is final (or the waiter is
+		// gone, which reads as expired); never keep a run "running".
+		res = flow.CallResult{Status: flow.CallStatusError, RunID: runID,
+			Error: &flow.CallError{Message: "the result of the run could not be read"}}
+	}
+	return t.results.finalize(runID, t.finish(res))
 }
 
 // toolKey identifies a tool for its slots.
@@ -419,9 +453,7 @@ func (t *Tools) runResult(ctx context.Context, actor Actor, runID string) (flow.
 		}
 		return t.finish(res), true, nil
 	}
-	res = t.finish(res)
-	t.results.finalize(runID, res)
-	return res, true, nil
+	return t.results.finalize(runID, t.finish(res)), true, nil
 }
 
 // record audits an agent call: a row per call, or a per-minute counter for

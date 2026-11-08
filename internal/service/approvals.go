@@ -5,15 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/storage"
 )
-
-// approvalFollowTimeout bounds how long the result of an approved call that
-// reported "running" is followed after its run ends.
-const approvalFollowTimeout = 5 * time.Second
 
 // ExecuteApproval runs an approved tool call (api.ApprovalExecutor) as the
 // token that requested it, with the stored arguments, and stores its
@@ -47,7 +42,7 @@ func (t *Tools) ExecuteApproval(ctx context.Context, a storage.AgentApproval) er
 		}
 	}
 	actor := actorFromToken(tok)
-	res, err := t.call(ctx, actor, ToolByNode(a.FlowID, a.Ref), args, &approvedTool{name: a.ToolName, fingerprint: a.ToolFingerprint})
+	res, err := t.call(ctx, actor, ToolByNode(a.FlowID, a.Ref), args, &approvedTool{id: a.ID, name: a.ToolName, fingerprint: a.ToolFingerprint})
 	if res.RunID == "" {
 		msg := "the approved call did not run"
 		if err != nil {
@@ -59,26 +54,9 @@ func (t *Tools) ExecuteApproval(ctx context.Context, a storage.AgentApproval) er
 		}
 		return err
 	}
-	t.storeApprovalResult(a.ID, res)
-	if res.Status == flow.CallStatusRunning {
-		if rec := t.results.get(res.RunID); rec != nil {
-			go t.followApproval(a.ID, actor, rec.rt, res.RunID)
-		}
-	}
+	// call stored the result on the approval (and stores the final one
+	// when a run that reported running ends).
 	return nil
-}
-
-// followApproval replaces the "running" result stored on an approval by the
-// final one once its run ends.
-func (t *Tools) followApproval(approvalID string, actor Actor, rt *flow.FlowRuntime, runID string) {
-	<-rt.RunDone(runID)
-	ctx, cancel := context.WithTimeout(context.Background(), approvalFollowTimeout)
-	defer cancel()
-	res, ok, err := t.runResult(ctx, actor, runID)
-	if !ok || err != nil || res.Status == flow.CallStatusRunning {
-		return
-	}
-	t.storeApprovalResult(approvalID, res)
 }
 
 func (t *Tools) storeApprovalResult(id string, res flow.CallResult) {

@@ -791,3 +791,79 @@ func TestConcurrentCalls(t *testing.T) {
 	wg.Wait()
 	e.waitIdle(info)
 }
+
+// slowTool is a flow whose tool replies after delayMs, past its 1 s timeout.
+func slowTool(delayMs int, over map[string]any) *flow.Flow {
+	cfg := toolConfig(map[string]any{"timeoutMs": float64(1000)})
+	for k, v := range over {
+		cfg[k] = v
+	}
+	f := flow.NewFlow("slow")
+	tool := flow.NewNode("trigger-tool", flow.NodeCategoryInput)
+	tool.ID, tool.Config = "tool", cfg
+	wait := flow.NewNode("process-delay", flow.NodeCategoryProcessing)
+	wait.ID, wait.Config = "wait", map[string]any{"delay": float64(delayMs)}
+	rep := flow.NewNode("action-reply", flow.NodeCategoryOutput)
+	rep.ID = "reply"
+	f.AddNode(*tool)
+	f.AddNode(*wait)
+	f.AddNode(*rep)
+	f.AddConnection(*flow.NewConnection("tool", "output", "wait", "input"))
+	f.AddConnection(*flow.NewConnection("wait", "output", "reply", "input"))
+	return f
+}
+
+// Final results filling the result store never push out the record of a
+// call still running: its caller still gets the result, and an approved
+// call's final result still reaches its approval.
+func TestRunningCallsSurviveAFullResultStore(t *testing.T) {
+	e := newEnv(t)
+	e.tools.results.maxEntries = 4
+	slow := e.deploy(slowTool(1500, map[string]any{"confirm": "admin", "maxConcurrent": float64(2)}))
+	quick := e.deploy(fan(toolConfig(nil), echo()))
+	agent := e.agent(storage.NewAPIToken{Grants: grant(slow)})
+	req, err := e.call(agent, slow, map[string]any{"door": "left"})
+	require.NoError(t, err)
+	approved, err := e.store.DecideAgentApproval(req.RunID, true, "admin", time.Now())
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	var editorRun flow.CallResult
+	wg.Go(func() {
+		res, err := e.call(EditorActor(), slow, map[string]any{"door": "right"})
+		assert.NoError(t, err)
+		editorRun = res
+	})
+	wg.Go(func() { assert.NoError(t, e.tools.ExecuteApproval(context.Background(), *approved)) })
+	wg.Wait()
+	require.Equal(t, flow.CallStatusRunning, editorRun.Status)
+
+	for range 3 * e.tools.results.maxEntries {
+		res, err := e.call(EditorActor(), quick, map[string]any{"door": "left"})
+		require.NoError(t, err)
+		require.Equal(t, flow.CallStatusCompleted, res.Status)
+		e.waitIdle(quick)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got, err := e.tools.Result(ctx, EditorActor(), editorRun.RunID)
+	require.NoError(t, err)
+	assert.Equal(t, flow.CallStatusCompleted, got.Status)
+	assert.JSONEq(t, `{"door":"right"}`, string(got.Result))
+
+	got, err = e.tools.Result(ctx, agent, req.RunID)
+	require.NoError(t, err)
+	assert.Equal(t, flow.CallStatusCompleted, got.Status)
+	assert.JSONEq(t, `{"door":"left"}`, string(got.Result))
+
+	var final flow.CallResult
+	require.Eventually(t, func() bool {
+		a, err := e.store.GetAgentApproval(req.RunID)
+		require.NoError(t, err)
+		require.NoError(t, json.Unmarshal(a.Result, &final))
+		return final.Status != flow.CallStatusRunning
+	}, 5*time.Second, 20*time.Millisecond)
+	assert.Equal(t, flow.CallStatusCompleted, final.Status)
+	assert.JSONEq(t, `{"door":"left"}`, string(final.Result))
+}
