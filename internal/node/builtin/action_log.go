@@ -77,8 +77,13 @@ func (a *LogAction) Process(ctx context.Context, msg *types.Message) ([]*types.M
 		Str("payload", payloadStr).
 		Msg(logMessage)
 
-	// Pass the message through unchanged
-	return []*types.Message{msg}, nil
+	// Pass a copy of the message through, tagged with this node's own output
+	// port. Keeping the upstream SourcePort (e.g. a Switch's "true") would make
+	// the router look up connections for a port this node doesn't have and
+	// drop the message.
+	out := msg.Clone()
+	out.SourcePort = "output"
+	return []*types.Message{out}, nil
 }
 
 // Ports returns the port definitions for this node.
@@ -172,7 +177,7 @@ Each message logs:
 
 ## Behavior
 
-- **Pass-through**: The message passes through unchanged
+- **Pass-through**: A copy of the message (same payload, topic and metadata) is emitted on the output port
 - **Non-blocking**: Logging doesn't affect flow performance
 - Output can be connected to continue the flow
 
