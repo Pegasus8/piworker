@@ -157,7 +157,8 @@ func invalidToken(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrInvalidAPITokenRequest, fmt.Sprintf(format, args...))
 }
 
-func normalizeTokenName(name string) (string, error) {
+// NormalizeAPITokenName trims a display name and checks its length and characters.
+func NormalizeAPITokenName(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > MaxAPITokenNameLength {
 		return "", invalidToken("name must be 1-%d characters", MaxAPITokenNameLength)
@@ -221,7 +222,7 @@ func (s *SQLiteStore) CreateAPIToken(req NewAPIToken, now time.Time) (*APIToken,
 	if s.isClosed() {
 		return nil, "", ErrDatabaseClosed
 	}
-	name, err := normalizeTokenName(req.Name)
+	name, err := NormalizeAPITokenName(req.Name)
 	if err != nil {
 		return nil, "", err
 	}

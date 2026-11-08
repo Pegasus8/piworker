@@ -27,6 +27,14 @@ type LoginRequest struct {
 	Password        string `json:"password"`
 	Code            string `json:"code"`
 	CurrentPassword string `json:"currentPassword"`
+	// KeepAgentTokens keeps agent API tokens valid across a password change.
+	KeepAgentTokens bool `json:"keepAgentTokens"`
+}
+
+// AgentTokenRevoker revokes every agent API token and drops cached
+// verifications (agentauth.TokenVerifier).
+type AgentTokenRevoker interface {
+	RevokeAll() (int, error)
 }
 type AuthStatusResponse struct {
 	Enabled       bool `json:"enabled"`
@@ -41,6 +49,26 @@ type AuthHandler struct {
 	// never consume the login budget.
 	login    *loginLimiter
 	password *loginLimiter
+	// agentTokens, when set, is revoked on recovery and password change.
+	agentTokens AgentTokenRevoker
+}
+
+// SetAgentTokenRevoker makes account recovery, and password changes that do
+// not ask to keep them, revoke every agent token in this process.
+func (h *AuthHandler) SetAgentTokenRevoker(r AgentTokenRevoker) { h.agentTokens = r }
+
+// revokeAgentTokens revokes all agent tokens after a credential reset. On
+// failure it answers 500 and returns false: the credential change already
+// happened, so the admin must revoke the tokens by hand.
+func (h *AuthHandler) revokeAgentTokens(w http.ResponseWriter, done string) bool {
+	if h.agentTokens == nil {
+		return true
+	}
+	if _, err := h.agentTokens.RevokeAll(); err != nil {
+		writeError(w, http.StatusInternalServerError, done+", but agent tokens could not be revoked. Sign in and revoke them under Settings.")
+		return false
+	}
+	return true
 }
 
 func NewAuthHandler(store *storage.SQLiteUserStore, secure bool, origins []string) *AuthHandler {
@@ -214,6 +242,9 @@ func (h *AuthHandler) redeem(w http.ResponseWriter, r *http.Request, purpose str
 	}
 	h.login.success(ip, req.Username)
 	h.setCookie(w, r, "", -1)
+	if purpose == "recovery" && !h.revokeAgentTokens(w, "The password was reset") {
+		return
+	}
 	status := 200
 	if purpose == "setup" {
 		status = 201
@@ -261,6 +292,9 @@ func (h *AuthHandler) Password(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.setCookie(w, r, "", -1)
+	if !req.KeepAgentTokens && !h.revokeAgentTokens(w, "The password was changed") {
+		return
+	}
 	writeSuccess(w, 200, nil, "")
 }
 func (h *AuthHandler) csrfAllowed(r *http.Request) bool {
