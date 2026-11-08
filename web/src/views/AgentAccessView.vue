@@ -31,12 +31,24 @@ const showCreate = ref(false)
 const created = ref<CreatedAgentToken | null>(null)
 const expanded = ref<Record<string, boolean>>({})
 const addChoice = ref<Record<string, string>>({})
-const level = ref<AgentDeployLevel>('off')
+// Null until the server's level is known: no level is shown as chosen then.
+const level = ref<AgentDeployLevel | null>(null)
 const levelPassword = ref('')
+const settingsError = ref('')
 
 const endpoint = computed(() => clientSnippets({ token: '', location: window.location, tls: agent.tls }).url)
-const levelChanged = computed(() => !!agent.settings && level.value !== agent.settings.agentDeploy)
-watch(() => agent.settings?.agentDeploy, v => { if (v) level.value = v }, { immediate: true })
+const levelChanged = computed(() => !!agent.settings && !!level.value && level.value !== agent.settings.agentDeploy)
+watch(() => agent.settings?.agentDeploy, v => { level.value = v ?? null }, { immediate: true })
+const authorScope = computed(() => !agent.settings ? 'unknown' : agent.settings.authorEnabled ? 'enabled' : 'disabled')
+
+async function loadSettings() {
+  settingsError.value = ''
+  try {
+    await agent.fetchSettings()
+  } catch (e) {
+    settingsError.value = apiErrorMessage(e, 'Could not read the agent deploy level.')
+  }
+}
 
 async function load() {
   if (!auth.authEnabled) return
@@ -49,7 +61,7 @@ async function load() {
   } finally {
     loading.value = false
   }
-  await Promise.allSettled([agent.fetchTools(), agent.fetchSettings(), agent.fetchTLS(), agent.fetchFlowNames()])
+  await Promise.allSettled([agent.fetchTools(), loadSettings(), agent.fetchTLS(), agent.fetchFlowNames()])
 }
 onMounted(load)
 
@@ -137,13 +149,14 @@ async function addGrant(t: AgentToken) {
 }
 
 async function saveLevel() {
-  if (!levelChanged.value || !levelPassword.value) return
-  const ok = await act(() => agent.saveSettings(level.value, levelPassword.value), 'Agent deploy level changed.', 'Could not change the agent deploy level. Try again.')
+  const chosen = level.value
+  if (!levelChanged.value || !chosen || !levelPassword.value) return
+  const ok = await act(() => agent.saveSettings(chosen, levelPassword.value), 'Agent deploy level changed.', 'Could not change the agent deploy level. Try again.')
   levelPassword.value = ''
-  if (!ok && agent.settings) level.value = agent.settings.agentDeploy
+  if (!ok) level.value = agent.settings?.agentDeploy ?? null
 }
 function cancelLevel() {
-  if (agent.settings) level.value = agent.settings.agentDeploy
+  level.value = agent.settings?.agentDeploy ?? null
   levelPassword.value = ''
 }
 </script>
@@ -245,6 +258,10 @@ function cancelLevel() {
             be granted while this is not off. Changing it needs your password.
           </p>
         </div>
+        <p v-if="settingsError" role="alert" class="text-sm text-destructive">
+          {{ settingsError }} The current level is unknown.
+          <Button variant="link" class="h-auto p-0" :disabled="pending" @click="loadSettings">Retry</Button>
+        </p>
         <div role="radiogroup" aria-label="Agent deploy level" class="space-y-2">
           <div v-for="l in DEPLOY_LEVELS" :key="l.value" class="flex items-start gap-3 rounded-md border p-3" :class="level === l.value && 'border-primary'">
             <input :id="`deploy-${l.value}`" v-model="level" type="radio" name="agent-deploy" :value="l.value" class="mt-1 accent-primary"
@@ -271,7 +288,8 @@ function cancelLevel() {
           </div>
         </form>
         <p class="text-xs text-muted-foreground">
-          Author scope: {{ agent.settings?.authorEnabled ? 'enabled' : 'disabled' }} in piworker.toml (author_enabled in the [mcp] section).
+          <template v-if="authorScope === 'unknown'">Author scope: unknown (the server's settings could not be read).</template>
+          <template v-else>Author scope: {{ authorScope }} in piworker.toml (author_enabled in the [mcp] section).</template>
         </p>
       </Card>
 

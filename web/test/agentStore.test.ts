@@ -148,6 +148,10 @@ test('agent deploy settings are read and changed with the password', async () =>
   await store.saveSettings('low', 'pw')
   expect(calls.at(-1)!.body).toEqual({ agentDeploy: 'low', password: 'pw' })
   expect(store.settings?.agentDeploy).toBe('low')
+  // Settings that cannot be read again are unknown, not the last ones seen.
+  routes['GET /agent/settings'] = () => { throw httpError(503, 'Cannot read agent settings') }
+  await expect(store.fetchSettings()).rejects.toThrow('Cannot read agent settings')
+  expect(store.settings).toBeNull()
 })
 
 test('approvals are listed by status and keep the pending count for the badge', async () => {

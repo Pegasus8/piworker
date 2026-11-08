@@ -31,7 +31,7 @@ function auditPage(from: number, n: number, preview = '{"door":"main"}') {
   return Array.from({ length: n }, (_, i) => ({ id: from - i, ts: iso(-i * 60_000), tokenId: 'tokA', tokenName: 'laptop', tool: i === 0 ? 'reboot_pi' : 'garage_open', flowId: 'f1', runId: `run-${from - i}`, argsPreview: i === 0 ? XSS : preview, outcome: i === 0 ? 'error' : 'completed', durMs: 12, privileged: i === 0 }))
 }
 
-interface MockOptions { toolsMissing?: boolean; pending?: number; extraApprovals?: unknown[]; auditPreview?: string; rejectionRows?: number }
+interface MockOptions { toolsMissing?: boolean; pending?: number; extraApprovals?: unknown[]; auditPreview?: string; rejectionRows?: number; settingsFail?: boolean }
 
 async function mockServer(page: Page, opts: MockOptions = {}) {
   const requests: Req[] = []
@@ -62,7 +62,7 @@ async function mockServer(page: Page, opts: MockOptions = {}) {
         return ok({ ...tokens()[0], grants: body.action === 'remove' ? [] : grants })
       }
       case 'GET /agent/tools': return opts.toolsMissing ? fail(404, 'Not found') : ok({ version: 7, tools })
-      case 'GET /agent/settings': return ok(settings)
+      case 'GET /agent/settings': return opts.settingsFail ? fail(500, 'Cannot read agent settings') : ok(settings)
       case 'PUT /agent/settings':
         settings = { ...settings, agentDeploy: body.agentDeploy }
         return ok(settings)
@@ -234,6 +234,25 @@ test('the agent deploy level shows its risk and needs the password', async ({ pa
   // With agent deploy on, new tokens may get the deploy scope.
   await page.getByRole('button', { name: 'New token' }).click()
   await expect(page.getByRole('dialog', { name: 'New agent token' }).getByLabel('Deploy', { exact: true })).toBeEnabled()
+})
+
+test('an unreadable agent deploy level is shown as unknown, not as off', async ({ page }) => {
+  const opts: MockOptions = { settingsFail: true }
+  await mockServer(page, opts)
+  await page.goto('/agents')
+  const level = page.getByRole('radiogroup', { name: 'Agent deploy level' })
+  const error = page.getByRole('alert').filter({ hasText: 'Cannot read agent settings' })
+  await expect(error).toBeVisible()
+  for (const name of ['Off (recommended)', 'Low-risk flows', 'All flows']) {
+    await expect(level.getByLabel(name)).not.toBeChecked()
+    await expect(level.getByLabel(name)).toBeDisabled()
+  }
+  await expect(page.getByText('Author scope: unknown')).toBeVisible()
+  opts.settingsFail = false
+  await error.getByRole('button', { name: 'Retry' }).click()
+  await expect(level.getByLabel('Off (recommended)')).toBeChecked()
+  await expect(error).toHaveCount(0)
+  await expect(page.getByText('Author scope: disabled')).toBeVisible()
 })
 
 test('approvals render agent text as plain text and report the execution', async ({ page }) => {

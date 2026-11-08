@@ -138,10 +138,16 @@ export const useAgentStore = defineStore('agent', () => {
     }
   }
 
-  // Agent deploy level.
+  // Agent deploy level. Settings that cannot be read are unknown (null), never
+  // the last ones seen: the page must not claim a level it could not read.
   async function fetchSettings() {
-    const { data } = await apiClient.get('/agent/settings')
-    settings.value = data.data
+    try {
+      const { data } = await apiClient.get('/agent/settings')
+      settings.value = data.data ?? null
+    } catch (e) {
+      settings.value = null
+      throw e
+    }
   }
 
   async function saveSettings(agentDeploy: AgentDeployLevel, password: string) {
