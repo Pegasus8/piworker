@@ -206,7 +206,7 @@ func TestSchemaDefaultsPassConfigCheck(t *testing.T) {
 }
 
 func TestSchemaTypesAreKnown(t *testing.T) {
-	known := map[string]bool{"string": true, "number": true, "integer": true, "boolean": true, "array": true, "object": true}
+	known := map[string]bool{"string": true, "number": true, "integer": true, "boolean": true, "array": true, "object": true, "json": true}
 	eachProperty(t, func(info node.NodeTypeInfo, name string, p node.ConfigProperty) {
 		assert.Truef(t, known[p.Type], "%s.%s has unknown type %q", info.Type, name, p.Type)
 		if len(p.Enum) > 0 {
