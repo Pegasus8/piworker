@@ -243,8 +243,9 @@ export function useApi() {
   async function recover(username: string, password: string, code: string): Promise<void> {
     await api.post('/auth/recover', { username, password, code })
   }
-  async function changePassword(currentPassword: string, password: string): Promise<void> {
-    await api.post('/auth/password', { currentPassword, password })
+  // The server revokes every agent token on a password change unless asked to keep them.
+  async function changePassword(currentPassword: string, password: string, keepAgentTokens = false): Promise<void> {
+    await api.post('/auth/password', { currentPassword, password, keepAgentTokens })
   }
   async function logout(): Promise<void> { await api.post('/auth/logout') }
   async function getSession(): Promise<{ username: string }> {
