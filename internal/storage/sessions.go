@@ -68,24 +68,40 @@ func (s *SQLiteUserStore) CreateSession(username, verifiedHash string, now time.
 	}
 	return token, tx.Commit()
 }
+
+// GetSession returns the live session for token. With touch it also extends
+// the session's idle expiry (activity); without it the session is only
+// checked, with a plain read that never takes SQLite's write lock (badge
+// polls and live streams check often), except to delete a session found
+// expired.
 func (s *SQLiteUserStore) GetSession(token string, now time.Time, touch bool) (*Session, error) {
 	if len(token) != 43 {
 		return nil, ErrSessionNotFound
+	}
+	if !touch {
+		session, err := readSession(s.db, token)
+		if err != nil {
+			return nil, err
+		}
+		if sessionExpired(session, now) {
+			if _, err := s.db.Exec("DELETE FROM auth_sessions WHERE token_hash=? AND (expires_at<=? OR last_seen<=?)",
+				tokenHash(token), now.Unix(), now.Unix()-int64(SessionIdleTimeout/time.Second)); err != nil {
+				return nil, err
+			}
+			return nil, ErrSessionNotFound
+		}
+		return session, nil
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	var session Session
-	err = tx.QueryRow(`SELECT s.username,s.created_at,s.last_seen,s.expires_at FROM auth_sessions s JOIN users u ON u.username=s.username WHERE token_hash=?`, tokenHash(token)).Scan(&session.Username, &session.CreatedAt, &session.LastSeen, &session.ExpiresAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrSessionNotFound
-	}
+	session, err := readSession(tx, token)
 	if err != nil {
 		return nil, err
 	}
-	if now.Unix() >= session.ExpiresAt || now.Unix() >= session.LastSeen+int64(SessionIdleTimeout/time.Second) {
+	if sessionExpired(session, now) {
 		if _, err = tx.Exec("DELETE FROM auth_sessions WHERE token_hash=?", tokenHash(token)); err != nil {
 			return nil, err
 		}
@@ -94,12 +110,32 @@ func (s *SQLiteUserStore) GetSession(token string, now time.Time, touch bool) (*
 		}
 		return nil, ErrSessionNotFound
 	}
-	if touch {
-		if _, err = tx.Exec("UPDATE auth_sessions SET last_seen=MAX(last_seen,?) WHERE token_hash=?", now.Unix(), tokenHash(token)); err != nil {
-			return nil, err
-		}
+	if _, err = tx.Exec("UPDATE auth_sessions SET last_seen=MAX(last_seen,?) WHERE token_hash=?", now.Unix(), tokenHash(token)); err != nil {
+		return nil, err
 	}
-	return &session, tx.Commit()
+	return session, tx.Commit()
+}
+
+// readSession reads the session stored for token (ErrSessionNotFound when
+// there is none or its user is gone).
+func readSession(q interface {
+	QueryRow(query string, args ...any) *sql.Row
+}, token string) (*Session, error) {
+	var session Session
+	err := q.QueryRow(`SELECT s.username,s.created_at,s.last_seen,s.expires_at FROM auth_sessions s JOIN users u ON u.username=s.username WHERE token_hash=?`, tokenHash(token)).Scan(&session.Username, &session.CreatedAt, &session.LastSeen, &session.ExpiresAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrSessionNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+// sessionExpired reports whether the session reached its absolute lifetime
+// or its idle timeout at now.
+func sessionExpired(session *Session, now time.Time) bool {
+	return now.Unix() >= session.ExpiresAt || now.Unix() >= session.LastSeen+int64(SessionIdleTimeout/time.Second)
 }
 func (s *SQLiteUserStore) DeleteSession(token string) error {
 	_, err := s.db.Exec("DELETE FROM auth_sessions WHERE token_hash=?", tokenHash(token))
