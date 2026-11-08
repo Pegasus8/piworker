@@ -7,7 +7,10 @@
 // in the same transaction as every revocation or grant change) is re-read at
 // most every epoch interval and clears the cache when it moved, which covers
 // changes made by other processes; and every cached entry still checks its
-// own expiry on each use.
+// own expiry on each use. A request that cannot read the epoch fails, and
+// requests served from the cache while another one reads it are refused once
+// the last successful read is more than three intervals old, so a failing or
+// hanging database never keeps revoked tokens working.
 package agentauth
 
 import (
@@ -27,6 +30,14 @@ import (
 // ErrInvalidToken is returned for malformed, unknown, wrong, expired or
 // revoked tokens. Any other error from Verify is an internal failure.
 var ErrInvalidToken = errors.New("invalid agent token")
+
+// errEpochStale: the tokens epoch has not been read successfully for more
+// than maxEpochAgeFactor intervals, so cached tokens are no longer trusted.
+var errEpochStale = errors.New("token revocations have not been confirmed recently")
+
+// maxEpochAgeFactor bounds how many epoch intervals cached tokens are served
+// without a successful epoch read (fail closed after that).
+const maxEpochAgeFactor = 3
 
 const (
 	// DefaultEpochInterval is how often the tokens epoch is re-read.
@@ -219,6 +230,14 @@ func (v *TokenVerifier) refreshEpoch(now time.Time) error {
 	}
 	if loaded {
 		if !v.refreshMu.TryLock() {
+			// Another request is reading the epoch: keep serving the cache,
+			// but not indefinitely if that read keeps failing or hangs.
+			v.mu.Lock()
+			stale := now.Sub(v.epochCheckedAt) > maxEpochAgeFactor*v.epochInterval
+			v.mu.Unlock()
+			if stale {
+				return errEpochStale
+			}
 			return nil
 		}
 	} else {
