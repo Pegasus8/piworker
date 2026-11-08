@@ -16,6 +16,7 @@ package agentauth
 import (
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -288,6 +289,14 @@ func (v *TokenVerifier) EvictAll() {
 func (v *TokenVerifier) Revoke(id string) error {
 	err := v.store.RevokeAPIToken(id, v.now())
 	v.Evict(id)
+	return err
+}
+
+// RevokeAllInTx revokes every token (and bumps the epoch) inside tx, a
+// transaction on the database that holds the tokens, typically the one that
+// resets the admin password. Call EvictAll once tx committed.
+func (v *TokenVerifier) RevokeAllInTx(tx *sql.Tx) error {
+	_, err := storage.RevokeAllAPITokensTx(tx, v.now())
 	return err
 }
 

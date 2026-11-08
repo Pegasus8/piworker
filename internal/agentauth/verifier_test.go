@@ -327,6 +327,31 @@ func TestStoreFailuresAreNotInvalidToken(t *testing.T) {
 	require.NotErrorIs(t, err, ErrInvalidToken)
 }
 
+// RevokeAllInTx revokes inside the caller's transaction (a password reset);
+// nothing changes until it commits, and EvictAll then drops the cache.
+func TestRevokeAllInTxCommitsWithTheCaller(t *testing.T) {
+	v, cs, _ := newVerifier(t)
+	tok, raw := createToken(t, cs.SQLiteStore, storage.NewAPIToken{})
+	_, err := v.Verify(raw)
+	require.NoError(t, err)
+
+	tx, err := cs.DB().Begin()
+	require.NoError(t, err)
+	require.NoError(t, v.RevokeAllInTx(tx))
+	require.NoError(t, tx.Rollback())
+	stored, err := cs.GetAPIToken(tok.ID)
+	require.NoError(t, err)
+	require.Nil(t, stored.RevokedAt, "rolled back with the caller")
+
+	tx, err = cs.DB().Begin()
+	require.NoError(t, err)
+	require.NoError(t, v.RevokeAllInTx(tx))
+	require.NoError(t, tx.Commit())
+	v.EvictAll()
+	_, err = v.Verify(raw)
+	require.ErrorIs(t, err, ErrInvalidToken)
+}
+
 // While one request is re-reading the epoch, the others keep using the cache
 // instead of queueing on the database. If that read keeps failing (or hangs),
 // the cache must not stay trusted forever: once the last successful epoch
