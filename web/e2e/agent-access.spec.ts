@@ -1,0 +1,290 @@
+import { test, expect, type Page, type Route } from '@playwright/test'
+
+// The editor's agent pages against a mocked /api (docs/design/mcp.md §7, §9, §10, §12).
+
+type Req = { method: string; path: string; query: URLSearchParams; body: any }
+
+const TOKEN = 'pwk_abcdefghijklmnop_' + 'q'.repeat(52)
+const FP = 'SHA256:AB:CD:EF'
+const XSS = '<img src=x onerror="window.__xss=1">'
+
+const tools = [
+  { flowId: 'f1', flowName: 'Garage', triggerNodeId: 'n1', toolName: 'garage_open', title: 'Open the garage', description: 'Opens the garage door for one minute.', risk: 'external', annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }, fingerprint: 'sha256:new', confirm: 'admin', inputSchema: { type: 'object' } },
+  { flowId: 'f2', flowName: 'Maintenance', triggerNodeId: 'n2', toolName: 'reboot_pi', title: 'Reboot', description: 'Reboots the Raspberry Pi.', risk: 'privileged', annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, fingerprint: 'sha256:p1', confirm: 'none', inputSchema: { type: 'object' } }
+]
+
+function tokens() {
+  return [
+    { id: 'tokA', name: 'laptop ' + XSS, prefix: 'pwk_tokA', scopes: ['call', 'read'], privileged: false, allTools: false, grants: [{ flowId: 'f1', triggerNodeId: 'n1', fingerprint: 'sha256:old', suspended: true }], expiresAt: '2099-01-01T00:00:00Z', createdAt: '2026-11-01T00:00:00Z', lastUsedAt: '2026-11-07T00:00:00Z', status: 'active' },
+    { id: 'tokB', name: 'old desktop', prefix: 'pwk_tokB', scopes: ['read'], privileged: false, allTools: false, grants: [], expiresAt: '2026-12-01T00:00:00Z', createdAt: '2026-10-01T00:00:00Z', revokedAt: '2026-11-02T00:00:00Z', status: 'revoked' }
+  ]
+}
+
+const now = Date.now()
+const iso = (offsetMs: number) => new Date(now + offsetMs).toISOString()
+const approvals = [
+  { id: 'ap1', kind: 'tool_call', tokenId: 'tokA', tokenName: 'laptop', flowId: 'f1', ref: 'n1', args: { door: 'main', note: XSS }, summary: 'Open it please ' + XSS, status: 'pending', createdAt: iso(-60_000), expiresAt: iso(14 * 60_000), tokenStatus: 'active' },
+  { id: 'ap2', kind: 'draft_deploy', tokenId: 'tokA', tokenName: 'laptop', flowId: 'f1', ref: 'draft-1', summary: 'Deploy my draft', status: 'pending', createdAt: iso(-120_000), expiresAt: iso(3_600_000), tokenStatus: 'active' }
+]
+
+function auditPage(from: number, n: number) {
+  return Array.from({ length: n }, (_, i) => ({ id: from - i, ts: iso(-i * 60_000), tokenId: 'tokA', tokenName: 'laptop', tool: i === 0 ? 'reboot_pi' : 'garage_open', flowId: 'f1', runId: `run-${from - i}`, argsPreview: i === 0 ? XSS : '{"door":"main"}', outcome: i === 0 ? 'error' : 'completed', durMs: 12, privileged: i === 0 }))
+}
+
+interface MockOptions { toolsMissing?: boolean; pending?: number }
+
+async function mockServer(page: Page, opts: MockOptions = {}) {
+  const requests: Req[] = []
+  let settings = { agentDeploy: 'off', authorEnabled: false }
+  const handle = async (route: Route) => {
+    const req = route.request()
+    const url = new URL(req.url())
+    const path = url.pathname.replace(/^\/api/, '')
+    const raw = req.postData()
+    const body = raw ? JSON.parse(raw) : undefined
+    requests.push({ method: req.method(), path, query: url.searchParams, body })
+    const ok = (data: unknown, status = 200) => route.fulfill({ status, json: { success: true, data } })
+    const fail = (status: number, error: string) => route.fulfill({ status, json: { success: false, error } })
+    const key = `${req.method()} ${path}`
+    switch (key) {
+      case 'GET /auth/status': return ok({ enabled: true, setupRequired: false })
+      case 'GET /auth/session': return ok({ username: 'owner' })
+      case 'POST /auth/password': return ok(null)
+      case 'GET /flows': return ok({ flows: [{ id: 'f1', name: 'Garage', state: 'running', nodes: [] }, { id: 'f2', name: 'Maintenance', state: 'running', nodes: [] }] })
+      case 'GET /tls': return ok({ mode: 'auto', caFingerprint: FP, sans: ['localhost'], notAfter: '2027-12-10T00:00:00Z', caCertUrl: '/piworker-ca.crt' })
+      case 'GET /agent/tokens': return ok({ tokens: tokens() })
+      case 'POST /agent/tokens':
+        if (body.password !== 'right-password') return fail(403, 'The password is incorrect')
+        return ok({ token: TOKEN, info: { ...tokens()[0], id: 'tokN', name: body.name } }, 201)
+      case 'DELETE /agent/tokens/tokA': return ok(null)
+      case 'POST /agent/tokens/tokA/grants': {
+        const grants = tokens()[0].grants.map(g => ({ ...g, suspended: body.action === 'suspend', fingerprint: body.fingerprint ?? g.fingerprint }))
+        return ok({ ...tokens()[0], grants: body.action === 'remove' ? [] : grants })
+      }
+      case 'GET /agent/tools': return opts.toolsMissing ? fail(404, 'Not found') : ok({ version: 7, tools })
+      case 'GET /agent/settings': return ok(settings)
+      case 'PUT /agent/settings':
+        settings = { ...settings, agentDeploy: body.agentDeploy }
+        return ok(settings)
+      case 'GET /agent/approvals': {
+        const status = url.searchParams.get('status')
+        return ok({ approvals: status === 'pending' || status === null ? approvals : [], pending: opts.pending ?? 2 })
+      }
+      case 'POST /agent/approvals/ap1/approve': return ok({ approval: { ...approvals[0], status: 'approved', decidedBy: 'owner', decidedAt: iso(0) }, executed: false, executionError: 'not available' })
+      case 'POST /agent/approvals/ap1/reject': return ok({ approval: { ...approvals[0], status: 'rejected' }, executed: false })
+      case 'GET /agent/audit': {
+        const before = Number(url.searchParams.get('beforeId') ?? 0)
+        const entries = before ? auditPage(before - 1, 2) : auditPage(200, 50)
+        return ok({ entries, rejections: before ? [] : [{ tokenId: 'tokA', at: iso(-60_000), reason: 'busy', count: 3 }, { tokenId: 'tokA', at: iso(-120_000), reason: 'busy', count: 2 }] })
+      }
+    }
+    return fail(404, `Unexpected ${key}`)
+  }
+  await page.route('**/api/**', handle)
+  return requests
+}
+
+const last = (requests: Req[], method: string, path: string) => [...requests].reverse().find(r => r.method === method && r.path === path)
+
+test('the navigation badge counts pending approvals and leads to the agent pages', async ({ page }) => {
+  await mockServer(page)
+  await page.goto('/')
+  const agents = page.getByRole('button', { name: 'Agents: 2 requests waiting for approval' })
+  await expect(agents).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: 'waiting for your approval' })).toBeVisible()
+  await agents.click()
+  await expect(page).toHaveURL(/\/agents\/approvals$/)
+  await expect(page.getByRole('heading', { name: 'Agent access', level: 1 })).toBeVisible()
+  // The app-wide notice is not repeated on the queue itself.
+  await expect(page.getByRole('status').filter({ hasText: 'waiting for your approval' })).toHaveCount(0)
+  await page.getByRole('link', { name: 'Tokens' }).click()
+  await expect(page).toHaveURL(/\/agents$/)
+  await page.getByRole('link', { name: 'Audit' }).click()
+  await expect(page).toHaveURL(/\/agents\/audit$/)
+})
+
+test('polling pauses while the tab is hidden', async ({ page }) => {
+  const requests = await mockServer(page, { pending: 0 })
+  await page.clock.install()
+  await page.goto('/')
+  await expect(page.getByRole('button', { name: 'Agents', exact: true })).toBeVisible()
+  const polls = () => requests.filter(r => r.path === '/agent/approvals').length
+  await expect.poll(polls).toBe(1)
+  await page.clock.runFor(10_500)
+  await expect.poll(polls).toBe(2)
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await page.clock.runFor(30_000)
+  expect(polls()).toBe(2)
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await expect.poll(polls).toBe(3)
+})
+
+test('a new token is shown once, with client snippets for this host', async ({ page }) => {
+  const requests = await mockServer(page)
+  await page.goto('/agents')
+  await expect(page.getByText('laptop ' + XSS)).toBeVisible()
+  expect(await page.evaluate(() => (window as any).__xss)).toBeUndefined()
+  await page.getByRole('button', { name: 'New token' }).click()
+  const dialog = page.getByRole('dialog', { name: 'New agent token' })
+  await expect(dialog.getByLabel('Author drafts')).toBeDisabled()
+  await expect(dialog.getByText('author_enabled = true')).toBeVisible()
+  await expect(dialog.getByLabel('Deploy', { exact: true })).toBeDisabled()
+  await expect(dialog.getByText('Agent deploy is off')).toBeVisible()
+
+  await dialog.getByLabel('Name').fill('Claude Code laptop')
+  await dialog.getByLabel('Read').check()
+  await expect(dialog.getByLabel('garage_open')).toBeVisible()
+  await expect(dialog.getByLabel('reboot_pi')).toBeDisabled()
+  await dialog.getByLabel('Allow privileged tools').check()
+  await expect(dialog.getByText('Anyone holding this token')).toBeVisible()
+  await expect(dialog.getByLabel('reboot_pi')).toBeEnabled()
+  await dialog.getByLabel('Allow privileged tools').uncheck()
+  await dialog.getByLabel('garage_open').check()
+  await dialog.getByLabel('Expires after').selectOption('30')
+  await dialog.getByLabel('Your password').fill('wrong-password')
+  await dialog.getByRole('button', { name: 'Create token' }).click()
+  await expect(dialog.getByRole('alert')).toContainText('The password is incorrect')
+  await dialog.getByLabel('Your password').fill('right-password')
+  await dialog.getByRole('button', { name: 'Create token' }).click()
+
+  expect(last(requests, 'POST', '/agent/tokens')!.body).toEqual({
+    name: 'Claude Code laptop', scopes: ['call', 'read'], privileged: false, allTools: false,
+    grants: [{ flowId: 'f1', triggerNodeId: 'n1', fingerprint: 'sha256:new' }], expiresInDays: 30, password: 'right-password'
+  })
+  const secret = page.getByRole('dialog', { name: 'Copy your new token' })
+  await expect(secret.getByLabel('New token')).toHaveText(TOKEN)
+  await expect(secret.getByLabel('Claude Code commands')).toContainText('export NODE_EXTRA_CA_CERTS=~/piworker-ca.crt')
+  await expect(secret.getByLabel('Claude Code commands')).toContainText('claude mcp add --transport http --scope user piworker https://127.0.0.1:8443/mcp')
+  await expect(secret.getByLabel('Claude Code commands')).toContainText(`--header "Authorization: Bearer ${TOKEN}"`)
+  await expect(secret.getByLabel('Claude Desktop configuration')).toContainText('"--ca-fingerprint"')
+  await expect(secret.getByLabel('Claude Desktop configuration')).toContainText(FP)
+  await page.screenshot({ path: 'test-results/agent-token-created.png', fullPage: true })
+  // Clicking outside or pressing Escape must not lose the token.
+  await page.keyboard.press('Escape')
+  await expect(secret).toBeVisible()
+  await secret.getByRole('button', { name: 'Done, I saved it' }).click()
+  await expect(page.getByText(TOKEN)).toHaveCount(0)
+})
+
+test('without published tools the token dialog says so', async ({ page }) => {
+  await mockServer(page, { toolsMissing: true })
+  await page.goto('/agents')
+  await page.getByRole('button', { name: 'New token' }).click()
+  await expect(page.getByRole('dialog', { name: 'New agent token' }).getByText('No tools published yet')).toBeVisible()
+})
+
+test('grants show why they are suspended and are re-confirmed with the password', async ({ page }) => {
+  const requests = await mockServer(page)
+  await page.goto('/agents')
+  const token = page.getByRole('listitem').filter({ hasText: 'pwk_tokA' })
+  await expect(token.getByText('1 suspended')).toBeVisible()
+  await token.getByRole('button', { name: 'Show grants (1)' }).click()
+  const grant = token.getByRole('listitem').filter({ hasText: 'garage_open' })
+  await expect(grant.getByText('Suspended', { exact: true })).toBeVisible()
+  await expect(grant.getByText(/after a redeploy changed the tool/)).toBeVisible()
+  await grant.getByRole('button', { name: 'Re-confirm' }).click()
+  const prompt = page.getByRole('dialog', { name: 'Re-confirm grant' })
+  await prompt.getByLabel('Your password').fill('right-password')
+  await prompt.getByRole('button', { name: 'Re-confirm' }).click()
+  await expect.poll(() => last(requests, 'POST', '/agent/tokens/tokA/grants')?.body).toEqual({ action: 'confirm', flowId: 'f1', triggerNodeId: 'n1', fingerprint: 'sha256:new', password: 'right-password' })
+  await expect(grant.getByText('Active', { exact: true })).toBeVisible()
+
+  await grant.getByRole('button', { name: 'Suspend' }).click()
+  await expect.poll(() => last(requests, 'POST', '/agent/tokens/tokA/grants')?.body).toEqual({ action: 'suspend', flowId: 'f1', triggerNodeId: 'n1' })
+
+  // A privileged tool is useless to a token without the privileged flag.
+  await expect(token.getByLabel('Add a tool').locator('option:checked')).toHaveText('Choose a published tool')
+  await expect(token.getByLabel('Add a tool').locator('option', { hasText: 'reboot_pi' })).toBeDisabled()
+  await page.setViewportSize({ width: 375, height: 812 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.setViewportSize({ width: 1280, height: 720 })
+
+  await token.getByRole('button', { name: 'Revoke' }).click()
+  await page.getByRole('dialog', { name: 'Revoke token?' }).getByRole('button', { name: 'Revoke token' }).click()
+  await expect.poll(() => last(requests, 'DELETE', '/agent/tokens/tokA')).toBeTruthy()
+  await page.screenshot({ path: 'test-results/agent-tokens.png', fullPage: true })
+})
+
+test('the agent deploy level shows its risk and needs the password', async ({ page }) => {
+  const requests = await mockServer(page)
+  await page.goto('/agents')
+  const level = page.getByRole('radiogroup', { name: 'Agent deploy level' })
+  await expect(level.getByLabel('Off (recommended)')).toBeChecked()
+  await level.getByLabel('All flows').check()
+  await expect(page.getByText('could take over this device')).toBeVisible()
+  await page.getByLabel('Password to change the level').fill('right-password')
+  await page.getByRole('button', { name: 'Change agent deploy' }).click()
+  await expect.poll(() => last(requests, 'PUT', '/agent/settings')?.body).toEqual({ agentDeploy: 'all', password: 'right-password' })
+  // With agent deploy on, new tokens may get the deploy scope.
+  await page.getByRole('button', { name: 'New token' }).click()
+  await expect(page.getByRole('dialog', { name: 'New agent token' }).getByLabel('Deploy', { exact: true })).toBeEnabled()
+})
+
+test('approvals render agent text as plain text and report the execution', async ({ page }) => {
+  const requests = await mockServer(page)
+  await page.goto('/agents/approvals')
+  const call = page.getByRole('article', { name: 'Request garage_open' })
+  await expect(call.getByText('Garage', { exact: true })).toBeVisible()
+  await expect(call.getByText('laptop', { exact: true })).toBeVisible()
+  await expect(call.getByText('external', { exact: true })).toBeVisible()
+  await expect(call.getByLabel('Arguments')).toContainText('"note": "<img src=x onerror=\\"window.__xss=1\\">"')
+  await expect(call.getByText('Open it please ' + XSS)).toBeVisible()
+  await expect(call.locator('img')).toHaveCount(0)
+  expect(await page.evaluate(() => (window as any).__xss)).toBeUndefined()
+
+  const draft = page.getByRole('article', { name: 'Request draft-1' })
+  await expect(draft.getByText('Review draft')).toBeVisible()
+  await expect(draft.getByRole('button', { name: 'Approve…' })).toBeDisabled()
+  await page.screenshot({ path: 'test-results/agent-approvals.png', fullPage: true })
+
+  await call.getByRole('button', { name: 'Approve…' }).click()
+  await page.getByRole('dialog', { name: 'Approve and run?' }).getByRole('button', { name: 'Approve and run' }).click()
+  await expect.poll(() => last(requests, 'POST', '/agent/approvals/ap1/approve')).toBeTruthy()
+  await expect(page.getByRole('alert')).toContainText('Approved, but it did not run: not available')
+  await expect(call.getByText('Approved', { exact: true })).toBeVisible()
+  await expect(call.getByRole('button', { name: 'Approve…' })).toHaveCount(0)
+})
+
+test('the audit log filters, pages and counts rejections', async ({ page }) => {
+  const requests = await mockServer(page)
+  await page.goto('/agents/audit')
+  const table = page.getByRole('table', { name: 'Agent calls' })
+  await expect(table.getByRole('row')).toHaveCount(51)
+  await expect(table.getByText(XSS)).toBeVisible()
+  expect(await page.evaluate(() => (window as any).__xss)).toBeUndefined()
+  const rejections = page.getByRole('table', { name: 'Rejected calls' })
+  await expect(rejections.getByRole('row').filter({ hasText: 'busy' })).toContainText('5')
+  await page.getByRole('button', { name: 'Load more' }).click()
+  await expect.poll(() => last(requests, 'GET', '/agent/audit')?.query.get('beforeId')).toBe('151')
+  await expect(table.getByRole('row')).toHaveCount(53)
+  await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(0)
+
+  await page.getByLabel('Tool').fill('garage_open')
+  await page.getByLabel('Outcome').fill('error')
+  await page.getByLabel('Token').selectOption({ label: 'laptop ' + XSS })
+  await page.getByRole('button', { name: 'Apply filters' }).click()
+  await expect.poll(() => {
+    const q = last(requests, 'GET', '/agent/audit')?.query
+    return q && [q.get('tool'), q.get('outcome'), q.get('tokenId'), q.get('beforeId')]
+  }).toEqual(['garage_open', 'error', 'tokA', null])
+  await page.screenshot({ path: 'test-results/agent-audit.png', fullPage: true })
+})
+
+test('a password change can keep agent tokens', async ({ page }) => {
+  const requests = await mockServer(page, { pending: 0 })
+  await page.goto('/account')
+  const keep = page.getByLabel('Keep agent tokens')
+  await expect(keep).not.toBeChecked()
+  await keep.check()
+  await page.getByLabel('Current password', { exact: true }).fill('first-password')
+  await page.getByLabel('New password', { exact: true }).fill('second-password')
+  await page.getByLabel('Confirm password', { exact: true }).fill('second-password')
+  await page.getByRole('button', { name: 'Change password', exact: true }).click()
+  await expect.poll(() => last(requests, 'POST', '/auth/password')?.body).toEqual({ currentPassword: 'first-password', password: 'second-password', keepAgentTokens: true })
+})

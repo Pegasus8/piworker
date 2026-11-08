@@ -7,6 +7,10 @@ const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     { path: '/account', name: 'account', component: () => import('@/views/AccountView.vue'), meta: { requiresAuth: true } },
+    // Agent access (MCP): tokens and grants, the approval queue and the audit log.
+    { path: '/agents', name: 'agents', component: () => import('@/views/AgentAccessView.vue'), meta: { requiresAuth: true } },
+    { path: '/agents/approvals', name: 'agent-approvals', component: () => import('@/views/ApprovalsView.vue'), meta: { requiresAuth: true } },
+    { path: '/agents/audit', name: 'agent-audit', component: () => import('@/views/AuditView.vue'), meta: { requiresAuth: true } },
     // Public: reachable from the login page and the HTTP warning.
     { path: '/trust', name: 'trust', component: () => import('@/views/TrustView.vue'), meta: { requiresAuth: false } },
     {
