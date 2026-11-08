@@ -2,14 +2,17 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -222,36 +225,87 @@ func (r *relay) toRPCError(ctx context.Context, err error) rpcError {
 	return rpcError{Code: codeUpstream, Message: r.describeTransportError(err)}
 }
 
-// describeTransportError explains a failure to reach or verify PiWorker.
+// describeTransportError explains a failure to reach or verify PiWorker. It
+// never quotes what an unverified server sent: the answer goes to the agent,
+// and a device impersonating PiWorker must not be able to put words there.
 func (r *relay) describeTransportError(err error) string {
+	c := r.cfg.Connector
 	var hostErr x509.HostnameError
 	var unknown x509.UnknownAuthorityError
 	var invalid x509.CertificateInvalidError
-	host := r.cfg.Endpoint.Hostname()
+	var verr *tls.CertificateVerificationError
 	switch {
 	case errors.As(err, &hostErr):
-		return fmt.Sprintf("PiWorker's certificate is not valid for %s (it is valid for %s). Use a host name or address the certificate lists in --url, or add this one to tls.hosts in piworker.toml",
-			host, certificateNames(hostErr.Certificate))
+		if errors.As(err, &verr) && c.verifies(verr.UnverifiedCertificates) {
+			return fmt.Sprintf("PiWorker's certificate is not valid for %s (it is valid for %s). Use a host name or address the certificate lists in --url, or add this one to tls.hosts in piworker.toml",
+				r.cfg.Endpoint.Hostname(), certificateNames(verr.UnverifiedCertificates[0]))
+		}
+		return c.untrusted()
 	case errors.As(err, &unknown):
-		return fmt.Sprintf("PiWorker's certificate is not signed by a trusted CA (the bridge trusts %s). Pass --ca-fingerprint with the fingerprint shown under Settings → Trust this device in the editor, or --ca-file with PiWorker's CA certificate",
-			r.cfg.Connector.description)
+		return c.untrusted()
 	case errors.As(err, &invalid):
-		return fmt.Sprintf("PiWorker's certificate is not valid: %v", invalid)
+		return "PiWorker's certificate is not valid: " + invalidReason(invalid)
+	case errors.As(err, &verr):
+		return "PiWorker's certificate cannot be verified (it uses an unsupported algorithm or extension)"
 	}
-	var uerr *url.Error
-	if errors.As(err, &uerr) {
-		err = uerr.Err
-	}
-	return fmt.Sprintf("cannot reach PiWorker at %s: %v", hostPort(r.cfg.Endpoint), err)
+	return fmt.Sprintf("cannot reach PiWorker at %s: %s", hostPort(r.cfg.Endpoint), netFailure(err))
 }
 
-// certificateNames lists the names and addresses a certificate is valid for.
-func certificateNames(cert *x509.Certificate) string {
-	if cert == nil {
-		return "no name"
+// invalidReason explains a certificate rejected for its validity period or
+// its use; only the expiry detail (dates Go formats) is quoted.
+func invalidReason(e x509.CertificateInvalidError) string {
+	switch e.Reason {
+	case x509.Expired:
+		return "it has expired or is not valid yet (" + sanitize(e.Detail) + "). Check the date and time of this computer and of PiWorker"
+	case x509.IncompatibleUsage:
+		return "it is not meant for a server"
+	default:
+		return "it does not chain correctly to the trusted CA"
 	}
+}
+
+// netFailure says why a connection failed with text the bridge controls.
+// Errors that carry no server-chosen text (dial errors, timeouts, TLS
+// alerts) are quoted; anything else, such as an unreadable certificate or a
+// malformed HTTP answer, is only summarized, because Go quotes the
+// offending bytes and the server may not have been verified yet.
+func netFailure(err error) string {
+	var opErr *net.OpError
+	var netErr net.Error
+	var recordErr tls.RecordHeaderError
+	switch {
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, os.ErrDeadlineExceeded),
+		errors.As(err, &netErr) && netErr.Timeout():
+		return "the connection timed out"
+	case errors.As(err, &recordErr), strings.Contains(err.Error(), "server gave HTTP response to HTTPS client"):
+		return "the server there does not answer with TLS; check that --url has PiWorker's https port (8443 by default)"
+	case errors.As(err, &opErr):
+		return sanitize(opErr.Error())
+	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+		return "the server closed the connection"
+	}
+	return "the connection failed: the server's answer is not valid TLS or HTTP"
+}
+
+// quietError is an error whose text leaves out its cause's, which may quote
+// an unverified server.
+type quietError struct {
+	msg   string
+	cause error
+}
+
+func (e *quietError) Error() string { return e.msg }
+func (e *quietError) Unwrap() error { return e.cause }
+
+// certificateNames lists the names and addresses a verified certificate is
+// valid for. Only host-name characters are kept, even from a trusted CA.
+func certificateNames(cert *x509.Certificate) string {
 	var names []string
-	names = append(names, cert.DNSNames...)
+	for _, name := range cert.DNSNames {
+		if isHostName(name) {
+			names = append(names, name)
+		}
+	}
 	for _, ip := range cert.IPAddresses {
 		names = append(names, ip.String())
 	}
@@ -261,5 +315,20 @@ func certificateNames(cert *x509.Certificate) string {
 	if len(names) > 10 {
 		names = append(names[:10], "…")
 	}
-	return sanitize(strings.Join(names, ", "))
+	return strings.Join(names, ", ")
+}
+
+// isHostName reports whether s has the shape of a DNS name in a certificate
+// (letters, digits, '-', '.', a '*' wildcard; at most 253 characters).
+func isHostName(s string) bool {
+	if s == "" || len(s) > 253 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' && c != '.' && c != '*' {
+			return false
+		}
+	}
+	return true
 }

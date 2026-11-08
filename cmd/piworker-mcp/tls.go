@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -46,12 +47,20 @@ type connector struct {
 	endpoint    *url.URL
 	description string
 	dialTimeout time.Duration
+	// pinned is set when the trusted CA is PiWorker's, not the system roots.
+	pinned bool
 	// fingerprint is the CA to find before the first request when it is
 	// pinned by fingerprint only.
 	fingerprint *[sha256.Size]byte
 
 	lock       chan struct{} // guards httpClient; a channel so waiting honours ctx
 	httpClient *http.Client
+
+	anchorMu sync.Mutex
+	// anchor is the trusted CA once known (nil: the system roots); see
+	// verifies.
+	anchor      *x509.CertPool
+	anchorKnown bool
 }
 
 func newConnector(endpoint *url.URL, opts trustOptions) (*connector, error) {
@@ -92,17 +101,62 @@ func newConnector(endpoint *url.URL, opts trustOptions) (*connector, error) {
 		if fp != nil {
 			c.description += " (" + formatFingerprint(*fp) + ")"
 		}
-		c.httpClient = newHTTPClient(&tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, c.dialTimeout)
+		c.pinned = true
+		c.trust(pool)
 		return c, nil
 	}
 	if fp != nil {
 		c.description = "the CA with fingerprint " + formatFingerprint(*fp)
+		c.pinned = true
 		c.fingerprint = fp
 		return c, nil
 	}
 	c.description = "the system's trusted CAs"
-	c.httpClient = newHTTPClient(&tls.Config{MinVersion: tls.VersionTLS12}, c.dialTimeout)
+	c.trust(nil)
 	return c, nil
+}
+
+// trust sets the trust anchor (nil: the system roots) and the HTTP client
+// that verifies against it.
+func (c *connector) trust(roots *x509.CertPool) {
+	c.anchorMu.Lock()
+	c.anchor, c.anchorKnown = roots, true
+	c.anchorMu.Unlock()
+	c.httpClient = newHTTPClient(&tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}, c.dialTimeout)
+}
+
+// verifies reports whether chain, as a server presented it (leaf first), is
+// a server certificate signed by the trusted CA, whatever names it covers.
+// Go checks the host name before the signature, so a certificate that is
+// "not valid for" the host may come from anyone: only what verifies here is
+// worth quoting.
+func (c *connector) verifies(chain []*x509.Certificate) bool {
+	c.anchorMu.Lock()
+	roots, known := c.anchor, c.anchorKnown
+	c.anchorMu.Unlock()
+	if !known || len(chain) == 0 {
+		return false
+	}
+	intermediates := x509.NewCertPool()
+	for _, cert := range chain[1:] {
+		intermediates.AddCert(cert)
+	}
+	_, err := chain[0].Verify(x509.VerifyOptions{
+		Roots:         roots,
+		Intermediates: intermediates,
+		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	})
+	return err == nil
+}
+
+// untrusted explains a certificate that is not signed by the trusted CA.
+func (c *connector) untrusted() string {
+	if c.pinned {
+		return "PiWorker's certificate is not signed by a trusted CA: the bridge trusts only " + c.description +
+			", so the token was not sent. If PiWorker's CA was regenerated, update --ca-fingerprint or --ca-file from Settings → Trust this device in the editor; otherwise another device is answering at this address"
+	}
+	return "PiWorker's certificate is not signed by a trusted CA (the bridge trusts " + c.description +
+		"). Pass --ca-fingerprint with the fingerprint shown under Settings → Trust this device in the editor, or --ca-file with PiWorker's CA certificate"
 }
 
 // client returns the HTTP client for token-bearing requests. With a CA pinned
@@ -124,7 +178,7 @@ func (c *connector) client(ctx context.Context) (*http.Client, error) {
 	}
 	pool := x509.NewCertPool()
 	pool.AddCert(ca)
-	c.httpClient = newHTTPClient(&tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, c.dialTimeout)
+	c.trust(pool)
 	return c.httpClient, nil
 }
 
@@ -153,7 +207,7 @@ func discoverCA(ctx context.Context, endpoint *url.URL, fp [sha256.Size]byte, ti
 	conn, err := dialer.DialContext(dctx, "tcp", addr)
 	cancel()
 	if err != nil {
-		return nil, fmt.Errorf("cannot reach PiWorker at %s: %w", addr, err)
+		return nil, &quietError{fmt.Sprintf("cannot reach PiWorker at %s: %s", addr, netFailure(err)), err}
 	}
 	presented := conn.(*tls.Conn).ConnectionState().PeerCertificates
 	_ = conn.Close()
@@ -175,7 +229,8 @@ func discoverCA(ctx context.Context, endpoint *url.URL, fp [sha256.Size]byte, ti
 
 // downloadCA fetches the CA certificate PiWorker publishes. The request
 // carries no credentials and the answer is only used if its fingerprint
-// matches the pin.
+// matches the pin. The server is not verified, so errors never quote what it
+// sent.
 func downloadCA(ctx context.Context, endpoint *url.URL, timeout time.Duration) ([]*x509.Certificate, error) {
 	caURL := (&url.URL{Scheme: endpoint.Scheme, Host: endpoint.Host, Path: caPath}).String()
 	client := &http.Client{
@@ -196,7 +251,7 @@ func downloadCA(ctx context.Context, endpoint *url.URL, timeout time.Duration) (
 	req.Header.Set("User-Agent", userAgent())
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("cannot download PiWorker's CA certificate from %s: %w", caURL, err)
+		return nil, &quietError{fmt.Sprintf("cannot download PiWorker's CA certificate from %s: %s", caURL, netFailure(err)), err}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -204,14 +259,14 @@ func downloadCA(ctx context.Context, endpoint *url.URL, timeout time.Duration) (
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxCABytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("cannot download PiWorker's CA certificate from %s: %w", caURL, err)
+		return nil, &quietError{fmt.Sprintf("cannot download PiWorker's CA certificate from %s: %s", caURL, netFailure(err)), err}
 	}
 	if len(body) > maxCABytes {
 		return nil, fmt.Errorf("the CA certificate at %s is too large", caURL)
 	}
 	certs, err := parseCertificates(body)
 	if err != nil {
-		return nil, fmt.Errorf("the CA certificate at %s is not readable: %w", caURL, err)
+		return nil, &quietError{fmt.Sprintf("the CA certificate at %s is not a readable certificate; pass PiWorker's CA with --ca-file", caURL), err}
 	}
 	return certs, nil
 }
