@@ -192,16 +192,18 @@ func webhookTriggerConfigSchema() node.ConfigSchema {
 				Description: "URL path segment under /webhooks/ (e.g. 'github-push')",
 			},
 			"method": {
-				Type:        "string",
-				Title:       "Method Filter",
-				Description: "Only accept this HTTP method; leave empty to accept any",
-				Default:     "",
+				Type:         "string",
+				Title:        "Method Filter",
+				Description:  "Only accept this HTTP method; leave empty to accept any",
+				Default:      "",
+				AgentVisible: true,
 			},
 			"token": {
 				Type:        "string",
 				Title:       "Secret Token",
 				Description: "Optional shared secret, required as ?token=... or the X-Webhook-Token header",
 				Default:     "",
+				Sensitive:   true,
 			},
 		},
 		Required: []string{"path"},
@@ -273,6 +275,7 @@ X-Webhook-Token and X-PiWorker-* headers are never included in the payload.
 | 503 | Flow busy (queue full) or stopping; retry later |
 `,
 		Category: types.NodeCategoryInput,
+		Risk:     node.RiskSafe,
 		Inputs:   nil,
 		Outputs: []types.Port{
 			{ID: "output", Name: "Output", DataType: types.DataTypeObject, Multiple: true},

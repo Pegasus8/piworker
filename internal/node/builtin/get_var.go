@@ -103,11 +103,12 @@ func (p *GetVarProcess) Validate() error {
 func getVarConfigSchema() node.ConfigSchema {
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
-			"scope": {Type: "string", Title: "Variable scope", Description: "Global is shared by all flows; Flow is isolated to this saved flow.", Default: "global", Enum: []string{"global", "flow"}},
+			"scope": {Type: "string", Title: "Variable scope", Description: "Global is shared by all flows; Flow is isolated to this saved flow.", Default: "global", Enum: []string{"global", "flow"}, AgentVisible: true},
 			"key": {
-				Type:        "string",
-				Title:       "Variable Name",
-				Description: "Name of the variable to read",
+				Type:         "string",
+				Title:        "Variable Name",
+				Description:  "Name of the variable to read",
+				AgentVisible: true,
 			},
 			"default": {
 				Type:        "string",
@@ -154,6 +155,7 @@ do not fall back to global values. Manage both scopes from **Variables** in the 
 - **meta.varFound** - whether the variable existed
 `,
 		Category: types.NodeCategoryProcessing,
+		Risk:     node.RiskSafe,
 		Inputs:   []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny, Required: true}},
 		Outputs:  []types.Port{{ID: "output", Name: "Output", DataType: types.DataTypeAny, Multiple: true}},
 		Config:   &schema,

@@ -71,11 +71,12 @@ func aggregateProcessConfigSchema() node.ConfigSchema {
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
 			"count": {
-				Type:        "number",
-				Title:       "Batch size",
-				Description: "Number of messages to collect before emitting them as one array",
-				Default:     10,
-				Minimum:     &minOne,
+				Type:         "number",
+				Title:        "Batch size",
+				Description:  "Number of messages to collect before emitting them as one array",
+				Default:      10,
+				Minimum:      &minOne,
+				AgentVisible: true,
 			},
 		},
 		Required: []string{"count"},
@@ -117,6 +118,7 @@ fires predictably, or keep the count small.
 - Send one digest notification per N events
 `,
 		Category: types.NodeCategoryProcessing,
+		Risk:     node.RiskSafe,
 		Inputs:   []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny, Required: true}},
 		Outputs:  []types.Port{{ID: "output", Name: "Output", DataType: types.DataTypeArray, Multiple: true}},
 		Config:   &schema,

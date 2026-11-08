@@ -117,7 +117,8 @@ func telegramActionConfigSchema() node.ConfigSchema {
 			"botToken": {
 				Type:        "string",
 				Title:       "Bot Token",
-				Description: "Telegram bot token from @BotFather",
+				Description: "Telegram bot token from @BotFather (use {{secret.NAME}})",
+				Sensitive:   true,
 			},
 			"chatId": {
 				Type:        "string",
@@ -131,11 +132,12 @@ func telegramActionConfigSchema() node.ConfigSchema {
 				Default:     "{{payload}}",
 			},
 			"parseMode": {
-				Type:        "string",
-				Title:       "Parse Mode",
-				Description: "Optional text formatting",
-				Default:     "",
-				Enum:        []string{"", "Markdown", "MarkdownV2", "HTML"},
+				Type:         "string",
+				Title:        "Parse Mode",
+				Description:  "Optional text formatting",
+				Default:      "",
+				Enum:         []string{"", "Markdown", "MarkdownV2", "HTML"},
+				AgentVisible: true,
 			},
 		},
 		Required: []string{"botToken", "chatId"},
@@ -175,6 +177,7 @@ get a token, and obtain the chat ID of the destination.
 - Sending command output to your phone
 `,
 		Category: types.NodeCategoryOutput,
+		Risk:     node.RiskExternal,
 		Inputs:   []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny, Required: true}},
 		Outputs:  []types.Port{{ID: "output", Name: "Output", DataType: types.DataTypeAny, Multiple: true}},
 		Config:   &schema,

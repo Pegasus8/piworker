@@ -105,6 +105,7 @@ Temperature is {{payload.temperature}}°C in {{payload.room}}
 ` + "```" + `
 `,
 		Category: types.NodeCategoryProcessing,
+		Risk:     node.RiskSafe,
 		Inputs:   []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny, Required: true}},
 		Outputs:  []types.Port{{ID: "output", Name: "Output", DataType: types.DataTypeString, Multiple: true}},
 		Config:   &schema,

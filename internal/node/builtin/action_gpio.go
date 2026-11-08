@@ -77,16 +77,18 @@ func gpioActionConfigSchema() node.ConfigSchema {
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
 			"pin": {
-				Type:        "string",
-				Title:       "Pin",
-				Description: "GPIO pin name, e.g. GPIO17",
+				Type:         "string",
+				Title:        "Pin",
+				Description:  "GPIO pin name, e.g. GPIO17",
+				AgentVisible: true,
 			},
 			"value": {
-				Type:        "string",
-				Title:       "Value",
-				Description: "high, low, or payload (use the message payload's truthiness)",
-				Default:     "high",
-				Enum:        []string{"high", "low", "payload"},
+				Type:         "string",
+				Title:        "Value",
+				Description:  "high, low, or payload (use the message payload's truthiness)",
+				Default:      "high",
+				Enum:         []string{"high", "low", "payload"},
+				AgentVisible: true,
 			},
 		},
 		Required: []string{"pin", "value"},
@@ -126,6 +128,7 @@ truthiness (e.g. true/1/"on" → high).
 - Drive a buzzer from a condition
 `,
 		Category: types.NodeCategoryOutput,
+		Risk:     node.RiskPrivileged,
 		Inputs:   []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny, Required: true}},
 		Outputs:  []types.Port{{ID: "output", Name: "Output", DataType: types.DataTypeAny, Multiple: true}},
 		Config:   &schema,

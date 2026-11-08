@@ -192,11 +192,12 @@ func (t *ManualTrigger) GetConfigSchema() node.ConfigSchema {
 				Default:     "{}",
 			},
 			"payloadType": {
-				Type:        "string",
-				Title:       "Payload Type",
-				Description: "Type of the payload",
-				Default:     "json",
-				Enum:        []string{"json", "text"},
+				Type:         "string",
+				Title:        "Payload Type",
+				Description:  "Type of the payload",
+				Default:      "json",
+				Enum:         []string{"json", "text"},
+				AgentVisible: true,
 			},
 			"topic": {
 				Type:        "string",
@@ -271,6 +272,7 @@ Each injection produces:
 - Development and prototyping
 `,
 		Category: types.NodeCategoryInput,
+		Risk:     node.RiskSafe,
 		Inputs:   nil,
 		Outputs: []types.Port{
 			{

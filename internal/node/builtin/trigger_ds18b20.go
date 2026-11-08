@@ -179,16 +179,19 @@ func ds18b20TriggerConfigSchema() node.ConfigSchema {
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
 			"deviceId": {
-				Type:        "string",
-				Title:       "Device ID",
-				Description: "1-Wire device id (28-xxxx). Empty auto-discovers the first DS18B20.",
+				Type:         "string",
+				Title:        "Device ID",
+				Description:  "1-Wire device id (28-xxxx). Empty auto-discovers the first DS18B20.",
+				AgentVisible: true,
 			},
 			"intervalSec": {
-				Type:        "number",
-				Title:       "Poll interval (s)",
-				Description: "How often to read the sensor, in seconds",
-				Default:     10,
-				Minimum:     &minInterval,
+				Type:         "number",
+				Title:        "Poll interval (s)",
+				Description:  "How often to read the sensor, in seconds",
+				Default:      10,
+				Minimum:      &minInterval,
+				Unit:         "seconds",
+				AgentVisible: true,
 			},
 		},
 		Required: []string{"intervalSec"},
@@ -222,6 +225,7 @@ node errors clearly.
 | intervalSec | number | 10 | Poll interval in seconds |
 `,
 		Category: types.NodeCategoryInput,
+		Risk:     node.RiskSafe,
 		Inputs:   nil,
 		Outputs:  []types.Port{{ID: "output", Name: "Output", DataType: types.DataTypeObject, Multiple: true}},
 		Config:   &schema,

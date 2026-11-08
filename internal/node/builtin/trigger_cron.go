@@ -158,10 +158,11 @@ func (t *CronTrigger) GetConfigSchema() node.ConfigSchema {
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
 			"expression": {
-				Type:        "string",
-				Title:       "Cron Expression",
-				Description: "Standard cron expression (minute hour day month weekday)",
-				Default:     "*/5 * * * *",
+				Type:         "string",
+				Title:        "Cron Expression",
+				Description:  "Standard cron expression (minute hour day month weekday)",
+				Default:      "*/5 * * * *",
+				AgentVisible: true,
 			},
 		},
 		Required: []string{"expression"},
@@ -224,6 +225,7 @@ Each trigger produces:
 - Business hours only processing
 `,
 		Category: types.NodeCategoryInput,
+		Risk:     node.RiskSafe,
 		Inputs:   nil,
 		Outputs: []types.Port{
 			{

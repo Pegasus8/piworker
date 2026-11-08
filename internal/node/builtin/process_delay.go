@@ -100,12 +100,14 @@ func (p *DelayProcess) GetConfigSchema() node.ConfigSchema {
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
 			"delay": {
-				Type:        "number",
-				Title:       "Delay (ms)",
-				Description: "Time to delay in milliseconds (max 5 minutes)",
-				Default:     1000,
-				Minimum:     &minDelay,
-				Maximum:     &maxDelay,
+				Type:         "number",
+				Title:        "Delay (ms)",
+				Description:  "Time to delay, in milliseconds (0-300000, i.e. at most 5 minutes)",
+				Default:      1000,
+				Minimum:      &minDelay,
+				Maximum:      &maxDelay,
+				Unit:         "milliseconds",
+				AgentVisible: true,
 			},
 		},
 		Required: []string{"delay"},
@@ -166,6 +168,7 @@ delay: 5000  # Wait 5 seconds
 - If the flow is stopped during a delay, the message is discarded.
 `,
 		Category: types.NodeCategoryProcessing,
+		Risk:     node.RiskSafe,
 		Inputs: []types.Port{
 			{
 				ID:       "input",
