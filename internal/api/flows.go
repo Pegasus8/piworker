@@ -4,6 +4,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	flowvars "github.com/Pegasus8/piworker/internal/vars"
 	"io"
 	"net/http"
@@ -460,7 +461,7 @@ func (h *FlowsHandler) changeRunning(w http.ResponseWriter, r *http.Request, wan
 	if wantRunning {
 		if !running {
 			if err := h.manager.Deploy(r.Context(), f); err != nil {
-				writeError(w, http.StatusInternalServerError, "Failed to deploy flow: "+err.Error())
+				writeError(w, deployErrorStatus(err), "Failed to deploy flow: "+err.Error())
 				return
 			}
 		}
@@ -673,5 +674,24 @@ func (h *FlowsHandler) FlowVariables(w http.ResponseWriter, r *http.Request) {
 		handler.Set(w, r)
 	case http.MethodDelete:
 		handler.Delete(w, r)
+	}
+}
+
+// deployErrorStatus maps a runtime deploy error to an HTTP status: problems with
+// the flow definition are client errors (400), a previous instance that is still
+// stopping or already running is a conflict (409), anything else is a 500.
+func deployErrorStatus(err error) int {
+	var verr *flow.ValidationError
+	switch {
+	case errors.As(err, &verr),
+		errors.Is(err, flow.ErrNoTriggerNodes),
+		errors.Is(err, flow.ErrInvalidNodeType),
+		errors.Is(err, flow.ErrInvalidConnection):
+		return http.StatusBadRequest
+	case errors.Is(err, flow.ErrFlowStillStopping),
+		errors.Is(err, flow.ErrFlowAlreadyRunning):
+		return http.StatusConflict
+	default:
+		return http.StatusInternalServerError
 	}
 }

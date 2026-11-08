@@ -164,6 +164,9 @@ func (a *MqttAction) Process(ctx context.Context, msg *types.Message) ([]*types.
 	return []*types.Message{out}, nil
 }
 
+// The runtime closes nodes implementing node.Closer when a flow stops.
+var _ node.Closer = (*MqttAction)(nil)
+
 // Close disconnects the publish client. The runtime calls it when the flow
 // stops; without it every redeploy leaked a connection to the broker.
 func (a *MqttAction) Close() error {
