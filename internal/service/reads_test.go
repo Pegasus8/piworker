@@ -244,7 +244,7 @@ func TestListFlowsStatesToolsAndLastRun(t *testing.T) {
 	assert.Contains(t, raw, "total")
 	assert.Contains(t, raw, "truncated")
 	first := raw["flows"].([]any)[0].(map[string]any)
-	for _, key := range []string{"id", "name", "state", "nodeCount", "tools"} {
+	for _, key := range []string{"id", "name", "state", "nodeCount", "tools", "toolCount"} {
 		assert.Containsf(t, first, key, "flow summary field %s", key)
 	}
 	// tools is a list even when empty.
@@ -276,4 +276,42 @@ func TestListFlowsRedactsSecretsInNames(t *testing.T) {
 	out := leakText(t, list)
 	assert.NotContains(t, out, "hunter2-Value!")
 	assert.Contains(t, out, "uses <redacted> oops")
+}
+
+// manyTools is a ReadRuntimes whose flow publishes n synthetic tools.
+type manyTools struct {
+	flowID string
+	n      int
+}
+
+func (m manyTools) Tools() (uint64, []flow.ToolInfo) {
+	tools := make([]flow.ToolInfo, 0, m.n)
+	for i := m.n - 1; i >= 0; i-- { // unsorted on purpose
+		tools = append(tools, flow.ToolInfo{FlowID: m.flowID, TriggerNodeID: fmt.Sprintf("t%03d", i), ToolName: fmt.Sprintf("tool_%03d", i), Risk: node.RiskSafe})
+	}
+	return 1, tools
+}
+
+func (m manyTools) ListRunning() []string { return []string{m.flowID} }
+
+// A flow's tools are listed in name order and bounded in every view.
+func TestReadsBoundTheToolsOfAFlow(t *testing.T) {
+	f := manualFlow("many tools")
+	e := newReadsEnv(t, func(o *ReadsOptions) { o.Runtimes = manyTools{flowID: f.ID, n: maxViewTools + 5} })
+	e.save(f)
+	ctx := context.Background()
+
+	list, err := e.reads.ListFlows(ctx, EditorActor())
+	require.NoError(t, err)
+	s := list.Flows[0]
+	assert.Equal(t, maxViewTools+5, s.ToolCount)
+	require.Len(t, s.Tools, maxSummaryTools)
+	assert.Equal(t, "tool_000", s.Tools[0])
+	assert.Equal(t, fmt.Sprintf("tool_%03d", maxSummaryTools-1), s.Tools[maxSummaryTools-1])
+
+	view, err := e.reads.GetFlow(ctx, EditorActor(), f.ID)
+	require.NoError(t, err)
+	require.Len(t, view.Tools, maxViewTools)
+	assert.Equal(t, "tool_000", view.Tools[0].Name)
+	assert.True(t, view.Truncated)
 }

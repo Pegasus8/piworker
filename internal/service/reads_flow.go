@@ -16,6 +16,8 @@ const (
 	// shown (FlowView.Truncated reports the rest).
 	maxViewNodes       = 200
 	maxViewConnections = 400
+	// maxViewTools caps the tools shown.
+	maxViewTools = 100
 	// maxViewConfigBytes is the budget of the shown node configs (their
 	// JSON text); the configs of the nodes past it are omitted.
 	maxViewConfigBytes = 128 << 10
@@ -36,8 +38,8 @@ type FlowView struct {
 	// connections, shown or not.
 	TotalNodes       int `json:"totalNodes"`
 	TotalConnections int `json:"totalConnections"`
-	// Truncated reports that nodes, connections or node configs were left
-	// out to keep the view bounded.
+	// Truncated reports that nodes, connections, tools or node configs
+	// were left out to keep the view bounded.
 	Truncated bool `json:"truncated"`
 }
 
@@ -137,9 +139,13 @@ func (r *Reads) GetFlow(ctx context.Context, actor Actor, flowID string) (FlowVi
 			TargetNode: id(c.TargetNode), TargetPort: id(c.TargetPort),
 		})
 	}
-	for _, ti := range r.toolsByFlow()[f.ID] {
+	for i, ti := range r.toolsByFlow()[f.ID] {
+		if i == maxViewTools {
+			view.Truncated = true
+			break
+		}
 		view.Tools = append(view.Tools, ToolView{
-			Name:          red.text(ti.ToolName),
+			Name:          capText(red.text(ti.ToolName), maxViewIDBytes),
 			TriggerNodeID: id(ti.TriggerNodeID),
 			Title:         capText(red.text(ti.Title), maxFlowNameBytes),
 			Risk:          ti.Risk,

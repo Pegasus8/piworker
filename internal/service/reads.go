@@ -26,6 +26,9 @@ const (
 	maxListedFlows = 200
 	// maxFlowNameBytes bounds a flow name shown to agents.
 	maxFlowNameBytes = 256
+	// maxSummaryTools caps the tool names of one flow in ListFlows
+	// (FlowSummary.ToolCount counts them all).
+	maxSummaryTools = 20
 )
 
 // Flow states shown by the read views.
@@ -195,9 +198,10 @@ type FlowSummary struct {
 	State     string `json:"state"` // running, stopped or failed
 	NodeCount int    `json:"nodeCount"`
 	// Tools are the names of the tools the flow publishes while running,
-	// sorted.
-	Tools   []string    `json:"tools"`
-	LastRun *RunPointer `json:"lastRun,omitempty"`
+	// sorted, at most maxSummaryTools; ToolCount counts them all.
+	Tools     []string    `json:"tools"`
+	ToolCount int         `json:"toolCount"`
+	LastRun   *RunPointer `json:"lastRun,omitempty"`
 }
 
 // RunPointer is the latest run of a flow.
@@ -223,14 +227,15 @@ func (r *Reads) ListFlows(ctx context.Context, actor Actor) (FlowList, error) {
 	out := FlowList{Flows: make([]FlowSummary, 0, len(flows)), Total: total, Truncated: total > len(flows)}
 	for _, f := range flows {
 		s := FlowSummary{
-			ID:        f.ID,
+			ID:        capText(red.text(f.ID), maxViewIDBytes),
 			Name:      r.flowName(red, f.Name),
 			State:     flowState(f, running[f.ID]),
 			NodeCount: len(f.Nodes),
 			Tools:     []string{},
+			ToolCount: len(tools[f.ID]),
 		}
-		for _, ti := range tools[f.ID] {
-			s.Tools = append(s.Tools, red.text(ti.ToolName))
+		for _, ti := range tools[f.ID][:min(len(tools[f.ID]), maxSummaryTools)] {
+			s.Tools = append(s.Tools, capText(red.text(ti.ToolName), maxViewIDBytes))
 		}
 		s.LastRun = r.lastRun(f.ID)
 		out.Flows = append(out.Flows, s)
