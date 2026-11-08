@@ -60,7 +60,7 @@ able to deploy flows, as a risk each installation can choose to accept.
 
 1. [x] `agent_approvals` storage and editor REST (revoked tokens void their
    pending approvals; per-token cap).
-2. [ ] Approval queue UI and execution of approved calls.
+2. [x] Approval queue UI and execution of approved calls.
 3. [ ] Draft approval page with diff and alerts.
 4. [ ] `agent_deploy` setting with step-up, policy checks, "deployed by agent"
    marker and one-click rollback.

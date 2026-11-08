@@ -39,7 +39,8 @@ re-trusting on every device.
 ## Decision
 
 Option C, on by default (`tls.mode = auto`; `custom` and `off` available).
-The CA (10 years) and server certificate (397 days, SANs: localhost, hostname,
+The CA (10 years) and server certificate (397 days, never past the CA's
+expiry; a warning is logged and shown 90 days before the CA expires; SANs: localhost, hostname,
 `hostname.local`, interface IPs, `tls.hosts`) live under the data directory;
 the leaf is re-issued hot within 30 days of expiry or when a current name/IP is
 not covered (checked at start and every 10 minutes); the CA rotates only on

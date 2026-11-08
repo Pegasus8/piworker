@@ -121,6 +121,26 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
 - Shared builtin helpers live alongside the nodes: `evalExpr` (sandboxed
   `expr-lang`, used by transform/filter/switch/set-var), `renderTemplate`, and
   `inferDataType`. Reuse these rather than re-implementing.
+- The tool-name registry (`builtin/tool_names.go`) — a `trigger-tool` claims its
+  `toolName` on `Start` (duplicate → `node.ErrResourceConflict` → 409) and
+  releases it on `Stop`.
+
+### Agent tools (MCP; ADR-0009…0015, `docs/design/mcp.md`)
+- A flow becomes a tool through a `trigger-tool` node (input schema, `confirm`,
+  limits) answered by `action-reply`. `internal/toolschema` compiles the closed
+  schema subset and validates arguments; `flow/risk.go` (`AnalyzeTools`) rates
+  each tool at deploy (risk, annotations, fingerprint; errors → 400) and
+  `RuntimeManager.Tools()` publishes the snapshot. `FlowRuntime.Call` runs a
+  tool synchronously (busy refusals wrap `flow.ErrBusy`).
+- `internal/service` is the **single path** for every tool call — the REST twin
+  `POST /api/flows/{id}/call/{nodeId}` (editor "Test tool") and MCP alike:
+  permission and grant fingerprint, schema, approval (`confirm: admin`), slots
+  and cooldown, secret redaction and result caps, audit. Don't call
+  `FlowRuntime.Call` from handlers directly.
+- `internal/agentauth` verifies `pwk_` tokens (cache + `tokens_epoch`); tokens,
+  grants, approvals and audit live in SQLite (`api_tokens`, `agent_approvals`,
+  `mcp_audit`, `mcp_rejections`). Agent-supplied text is shown in the editor as
+  plain text with hidden characters escaped (`components/agent/AgentText.vue`).
 
 ### Storage, auth, config
 - `internal/storage`: SQLite tuned in `buildDSN` (WAL, `busy_timeout`,
@@ -160,6 +180,9 @@ API calls go through
 401 → redirect to login). Responses use a `{ success, data }` envelope, hence the
 `data.data` unwrapping in the composable. Flow editing state is the
 `stores/flows.ts` Pinia store; the canvas is `components/flow/FlowCanvas.vue`.
+Agent access (`/agents`, `/agents/approvals`, `/agents/audit`) uses
+`stores/agent.ts`; background polling goes through `lib/poller.ts` (pauses
+while the tab is hidden).
 
 ## Adding a new node (most common extension)
 1. Create `internal/node/builtin/<name>.go`. Implement `node.Node` (+ `TriggerNode`

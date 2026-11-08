@@ -31,7 +31,10 @@ an MCP client node (`action-mcp-call`, deferred to its own design).
 - `tls.mode`: `auto` (default), `custom`, `off`.
   - `auto`: on first start generate a **local CA** (ECDSA P-256, 10 years,
     `CN=PiWorker Local CA <hostname>`, name constraints are not used) and a
-    **server certificate** signed by it (ECDSA P-256, 397 days). Stored under
+    **server certificate** signed by it (ECDSA P-256, 397 days, capped at the
+    CA's expiry; issuing is refused once the CA has expired, with the
+    `-tls-regenerate-ca` hint; `Status.Warning` and `GET /api/tls` `warning`
+    report it from 90 days before). Stored under
     the data directory: `tls/ca.crt`, `tls/ca.key` (0600), `tls/server.crt`,
     `tls/server.key` (0600). The data directory is the directory of `db`.
   - SANs: `localhost`, `127.0.0.1`, `::1`, `os.Hostname()`, `<hostname>.local`,

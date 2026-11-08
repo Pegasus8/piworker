@@ -1,6 +1,6 @@
 # ADR-0010: Scoped opaque agent tokens, only on `/mcp`
 
-**Status:** Accepted
+**Status:** Accepted; the grant suspension rule is superseded by [ADR-0015](0015-tool-identity-binds-grants-and-approvals.md)
 **Date:** 2026-11-08
 **Deciders:** maintainer
 **Design:** [docs/design/mcp.md §7–8](../design/mcp.md)
@@ -63,5 +63,5 @@ use their own limiter (not the login limiter).
 1. [x] `api_tokens` storage, verifier with cache and `tokens_epoch`.
 2. [ ] Own per-token rate limiter on `/mcp`.
 3. [x] Editor REST with password step-up; grants with fingerprints.
-4. [ ] Editor UI for tokens and grants.
+4. [x] Editor UI for tokens and grants.
 5. [x] Revocation on recovery-code redemption and password change.
