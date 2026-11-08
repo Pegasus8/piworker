@@ -537,3 +537,28 @@ func TestMCPNonObjectArgumentsAreCounted(t *testing.T) {
 		return len(rows) == 1 && rows[0].TokenID == tok.ID && rows[0].Reason == "invalid_arguments"
 	}, 10*time.Second, 50*time.Millisecond)
 }
+
+// With TLS on, the plain-HTTP listener refuses /mcp instead of redirecting
+// it, so an agent configured with http:// fails at once rather than
+// sending its token in clear text on every request.
+func TestPlainHTTPListenerRefusesMCP(t *testing.T) {
+	served := false
+	app := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { served = true })
+	h := redirectHandler("8443", app, true)
+	for _, target := range []string{"/mcp", "/mcp/", "/mcp?x=1", "/./mcp"} {
+		r := httptest.NewRequest(http.MethodPost, "http://piworker.local:8080"+target, strings.NewReader(`{}`))
+		r.Header.Set("Authorization", "Bearer pwk_aaaaaaaaaaaaaaaa_"+strings.Repeat("b", 52))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		assert.Equal(t, http.StatusBadRequest, w.Code, target)
+		assert.Empty(t, w.Header().Get("Location"), target)
+		assert.Contains(t, w.Body.String(), "https://piworker.local:8443/mcp", target)
+	}
+	assert.False(t, served)
+
+	// Everything else is still redirected.
+	r := httptest.NewRequest(http.MethodGet, "http://piworker.local:8080/mcpx", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	assert.Equal(t, http.StatusPermanentRedirect, w.Code)
+}

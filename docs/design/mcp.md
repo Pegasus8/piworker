@@ -53,7 +53,9 @@ an MCP client node (`action-mcp-call`, deferred to its own design).
   - `http_addr` (default `:8080`, empty disables) serves plain HTTP that
     **308-redirects** everything to HTTPS, except `/webhooks/` (served directly
     when `webhooks_http = true`, the default, because many devices cannot trust
-    a custom CA), `/piworker-ca.crt` and GET/HEAD `/api/health`.
+    a custom CA), `/piworker-ca.crt` and GET/HEAD `/api/health`. `/mcp` there
+    is answered 400 with the HTTPS URL, never redirected: a client following
+    the redirect would keep sending its Bearer token in clear text.
 - `GET /piworker-ca.crt` (public, both listeners): the CA certificate (PEM body
   served as `application/x-x509-ca-cert`, so Firefox, iOS and Android offer
   their CA-import flow; 404 without a local CA). `GET /api/tls` (authenticated): mode, CA SHA-256
@@ -401,7 +403,10 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 - `/mcp` is outside `/api`: the ADR-0002 request guard and CSRF do not apply
   (Bearer only; the router never allows `Authorization` in a CORS preflight).
 - Mounted at `/mcp` without method restriction, before the webui catch-all;
-  `/.well-known/*` returns JSON 404. Disabled → JSON 404.
+  `/.well-known/*` returns JSON 404. Disabled → JSON 404. With TLS on, the
+  plain-HTTP listener answers `/mcp` with 400 and the HTTPS URL (no
+  redirect) and logs the token id, so the admin can revoke a token sent in
+  clear text.
 - `mcp.enabled = true` with auth disabled is a startup error.
 - The MCP audit is pruned at start and hourly (30 days, at most 50 000 rows;
   privileged calls are never evicted early).
