@@ -130,6 +130,9 @@ func (h *AgentHandler) decide(w http.ResponseWriter, r *http.Request, approve bo
 		Str("status", a.Status).Str("by", by).Msg("Agent approval decided")
 	result := ApprovalDecision{Approval: approvalView(*a, now)}
 	if approve {
+		// Running an approved tool call waits for it (up to its timeout),
+		// longer than the server's default write timeout.
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(toolCallWriteDeadline))
 		// The decision is final and recorded; the approved work must not be
 		// cut short because the admin's browser went away.
 		if err := h.executor.ExecuteApproval(context.WithoutCancel(r.Context()), *a); err != nil {
@@ -137,6 +140,10 @@ func (h *AgentHandler) decide(w http.ResponseWriter, r *http.Request, approve bo
 			result.ExecutionError = err.Error()
 		} else {
 			result.Executed = true
+		}
+		// Show what the executor stored (a tool call's result).
+		if updated, err := h.store.GetAgentApproval(a.ID); err == nil {
+			result.Approval = approvalView(*updated, now)
 		}
 	}
 	writeSuccess(w, http.StatusOK, result, "")
