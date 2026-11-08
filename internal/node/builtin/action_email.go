@@ -281,7 +281,7 @@ func emailActionConfigSchema() node.ConfigSchema {
 		Properties: map[string]node.ConfigProperty{
 			"host":     {Type: "string", Title: "SMTP Host", Description: "SMTP server hostname"},
 			"port":     {Type: "number", Title: "SMTP Port", Description: "Submission port (587 for STARTTLS, 465 for implicit TLS)", Default: 587, Minimum: &minPort, Maximum: &maxPort, AgentVisible: true},
-			"tls":      {Type: "string", Title: "TLS", Description: "auto: implicit TLS on 465, STARTTLS when offered otherwise; implicit; starttls (required)", Default: "auto", Enum: []string{"auto", "implicit", "starttls"}, AgentVisible: true},
+			"tls":      {Type: "string", Title: "TLS", Description: "auto: implicit TLS on 465, STARTTLS when offered otherwise; implicit; starttls (required)", Default: "auto", Enum: []string{"auto", "implicit", "starttls"}, CaseInsensitive: true, AgentVisible: true},
 			"username": {Type: "string", Title: "Username", Description: "SMTP username (optional; {{secret.NAME}} supported)", Default: ""},
 			"password": {Type: "string", Title: "Password", Description: "SMTP password (optional; use {{secret.NAME}})", Default: "", Sensitive: true},
 			"from":     {Type: "string", Title: "From", Description: "Sender address"},

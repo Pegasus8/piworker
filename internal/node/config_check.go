@@ -37,7 +37,8 @@ const maxShownValue = 32
 //   - null, and "" for any non-string type or enum, mean "unset" (the editor
 //     stores "" for cleared fields and nodes then use their default);
 //   - "number" accepts any finite number, "integer" a whole number;
-//   - enum values match case-insensitively (several nodes normalise case);
+//   - enum values match exactly, or in any case when the property is
+//     CaseInsensitive (the node normalises case itself);
 //   - Minimum/Maximum are inclusive;
 //   - Required is left to the node, which knows its defaults.
 //
@@ -125,7 +126,7 @@ func checkEnum(p ConfigProperty, s string) string {
 		return ""
 	}
 	for _, allowed := range p.Enum {
-		if strings.EqualFold(s, allowed) {
+		if s == allowed || (p.CaseInsensitive && strings.EqualFold(s, allowed)) {
 			return ""
 		}
 	}
@@ -133,11 +134,15 @@ func checkEnum(p ConfigProperty, s string) string {
 	for i, allowed := range p.Enum {
 		quoted[i] = strconv.Quote(allowed)
 	}
+	anyCase := ""
+	if p.CaseInsensitive {
+		anyCase = " (any case)"
+	}
 	got := "a value outside the list"
 	if !p.Sensitive {
 		got = quote(s)
 	}
-	return fmt.Sprintf("expected one of %s, got %s", strings.Join(quoted, ", "), got)
+	return fmt.Sprintf("expected one of %s%s, got %s", strings.Join(quoted, ", "), anyCase, got)
 }
 
 // describeValue names v's JSON type and, unless sensitive, a short rendering

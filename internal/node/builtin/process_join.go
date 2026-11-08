@@ -208,12 +208,13 @@ func joinProcessConfigSchema() node.ConfigSchema {
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
 			"mode": {
-				Type:         "string",
-				Title:        "Mode",
-				Description:  "key: collect N by a key; source: one per source node",
-				Default:      "key",
-				Enum:         []string{"key", "source"},
-				AgentVisible: true,
+				Type:            "string",
+				Title:           "Mode",
+				Description:     "key: collect N by a key; source: one per source node",
+				Default:         "key",
+				Enum:            []string{"key", "source"},
+				CaseInsensitive: true,
+				AgentVisible:    true,
 			},
 			"key": {
 				Type:        "string",

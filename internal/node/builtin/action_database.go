@@ -280,12 +280,13 @@ func databaseActionConfigSchema() node.ConfigSchema {
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
 			"driver": {
-				Type:         "string",
-				Title:        "Driver",
-				Description:  "Database driver (sqlite3 and postgresql are accepted aliases)",
-				Default:      "sqlite",
-				Enum:         []string{"sqlite", "postgres", "mysql", "sqlite3", "postgresql"},
-				AgentVisible: true,
+				Type:            "string",
+				Title:           "Driver",
+				Description:     "Database driver (sqlite3 and postgresql are accepted aliases)",
+				Default:         "sqlite",
+				Enum:            []string{"sqlite", "postgres", "mysql", "sqlite3", "postgresql"},
+				CaseInsensitive: true,
+				AgentVisible:    true,
 			},
 			"dsn": {
 				Type:        "string",
@@ -294,12 +295,13 @@ func databaseActionConfigSchema() node.ConfigSchema {
 				Sensitive:   true,
 			},
 			"mode": {
-				Type:         "string",
-				Title:        "Mode",
-				Description:  "query returns rows; exec returns affected-row counts",
-				Default:      "query",
-				Enum:         []string{"query", "exec"},
-				AgentVisible: true,
+				Type:            "string",
+				Title:           "Mode",
+				Description:     "query returns rows; exec returns affected-row counts",
+				Default:         "query",
+				Enum:            []string{"query", "exec"},
+				CaseInsensitive: true,
+				AgentVisible:    true,
 			},
 			"query": {
 				Type:        "string",

@@ -480,7 +480,9 @@ from older definitions are flagged for reconnection before deployment.
 restarts. Deploying checks every enabled node's settings against its schema
 (types, choices, ranges) and fails with the offending path and the expected
 unit, e.g. `nodes[3].config.interval: expected number (milliseconds), got
-string "5s"`. Values of credential fields are never quoted in these errors. A
+string "5s"`. Choices match exactly as listed (`temperature`, not
+`Temperature`), except where the node itself ignores case, such as the HTTP
+method. Values of credential fields are never quoted in these errors. A
 node definition without an `enabled` field is enabled. **Stop** ends execution and removes that restoration intent. The list
 switch controls the same lifecycle; there is no separate flow-level “enabled”
 setting. Stop a running flow before saving edits. Failed startup restoration is

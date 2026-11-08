@@ -137,12 +137,13 @@ func parseProcessConfigSchema() node.ConfigSchema {
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
 			"format": {
-				Type:         "string",
-				Title:        "Format",
-				Description:  "Input text format to parse",
-				Default:      "json",
-				Enum:         []string{"json", "csv"},
-				AgentVisible: true,
+				Type:            "string",
+				Title:           "Format",
+				Description:     "Input text format to parse",
+				Default:         "json",
+				Enum:            []string{"json", "csv"},
+				CaseInsensitive: true,
+				AgentVisible:    true,
 			},
 			"header": {
 				Type:         "boolean",

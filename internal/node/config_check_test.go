@@ -129,8 +129,22 @@ func TestCheckConfigEnum(t *testing.T) {
 	assert.Equal(t, `expected one of "GET", "POST", got "FETCH"`, issues["method"])
 	assert.Equal(t, `expected one of "", "Markdown", got "html"`, issues["mode"])
 
-	// Several nodes normalise case, so enum values match case-insensitively.
-	assert.Empty(t, CheckConfig(checkSchema(), map[string]any{"method": "post", "mode": "markdown"}))
+	// Enum values match exactly: most nodes compare them exactly and would
+	// silently fall back to a default for "Markdown" written as "markdown".
+	issues = issueMap(CheckConfig(checkSchema(), map[string]any{"method": "post", "mode": "markdown"}))
+	assert.Equal(t, `expected one of "GET", "POST", got "post"`, issues["method"])
+	assert.Equal(t, `expected one of "", "Markdown", got "markdown"`, issues["mode"])
+}
+
+func TestCheckConfigCaseInsensitiveEnum(t *testing.T) {
+	// A node that normalises case declares it, and only then do other
+	// spellings pass.
+	schema := &ConfigSchema{Properties: map[string]ConfigProperty{
+		"method": {Type: "string", Enum: []string{"GET", "POST"}, CaseInsensitive: true},
+	}}
+	assert.Empty(t, CheckConfig(schema, map[string]any{"method": "post"}))
+	issues := issueMap(CheckConfig(schema, map[string]any{"method": "fetch"}))
+	assert.Equal(t, `expected one of "GET", "POST" (any case), got "fetch"`, issues["method"])
 }
 
 func TestCheckConfigNeverEchoesSensitiveValues(t *testing.T) {
