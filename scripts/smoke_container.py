@@ -2,19 +2,36 @@
 
 Usage: python3 scripts/smoke_container.py IMAGE [--platform linux/arm64]
 Requires Docker. Does not publish images or touch an existing PiWorker instance.
+The image serves HTTPS on 8443 with a local CA kept in the data volume; the
+test trusts only that CA (read from the container) and checks the plain
+listener on 8080 too.
 """
 import argparse
 import http.cookiejar
 import json
 import re
+import ssl
 import subprocess
 import time
 import urllib.request
 import uuid
 
+CA_PATH = "/app/data/tls/ca.crt"
+
 
 def docker(*args):
     return subprocess.check_output(["docker", *args], text=True).strip()
+
+
+def https_opener(ca_pem, cookies=None):
+    """An opener whose HTTPS trusts only ca_pem (no system CAs), without proxies."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    if ca_pem:
+        context.load_verify_locations(cadata=ca_pem)
+    return urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        urllib.request.HTTPSHandler(context=context),
+        urllib.request.HTTPCookieProcessor(cookies if cookies is not None else http.cookiejar.CookieJar()))
 
 
 def main():
@@ -24,9 +41,10 @@ def main():
     args = parser.parse_args()
     name = "piworker-smoke-" + uuid.uuid4().hex[:12]
     volume = name + "-data"
-    client = urllib.request.build_opener(
-        urllib.request.ProxyHandler({}),
-        urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+    # One cookie jar across container recreation: the session must survive.
+    cookies = http.cookiejar.CookieJar()
+    plain = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    client = None
     base = ""
 
     def request(path, body=None, method=None):
@@ -39,20 +57,34 @@ def main():
     def api(path, body=None, method=None):
         return json.loads(request(path, body, method))
 
-    def start(bootstrap):
-        nonlocal base
-        env = ["-e", "PIWORKER_ADMIN_USER=release-test", "-e", "PIWORKER_ADMIN_PASS=local-smoke-password"] if bootstrap else []
-        docker("run", "-d", "--platform", args.platform, "--name", name,
-               "-p", "127.0.0.1::8080", "-v", volume + ":/app/data", *env, args.image)
-        base = "http://" + docker("port", name, "8080/tcp").splitlines()[0]
+    def wait_healthy(fetch):
         for _ in range(60):
             try:
-                if api("/api/health") == {"status": "healthy"}:
+                if json.loads(fetch("/api/health")) == {"status": "healthy"}:
                     return
             except (OSError, ValueError):
                 pass
             time.sleep(0.5)
         raise RuntimeError("Container did not become healthy")
+
+    def start(bootstrap):
+        nonlocal base, client
+        env = ["-e", "PIWORKER_ADMIN_USER=release-test", "-e", "PIWORKER_ADMIN_PASS=local-smoke-password"] if bootstrap else []
+        docker("run", "-d", "--platform", args.platform, "--name", name,
+               "-p", "127.0.0.1::8443", "-p", "127.0.0.1::8080", "-v", volume + ":/app/data", *env, args.image)
+        base = "https://" + docker("port", name, "8443/tcp").splitlines()[0]
+        http_base = "http://" + docker("port", name, "8080/tcp").splitlines()[0]
+
+        def plain_get(path):
+            with plain.open(http_base + path, timeout=5) as response:
+                return response.read()
+        # The plain listener answers health without redirect (no CA needed).
+        wait_healthy(plain_get)
+        # Trust the CA read from the volume, never one downloaded over HTTP.
+        ca = docker("exec", name, "cat", CA_PATH)
+        assert plain_get("/piworker-ca.crt").decode().strip() == ca, "CA served over HTTP differs from the volume's"
+        client = https_opener(ca, cookies)
+        wait_healthy(request)
 
     docker("volume", "create", volume)
     try:
@@ -88,7 +120,8 @@ def main():
         assert "SMOKE" in secrets and "test-secret-value" not in secrets
         api("/api/auth/logout", {})
         api("/api/auth/login", {"username": "release-test", "password": "local-smoke-password"})
-        print(f"PASS {args.platform}: {version}; embedded UI/assets, login, preview, volume/session/account persistence")
+        print(f"PASS {args.platform}: {version}; HTTPS with the local CA, plain-HTTP health/CA, embedded UI/assets, "
+              "login, preview, volume/session/account persistence")
     finally:
         subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["docker", "volume", "rm", volume], stdout=subprocess.DEVNULL, check=True)

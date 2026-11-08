@@ -102,7 +102,9 @@ esac
         self.db = self.path("/var/lib/piworker/piworker.db")
         self.db.write_text("flows and accounts")
         self.config = self.path("/etc/piworker/piworker.toml")
-        self.config.write_text('addr = ":8080"\n# custom configuration\n')
+        # An existing install on the current ports (the binary refuses addr
+        # and http_addr on the same port, e.g. a lone addr = ":8080").
+        self.config.write_text('addr = ":8443"\nhttp_addr = ":8080"\n# custom configuration\n')
 
     FINGERPRINT = "SHA256:" + ":".join(["AB"] * 31 + ["0F"])
 

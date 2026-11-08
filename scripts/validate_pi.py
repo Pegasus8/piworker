@@ -16,6 +16,7 @@ import secrets
 import shutil
 import signal
 import socket
+import ssl
 import struct
 import subprocess
 import sys
@@ -150,11 +151,15 @@ class Runner:
 
 
 class Client:
-    def __init__(self, base):
+    def __init__(self, base, cafile=None):
+        """base is http:// (-tls=off) or https://; with cafile, HTTPS trusts only that CA."""
         self.base = base
         self.cookies = http.cookiejar.CookieJar()
-        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}),
-                                                  urllib.request.HTTPCookieProcessor(self.cookies))
+        handlers = [urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(self.cookies)]
+        if cafile is not None:
+            # PiWorker's local CA only, not the system trust store.
+            handlers.append(urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=str(cafile))))
+        self.opener = urllib.request.build_opener(*handlers)
 
     def request(self, path, body=None, method=None):
         req = urllib.request.Request(self.base + path, method=method,
