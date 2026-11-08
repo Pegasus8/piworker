@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strings"
@@ -129,8 +130,16 @@ func NewHTTPAction(config map[string]interface{}) (node.Node, error) {
 func newGuardedHTTPClient(timeout time.Duration, allowPrivate bool) *http.Client {
 	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
 
+	// With a proxy the client only dials the proxy, which then connects to the
+	// (possibly internal) target itself, bypassing the IP check below. Honour
+	// HTTP(S)_PROXY only when private targets are allowed anyway.
+	var proxy func(*http.Request) (*url.URL, error)
+	if allowPrivate {
+		proxy = http.ProxyFromEnvironment
+	}
+
 	transport := &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
+		Proxy:                 proxy,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
@@ -168,13 +177,61 @@ func newGuardedHTTPClient(timeout time.Duration, allowPrivate bool) *http.Client
 // isBlockedIP reports whether ip is a non-public address that SSRF protection
 // should refuse to connect to.
 func isBlockedIP(ip net.IP) bool {
-	return ip.IsLoopback() ||
+	if ip.IsLoopback() ||
 		ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() ||
-		ip.IsInterfaceLocalMulticast() ||
+		ip.IsMulticast() ||
 		ip.IsPrivate() ||
-		ip.IsUnspecified()
+		ip.IsUnspecified() {
+		return true
+	}
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return true
+	}
+	addr = addr.Unmap()
+	for _, p := range blockedPrefixes {
+		if p.Contains(addr) {
+			return true
+		}
+	}
+	// 6to4 (2002::/16) embeds an IPv4 address in bits 16-48; a relay would
+	// forward to it, so judge it by that address.
+	if addr.Is6() && sixToFour.Contains(addr) {
+		b := addr.As16()
+		return isBlockedIP(net.IPv4(b[2], b[3], b[4], b[5]))
+	}
+	return false
 }
+
+// blockedPrefixes are special-purpose ranges (RFC 6890 and friends) that are
+// not covered by the net.IP helpers above but still reach local, carrier or
+// non-routable networks.
+var blockedPrefixes = func() []netip.Prefix {
+	cidrs := []string{
+		"0.0.0.0/8",       // "this network"; 0.x reaches the local host on Linux
+		"100.64.0.0/10",   // carrier-grade NAT (also Tailscale)
+		"192.0.0.0/24",    // IETF protocol assignments
+		"192.0.2.0/24",    // TEST-NET-1
+		"198.18.0.0/15",   // benchmarking
+		"198.51.100.0/24", // TEST-NET-2
+		"203.0.113.0/24",  // TEST-NET-3
+		"240.0.0.0/4",     // reserved, incl. 255.255.255.255 broadcast
+		"64:ff9b::/96",    // NAT64 well-known prefix (maps to any IPv4)
+		"64:ff9b:1::/48",  // local-use NAT64
+		"100::/64",        // discard-only
+		"2001::/32",       // Teredo
+		"2001:db8::/32",   // documentation
+		"2001:10::/28",    // ORCHID
+		"2001:20::/28",    // ORCHIDv2
+	}
+	out := make([]netip.Prefix, 0, len(cidrs))
+	for _, c := range cidrs {
+		out = append(out, netip.MustParsePrefix(c))
+	}
+	return out
+}()
+
+var sixToFour = netip.MustParsePrefix("2002::/16")
 
 // urlEscaperAt picks the escaping for a template value placed in a URL after
 // the literal text prefix:
@@ -484,7 +541,7 @@ func httpActionConfigSchema() node.ConfigSchema {
 			"allowPrivate": {
 				Type:        "boolean",
 				Title:       "Allow Private Addresses",
-				Description: "Allow requests to loopback/private/link-local addresses (needed for LAN/local services). Off by default to prevent SSRF.",
+				Description: "Allow requests to loopback/private/link-local/CGNAT and other reserved addresses (needed for LAN/local services). Off by default to prevent SSRF; while off, HTTP(S)_PROXY settings are ignored.",
 				Default:     false,
 			},
 			"maxResponseSize": {
