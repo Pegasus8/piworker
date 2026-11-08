@@ -19,6 +19,25 @@ for anything concurrency-sensitive (the flow runtime especially). Enforcement is
 convention and discipline — there is no coverage gate, no test-running pre-commit
 hook, and CI runs tests, race detection, frontend and release builds.
 
+## Architecture decisions (ADRs)
+
+**Significant decisions are recorded as ADRs in `docs/adr/`** (process, index and
+template in [`docs/adr/README.md`](docs/adr/README.md)). Rules:
+
+- **Read the relevant ADRs before changing** auth/CSRF/host checks, TLS, webhooks,
+  configuration parsing, runtime delivery/deploy semantics, flow validation, node
+  lifecycle, or anything MCP/agent-related. Do not silently undo an accepted ADR.
+- **Write an ADR in the same change** (status Proposed → Accepted on merge) when
+  you add/replace a component, listener or package boundary; change a REST/MCP,
+  flow-model, node-interface, storage or configuration contract; change the
+  security model or what agents may do; change runtime semantics; add a
+  significant dependency or drop a platform; or reverse an earlier ADR.
+- To change a decision, write a **new ADR that supersedes** the old one and mark
+  the old one "Superseded by ADR-NNNN"; never rewrite an accepted decision.
+- Long designs go in `docs/design/` and are linked from the ADR. Reference the ADR
+  number in the commit message or PR description. Bug fixes, contract-preserving
+  refactors, new nodes following the recipe below, UI and docs need no ADR.
+
 ## Build & run
 
 SQLite (`mattn/go-sqlite3`) is a **cgo** dependency, so builds need a C compiler
@@ -137,6 +156,10 @@ API calls go through
    from it; no frontend changes needed for the config panel.
 4. Multi-output nodes: declare each output port and set `SourcePort` on every
    emitted message. Add a `_test.go` next to it.
+5. Triggers: `Start` returns an error only for invalid config or exclusive
+   resources; network-dependent triggers connect/retry in the background and never
+   fail `Start` for reachability (ADR-0006). Nodes holding resources implement
+   `node.Closer` (ADR-0008).
 
 Categories are `input` (triggers), `processing`, `output` (actions). Node-type id
 convention: `trigger-*`, `process-*`, `action-*`, plus `set-var`/`get-var`.
