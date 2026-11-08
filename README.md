@@ -388,6 +388,7 @@ sudo systemctl start piworker
 | **GPIO Edge** | `trigger-gpio` | React to Raspberry Pi pin changes |
 | **DS18B20 Temperature** | `trigger-ds18b20` | Poll a 1-Wire temperature sensor |
 | **System Metric** | `trigger-sysmetric` | Fire when CPU / memory / temperature crosses a threshold |
+| **Agent Tool** | `trigger-tool` | Publish the flow as a typed tool that AI agents call over MCP |
 
 ### Processing
 | Node | Type | Description |
@@ -419,6 +420,7 @@ sudo systemctl start piworker
 | **GPIO Write** | `action-gpio` | Set a Raspberry Pi output pin |
 | **I2C Read** | `action-i2c` | Read from an I2C device |
 | **Write File** | `action-file` | Write or append the message to a file |
+| **Agent Reply** | `action-reply` | Answer the agent tool call that started the run |
 
 > Each node ships an in-app documentation card and a configuration schema, so the
 > editor renders its settings form automatically.
@@ -438,6 +440,36 @@ literal text in the same argument (`"temp={{payload}}"`, `--value={{payload}}`,
 command really expects them as whole arguments, end its options with `--`
 before the placeholders and turn on **allowDashArgs**, a deliberate opt-in to
 that risk.
+
+### Agent tools
+
+A flow that starts with an **Agent Tool** (`trigger-tool`) and answers with an
+**Agent Reply** (`action-reply`) is a *tool* that AI agents call through
+PiWorker's MCP endpoint ([design](docs/design/mcp.md), ADR-0009, ADR-0013).
+Agents supply data only, never configuration:
+
+- **Arguments** are described by the node's input schema, a closed subset of
+  JSON Schema checked at deploy: an object root, closed objects (at most three
+  levels), one type per property (`string`, `integer`, `number`, `boolean`,
+  arrays of those with `maxItems`, objects), anchored patterns (`^…$`),
+  bounded strings (256 characters unless `maxLength` says otherwise). `$ref`,
+  `anyOf`/`oneOf`/`allOf`, conditionals and unknown keywords are rejected with
+  the JSON pointer of the problem. Every call is validated before the flow
+  starts, and the run's payload is exactly the validated arguments.
+- **Replies**: the first Agent Reply of a run becomes the call's result (or its
+  error in `error` mode). The call waits up to `timeoutMs` (default 10 s, at
+  most 30 s); a later reply is fetched afterwards.
+- **Names** are unique across running flows (`pw_` is reserved): deploying a
+  second flow with a taken tool name answers `409`; a tool without a
+  connection or with an invalid schema answers `400`.
+- **Confirmation**: `none`, `client` (the MCP client asks its user; not a
+  security control) or `admin` (each call waits for approval in the editor).
+  `maxConcurrent` and `cooldownMs` limit how often a tool runs.
+
+Arguments that reach command, file, database, GPIO or I2C nodes must be strict:
+strings need an `enum` or a pattern rejecting option flags, paths, whitespace
+and shell syntax, and numbers need `minimum` and `maximum`. The editor edits
+schemas as JSON and shows each node's documentation.
 
 ---
 
