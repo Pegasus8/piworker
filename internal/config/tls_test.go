@@ -128,6 +128,7 @@ func TestValidateTLS(t *testing.T) {
 		"http listener disabled":        func(c *Config) { c.Addr, c.HTTPAddr = ":8080", "" },
 		"off ignores the http listener": func(c *Config) { c.Addr, c.TLS.Mode = ":8080", TLSModeOff },
 		"custom with files":             func(c *Config) { c.TLS = TLSConfig{Mode: TLSModeCustom, CertFile: "c", KeyFile: "k"} },
+		"ephemeral ports":               func(c *Config) { c.Addr, c.HTTPAddr = "127.0.0.1:0", "127.0.0.1:0" },
 	}
 	for name, mutate := range ok {
 		t.Run(name, func(t *testing.T) {

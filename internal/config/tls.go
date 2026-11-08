@@ -66,10 +66,12 @@ func (c Config) Validate() error {
 	return errors.Join(errs...)
 }
 
+// samePort reports whether two listen addresses use the same fixed port. Port
+// 0 picks a free port for each listener, so it never conflicts.
 func samePort(a, b string) bool {
 	_, pa, errA := net.SplitHostPort(a)
 	_, pb, errB := net.SplitHostPort(b)
-	return errA == nil && errB == nil && pa == pb
+	return errA == nil && errB == nil && pa == pb && pa != "0"
 }
 
 // normalizeTLSMode validates the mode read from the config file.

@@ -51,7 +51,7 @@ func TestGracefulShutdownDrainsHTTPBeforeStoppingFlows(t *testing.T) {
 	<-streamStarted
 
 	start := time.Now()
-	require.NoError(t, gracefulShutdown(srv, app.flows, app.manager, 5*time.Second))
+	require.NoError(t, gracefulShutdown([]*http.Server{srv}, app.flows, app.manager, 5*time.Second))
 	require.Less(t, time.Since(start), 3*time.Second, "streams must end when shutdown begins instead of hitting the timeout")
 	_, _ = io.Copy(io.Discard, resp.Body)
 
