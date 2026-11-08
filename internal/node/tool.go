@@ -47,10 +47,35 @@ type ToolSpec struct {
 	Confirm string
 	// Idempotent is the admin's idempotentHint.
 	Idempotent bool
-	// MaxConcurrent caps the calls of this tool running at once.
+	// MaxConcurrent caps the calls of this tool running at once. 0 means
+	// the admin left it unset: the default is ToolDefaultMaxConcurrent, or
+	// ToolReadOnlyMaxConcurrent for read-only tools, decided by the flow's
+	// risk analysis (see EffectiveMaxConcurrent).
 	MaxConcurrent int
 	// Cooldown is the minimum time between the end of a call and the next.
 	Cooldown time.Duration
+}
+
+// Defaults of ToolSpec.MaxConcurrent when the admin leaves it unset.
+const (
+	// ToolDefaultMaxConcurrent: calls of a tool run one at a time.
+	ToolDefaultMaxConcurrent = 1
+	// ToolReadOnlyMaxConcurrent: a read-only tool runs up to 4 calls at once.
+	ToolReadOnlyMaxConcurrent = 4
+)
+
+// EffectiveMaxConcurrent returns the concurrency limit of the tool: the
+// admin's MaxConcurrent, or the default for a read-only tool (readOnly comes
+// from the flow's risk analysis) or any other tool when it is unset.
+func (s ToolSpec) EffectiveMaxConcurrent(readOnly bool) int {
+	switch {
+	case s.MaxConcurrent > 0:
+		return s.MaxConcurrent
+	case readOnly:
+		return ToolReadOnlyMaxConcurrent
+	default:
+		return ToolDefaultMaxConcurrent
+	}
 }
 
 // ToolProvider is implemented by nodes that publish an MCP tool.

@@ -74,6 +74,11 @@ func TestToolTriggerInfo(t *testing.T) {
 	assert.Equal(t, "milliseconds", props["cooldownMs"].Unit)
 	assert.Equal(t, 1.0, *props["maxConcurrent"].Minimum)
 	assert.Equal(t, 16.0, *props["maxConcurrent"].Maximum)
+	// No default to seed new nodes with: unset means 1, or 4 for read-only
+	// tools, which only the flow's risk analysis knows.
+	assert.Nil(t, props["maxConcurrent"].Default)
+	assert.Contains(t, props["maxConcurrent"].Description, "read-only")
+	assert.Contains(t, info.Documentation, "4 for read-only tools")
 
 	// The editor seeds new nodes from the defaults: an empty closed schema.
 	_, err := toolschema.Compile(mustJSON(t, props["inputSchema"].Default))
@@ -99,8 +104,22 @@ func TestToolTriggerSpecDefaults(t *testing.T) {
 	assert.Equal(t, 10*time.Second, spec.Timeout)
 	assert.Equal(t, node.ToolConfirmNone, spec.Confirm)
 	assert.False(t, spec.Idempotent)
-	assert.Equal(t, 1, spec.MaxConcurrent)
+	assert.Equal(t, 0, spec.MaxConcurrent, "unset: the flow's risk analysis picks 1, or 4 for read-only tools")
 	assert.Equal(t, time.Duration(0), spec.Cooldown)
+}
+
+// An explicit 1 is kept apart from an unset value, so a read-only tool the
+// admin limited to one call at a time stays limited.
+func TestToolTriggerExplicitMaxConcurrent(t *testing.T) {
+	for _, v := range []any{float64(1), 1, nil, ""} {
+		cfg := validToolConfig(uniqueToolName())
+		cfg["maxConcurrent"] = v
+		want := 1
+		if v == nil || v == "" {
+			want = 0
+		}
+		assert.Equalf(t, want, newToolTrigger(t, cfg).ToolSpec().MaxConcurrent, "%#v", v)
+	}
 }
 
 func TestToolTriggerSpecFromConfig(t *testing.T) {

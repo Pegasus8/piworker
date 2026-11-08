@@ -19,15 +19,14 @@ import (
 
 // Limits of trigger-tool settings.
 const (
-	toolDefaultTimeoutMs     = 10000
-	toolMinTimeoutMs         = 1000
-	toolMaxTimeoutMs         = 30000
-	toolDefaultMaxConcurrent = 1
-	toolMaxConcurrent        = 16
-	toolMaxCooldownMs        = 3600000
-	toolMinDescription       = 20
-	toolMaxDescription       = 4096
-	toolMaxTitle             = 128
+	toolDefaultTimeoutMs = 10000
+	toolMinTimeoutMs     = 1000
+	toolMaxTimeoutMs     = 30000
+	toolMaxConcurrent    = 16
+	toolMaxCooldownMs    = 3600000
+	toolMinDescription   = 20
+	toolMaxDescription   = 4096
+	toolMaxTitle         = 128
 )
 
 // toolNamePattern is the MCP-compatible tool name syntax.
@@ -163,7 +162,9 @@ func parseToolSpec(cfg map[string]any) (node.ToolSpec, error) {
 		spec.Idempotent = b
 	}
 
-	if n, err := intSetting(cfg, "maxConcurrent", toolDefaultMaxConcurrent, 1, toolMaxConcurrent, "calls"); err != nil {
+	// Unset stays 0: the default depends on whether the tool is read-only,
+	// which only the flow's risk analysis knows (EffectiveMaxConcurrent).
+	if n, err := intSetting(cfg, "maxConcurrent", 0, 1, toolMaxConcurrent, "calls"); err != nil {
 		errs = append(errs, err)
 	} else {
 		spec.MaxConcurrent = n
@@ -413,8 +414,7 @@ func toolTriggerConfigSchema() node.ConfigSchema {
 			"maxConcurrent": {
 				Type:         "integer",
 				Title:        "Concurrent calls",
-				Description:  "Maximum number of calls of this tool running at once (count, 1-16)",
-				Default:      toolDefaultMaxConcurrent,
+				Description:  "Maximum number of calls of this tool running at once (count, 1-16); when empty: 1, or 4 for read-only tools",
 				Minimum:      &minConc,
 				Maximum:      &maxConc,
 				Unit:         "count",
@@ -543,8 +543,8 @@ in ` + "`\"x-piworker-allow\": [\"/\"]`" + ` on that property (agents do not see
   Reply. If the reply comes later, the call reports *running* and the agent
   fetches the result afterwards. A run that ends without a reply completes
   with no result, or with the error of the first node that failed.
-- **maxConcurrent** (default 1) and **cooldownMs** limit how often the tool
-  runs.
+- **maxConcurrent** (when empty: 1, or 4 for read-only tools) and
+  **cooldownMs** limit how often the tool runs.
 
 ## Confirmation
 

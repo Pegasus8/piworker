@@ -43,3 +43,24 @@ func TestToolSpecCarriesTheCompiledSchema(t *testing.T) {
 	assert.Empty(t, spec.InputSchema.Validate(map[string]any{"n": float64(1)}))
 	assert.NotEmpty(t, spec.InputSchema.Validate(map[string]any{"n": "1"}))
 }
+
+func TestToolSpecEffectiveMaxConcurrent(t *testing.T) {
+	assert.Equal(t, 1, ToolDefaultMaxConcurrent)
+	assert.Equal(t, 4, ToolReadOnlyMaxConcurrent)
+	cases := []struct {
+		set      int
+		readOnly bool
+		want     int
+	}{
+		{0, false, 1},
+		{0, true, 4},
+		{1, true, 1},
+		{1, false, 1},
+		{8, false, 8},
+		{8, true, 8},
+	}
+	for _, c := range cases {
+		spec := ToolSpec{MaxConcurrent: c.set}
+		assert.Equalf(t, c.want, spec.EffectiveMaxConcurrent(c.readOnly), "%+v", c)
+	}
+}

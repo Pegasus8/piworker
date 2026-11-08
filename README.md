@@ -464,7 +464,8 @@ Agents supply data only, never configuration:
   connection or with an invalid schema answers `400`.
 - **Confirmation**: `none`, `client` (the MCP client asks its user; not a
   security control) or `admin` (each call waits for approval in the editor).
-  `maxConcurrent` and `cooldownMs` limit how often a tool runs.
+  `maxConcurrent` (when unset: 1, or 4 for read-only tools) and `cooldownMs`
+  limit how often a tool runs.
 
 Arguments that reach command, file, database, GPIO or I2C nodes must be strict:
 strings need an `enum` or a pattern rejecting option flags, paths, whitespace
