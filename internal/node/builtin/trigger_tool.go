@@ -528,7 +528,7 @@ shell syntax (` + "`$(`, `;`, `|`" + `, backtick); numbers need ` + "`minimum`" 
 - The call waits up to **timeoutMs** (default 10 s, at most 30 s) for an Agent
   Reply. If the reply comes later, the call reports *running* and the agent
   fetches the result afterwards. A run that ends without a reply completes
-  with no result; a node error ends the call with an error.
+  with no result, or with the error of the first node that failed.
 - **maxConcurrent** (default 1) and **cooldownMs** limit how often the tool
   runs.
 
