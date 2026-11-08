@@ -51,6 +51,10 @@ type MessageRouter struct {
 	// Metrics
 	messagesDropped int64
 
+	// onDrop, when set, is called for every routed message dropped on send
+	// timeout, so the owner can account for work that will never execute.
+	onDrop func(RoutedMessage)
+
 	logger zerolog.Logger
 
 	mu     sync.RWMutex
@@ -71,6 +75,15 @@ type RouterOption func(*MessageRouter)
 func WithSendTimeout(timeout time.Duration) RouterOption {
 	return func(r *MessageRouter) {
 		r.sendTimeout = timeout
+	}
+}
+
+// WithDropHandler registers a callback invoked (synchronously, on the routing
+// goroutine) for each message dropped because the output stayed full past the
+// send timeout. It must not block.
+func WithDropHandler(fn func(RoutedMessage)) RouterOption {
+	return func(r *MessageRouter) {
+		r.onDrop = fn
 	}
 }
 
@@ -240,6 +253,9 @@ func (r *MessageRouter) send(sourceNode string, routed RoutedMessage) {
 			Str("msgID", routed.Message.ID).
 			Dur("timeout", r.sendTimeout).
 			Msg("Message dropped after timeout (output channel full)")
+		if r.onDrop != nil {
+			r.onDrop(routed)
+		}
 	case <-r.ctx.Done():
 		r.logger.Debug().
 			Str("sourceNode", sourceNode).

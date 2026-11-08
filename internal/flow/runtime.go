@@ -254,8 +254,18 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 		}
 	}
 
-	// Create the message router
-	rt.router = NewMessageRouter(f.Connections, rt.logger)
+	// Create the message router. Connections touching a disabled (never
+	// instantiated) node are left out, so nothing is routed to a node that
+	// cannot execute and the run accounting (targetCount) never counts it.
+	active := make([]Connection, 0, len(f.Connections))
+	for _, c := range f.Connections {
+		_, srcOK := rt.nodes[c.SourceNode]
+		_, dstOK := rt.nodes[c.TargetNode]
+		if srcOK && dstOK {
+			active = append(active, c)
+		}
+	}
+	rt.router = NewMessageRouter(active, rt.logger, WithDropHandler(rt.releaseDropped))
 
 	return rt, nil
 }
@@ -439,6 +449,8 @@ func (r *FlowRuntime) dispatch() {
 				r.logger.Error().
 					Str("nodeID", routedMsg.TargetNode).
 					Msg("Target node not found or disabled; dropping message")
+				metrics.IncrementMessagesDropped()
+				r.releaseDropped(routedMsg)
 				continue
 			}
 
@@ -449,17 +461,19 @@ func (r *FlowRuntime) dispatch() {
 					Str("msgID", routedMsg.Message.ID).
 					Int("queueLimit", r.queueLimit).
 					Msg("Node queue full; dropping message")
-				r.dropMessage(routedMsg)
+				metrics.IncrementMessagesDropped()
+				r.releaseDropped(routedMsg)
 			}
 		}
 	}
 }
 
-// dropMessage accounts for a routed message that will never execute: it counts
-// the drop and releases the message's slot in its run so the run can finish.
-func (r *FlowRuntime) dropMessage(routedMsg RoutedMessage) {
+// releaseDropped accounts for a routed message that will never execute: it
+// counts the drop and releases the message's slot in its run, so the run still
+// finishes. Every drop path (queue overflow, unknown target, router send
+// timeout) must call it exactly once per dropped message.
+func (r *FlowRuntime) releaseDropped(routedMsg RoutedMessage) {
 	r.droppedMessages.Add(1)
-	metrics.IncrementMessagesDropped()
 	r.runDone(r.ensureCorrelationID(routedMsg.Message))
 }
 
