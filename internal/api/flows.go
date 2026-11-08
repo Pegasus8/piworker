@@ -24,7 +24,10 @@ const MaxRequestBodySize = 1 << 20
 type FlowsHandler struct {
 	// Serialize definition and lifecycle mutations so storage and runtime agree.
 	lifecycleMu sync.Mutex
-	store       *storage.SQLiteStore
+	// shuttingDown (guarded by lifecycleMu) refuses new deployments once the
+	// process has begun stopping, so nothing starts after StopAll.
+	shuttingDown bool
+	store        *storage.SQLiteStore
 	manager     *flow.RuntimeManager
 	registry    *node.Registry
 	logger      zerolog.Logger
@@ -401,9 +404,22 @@ func (h *FlowsHandler) StopFlow(w http.ResponseWriter, r *http.Request) {
 	h.changeRunning(w, r, false, true)
 }
 
+// BeginShutdown makes every later deploy/toggle-on request fail with 503. It
+// waits for any lifecycle change already in progress, so once it returns no new
+// flow can start.
+func (h *FlowsHandler) BeginShutdown() {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
+	h.shuttingDown = true
+}
+
 func (h *FlowsHandler) changeRunning(w http.ResponseWriter, r *http.Request, wantRunning, strict bool) {
 	h.lifecycleMu.Lock()
 	defer h.lifecycleMu.Unlock()
+	if wantRunning && h.shuttingDown {
+		writeError(w, http.StatusServiceUnavailable, "PiWorker is shutting down")
+		return
+	}
 	id := mux.Vars(r)["id"]
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "Flow ID is required")

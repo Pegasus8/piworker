@@ -6,6 +6,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -180,24 +181,12 @@ func main() {
 	}
 
 	router, flowsHandler := buildRouter(cfg, store, runtimeManager, registry, userStore)
-	_ = flowsHandler
-
-	// Handle graceful shutdown
-	shutdownCtx, cancel := context.WithCancel(context.Background())
-	_ = shutdownCtx // Used for future context propagation
 
 	// Setup signal handling
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	// Create HTTP server
-	srv := &http.Server{
-		Addr:         cfg.Addr,
-		Handler:      router,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
-	}
+	srv := newHTTPServer(cfg.Addr, router)
 
 	// Start the server in a goroutine
 	errCh := make(chan error, 1)
@@ -220,14 +209,10 @@ func main() {
 		log.Error().Err(err).Msg("Server error")
 	}
 
-	// Graceful shutdown
 	log.Info().Msg("Shutting down...")
-
-	// Stop all running flows
-	runtimeManager.StopAll()
-
-	// Cancel context
-	cancel()
+	if err := gracefulShutdown(srv, flowsHandler, runtimeManager, 10*time.Second); err != nil {
+		log.Error().Err(err).Msg("Error during server shutdown")
+	}
 
 	// Flush and finalize the observability recorder before the store closes
 	// (store.Close is deferred and runs after main returns).
@@ -238,14 +223,38 @@ func main() {
 		log.Warn().Msg("Recorder did not drain within timeout on shutdown")
 	}
 
-	// Shutdown HTTP server with timeout
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Error().Err(err).Msg("Error during server shutdown")
-	}
-
 	log.Info().Msg("PiWorker stopped")
+}
+
+// newHTTPServer builds the HTTP server. Every request context derives from a
+// base context that is cancelled as soon as Shutdown begins, so long-lived
+// requests that honour r.Context() (the SSE event stream) end promptly instead
+// of holding Shutdown until its timeout.
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	baseCtx, cancelBase := context.WithCancel(context.Background())
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      handler,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+		BaseContext:  func(net.Listener) context.Context { return baseCtx },
+	}
+	srv.RegisterOnShutdown(cancelBase)
+	return srv
+}
+
+// gracefulShutdown stops the process in dependency order: refuse new deploys,
+// drain HTTP (which cancels streams via the base context), and only then stop
+// the flows, so in-flight API calls never observe a half-stopped runtime and
+// nothing can be deployed after StopAll.
+func gracefulShutdown(srv *http.Server, flows *api.FlowsHandler, manager *flow.RuntimeManager, timeout time.Duration) error {
+	flows.BeginShutdown()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	err := srv.Shutdown(ctx)
+	manager.StopAll()
+	return err
 }
 
 // buildRouter wires middleware and every HTTP route. users is nil when
