@@ -91,6 +91,9 @@ func RegenerateCA(dir string) error
   `ConfigSchema` descriptions state units. Enums match exactly unless
   `CaseInsensitive`. `RuntimeManager.Restore` (startup) logs these issues and
   deploys anyway, so values saved before the check never stop a running flow.
+  This leniency covers config typing only: Restore still enforces the tool risk
+  analysis of §5, so a flow whose tools fail it is not restored until the admin
+  fixes and redeploys it.
 - **Host allowlist** for `/api`, `/mcp` and the webui: top-level `allowed_hosts`
   (TOML, `PIWORKER_ALLOWED_HOSTS`, `-allowed-hosts`), added to: `localhost`,
   hostname, `hostname.local`, current interface IPs (re-read lazily), and any
@@ -254,7 +257,7 @@ type ToolInfo struct {
     OutputSchema json.RawMessage
     Risk         node.Risk
     Annotations  Annotations
-    Fingerprint  string // sha256(risk, annotations, schema JSON)
+    Fingerprint  string // sha256(risk, annotations, inputSchema, confirm)
     Confirm      string
     Timeout      time.Duration
     MaxConcurrent int
@@ -287,8 +290,12 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   can only be granted when agent deploy is enabled (§10). The `privileged`
   flag (default false) is needed to call privileged tools.
 - Grants bind to `(flowID, triggerNodeID, fingerprint)`. A redeploy that
-  changes the fingerprint to a higher risk or a wider schema suspends the grant
-  until the admin re-confirms. `all_tools` never includes privileged tools.
+  changes the fingerprint (risk, annotations, input schema or confirm mode)
+  suspends the grant until the admin re-confirms: any change, not only a higher
+  risk or a wider schema, since whether a schema is wider cannot be decided
+  reliably. `all_tools` never includes privileged tools. An approved
+  `confirm: admin` call runs only if the tool still has the name and
+  fingerprint recorded with the request (§9).
 - Created only from the editor (cookie + CSRF) with **password step-up**;
   revoking needs no password (it only narrows access). Adding a grant or
   re-confirming a suspended or widened one needs step-up; suspend/remove do
@@ -341,13 +348,19 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 
 ## 9. Approvals (`confirm: admin`) and audit
 
-- Table `agent_approvals(id, kind, token_id, flow_id, ref, args_json, summary,
-  status, created_at, decided_at, decided_by, expires_at)`; kinds:
-  `tool_call`, `draft_deploy`. Pending approvals expire (tool calls: 15 min).
+- Table `agent_approvals(id, kind, token_id, flow_id, ref, tool_name,
+  tool_fingerprint, args_json, summary, status, created_at, decided_at,
+  decided_by, expires_at, result_json)`; kinds: `tool_call`, `draft_deploy`.
+  Pending approvals expire (tool calls: 15 min).
 - A `confirm: admin` call returns `{status:"approval_required", runId}`; the
   editor shows a queue (badge + page) with tool, args (text only), risk and
   token; approve runs the call and stores its `CallResult` on the approval
-  (retrievable with `pw_get_result`); reject → `rejected`.
+  (retrievable with `pw_get_result`; a call still running past its timeout
+  stores `running`, then its final result); reject → `rejected`. The call runs
+  only if the tool still has the name and fingerprint recorded with the
+  request; otherwise nothing runs and the stored result is an error ("the tool
+  changed since the request; ask again"). Arguments over 64 KiB cannot be
+  queued (`invalid_arguments`).
 - Revoking or expiring a token voids its pending approvals (closed as
   rejected, `decided_by` "token revoked"/"token expired"); approving one is
   refused. Pending approvals are capped per token and kind
