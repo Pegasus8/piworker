@@ -91,7 +91,7 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
 
 ### Shared process-wide singletons
 - `webhook.DefaultHub` — webhook trigger nodes register a path on `Start`; the
-  HTTP server mounts the hub at `/api/webhooks/` and dispatches matching requests.
+  HTTP server mounts the hub at `/webhooks/` and dispatches matching requests.
   This is the bridge that lets pull-only trigger nodes react to inbound HTTP.
 - `vars.DefaultStore` — in-memory key/value store backing the `set-var`/`get-var`
   nodes (persisted to SQLite through the attached store).

@@ -29,6 +29,24 @@ version. The version number and release date have not been selected.
   Positional shell arguments are reserved for bindings; templates using set/shift
   or explicit eval/interpreter re-execution must be reviewed.
 
+### Hardening
+
+- Write requests under `/api/` always require the editor's request header,
+  a same-origin (or allowlisted) Origin and a JSON body, even with auth disabled.
+- Webhooks are served at `/webhooks/<path>`, outside `/api`, so the session cookie
+  is never sent to them. They answer 401/405/413/503 instead of always 200, and
+  credentials (cookies, auth headers, the webhook token) never reach the payload.
+- Configuration fails closed: empty or unrecognised boolean environment values,
+  a missing explicit config file and unknown TOML keys stop startup.
+- Metrics are served only at `/api/metrics`, behind the API's authentication.
+- Deploys fail (400 invalid flow, 409 still stopping) instead of reporting a
+  running flow when the graph is invalid (cycles, duplicate IDs) or a trigger
+  cannot start. Network triggers (MQTT, RSS) start even if the network is not up
+  yet and connect when it is.
+- A slow node no longer stalls other branches, messages keep their order per
+  connection, and nodes release their network and database connections when
+  their flow stops.
+
 ### Compatibility and limits
 
 - Native releases require systemd and glibc 2.35+ for the managed installer.
@@ -39,7 +57,7 @@ version. The version number and release date have not been selected.
   original binary and data; no automatic migration guarantee is made.
 - Existing accounts from the revival session-authentication migration retain
   their password hashes. Legacy JWT sessions must sign in again; Bearer JWT API
-  authentication is no longer supported.
+  authentication and the `jwt_secret` setting are no longer supported.
 - The server listens over HTTP. HTTPS needs an external reverse proxy;
   `session_secure` only controls the cookie's Secure flag.
 - Secrets have no application-level encryption at rest. Flow exports do not

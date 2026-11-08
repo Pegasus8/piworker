@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"strings"
 	"sync"
@@ -110,8 +111,9 @@ func (t *WebhookTrigger) Stop() error {
 	return nil
 }
 
-// handle is invoked by the hub for each incoming request on this path.
-func (t *WebhookTrigger) handle(req webhook.Request) {
+// handle is invoked by the hub for each incoming request on this path. Its
+// result becomes the HTTP status the caller sees.
+func (t *WebhookTrigger) handle(req webhook.Request) webhook.Result {
 	t.mu.Lock()
 	out := t.out
 	ctx := t.ctx
@@ -119,25 +121,20 @@ func (t *WebhookTrigger) handle(req webhook.Request) {
 	t.mu.Unlock()
 
 	if !running || out == nil {
-		return
+		return webhook.Dropped
 	}
 
 	// Optional method filter.
 	if t.method != "" && req.Method != t.method {
-		return
+		return webhook.MethodNotAllowed
 	}
 
-	// Optional shared-secret check (query ?token=... or X-Webhook-Token header).
-	if t.token != "" {
-		provided := req.Headers["X-Webhook-Token"]
-		if provided == "" {
-			if vals := req.Query["token"]; len(vals) > 0 {
-				provided = vals[0]
-			}
-		}
-		if provided != t.token {
-			return
-		}
+	// Optional shared-secret check (the hub extracts ?token=... or the
+	// X-Webhook-Token header into req.Token). Constant-time comparison so
+	// response timing doesn't leak how much of a guess was right.
+	if t.token != "" &&
+		subtle.ConstantTimeCompare([]byte(req.Token), []byte(t.token)) != 1 {
+		return webhook.Unauthorized
 	}
 
 	t.mu.Lock()
@@ -161,11 +158,13 @@ func (t *WebhookTrigger) handle(req webhook.Request) {
 
 	select {
 	case <-ctx.Done():
-		return
+		return webhook.Dropped
 	case out <- msg:
+		return webhook.Accepted
 	default:
 		metrics.IncrementMessagesDropped()
 		log.Warn().Str("path", t.path).Msg("webhook message dropped: output channel full")
+		return webhook.Dropped
 	}
 }
 
@@ -190,7 +189,7 @@ func webhookTriggerConfigSchema() node.ConfigSchema {
 			"path": {
 				Type:        "string",
 				Title:       "Path",
-				Description: "URL path segment under /api/webhooks/ (e.g. 'github-push')",
+				Description: "URL path segment under /webhooks/ (e.g. 'github-push')",
 			},
 			"method": {
 				Type:        "string",
@@ -230,14 +229,14 @@ service that can POST to a URL.
 ## URL
 
 ` + "```" + `
-http(s)://<host>/api/webhooks/<path>
+http(s)://<host>/webhooks/<path>
 ` + "```" + `
 
 ## Configuration
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| path | string | - | Path segment under /api/webhooks/ (required, unique per flow) |
+| path | string | - | Path segment under /webhooks/ (required, unique per flow) |
 | method | string | (any) | Only accept this HTTP method |
 | token | string | - | Optional shared secret (` + "`?token=`" + ` or ` + "`X-Webhook-Token`" + ` header) |
 
@@ -257,6 +256,21 @@ Each request produces a message with:
 
 The webhook endpoint is public (no login session). Set a **token** to require a shared
 secret, and avoid exposing destructive flows without one.
+
+The token, the ` + "`token`" + ` query parameter and the Cookie, Authorization,
+X-Webhook-Token and X-PiWorker-* headers are never included in the payload.
+
+## Responses
+
+| Status | Meaning |
+|--------|---------|
+| 200 | Accepted into the flow |
+| 400 | Request body could not be read |
+| 401 | Missing or wrong token |
+| 404 | No webhook on this path (flow not deployed) |
+| 405 | Method doesn't match the method filter |
+| 413 | Body larger than 1 MiB |
+| 503 | Flow busy (queue full) or stopping; retry later |
 `,
 		Category: types.NodeCategoryInput,
 		Inputs:   nil,

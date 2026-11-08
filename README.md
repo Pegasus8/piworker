@@ -96,11 +96,9 @@ export PIWORKER_ADMIN_PASS='replace-with-a-unique-password'
 ```
 
 These variables never overwrite an existing account. Docker Compose reads them
-from the shell or a local, git-ignored `.env` file. Existing installations keep
-their accounts and password hashes; old JWT sessions require one new login.
-Shell exports do not configure the native systemd service: use its TOML file or
-an explicitly configured systemd environment. Browser setup needs no bootstrap
-credentials. Compatibility with databases from the legacy 2020 release has not
+from the shell or a local, git-ignored `.env` file. Shell exports do not
+configure the native systemd service: use its TOML file or an explicitly
+configured systemd environment. Browser setup needs no bootstrap credentials. Compatibility with databases from the legacy 2020 release has not
 been validated; keep a full backup and test migration on a copy first.
 
 This README describes the revival branch, including changes not yet released.
@@ -369,7 +367,7 @@ sudo systemctl start piworker
 | **Interval Timer** | `trigger-interval` | Fire at regular time intervals |
 | **Cron Schedule** | `trigger-cron` | Fire on a cron schedule (e.g., `0 9 * * *`) |
 | **Manual Inject** | `trigger-manual` | Fire on demand from the UI or API |
-| **Webhook** | `trigger-webhook` | Fire on an incoming HTTP request to `/api/webhooks/<path>` |
+| **Webhook** | `trigger-webhook` | Fire on an incoming HTTP request to `/webhooks/<path>` |
 | **RSS / Atom** | `trigger-rss` | Poll a feed for new entries |
 | **MQTT Subscribe** | `trigger-mqtt` | Receive messages from an MQTT broker |
 | **GPIO Edge** | `trigger-gpio` | React to Raspberry Pi pin changes |
@@ -534,6 +532,19 @@ export PIWORKER_ADMIN_USER=admin
 export PIWORKER_ADMIN_PASS=...
 ```
 
+Boolean variables accept `true/false`, `1/0`, `yes/no` or `on/off`; an empty or
+unrecognised value stops startup with an error (it never silently disables
+authentication). A config file named with `-config` or `PIWORKER_CONFIG` must
+exist; only the implicit `piworker.toml` may be absent. Unknown keys in the TOML
+file (typos such as `atuh`) are rejected at startup.
+
+Prometheus metrics are served at `/api/metrics`. When authentication is enabled
+they require a signed-in session.
+
+Write requests to `/api/` must come from the editor
+even when authentication is disabled: they need the `X-PiWorker-Request: 1`
+header, a same-origin or `cors_origins` Origin, and a JSON body.
+
 ### Sessions and account recovery
 
 The browser uses an HttpOnly, SameSite=Strict cookie; session secrets are never
@@ -587,15 +598,15 @@ Authentication request bodies must contain one UTF-8 JSON value with unique
 field names; use the documented lowercase/camelCase field names. Duplicate
 fields, invalid UTF-8 and trailing JSON values are rejected.
 Browser origins must match the server or an explicitly configured CORS origin.
-Login/setup/recovery/password attempts are rate limited. Legacy Bearer JWTs are
-no longer accepted; old JWT configuration values are ignored for compatibility.
+Login/setup/recovery/password attempts are rate limited. Only cookie sessions are
+accepted (no Bearer tokens).
 
 ### Webhooks
 
 Deploy a flow with a **Webhook** trigger and external services can start it by
-calling `http://<host>/api/webhooks/<path>` (or HTTPS through a configured proxy).
-These endpoints use their own optional token authentication, independently of
-the administrator session. Set a token on the node to
+calling `http://<host>/webhooks/<path>` (or HTTPS through a configured proxy).
+These endpoints live outside `/api`, so the administrator's session cookie is
+never sent to them, and they use their own optional token authentication. Set a token on the node to
 require `?token=...` or an `X-Webhook-Token` header.
 
 ---

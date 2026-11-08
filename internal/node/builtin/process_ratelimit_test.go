@@ -54,6 +54,17 @@ func TestRateLimitSetsSourcePort(t *testing.T) {
 	assert.Equal(t, "output", out[0].SourcePort)
 }
 
+// A huge window used to overflow into a negative Duration, which put the
+// cutoff in the future, forgot every timestamp and disabled the limit.
+func TestRateLimitHugeWindowStillLimits(t *testing.T) {
+	for _, w := range []interface{}{1e13, float64(9_300_000_000_000)} {
+		p := newRateLimit(t, map[string]interface{}{"limit": 1, "windowMs": w})
+		assert.Greater(t, p.window, time.Duration(0))
+		assert.True(t, passes(t, p))
+		assert.False(t, passes(t, p), "windowMs %v: second message must be dropped", w)
+	}
+}
+
 func TestRateLimitDefaultsAreSane(t *testing.T) {
 	p := newRateLimit(t, map[string]interface{}{})
 	assert.Equal(t, 1, p.limit)

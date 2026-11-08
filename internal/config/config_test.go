@@ -10,7 +10,7 @@ import (
 )
 
 func TestLoadDefaultsWhenNoFile(t *testing.T) {
-	cfg, err := Load(filepath.Join(t.TempDir(), "does-not-exist.toml"))
+	cfg, err := Load("")
 	require.NoError(t, err)
 	assert.Equal(t, ":8080", cfg.Addr)
 	assert.Equal(t, "piworker.db", cfg.DBPath)
@@ -68,4 +68,63 @@ func TestSessionCookieTransportIsExplicit(t *testing.T) {
 	cfg, err = Load(path)
 	require.NoError(t, err)
 	require.False(t, cfg.SessionSecure)
+}
+
+func TestAuthEnvFailsClosedOnEmptyOrUnknownValue(t *testing.T) {
+	for _, v := range []string{"", "  ", "disabled", "flase", "2"} {
+		t.Run(v, func(t *testing.T) {
+			t.Setenv("PIWORKER_AUTH", v)
+			_, err := Load("")
+			require.Error(t, err, "an unparseable PIWORKER_AUTH must not silently disable auth")
+			require.Contains(t, err.Error(), "PIWORKER_AUTH")
+		})
+	}
+}
+
+func TestBoolEnvAcceptsStrictSpellings(t *testing.T) {
+	cases := map[string]bool{
+		"true": true, "TRUE": true, "1": true, "t": true, "yes": true, "On": true, " true ": true,
+		"false": false, "0": false, "F": false, "no": false, "off": false,
+	}
+	for v, want := range cases {
+		t.Run(v, func(t *testing.T) {
+			t.Setenv("PIWORKER_AUTH", v)
+			t.Setenv("PIWORKER_DEBUG", v)
+			t.Setenv("PIWORKER_SESSION_SECURE", v)
+			cfg, err := Load("")
+			require.NoError(t, err)
+			assert.Equal(t, want, cfg.Auth)
+			assert.Equal(t, want, cfg.Debug)
+			assert.Equal(t, want, cfg.SessionSecure)
+		})
+	}
+}
+
+func TestOtherBoolEnvsRejectUnknownValues(t *testing.T) {
+	for _, name := range []string{"PIWORKER_DEBUG", "PIWORKER_SESSION_SECURE"} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "maybe")
+			_, err := Load("")
+			require.Error(t, err)
+			require.Contains(t, err.Error(), name)
+		})
+	}
+}
+
+func TestExplicitMissingConfigFileIsAnError(t *testing.T) {
+	_, err := Load(filepath.Join(t.TempDir(), "typo.toml"))
+	require.Error(t, err, "an explicitly requested config file that does not exist must not be ignored")
+}
+
+func TestMissingDefaultConfigFileIsTolerated(t *testing.T) {
+	t.Chdir(t.TempDir())
+	cfg, err := Load(DefaultConfigPath)
+	require.NoError(t, err)
+	assert.True(t, cfg.Auth)
+}
+
+func TestConfigEnvPointingToMissingFileIsAnError(t *testing.T) {
+	t.Setenv("PIWORKER_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	_, err := Load(ResolveConfigPath(""))
+	require.Error(t, err, "PIWORKER_CONFIG pointing to a missing file must fail")
 }

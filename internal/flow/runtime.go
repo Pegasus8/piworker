@@ -5,7 +5,9 @@ import (
 	"fmt"
 	flowvars "github.com/Pegasus8/piworker/internal/vars"
 	"runtime/debug"
+	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/metrics"
@@ -27,8 +29,14 @@ const (
 const (
 	// DefaultMaxConcurrency bounds how many nodes execute simultaneously per flow.
 	DefaultMaxConcurrency = 16
-	// DefaultExecBuffer is the buffer size of each per-node execution channel.
+	// DefaultExecBuffer is the buffer size of the trigger seed channels.
 	DefaultExecBuffer = 256
+	// DefaultStopTimeout bounds how long Stop waits for the flow's goroutines.
+	DefaultStopTimeout = 5 * time.Second
+	// DefaultNodeQueueLimit caps how many messages may wait for one node. A
+	// node whose backlog is full has further messages dropped (with a warning
+	// and a dropped-message metric) instead of stalling the rest of the flow.
+	DefaultNodeQueueLimit = 1000
 )
 
 // RetryConfig configures retry behavior for node execution.
@@ -107,11 +115,16 @@ type FlowRuntime struct {
 	// RWLock or linearly scanning the node slice on every message.
 	nodeDefs map[string]*Node
 
-	// Per-node execution channels. Each node drains its own channel serially
+	// Per-node FIFO queues. Each node drains its own queue serially
 	// (preserving message order for stateful nodes like batch/dedupe) while
-	// different nodes run concurrently, so one blocking node no longer stalls
-	// the whole flow.
-	execChans map[string]chan RoutedMessage
+	// different nodes run concurrently. Pushing never blocks the dispatcher, so
+	// one slow node can't stall unrelated branches; a full queue drops.
+	queues     map[string]*nodeQueue
+	queueLimit int
+
+	// droppedMessages counts messages discarded by this runtime (node queue
+	// overflow, router send timeouts, disabled/unknown targets).
+	droppedMessages atomic.Int64
 
 	// sem bounds how many nodes execute concurrently across the entire flow.
 	sem            chan struct{}
@@ -144,6 +157,12 @@ type FlowRuntime struct {
 
 	// Wait group for goroutine synchronization
 	wg sync.WaitGroup
+
+	// stopTimeout bounds how long Stop waits for wg. drained is closed once
+	// every goroutine of the current run has exited; until then the runtime
+	// may still be executing nodes even though it reports not running.
+	stopTimeout time.Duration
+	drained     chan struct{}
 }
 
 // RuntimeOption is a functional option for configuring the FlowRuntime.
@@ -181,6 +200,26 @@ func WithMaxConcurrency(n int) RuntimeOption {
 	}
 }
 
+// WithNodeQueueLimit caps how many messages may wait for a single node before
+// further ones are dropped. Values <= 0 are ignored.
+func WithNodeQueueLimit(n int) RuntimeOption {
+	return func(r *FlowRuntime) {
+		if n > 0 {
+			r.queueLimit = n
+		}
+	}
+}
+
+// WithStopTimeout sets how long Stop waits for the flow's goroutines to exit.
+// Values <= 0 are ignored.
+func WithStopTimeout(d time.Duration) RuntimeOption {
+	return func(r *FlowRuntime) {
+		if d > 0 {
+			r.stopTimeout = d
+		}
+	}
+}
+
 // NewFlowRuntime creates a new FlowRuntime for the given flow.
 func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*FlowRuntime, error) {
 	logger := zerolog.Nop()
@@ -195,6 +234,8 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 		state:          FlowStateInactive,
 		retryConfig:    DefaultRetryConfig(),
 		maxConcurrency: DefaultMaxConcurrency,
+		queueLimit:     DefaultNodeQueueLimit,
+		stopTimeout:    DefaultStopTimeout,
 		errors:         make(chan error, 100),
 		runInflight:    make(map[string]int),
 	}
@@ -233,14 +274,28 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 		}
 	}
 
-	// Create the message router
-	rt.router = NewMessageRouter(f.Connections, rt.logger)
+	// Create the message router. Connections touching a disabled (never
+	// instantiated) node are left out, so nothing is routed to a node that
+	// cannot execute and the run accounting (targetCount) never counts it.
+	active := make([]Connection, 0, len(f.Connections))
+	for _, c := range f.Connections {
+		_, srcOK := rt.nodes[c.SourceNode]
+		_, dstOK := rt.nodes[c.TargetNode]
+		if srcOK && dstOK {
+			active = append(active, c)
+		}
+	}
+	rt.router = NewMessageRouter(active, rt.logger, WithDropHandler(rt.releaseDropped))
 
 	return rt, nil
 }
 
 // Start begins executing the flow.
-// This method is non-blocking; the flow runs in background goroutines.
+// This method is non-blocking; the flow runs in background goroutines. Every
+// trigger's Start is called synchronously, so when Start returns nil all
+// triggers are running (and can e.g. be injected into immediately). If any
+// trigger fails to start, the triggers already started are stopped, the
+// runtime is torn down and the error is returned.
 func (r *FlowRuntime) Start(ctx context.Context) error {
 	r.mu.Lock()
 	if r.running {
@@ -256,6 +311,7 @@ func (r *FlowRuntime) Start(ctx context.Context) error {
 		return fmt.Errorf("load flow variables: %w", err)
 	}
 	r.ctx, r.cancel = context.WithCancel(flowvars.WithFlowStore(context.Background(), local))
+	r.drained = make(chan struct{})
 	r.running = true
 	r.state = FlowStateRunning
 	r.mu.Unlock()
@@ -267,76 +323,83 @@ func (r *FlowRuntime) Start(ctx context.Context) error {
 
 	// Initialise the concurrency limiter and one serial executor per node.
 	r.sem = make(chan struct{}, r.maxConcurrency)
-	r.execChans = make(map[string]chan RoutedMessage, len(r.nodes))
+	r.queues = make(map[string]*nodeQueue, len(r.nodes))
 	for nodeID := range r.nodes {
-		ch := make(chan RoutedMessage, DefaultExecBuffer)
-		r.execChans[nodeID] = ch
+		q := newNodeQueue(r.queueLimit)
+		r.queues[nodeID] = q
 		r.wg.Add(1)
-		go r.nodeExecutor(nodeID, ch)
+		go r.nodeExecutor(nodeID, q)
 	}
 
 	// Start the dispatcher that fans routed messages out to per-node executors.
 	r.wg.Add(1)
 	go r.dispatch()
 
-	// Start all trigger nodes
-	for nodeID, trigger := range r.triggers {
-		nodeID := nodeID // capture for goroutine
-		trigger := trigger
+	// Start all trigger nodes, in a stable order, synchronously.
+	triggerIDs := make([]string, 0, len(r.triggers))
+	for nodeID := range r.triggers {
+		triggerIDs = append(triggerIDs, nodeID)
+	}
+	sort.Strings(triggerIDs)
 
-		// Seed the run counter: the trigger writes to seedChan; this goroutine
-		// assigns the correlation ID and counts the message's downstream targets
-		// (starting a new run) before forwarding to the router. Assigning the
-		// correlation ID here — not later in executeNode — lets the whole cascade
-		// be tracked under one run ID.
-		realChan := r.router.GetInputChannel(nodeID)
-		seedChan := make(chan *types.Message, DefaultExecBuffer)
-		r.wg.Add(1)
-		go func() {
-			defer r.wg.Done()
-			for {
-				select {
-				case <-r.ctx.Done():
-					return
-				case msg, ok := <-seedChan:
-					if !ok {
-						return
-					}
-					corrID := r.ensureCorrelationID(msg)
-					r.runAdd(corrID, r.targetCount(nodeID, msg.SourcePort))
-					select {
-					case <-r.ctx.Done():
-						return
-					case realChan <- msg:
-					}
-				}
+	started := make([]string, 0, len(triggerIDs))
+	for _, nodeID := range triggerIDs {
+		trigger := r.triggers[nodeID]
+		seedChan := r.startSeeder(nodeID)
+
+		r.logger.Debug().
+			Str("nodeID", nodeID).
+			Msg("Starting trigger node")
+
+		if err := trigger.Start(r.ctx, seedChan); err != nil {
+			nodeType := "trigger"
+			if def := r.nodeDefs[nodeID]; def != nil {
+				nodeType = def.Type
 			}
-		}()
-
-		r.wg.Add(1)
-		go func() {
-			defer r.wg.Done()
-
-			r.logger.Debug().
+			r.logger.Error().
+				Err(err).
+				Str("flowID", r.flow.ID).
 				Str("nodeID", nodeID).
-				Msg("Starting trigger node")
-
-			if err := trigger.Start(r.ctx, seedChan); err != nil {
-				r.logger.Error().
-					Err(err).
-					Str("nodeID", nodeID).
-					Msg("Trigger node error")
-
-				select {
-				case r.errors <- NewNodeExecutionError(nodeID, "trigger", err):
-				default:
-					// Error channel full, log and continue
-				}
-			}
-		}()
+				Msg("Trigger node failed to start; aborting flow start")
+			r.shutdown(started)
+			return NewNodeExecutionError(nodeID, nodeType, err)
+		}
+		started = append(started, nodeID)
 	}
 
 	return nil
+}
+
+// startSeeder returns the channel a trigger emits into. A goroutine reads it,
+// assigns the correlation ID and counts the message's downstream targets
+// (starting a new run) before forwarding to the router. Assigning the
+// correlation ID here — not later in executeNode — lets the whole cascade be
+// tracked under one run ID.
+func (r *FlowRuntime) startSeeder(nodeID string) chan *types.Message {
+	realChan := r.router.GetInputChannel(nodeID)
+	seedChan := make(chan *types.Message, DefaultExecBuffer)
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		for {
+			select {
+			case <-r.ctx.Done():
+				return
+			case msg, ok := <-seedChan:
+				if !ok {
+					return
+				}
+				corrID := r.ensureCorrelationID(msg)
+				r.runAdd(corrID, r.targetCount(nodeID, msg.SourcePort))
+				select {
+				case <-r.ctx.Done():
+					return
+				case realChan <- msg:
+				}
+			}
+		}
+	}()
+	return seedChan
 }
 
 // Stop gracefully stops the flow execution.
@@ -352,16 +415,27 @@ func (r *FlowRuntime) Stop() error {
 		Str("flowID", r.flow.ID).
 		Msg("Stopping flow runtime")
 
+	ids := make([]string, 0, len(r.triggers))
+	for nodeID := range r.triggers {
+		ids = append(ids, nodeID)
+	}
+	sort.Strings(ids)
+	r.shutdown(ids)
+	return nil
+}
+
+// shutdown cancels the runtime, stops the given triggers, closes the router and
+// waits (bounded) for every goroutine to exit before marking it stopped.
+func (r *FlowRuntime) shutdown(triggerIDs []string) {
 	// Cancel the context to signal all goroutines to stop
 	r.cancel()
 
-	// Stop all trigger nodes
-	for nodeID, trigger := range r.triggers {
+	for _, nodeID := range triggerIDs {
 		r.logger.Debug().
 			Str("nodeID", nodeID).
 			Msg("Stopping trigger node")
 
-		if err := trigger.Stop(); err != nil {
+		if err := r.triggers[nodeID].Stop(); err != nil {
 			r.logger.Error().
 				Err(err).
 				Str("nodeID", nodeID).
@@ -372,32 +446,67 @@ func (r *FlowRuntime) Stop() error {
 	// Close the router to stop message processing
 	r.router.Close()
 
-	// Wait for all goroutines to finish with a timeout
-	done := make(chan struct{})
+	// Wait for all goroutines to finish with a timeout. Close nodes only
+	// after they have, so a node is never closed while still processing;
+	// drained is closed last, once the instance is completely gone.
+	r.mu.RLock()
+	drained := r.drained
+	r.mu.RUnlock()
 	go func() {
 		r.wg.Wait()
-		close(done)
+		r.closeNodes()
+		close(drained)
 	}()
 
 	select {
-	case <-done:
+	case <-drained:
 		r.logger.Debug().Msg("All goroutines stopped gracefully")
-	case <-time.After(5 * time.Second):
-		r.logger.Warn().Msg("Timeout waiting for goroutines to stop")
+	case <-time.After(r.stopTimeout):
+		r.logger.Warn().
+			Str("flowID", r.flow.ID).
+			Dur("timeout", r.stopTimeout).
+			Msg("Timeout waiting for flow goroutines to stop; the instance keeps draining in the background and the flow cannot be redeployed until it does")
+		go func() {
+			<-drained
+			r.logger.Info().
+				Str("flowID", r.flow.ID).
+				Msg("Stopped flow instance finished draining")
+		}()
 	}
 
 	r.mu.Lock()
 	r.running = false
 	r.state = FlowStateInactive
 	r.mu.Unlock()
+}
 
-	return nil
+// closeNodes calls Close on every node (trigger or not) that implements
+// node.Closer, logging failures. It must only run once executors have drained.
+func (r *FlowRuntime) closeNodes() {
+	ids := make([]string, 0, len(r.nodes))
+	for nodeID := range r.nodes {
+		ids = append(ids, nodeID)
+	}
+	sort.Strings(ids)
+	for _, nodeID := range ids {
+		c, ok := r.nodes[nodeID].(node.Closer)
+		if !ok {
+			continue
+		}
+		if err := c.Close(); err != nil {
+			r.logger.Error().
+				Err(err).
+				Str("flowID", r.flow.ID).
+				Str("nodeID", nodeID).
+				Msg("Error closing node")
+		}
+	}
 }
 
 // dispatch reads routed messages from the router and hands each one to its
-// target node's serial executor. Because distinct nodes execute concurrently,
-// a slow or blocking node (a delay, a long HTTP call) no longer stalls
-// unrelated branches of the flow.
+// target node's queue. The hand-off never blocks: a slow or blocking node (a
+// delay, a long HTTP call) only grows its own queue, so unrelated branches
+// keep flowing. A node whose queue is full has the message dropped.
 func (r *FlowRuntime) dispatch() {
 	defer r.wg.Done()
 
@@ -413,54 +522,110 @@ func (r *FlowRuntime) dispatch() {
 				return
 			}
 
-			ch, exists := r.execChans[routedMsg.TargetNode]
+			q, exists := r.queues[routedMsg.TargetNode]
 			if !exists {
 				r.logger.Error().
 					Str("nodeID", routedMsg.TargetNode).
 					Msg("Target node not found or disabled; dropping message")
+				metrics.IncrementMessagesDropped()
+				r.releaseDropped(routedMsg)
 				continue
 			}
 
-			select {
-			case ch <- routedMsg:
-			case <-r.ctx.Done():
-				return
+			if !q.push(routedMsg) {
+				r.logger.Warn().
+					Str("flowID", r.flow.ID).
+					Str("nodeID", routedMsg.TargetNode).
+					Str("msgID", routedMsg.Message.ID).
+					Int("queueLimit", r.queueLimit).
+					Msg("Node queue full; dropping message")
+				metrics.IncrementMessagesDropped()
+				r.releaseDropped(routedMsg)
 			}
 		}
 	}
 }
 
-// nodeExecutor drains a single node's channel serially. Serial per-node
+// releaseDropped accounts for a routed message that will never execute: it
+// counts the drop and releases the message's slot in its run, so the run still
+// finishes. Every drop path (queue overflow, unknown target, router send
+// timeout) must call it exactly once per dropped message.
+func (r *FlowRuntime) releaseDropped(routedMsg RoutedMessage) {
+	r.droppedMessages.Add(1)
+	r.runDone(r.ensureCorrelationID(routedMsg.Message))
+}
+
+// DroppedMessages reports how many messages this runtime discarded.
+func (r *FlowRuntime) DroppedMessages() int64 {
+	return r.droppedMessages.Load()
+}
+
+// nodeExecutor drains a single node's queue serially. Serial per-node
 // execution preserves message ordering for stateful nodes (batch, dedupe,
 // throttle), while the shared sem caps how many nodes run at once across the
 // whole flow so an unbounded fan-out can't spawn unbounded work.
-func (r *FlowRuntime) nodeExecutor(nodeID string, ch chan RoutedMessage) {
+func (r *FlowRuntime) nodeExecutor(nodeID string, q *nodeQueue) {
 	defer r.wg.Done()
 
 	for {
-		select {
-		case <-r.ctx.Done():
+		routedMsg, ok := q.pop(r.ctx)
+		if !ok {
 			return
-
-		case routedMsg := <-ch:
-			// Acquire a global concurrency slot, respecting cancellation.
-			select {
-			case r.sem <- struct{}{}:
-			case <-r.ctx.Done():
-				return
-			}
-
-			func() {
-				defer func() { <-r.sem }()
-				r.executeNode(routedMsg)
-			}()
 		}
+
+		// Acquire a global concurrency slot, respecting cancellation.
+		slot := &semSlot{sem: r.sem}
+		if !slot.acquire(r.ctx) {
+			return
+		}
+
+		func() {
+			defer slot.release()
+			r.executeNodeInSlot(routedMsg, slot)
+		}()
 	}
+}
+
+// semSlot tracks whether an executor currently holds a concurrency slot, so the
+// slot can be handed back during retry backoff and re-acquired afterwards
+// without ever being released twice.
+type semSlot struct {
+	sem  chan struct{}
+	held bool
+}
+
+// acquire takes a slot, or returns false if ctx ends first.
+func (s *semSlot) acquire(ctx context.Context) bool {
+	if s == nil || s.held {
+		return true
+	}
+	select {
+	case s.sem <- struct{}{}:
+		s.held = true
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// release gives the slot back if it is held.
+func (s *semSlot) release() {
+	if s == nil || !s.held {
+		return
+	}
+	<-s.sem
+	s.held = false
 }
 
 // executeNode processes a message through the target node and routes the output.
 // It uses exponential backoff retry for transient failures.
 func (r *FlowRuntime) executeNode(routedMsg RoutedMessage) {
+	r.executeNodeInSlot(routedMsg, nil)
+}
+
+// executeNodeInSlot is executeNode for a caller holding a concurrency slot; the
+// slot is released while waiting out retry backoff (nil = no slot to manage).
+func (r *FlowRuntime) executeNodeInSlot(routedMsg RoutedMessage, slot *semSlot) {
 	// Assign the run's correlation ID up front and decrement the run counter on
 	// every return path — this message has been consumed. The child increments
 	// happen below, before routing, so the counter never reaches zero while work
@@ -541,7 +706,7 @@ func (r *FlowRuntime) executeNode(routedMsg RoutedMessage) {
 
 	// Execute the node with retry logic
 	startTime := time.Now()
-	outputs, err := r.executeNodeWithRetry(nodeInstance, routedMsg, flowNode, logger)
+	outputs, err := r.executeNodeWithRetry(nodeInstance, routedMsg, flowNode, logger, slot)
 	duration := time.Since(startTime)
 
 	// Record metrics
@@ -602,20 +767,37 @@ func (r *FlowRuntime) executeNode(routedMsg RoutedMessage) {
 			}
 		}
 
+		// Outputs inherit the run's correlation ID when the node built a fresh
+		// message, so the cascade stays one traceable run. An explicitly set ID is
+		// respected, and the children are counted under whichever ID they carry.
+		childCorr := correlationID
+		if id, ok := output.GetMeta("correlationID"); ok {
+			if s, ok := id.(string); ok && s != "" {
+				childCorr = s
+			}
+		}
+		output.SetMeta("correlationID", childCorr)
+
 		// Count this output's downstream children into the run BEFORE routing them,
 		// so the counter reflects the pending work before any child can finish.
-		r.runAdd(correlationID, r.targetCount(routedMsg.TargetNode, output.SourcePort))
+		r.runAdd(childCorr, r.targetCount(routedMsg.TargetNode, output.SourcePort))
 		r.router.Route(routedMsg.TargetNode, output)
 	}
 }
 
 // executeNodeWithRetry executes a node with exponential backoff retry logic.
 // It returns the outputs on success or the last error after all retries are exhausted.
-func (r *FlowRuntime) executeNodeWithRetry(nodeInstance node.Node, routedMsg RoutedMessage, flowNode *Node, logger zerolog.Logger) ([]*types.Message, error) {
+// When slot is non-nil its concurrency slot is released for the duration of
+// each backoff sleep (so a retrying node doesn't starve the rest of the flow)
+// and re-acquired before the next attempt.
+func (r *FlowRuntime) executeNodeWithRetry(nodeInstance node.Node, routedMsg RoutedMessage, flowNode *Node, logger zerolog.Logger, slot *semSlot) ([]*types.Message, error) {
 	var lastErr error
 	wait := r.retryConfig.InitialWait
+	// A negative MaxRetries would skip the loop entirely and report success
+	// without ever running the node; clamp so the node always runs once.
+	maxRetries := max(r.retryConfig.MaxRetries, 0)
 
-	for attempt := 0; attempt <= r.retryConfig.MaxRetries; attempt++ {
+	for attempt := 0; attempt <= maxRetries; attempt++ {
 		outputs, err := nodeInstance.Process(r.ctx, routedMsg.Message)
 
 		if err == nil {
@@ -643,7 +825,7 @@ func (r *FlowRuntime) executeNodeWithRetry(nodeInstance node.Node, routedMsg Rou
 		}
 
 		// Don't retry if we've exhausted all attempts
-		if attempt >= r.retryConfig.MaxRetries {
+		if attempt >= maxRetries {
 			break
 		}
 
@@ -653,20 +835,28 @@ func (r *FlowRuntime) executeNodeWithRetry(nodeInstance node.Node, routedMsg Rou
 		logger.Warn().
 			Err(err).
 			Int("attempt", attempt).
-			Int("maxRetries", r.retryConfig.MaxRetries).
+			Int("maxRetries", maxRetries).
 			Dur("nextWait", wait).
 			Msg("Node execution failed, retrying")
 
-		// Wait before retrying (with context cancellation support)
+		// Wait before retrying without holding a concurrency slot, then take
+		// one again before the next attempt (both cancellation-aware).
+		slot.release()
+		timer := time.NewTimer(wait)
 		select {
-		case <-time.After(wait):
-			// Calculate next wait time with exponential backoff
-			wait = time.Duration(float64(wait) * r.retryConfig.Multiplier)
-			if wait > r.retryConfig.MaxWait {
-				wait = r.retryConfig.MaxWait
-			}
+		case <-timer.C:
 		case <-r.ctx.Done():
+			timer.Stop()
 			return nil, r.ctx.Err()
+		}
+		if !slot.acquire(r.ctx) {
+			return nil, r.ctx.Err()
+		}
+
+		// Calculate next wait time with exponential backoff
+		wait = time.Duration(float64(wait) * r.retryConfig.Multiplier)
+		if wait > r.retryConfig.MaxWait {
+			wait = r.retryConfig.MaxWait
 		}
 	}
 
@@ -739,6 +929,24 @@ func (r *FlowRuntime) runDone(correlationID string) {
 	}
 }
 
+// Drained reports whether every goroutine of the last started instance has
+// exited (true for a runtime that was never started). After a Stop that timed
+// out it stays false until the stragglers return.
+func (r *FlowRuntime) Drained() bool {
+	r.mu.RLock()
+	ch := r.drained
+	r.mu.RUnlock()
+	if ch == nil {
+		return true
+	}
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
 // State returns the current state of the flow runtime.
 func (r *FlowRuntime) State() FlowState {
 	r.mu.RLock()
@@ -766,10 +974,14 @@ func (r *FlowRuntime) Flow() *Flow {
 // RuntimeManager manages multiple flow runtimes.
 type RuntimeManager struct {
 	runtimes map[string]*FlowRuntime
-	registry *node.Registry
-	logger   zerolog.Logger
-	observer NodeEventHook
-	mu       sync.RWMutex
+	// stopping holds undeployed runtimes whose Stop timed out and that are
+	// still draining; their flow ID cannot be deployed again until they finish.
+	stopping    map[string]*FlowRuntime
+	registry    *node.Registry
+	logger      zerolog.Logger
+	observer    NodeEventHook
+	runtimeOpts []RuntimeOption
+	mu          sync.RWMutex
 }
 
 // ManagerOption configures a RuntimeManager.
@@ -783,10 +995,19 @@ func WithManagerObserver(hook NodeEventHook) ManagerOption {
 	}
 }
 
+// WithRuntimeOptions applies extra RuntimeOptions to every flow this manager
+// deploys.
+func WithRuntimeOptions(opts ...RuntimeOption) ManagerOption {
+	return func(m *RuntimeManager) {
+		m.runtimeOpts = append(m.runtimeOpts, opts...)
+	}
+}
+
 // NewRuntimeManager creates a new RuntimeManager.
 func NewRuntimeManager(registry *node.Registry, logger zerolog.Logger, opts ...ManagerOption) *RuntimeManager {
 	m := &RuntimeManager{
 		runtimes: make(map[string]*FlowRuntime),
+		stopping: make(map[string]*FlowRuntime),
 		registry: registry,
 		logger:   logger,
 	}
@@ -806,8 +1027,15 @@ func (m *RuntimeManager) Deploy(ctx context.Context, f *Flow) error {
 		return ErrFlowAlreadyRunning
 	}
 
+	// Refuse to start a second instance while a previous one is still
+	// executing after a Stop that timed out.
+	if err := m.checkDrained(f.ID); err != nil {
+		return err
+	}
+
 	// Create the runtime, forwarding the process-wide observer if one is set.
 	rtOpts := []RuntimeOption{WithLogger(m.logger)}
+	rtOpts = append(rtOpts, m.runtimeOpts...)
 	if m.observer != nil {
 		rtOpts = append(rtOpts, WithObserver(m.observer))
 	}
@@ -818,8 +1046,17 @@ func (m *RuntimeManager) Deploy(ctx context.Context, f *Flow) error {
 	}
 
 	// Validate against the ports supplied by the instantiated nodes, not a
-	// possibly missing or stale cache in an imported/editor definition.
-	if err := f.Validate(); err != nil {
+	// possibly missing or stale cache in an imported/editor definition. Which
+	// nodes are triggers is decided server-side — by the instance implementing
+	// node.TriggerNode or by the registered type's category — never by the
+	// client-supplied Category field.
+	if err := f.validate(func(n *Node) bool {
+		if _, ok := rt.triggers[n.ID]; ok {
+			return true
+		}
+		info, ok := m.registry.Get(n.Type)
+		return ok && info.Category == NodeCategoryInput
+	}); err != nil {
 		metrics.RecordFlowDeployment(false)
 		return err
 	}
@@ -864,11 +1101,30 @@ func (m *RuntimeManager) Undeploy(flowID string) error {
 	}
 
 	delete(m.runtimes, flowID)
+	if !rt.Drained() {
+		m.stopping[flowID] = rt
+	}
 
 	m.logger.Info().
 		Str("flowID", flowID).
 		Msg("Flow undeployed successfully")
 
+	return nil
+}
+
+// checkDrained returns ErrFlowStillStopping if a stopped instance of flowID is
+// still draining. Callers must hold m.mu.
+func (m *RuntimeManager) checkDrained(flowID string) error {
+	for _, rt := range []*FlowRuntime{m.stopping[flowID], m.runtimes[flowID]} {
+		if rt == nil || rt.Drained() {
+			continue
+		}
+		m.logger.Warn().
+			Str("flowID", flowID).
+			Msg("Refusing to deploy flow: previous instance is still stopping")
+		return fmt.Errorf("%w: flow %s", ErrFlowStillStopping, flowID)
+	}
+	delete(m.stopping, flowID)
 	return nil
 }
 
@@ -907,7 +1163,9 @@ func (m *RuntimeManager) StopAll() {
 					Err(err).
 					Str("flowID", id).
 					Msg("Error stopping flow")
+				continue
 			}
+			metrics.DecrementFlowsRunning()
 		}
 	}
 

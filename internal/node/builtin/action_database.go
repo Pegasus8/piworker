@@ -3,7 +3,10 @@ package builtin
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 
@@ -14,29 +17,59 @@ import (
 	// SQL drivers, registered for database/sql by side effect.
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/mattn/go-sqlite3"
 )
 
-// dbPool caches one *sql.DB (itself a connection pool) per driver+DSN, so the
-// node doesn't reconnect per message and doesn't leak a pool per deploy.
+// dbPool shares one *sql.DB (itself a connection pool) per driver+DSN between
+// the nodes that use it, so a node doesn't reconnect per message. Each node
+// holds at most one reference; the *sql.DB is closed when the last node using
+// it is closed (its flow stopped).
 var (
 	dbPoolMu sync.Mutex
-	dbPool   = map[string]*sql.DB{}
+	dbPool   = map[string]*pooledDB{}
 )
 
-func getDB(driverName, dsn string) (*sql.DB, error) {
-	key := driverName + "\x00" + dsn
+type pooledDB struct {
+	db   *sql.DB
+	refs int
+}
+
+func dbPoolKey(driverName, dsn string) string { return driverName + "\x00" + dsn }
+
+// acquireDB returns the shared *sql.DB for driver+DSN, taking a reference.
+func acquireDB(driverName, dsn string) (*sql.DB, error) {
+	key := dbPoolKey(driverName, dsn)
 	dbPoolMu.Lock()
 	defer dbPoolMu.Unlock()
-	if db, ok := dbPool[key]; ok {
-		return db, nil
+	if p, ok := dbPool[key]; ok {
+		p.refs++
+		return p.db, nil
 	}
 	db, err := sql.Open(driverName, dsn)
 	if err != nil {
 		return nil, err
 	}
-	dbPool[key] = db
+	dbPool[key] = &pooledDB{db: db, refs: 1}
 	return db, nil
+}
+
+// releaseDB drops a reference and closes the *sql.DB when none remain.
+func releaseDB(driverName, dsn string) error {
+	key := dbPoolKey(driverName, dsn)
+	dbPoolMu.Lock()
+	p, ok := dbPool[key]
+	if !ok {
+		dbPoolMu.Unlock()
+		return nil
+	}
+	p.refs--
+	if p.refs > 0 {
+		dbPoolMu.Unlock()
+		return nil
+	}
+	delete(dbPool, key)
+	dbPoolMu.Unlock()
+	return p.db.Close()
 }
 
 // sqlDriverName maps a friendly driver name to its registered database/sql name.
@@ -63,6 +96,38 @@ type DatabaseAction struct {
 	query      string
 	exec       bool
 	params     *vm.Program
+
+	dbMu sync.Mutex
+	db   *sql.DB // shared pool reference, held from first use until Close
+}
+
+// The runtime closes nodes implementing node.Closer when a flow stops.
+var _ node.Closer = (*DatabaseAction)(nil)
+
+// database returns this node's reference to the shared pool, acquiring it on
+// first use.
+func (a *DatabaseAction) database() (*sql.DB, error) {
+	a.dbMu.Lock()
+	defer a.dbMu.Unlock()
+	if a.db == nil {
+		db, err := acquireDB(a.driverName, a.dsn)
+		if err != nil {
+			return nil, err
+		}
+		a.db = db
+	}
+	return a.db, nil
+}
+
+// Close releases this node's reference to the shared pool. It is idempotent.
+func (a *DatabaseAction) Close() error {
+	a.dbMu.Lock()
+	defer a.dbMu.Unlock()
+	if a.db == nil {
+		return nil
+	}
+	a.db = nil
+	return releaseDB(a.driverName, a.dsn)
 }
 
 // NewDatabaseAction creates a DatabaseAction from configuration.
@@ -104,9 +169,10 @@ func NewDatabaseAction(config map[string]interface{}) (node.Node, error) {
 
 // Process executes the query/statement and returns rows or affected counts.
 func (a *DatabaseAction) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
-	db, err := getDB(a.driverName, a.dsn)
+	db, err := a.database()
 	if err != nil {
-		return nil, node.Transient(fmt.Errorf("failed to open database: %w", err))
+		// sql.Open only validates the driver/DSN; it doesn't connect.
+		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
 	args, err := a.evalArgs(ctx, msg)
@@ -120,7 +186,7 @@ func (a *DatabaseAction) Process(ctx context.Context, msg *types.Message) ([]*ty
 	if a.exec {
 		res, err := db.ExecContext(ctx, a.query, args...)
 		if err != nil {
-			return nil, node.Transient(fmt.Errorf("exec failed: %w", err))
+			return nil, classifyDBError(fmt.Errorf("exec failed: %w", err), true)
 		}
 		affected, _ := res.RowsAffected()
 		lastID, _ := res.LastInsertId()
@@ -131,7 +197,7 @@ func (a *DatabaseAction) Process(ctx context.Context, msg *types.Message) ([]*ty
 
 	rows, err := db.QueryContext(ctx, a.query, args...)
 	if err != nil {
-		return nil, node.Transient(fmt.Errorf("query failed: %w", err))
+		return nil, classifyDBError(fmt.Errorf("query failed: %w", err), false)
 	}
 	defer rows.Close()
 
@@ -279,6 +345,15 @@ interpolated) to prevent SQL injection.
 - ` + "`query`" + `: an array of row objects (column → value).
 - ` + "`exec`" + `: ` + "`{ rowsAffected, lastInsertId }`" + `.
 
+## Errors and retries
+
+SQL errors (syntax, constraint violations, ...) fail the message without
+retry. Only failures that happen before the statement runs (connection
+refused, broken pooled connection, SQLite busy/locked) are retried; in
+` + "`query`" + ` mode other network errors are retried too. An ` + "`exec`" + `
+whose result was lost in transit is not retried, so an INSERT is never
+duplicated.
+
 ## Example
 
 ` + "```" + `
@@ -299,4 +374,39 @@ func init() {
 	if err := node.Register(info, NewDatabaseAction); err != nil {
 		panic("failed to register database action: " + err.Error())
 	}
+}
+
+// classifyDBError decides whether a database error may be retried. Errors are
+// permanent by default: syntax errors and constraint violations can't succeed
+// on retry, and re-running a statement whose outcome is unknown can duplicate
+// an INSERT. Only failures that happen before the statement runs are marked
+// transient:
+//   - driver.ErrBadConn (the driver guarantees nothing was sent);
+//   - a failed dial (connection refused, unreachable, DNS);
+//   - SQLite BUSY/LOCKED (the statement was not executed);
+//   - for read-only queries (exec=false), any network error.
+func classifyDBError(err error, exec bool) error {
+	if errors.Is(err, driver.ErrBadConn) {
+		return node.Transient(err)
+	}
+	var sqliteErr sqlite3.Error
+	if errors.As(err, &sqliteErr) &&
+		(sqliteErr.Code == sqlite3.ErrBusy || sqliteErr.Code == sqlite3.ErrLocked) {
+		return node.Transient(err)
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr.Op == "dial" {
+		return node.Transient(err)
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return node.Transient(err)
+	}
+	if !exec {
+		var netErr net.Error
+		if errors.As(err, &netErr) {
+			return node.Transient(err)
+		}
+	}
+	return err
 }

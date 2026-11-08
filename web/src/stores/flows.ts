@@ -56,29 +56,37 @@ export const useFlowsStore = defineStore('flows', () => {
     }
   }
 
+  // Incremented on every fetchFlow call; a response whose token is no longer
+  // current belongs to a flow the user already navigated away from.
+  let fetchFlowToken = 0
+
   async function fetchFlow(id: string) {
+    const token = ++fetchFlowToken
+    const isCurrent = () => token === fetchFlowToken
     loading.value = true
     error.value = null
     try {
       // api.getFlow already unwraps the { flow, running } envelope and returns
       // the flow object with .running set.
       const flow = (await api.getFlow(id)) as any
-      currentFlow.value = flow
 
       // Ensure node-type metadata is loaded before transforming; otherwise nodes
       // would render with raw type strings and a generic icon if node-types are
       // still in flight (race between node-types load and flow load).
       await nodeTypesStore.fetchNodeTypes()
+      if (!isCurrent()) return
 
+      currentFlow.value = flow
       // Transform backend nodes to Vue Flow format
       // Note: Backend uses 'connections', frontend uses 'edges'
       nodes.value = transformNodes(flow.nodes || [])
       edges.value = transformEdges(flow.connections || flow.edges || [])
       isDirty.value = false
     } catch (e) {
+      if (!isCurrent()) return
       error.value = e instanceof Error ? e.message : 'Failed to fetch flow'
     } finally {
-      loading.value = false
+      if (isCurrent()) loading.value = false
     }
   }
 
@@ -344,7 +352,15 @@ export const useFlowsStore = defineStore('flows', () => {
   }
 
   // Reset state
+  // Abandon any fetchFlow still in flight so its late response cannot replace
+  // the flow the editor switched to.
+  function discardPendingFlowFetch() {
+    fetchFlowToken++
+    loading.value = false
+  }
+
   function resetCurrentFlow() {
+    discardPendingFlowFetch()
     currentFlow.value = null
     nodes.value = []
     edges.value = []
@@ -353,6 +369,7 @@ export const useFlowsStore = defineStore('flows', () => {
   }
 
   function initNewFlow() {
+    discardPendingFlowFetch()
     currentFlow.value = {
       id: '',
       name: 'Untitled Flow',

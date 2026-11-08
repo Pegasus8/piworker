@@ -49,16 +49,26 @@ func (s *SQLiteStore) UpsertFlowRun(runID, flowID string, startedAt time.Time) e
 	return nil
 }
 
-// FinishFlowRun marks a run complete with its final status and aggregate counts.
+// FinishFlowRun marks a run complete, merging into what is already recorded:
+// nodeCount/errorCount are the counts observed since the run was last
+// finished and are ADDED to the stored totals, and the status never moves from
+// error back to success. A run can be finished more than once when events for
+// it arrive after an earlier finalization; merging keeps the totals right.
 func (s *SQLiteStore) FinishFlowRun(runID, status string, finishedAt time.Time, nodeCount, errorCount int) error {
 	if s.isClosed() {
 		return ErrDatabaseClosed
 	}
 	_, err := s.db.Exec(`
 		UPDATE flow_runs
-		SET status = ?, finished_at = ?, node_count = ?, error_count = ?
+		SET status = CASE
+				WHEN status = 'error' OR ? = 'error' OR error_count + ? > 0 THEN 'error'
+				ELSE ?
+			END,
+			finished_at = ?,
+			node_count = node_count + ?,
+			error_count = error_count + ?
 		WHERE id = ?
-	`, status, finishedAt, nodeCount, errorCount, runID)
+	`, status, errorCount, status, finishedAt, nodeCount, errorCount, runID)
 	if err != nil {
 		return fmt.Errorf("failed to finish flow run: %w", err)
 	}
@@ -137,15 +147,30 @@ func (s *SQLiteStore) ListFlowRuns(flowID string, limit, offset int) ([]FlowRun,
 
 // ListNodeEvents returns all node events for a run in execution order.
 func (s *SQLiteStore) ListNodeEvents(runID string) ([]NodeEventRecord, error) {
-	if s.isClosed() {
-		return nil, ErrDatabaseClosed
-	}
-	rows, err := s.db.Query(`
+	return s.queryNodeEvents(`
 		SELECT id, run_id, flow_id, node_id, node_type, phase, msg_id, duration_ms, error, created_at
 		FROM node_events
 		WHERE run_id = ?
 		ORDER BY id ASC
 	`, runID)
+}
+
+// ListFlowRunEvents returns a run's node events in execution order, but only
+// if the run belongs to flowID — so a run can't be read through another flow.
+func (s *SQLiteStore) ListFlowRunEvents(flowID, runID string) ([]NodeEventRecord, error) {
+	return s.queryNodeEvents(`
+		SELECT id, run_id, flow_id, node_id, node_type, phase, msg_id, duration_ms, error, created_at
+		FROM node_events
+		WHERE run_id = ? AND flow_id = ?
+		ORDER BY id ASC
+	`, runID, flowID)
+}
+
+func (s *SQLiteStore) queryNodeEvents(query string, args ...any) ([]NodeEventRecord, error) {
+	if s.isClosed() {
+		return nil, ErrDatabaseClosed
+	}
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list node events: %w", err)
 	}

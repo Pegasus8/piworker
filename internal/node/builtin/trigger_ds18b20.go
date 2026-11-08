@@ -8,7 +8,6 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/metrics"
@@ -25,27 +24,22 @@ const w1Devices = "/sys/bus/w1/devices"
 type DS18B20Trigger struct {
 	*node.BaseNode
 
-	deviceID    string
+	deviceID    string // configured id; empty = auto-discover
 	intervalSec int
+	interval    time.Duration
 
-	mu      sync.Mutex
-	running bool
-	stopCh  chan struct{}
-	wg      sync.WaitGroup
+	run triggerRun
 }
 
 // NewDS18B20Trigger creates a DS18B20Trigger from configuration.
 func NewDS18B20Trigger(config map[string]interface{}) (node.Node, error) {
 	base := node.NewBaseNode(config)
-	interval := base.GetConfigInt("intervalSec", 10)
-	if interval < 1 {
-		interval = 10
-	}
+	interval := secDuration(base.GetConfigInt("intervalSec", 10), 10*time.Second, time.Second, maxTriggerInterval)
 	return &DS18B20Trigger{
 		BaseNode:    base,
 		deviceID:    base.GetConfigString("deviceId", ""),
-		intervalSec: interval,
-		stopCh:      make(chan struct{}),
+		intervalSec: int(interval / time.Second),
+		interval:    interval,
 	}, nil
 }
 
@@ -89,59 +83,58 @@ func discoverDevice() (string, error) {
 	return "", fmt.Errorf("no DS18B20 (28-*) device found")
 }
 
-func (t *DS18B20Trigger) read() (float64, error) {
-	data, err := os.ReadFile(filepath.Join(w1Devices, t.deviceID, "w1_slave"))
+func readDS18B20(deviceID string) (float64, error) {
+	data, err := os.ReadFile(filepath.Join(w1Devices, deviceID, "w1_slave"))
 	if err != nil {
 		return 0, err
 	}
 	return parseW1Slave(string(data))
 }
 
-// Start begins polling the sensor.
+// Start begins polling the sensor. A missing sensor or 1-Wire bus does not
+// fail Start: at boot the w1 driver may not have enumerated the device yet,
+// so with auto-discovery the device is looked for again on every poll.
 func (t *DS18B20Trigger) Start(ctx context.Context, out chan<- *types.Message) error {
-	if t.deviceID == "" {
-		id, err := discoverDevice()
-		if err != nil {
-			return err
-		}
-		t.deviceID = id
+	stopCh, done, err := t.run.begin()
+	if err != nil {
+		return err
 	}
 
-	t.mu.Lock()
-	if t.running {
-		t.mu.Unlock()
-		return fmt.Errorf("trigger already running")
-	}
-	t.running = true
-	t.stopCh = make(chan struct{})
-	t.mu.Unlock()
-
-	t.wg.Add(1)
 	go func() {
-		defer t.wg.Done()
+		defer close(done)
 		defer func() {
 			if r := recover(); r != nil {
 				log.Error().Interface("panic", r).Bytes("stack", debug.Stack()).Msg("ds18b20 trigger panicked")
 			}
 		}()
 
-		ticker := time.NewTicker(time.Duration(t.intervalSec) * time.Second)
+		ticker := time.NewTicker(t.interval)
 		defer ticker.Stop()
+
+		deviceID := t.deviceID
 
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-t.stopCh:
+			case <-stopCh:
 				return
 			case <-ticker.C:
-				celsius, err := t.read()
+				if deviceID == "" {
+					id, err := discoverDevice()
+					if err != nil {
+						log.Warn().Err(err).Msg("ds18b20 sensor not found yet; will retry")
+						continue
+					}
+					deviceID = id
+				}
+				celsius, err := readDS18B20(deviceID)
 				if err != nil {
-					log.Warn().Err(err).Str("device", t.deviceID).Msg("ds18b20 read failed")
+					log.Warn().Err(err).Str("device", deviceID).Msg("ds18b20 read failed")
 					continue
 				}
 				msg := types.NewMessage(map[string]interface{}{
-					"deviceId": t.deviceID,
+					"deviceId": deviceID,
 					"celsius":  celsius,
 				}, types.DataTypeObject)
 				msg.SourcePort = "output"
@@ -149,12 +142,12 @@ func (t *DS18B20Trigger) Start(ctx context.Context, out chan<- *types.Message) e
 				select {
 				case <-ctx.Done():
 					return
-				case <-t.stopCh:
+				case <-stopCh:
 					return
 				case out <- msg:
 				default:
 					metrics.IncrementMessagesDropped()
-					log.Warn().Str("device", t.deviceID).Msg("ds18b20 reading dropped: output channel full")
+					log.Warn().Str("device", deviceID).Msg("ds18b20 reading dropped: output channel full")
 				}
 			}
 		}
@@ -164,15 +157,7 @@ func (t *DS18B20Trigger) Start(ctx context.Context, out chan<- *types.Message) e
 
 // Stop stops polling.
 func (t *DS18B20Trigger) Stop() error {
-	t.mu.Lock()
-	if !t.running {
-		t.mu.Unlock()
-		return nil
-	}
-	close(t.stopCh)
-	t.running = false
-	t.mu.Unlock()
-	t.wg.Wait()
+	t.run.end()
 	return nil
 }
 

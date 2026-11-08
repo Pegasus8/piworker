@@ -286,7 +286,7 @@ func TestHTTPActionTemplateExpansion(t *testing.T) {
 
 	t.Run("handles nested payload fields", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			assert.Contains(t, r.URL.String(), "user@example.com")
+			assert.Equal(t, "user@example.com", r.URL.Query().Get("email"))
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer server.Close()

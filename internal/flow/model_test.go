@@ -61,7 +61,7 @@ func TestNewFlow(t *testing.T) {
 func TestFlowValidate(t *testing.T) {
 	t.Run("empty flow is valid", func(t *testing.T) {
 		f := NewFlow("Valid Flow")
-		err := f.Validate()
+		err := f.Validate(modelTestRegistry())
 
 		// Empty flow with no nodes is valid (no trigger requirement for empty)
 		assert.NoError(t, err)
@@ -73,7 +73,7 @@ func TestFlowValidate(t *testing.T) {
 		n.Outputs = []Port{{ID: "output", Name: "Output", DataType: DataTypeAny}}
 		f.AddNode(*n)
 
-		err := f.Validate()
+		err := f.Validate(modelTestRegistry())
 
 		assert.NoError(t, err)
 	})
@@ -83,7 +83,7 @@ func TestFlowValidate(t *testing.T) {
 		n := NewNode("action-log", NodeCategoryOutput)
 		f.AddNode(*n)
 
-		err := f.Validate()
+		err := f.Validate(modelTestRegistry())
 
 		assert.ErrorIs(t, err, ErrNoTriggerNodes)
 	})
@@ -101,7 +101,7 @@ func TestFlowValidate(t *testing.T) {
 		f.AddNode(*action)
 		f.AddConnection(*NewConnection(trigger.ID, "output", action.ID, "input"))
 
-		err := f.Validate()
+		err := f.Validate(modelTestRegistry())
 
 		assert.NoError(t, err)
 	})
@@ -117,7 +117,7 @@ func TestFlowValidate(t *testing.T) {
 		conn := NewConnection("non-existent", "output", trigger.ID, "input")
 		f.Connections = append(f.Connections, *conn)
 
-		err := f.Validate()
+		err := f.Validate(modelTestRegistry())
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "source node")
@@ -134,7 +134,7 @@ func TestFlowValidate(t *testing.T) {
 		conn := NewConnection(trigger.ID, "output", "non-existent", "input")
 		f.Connections = append(f.Connections, *conn)
 
-		err := f.Validate()
+		err := f.Validate(modelTestRegistry())
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "target node")
@@ -156,7 +156,7 @@ func TestFlowValidate(t *testing.T) {
 		conn := NewConnection(trigger.ID, "wrong-port", action.ID, "input")
 		f.Connections = append(f.Connections, *conn)
 
-		err := f.Validate()
+		err := f.Validate(modelTestRegistry())
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "source port")
@@ -178,7 +178,7 @@ func TestFlowValidate(t *testing.T) {
 		conn := NewConnection(trigger.ID, "output", action.ID, "wrong-port")
 		f.Connections = append(f.Connections, *conn)
 
-		err := f.Validate()
+		err := f.Validate(modelTestRegistry())
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "target port")
@@ -281,42 +281,6 @@ func TestFlowGetNode(t *testing.T) {
 		result := f.GetNode("")
 
 		assert.Nil(t, result)
-	})
-}
-
-func TestFlowGetTriggerNodes(t *testing.T) {
-	t.Run("returns only enabled input nodes", func(t *testing.T) {
-		f := NewFlow("Test Flow")
-
-		trigger1 := NewNode("trigger-interval", NodeCategoryInput)
-		trigger2 := NewNode("trigger-cron", NodeCategoryInput)
-		action := NewNode("action-log", NodeCategoryOutput)
-
-		disabledTrigger := NewNode("trigger-interval", NodeCategoryInput)
-		disabledTrigger.Enabled = false
-
-		f.AddNode(*trigger1)
-		f.AddNode(*trigger2)
-		f.AddNode(*action)
-		f.AddNode(*disabledTrigger)
-
-		triggers := f.GetTriggerNodes()
-
-		assert.Len(t, triggers, 2)
-		for _, trigger := range triggers {
-			assert.Equal(t, NodeCategoryInput, trigger.Category)
-			assert.True(t, trigger.Enabled)
-		}
-	})
-
-	t.Run("returns empty slice for flow with no triggers", func(t *testing.T) {
-		f := NewFlow("Test Flow")
-		action := NewNode("action-log", NodeCategoryOutput)
-		f.AddNode(*action)
-
-		triggers := f.GetTriggerNodes()
-
-		assert.Empty(t, triggers)
 	})
 }
 

@@ -4,10 +4,13 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	flowvars "github.com/Pegasus8/piworker/internal/vars"
 	"io"
 	"net/http"
+	"regexp"
 	"sync"
+	"time"
 
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
@@ -24,10 +27,13 @@ const MaxRequestBodySize = 1 << 20
 type FlowsHandler struct {
 	// Serialize definition and lifecycle mutations so storage and runtime agree.
 	lifecycleMu sync.Mutex
-	store       *storage.SQLiteStore
-	manager     *flow.RuntimeManager
-	registry    *node.Registry
-	logger      zerolog.Logger
+	// shuttingDown (guarded by lifecycleMu) refuses new deployments once the
+	// process has begun stopping, so nothing starts after StopAll.
+	shuttingDown bool
+	store        *storage.SQLiteStore
+	manager      *flow.RuntimeManager
+	registry     *node.Registry
+	logger       zerolog.Logger
 }
 
 // NewFlowsHandler creates a new FlowsHandler.
@@ -142,13 +148,18 @@ func (h *FlowsHandler) CreateFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate ID if not provided
+	// Generate an ID if none was provided; otherwise only accept IDs that are
+	// safe in URLs, logs and webhook/variable namespaces.
 	if f.ID == "" {
-		newFlow := flow.NewFlow(f.Name)
-		f.ID = newFlow.ID
-		f.CreatedAt = newFlow.CreatedAt
-		f.UpdatedAt = newFlow.UpdatedAt
+		f.ID = flow.NewFlow(f.Name).ID
+	} else if !validFlowID(f.ID) {
+		writeError(w, http.StatusBadRequest, "Flow ID must be 1-64 characters of letters, digits, '-' or '_'")
+		return
 	}
+	// Timestamps are server-owned.
+	now := time.Now()
+	f.CreatedAt = now
+	f.UpdatedAt = now
 
 	// Set default state
 	f.State = flow.FlowStateInactive
@@ -166,6 +177,11 @@ func (h *FlowsHandler) CreateFlow(w http.ResponseWriter, r *http.Request) {
 	h.logger.Info().Str("flowID", f.ID).Str("name", f.Name).Msg("Flow created")
 	writeSuccess(w, http.StatusCreated, &f, "Flow created successfully")
 }
+
+var flowIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// validFlowID reports whether a client-chosen flow ID is acceptable.
+func validFlowID(id string) bool { return flowIDPattern.MatchString(id) }
 
 // cloneForNew builds a fresh, inactive flow (new ID + timestamps) carrying the
 // content of src. Node/connection IDs are flow-scoped, so they can be reused.
@@ -321,9 +337,10 @@ func (h *FlowsHandler) UpdateFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Preserve the ID and creation time
+	// Preserve the ID and creation time; the server owns UpdatedAt.
 	f.ID = id
 	f.CreatedAt = existing.CreatedAt
+	f.UpdatedAt = time.Now()
 
 	// Don't trust the client's state field. The flow is not running (guarded
 	// above), so never persist a "running" state coming from the request body.
@@ -401,9 +418,22 @@ func (h *FlowsHandler) StopFlow(w http.ResponseWriter, r *http.Request) {
 	h.changeRunning(w, r, false, true)
 }
 
+// BeginShutdown makes every later deploy/toggle-on request fail with 503. It
+// waits for any lifecycle change already in progress, so once it returns no new
+// flow can start.
+func (h *FlowsHandler) BeginShutdown() {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
+	h.shuttingDown = true
+}
+
 func (h *FlowsHandler) changeRunning(w http.ResponseWriter, r *http.Request, wantRunning, strict bool) {
 	h.lifecycleMu.Lock()
 	defer h.lifecycleMu.Unlock()
+	if wantRunning && h.shuttingDown {
+		writeError(w, http.StatusServiceUnavailable, "PiWorker is shutting down")
+		return
+	}
 	id := mux.Vars(r)["id"]
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "Flow ID is required")
@@ -431,7 +461,7 @@ func (h *FlowsHandler) changeRunning(w http.ResponseWriter, r *http.Request, wan
 	if wantRunning {
 		if !running {
 			if err := h.manager.Deploy(r.Context(), f); err != nil {
-				writeError(w, http.StatusInternalServerError, "Failed to deploy flow: "+err.Error())
+				writeError(w, deployErrorStatus(err), "Failed to deploy flow: "+err.Error())
 				return
 			}
 		}
@@ -644,5 +674,24 @@ func (h *FlowsHandler) FlowVariables(w http.ResponseWriter, r *http.Request) {
 		handler.Set(w, r)
 	case http.MethodDelete:
 		handler.Delete(w, r)
+	}
+}
+
+// deployErrorStatus maps a runtime deploy error to an HTTP status: problems with
+// the flow definition are client errors (400), a previous instance that is still
+// stopping or already running is a conflict (409), anything else is a 500.
+func deployErrorStatus(err error) int {
+	var verr *flow.ValidationError
+	switch {
+	case errors.As(err, &verr),
+		errors.Is(err, flow.ErrNoTriggerNodes),
+		errors.Is(err, flow.ErrInvalidNodeType),
+		errors.Is(err, flow.ErrInvalidConnection):
+		return http.StatusBadRequest
+	case errors.Is(err, flow.ErrFlowStillStopping),
+		errors.Is(err, flow.ErrFlowAlreadyRunning):
+		return http.StatusConflict
+	default:
+		return http.StatusInternalServerError
 	}
 }

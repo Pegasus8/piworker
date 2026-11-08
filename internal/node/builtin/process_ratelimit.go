@@ -31,14 +31,12 @@ func NewRateLimitProcess(config map[string]interface{}) (node.Node, error) {
 	if limit < 1 {
 		limit = 1
 	}
-	windowMs := base.GetConfigInt("windowMs", 1000)
-	if windowMs < 1 {
-		windowMs = 1000
-	}
+	// Overflow-safe: a huge windowMs used to wrap negative and disable the limit.
+	window := msDuration(base.GetConfigInt("windowMs", 1000), time.Second, time.Millisecond, 365*24*time.Hour)
 	return &RateLimitProcess{
 		BaseNode: base,
 		limit:    limit,
-		window:   time.Duration(windowMs) * time.Millisecond,
+		window:   window,
 		now:      time.Now,
 	}, nil
 }

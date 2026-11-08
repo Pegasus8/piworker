@@ -13,9 +13,8 @@ import (
 
 // Default router configuration values.
 const (
-	DefaultSendTimeout    = 5 * time.Second
-	DefaultOutputBuffer   = 1000
-	DefaultWorkerPoolSize = 10
+	DefaultSendTimeout  = 5 * time.Second
+	DefaultOutputBuffer = 1000
 )
 
 // RoutedMessage represents a message being routed to a specific node.
@@ -27,6 +26,11 @@ type RoutedMessage struct {
 
 // MessageRouter handles message routing between nodes based on flow connections.
 // It builds an adjacency map from connections and routes messages via channels.
+//
+// Route delivers synchronously, in call order, onto a single output channel, so
+// messages between the same (source, target) pair are always FIFO: every source
+// node routes from one goroutine (its serial executor, or its trigger's
+// forwarder), and that goroutine's sends land on the channel in order.
 type MessageRouter struct {
 	// Adjacency map: sourceNode -> sourcePort -> []targetConnection
 	adjacency map[string]map[string][]targetConnection
@@ -37,9 +41,6 @@ type MessageRouter struct {
 	// Output channel for routed messages (consumed by the runtime)
 	output chan RoutedMessage
 
-	// Worker pool for parallel message processing
-	workerPool *workerPool
-
 	// Context for cancellation
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -49,6 +50,10 @@ type MessageRouter struct {
 
 	// Metrics
 	messagesDropped int64
+
+	// onDrop, when set, is called for every routed message dropped on send
+	// timeout, so the owner can account for work that will never execute.
+	onDrop func(RoutedMessage)
 
 	logger zerolog.Logger
 
@@ -65,18 +70,20 @@ type targetConnection struct {
 // RouterOption is a functional option for configuring the MessageRouter.
 type RouterOption func(*MessageRouter)
 
-// WithWorkerPoolSize sets the number of workers in the router's pool.
-func WithWorkerPoolSize(size int) RouterOption {
-	return func(r *MessageRouter) {
-		r.workerPool = newWorkerPool(size)
-	}
-}
-
 // WithSendTimeout sets the timeout for sending messages to the output channel.
 // If a message cannot be sent within this timeout, it will be dropped.
 func WithSendTimeout(timeout time.Duration) RouterOption {
 	return func(r *MessageRouter) {
 		r.sendTimeout = timeout
+	}
+}
+
+// WithDropHandler registers a callback invoked (synchronously, on the routing
+// goroutine) for each message dropped because the output stayed full past the
+// send timeout. It must not block.
+func WithDropHandler(fn func(RoutedMessage)) RouterOption {
+	return func(r *MessageRouter) {
+		r.onDrop = fn
 	}
 }
 
@@ -95,7 +102,6 @@ func NewMessageRouter(connections []Connection, logger zerolog.Logger, opts ...R
 		adjacency:     make(map[string]map[string][]targetConnection),
 		inputChannels: make(map[string]chan *types.Message),
 		output:        make(chan RoutedMessage, DefaultOutputBuffer),
-		workerPool:    newWorkerPool(DefaultWorkerPoolSize),
 		ctx:           ctx,
 		cancel:        cancel,
 		sendTimeout:   DefaultSendTimeout,
@@ -122,9 +128,6 @@ func NewMessageRouter(connections []Connection, logger zerolog.Logger, opts ...R
 			},
 		)
 	}
-
-	// Start the worker pool
-	r.workerPool.Start()
 
 	return r
 }
@@ -216,40 +219,48 @@ func (r *MessageRouter) routeFromPort(sourceNode, sourcePort string, msg *types.
 			TargetPort: target.portID,
 		}
 
-		// Submit to worker pool for async processing
-		r.workerPool.Submit(func() {
-			r.mu.RLock()
-			closed := r.closed
-			r.mu.RUnlock()
+		r.send(sourceNode, routed)
+	}
+}
 
-			if closed {
-				return
-			}
+// send delivers one routed message to the output channel, in call order. It
+// waits up to sendTimeout for space (backpressure) before dropping.
+func (r *MessageRouter) send(sourceNode string, routed RoutedMessage) {
+	r.mu.RLock()
+	closed := r.closed
+	r.mu.RUnlock()
+	if closed {
+		return
+	}
 
-			// Use timeout-based send instead of dropping immediately
-			select {
-			case r.output <- routed:
-				r.logger.Debug().
-					Str("sourceNode", sourceNode).
-					Str("targetNode", target.nodeID).
-					Str("msgID", clonedMsg.ID).
-					Msg("Message routed")
-			case <-time.After(r.sendTimeout):
-				atomic.AddInt64(&r.messagesDropped, 1)
-				metrics.IncrementMessagesDropped()
-				r.logger.Warn().
-					Str("sourceNode", sourceNode).
-					Str("targetNode", target.nodeID).
-					Str("msgID", clonedMsg.ID).
-					Dur("timeout", r.sendTimeout).
-					Msg("Message dropped after timeout (output channel full)")
-			case <-r.ctx.Done():
-				r.logger.Debug().
-					Str("sourceNode", sourceNode).
-					Str("targetNode", target.nodeID).
-					Msg("Message routing cancelled")
-			}
-		})
+	// Fast path: no timer allocation when the channel has room.
+	select {
+	case r.output <- routed:
+		return
+	default:
+	}
+
+	timer := time.NewTimer(r.sendTimeout)
+	defer timer.Stop()
+	select {
+	case r.output <- routed:
+	case <-timer.C:
+		atomic.AddInt64(&r.messagesDropped, 1)
+		metrics.IncrementMessagesDropped()
+		r.logger.Warn().
+			Str("sourceNode", sourceNode).
+			Str("targetNode", routed.TargetNode).
+			Str("msgID", routed.Message.ID).
+			Dur("timeout", r.sendTimeout).
+			Msg("Message dropped after timeout (output channel full)")
+		if r.onDrop != nil {
+			r.onDrop(routed)
+		}
+	case <-r.ctx.Done():
+		r.logger.Debug().
+			Str("sourceNode", sourceNode).
+			Str("targetNode", routed.TargetNode).
+			Msg("Message routing cancelled")
 	}
 }
 
@@ -270,15 +281,12 @@ func (r *MessageRouter) Close() {
 
 	// Cancel the context to signal goroutines to stop. We deliberately do NOT
 	// close the input/output channels: triggers, the input-forwarding
-	// goroutines and the worker-pool jobs are all concurrent senders, and a
+	// goroutines and node executors are all concurrent senders, and a
 	// send on a closed channel panics (which would be unrecoverable and crash
 	// the whole process). Every sender and reader already selects on r.ctx.Done,
 	// so cancellation alone shuts everything down cleanly; the channels are
 	// reclaimed by the GC once the router is unreferenced.
 	r.cancel()
-
-	// Stop the worker pool (workers exit via their done channel).
-	r.workerPool.Stop()
 
 	r.logger.Debug().Msg("Message router closed")
 }
@@ -312,89 +320,4 @@ func (r *MessageRouter) CountTargets(sourceNode, sourcePort string) int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return len(r.adjacency[sourceNode][sourcePort])
-}
-
-// workerPool manages a pool of worker goroutines for parallel message processing.
-type workerPool struct {
-	size    int
-	jobs    chan func()
-	done    chan struct{}
-	started bool
-	stopped bool
-	wg      sync.WaitGroup
-	mu      sync.Mutex
-}
-
-// newWorkerPool creates a new worker pool with the given size.
-func newWorkerPool(size int) *workerPool {
-	if size < 1 {
-		size = 1
-	}
-	return &workerPool{
-		size: size,
-		jobs: make(chan func(), 1000),
-		done: make(chan struct{}),
-	}
-}
-
-// Start begins the worker goroutines.
-func (p *workerPool) Start() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.started {
-		return
-	}
-	p.started = true
-
-	for i := 0; i < p.size; i++ {
-		p.wg.Go(p.worker)
-	}
-}
-
-// worker is the main loop for a worker goroutine.
-func (p *workerPool) worker() {
-	for {
-		select {
-		case job, ok := <-p.jobs:
-			if !ok {
-				return
-			}
-			job()
-		case <-p.done:
-			return
-		}
-	}
-}
-
-// Submit adds a job to the worker pool.
-func (p *workerPool) Submit(job func()) {
-	select {
-	case p.jobs <- job:
-	default:
-		// Pool is full, execute synchronously
-		job()
-	}
-}
-
-// Stop signals all workers to stop and waits for them to finish.
-func (p *workerPool) Stop() {
-	p.mu.Lock()
-	if !p.started || p.stopped {
-		p.mu.Unlock()
-		return
-	}
-	p.stopped = true
-	close(p.done)
-	p.mu.Unlock()
-
-	// Wait for all workers to finish. We do NOT close p.jobs: Submit is called
-	// concurrently by routeFromPort, and a send on a closed channel panics. The
-	// workers have already exited via the done channel, so any jobs still queued
-	// are simply abandoned and reclaimed by the GC.
-	p.wg.Wait()
-
-	p.mu.Lock()
-	p.started = false
-	p.mu.Unlock()
 }

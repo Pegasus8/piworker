@@ -2,7 +2,9 @@ package api
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -71,6 +73,76 @@ func TestListRunEventsEndpoint(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
 	require.Len(t, resp.Data.Events, 1)
 	assert.Equal(t, "n1", resp.Data.Events[0].NodeID)
+}
+
+// TestListRunEventsScopedToFlow: a run's events are only returned under the
+// flow that owns the run, never through another flow's URL.
+func TestListRunEventsScopedToFlow(t *testing.T) {
+	router, store, _ := newEventsRouter(t)
+	require.NoError(t, store.UpsertFlowRun("r1", "f1", time.Now()))
+	require.NoError(t, store.InsertNodeEvents([]storage.NodeEventRecord{
+		{RunID: "r1", FlowID: "f1", NodeID: "secret", NodeType: "x", Phase: "success", CreatedAt: time.Now()},
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/flows/f2/runs/r1/events", nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	var resp struct {
+		Data struct {
+			Events []storage.NodeEventRecord `json:"events"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	assert.Empty(t, resp.Data.Events, "another flow's run must not be readable through this flow")
+}
+
+// TestStreamEventsStopsWhenRequestContextEnds: the stream loop exits when the
+// request context is cancelled — which is how server shutdown reaches it when
+// http.Server.BaseContext is cancelled — even if no event or keepalive is due.
+func TestStreamEventsStopsWhenRequestContextEnds(t *testing.T) {
+	router, _, hub := newEventsRouter(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, "/api/flows/f1/events", nil).WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		router.ServeHTTP(rr, req)
+		close(done)
+	}()
+	require.Eventually(t, func() bool { return hub.HasSubscribers("f1") }, time.Second, 5*time.Millisecond)
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("SSE handler did not return after its context was cancelled")
+	}
+	assert.False(t, hub.HasSubscribers("f1"), "the hub subscription is released")
+}
+
+// TestStreamEventsStopsOnServerShutdown wires a real server whose BaseContext
+// is cancelled on shutdown (as main.go does) and checks the stream ends.
+func TestStreamEventsStopsOnServerShutdown(t *testing.T) {
+	router, _, hub := newEventsRouter(t)
+	baseCtx, cancelBase := context.WithCancel(context.Background())
+	srv := httptest.NewUnstartedServer(router)
+	srv.Config.BaseContext = func(net.Listener) context.Context { return baseCtx }
+	srv.Start()
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/flows/f1/events")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Eventually(t, func() bool { return hub.HasSubscribers("f1") }, time.Second, 5*time.Millisecond)
+
+	cancelBase()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	require.NoError(t, srv.Config.Shutdown(shutdownCtx), "shutdown must not wait for the stream's client to leave")
+	assert.False(t, hub.HasSubscribers("f1"))
 }
 
 func TestStreamEventsSSE(t *testing.T) {

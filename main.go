@@ -6,6 +6,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -45,7 +46,6 @@ var (
 	listenAddr     = flag.String("addr", ":8080", "HTTP server listen address")
 	dbPath         = flag.String("db", "piworker.db", "SQLite database path")
 	debug          = flag.Bool("debug", false, "Enable debug logging")
-	jwtSecret      = flag.String("jwt-secret", "", "Deprecated: ignored; authentication now uses server sessions")
 	authEnabled    = flag.Bool("auth", true, "Enable session authentication (env: PIWORKER_AUTH)")
 	allowedOrigins = flag.String("cors-origins", "http://localhost:3000,http://localhost:8080", "Comma-separated list of allowed CORS origins")
 	adminUser      = flag.String("admin-user", "", "Default admin username (env: PIWORKER_ADMIN_USER)")
@@ -150,29 +150,8 @@ func main() {
 	// Restore previously running flows
 	restoreRunningFlows(store, runtimeManager)
 
-	// Create the router
-	router := mux.NewRouter()
-
-	// CORS allowed origins (from config).
-	corsOrigins := cfg.CORSOrigins
-	log.Info().
-		Strs("origins", corsOrigins).
-		Msg("CORS allowed origins configured")
-
-	// Setup middleware. Recovery is outermost so it catches panics from every
-	// downstream handler; then logging, metrics, and CORS.
-	router.Use(api.RecoveryMiddleware(log.Logger))
-	router.Use(api.LoggingMiddleware(log.Logger))
-	router.Use(api.MetricsMiddleware)
-	router.Use(makeCorsMiddleware(corsOrigins))
-
-	// Resolve auth setting from config.
-	authIsEnabled := cfg.Auth
-
-	// Setup auth handler if enabled
-	var authHandler *api.AuthHandler
 	var userStore *storage.SQLiteUserStore
-	if authIsEnabled {
+	if cfg.Auth {
 		// Share the flow store's database handle to avoid a second connection
 		// pool on the same file.
 		var err error
@@ -198,7 +177,109 @@ func main() {
 			}
 			fmt.Printf("Setup code (one use, expires in 30 minutes): %s\nOpen PiWorker to create your administrator account.\n", code)
 		}
-		authHandler = api.NewAuthHandler(userStore, cfg.SessionSecure, cfg.CORSOrigins)
+	}
+
+	router, flowsHandler := buildRouter(cfg, store, runtimeManager, registry, userStore)
+
+	// Setup signal handling
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	srv := newHTTPServer(cfg.Addr, router)
+
+	// Start the server in a goroutine
+	errCh := make(chan error, 1)
+	go func() {
+		log.Info().
+			Str("addr", cfg.Addr).
+			Msg("HTTP server started")
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- err
+		}
+	}()
+
+	// Wait for shutdown signal or error
+	select {
+	case sig := <-sigCh:
+		log.Info().
+			Str("signal", sig.String()).
+			Msg("Received shutdown signal")
+	case err := <-errCh:
+		log.Error().Err(err).Msg("Server error")
+	}
+
+	log.Info().Msg("Shutting down...")
+	if err := gracefulShutdown(srv, flowsHandler, runtimeManager, 10*time.Second); err != nil {
+		log.Error().Err(err).Msg("Error during server shutdown")
+	}
+
+	// Flush and finalize the observability recorder before the store closes
+	// (store.Close is deferred and runs after main returns).
+	appCancel()
+	select {
+	case <-recorderDone:
+	case <-time.After(2 * time.Second):
+		log.Warn().Msg("Recorder did not drain within timeout on shutdown")
+	}
+
+	log.Info().Msg("PiWorker stopped")
+}
+
+// newHTTPServer builds the HTTP server. Every request context derives from a
+// base context that is cancelled as soon as Shutdown begins, so long-lived
+// requests that honour r.Context() (the SSE event stream) end promptly instead
+// of holding Shutdown until its timeout.
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	baseCtx, cancelBase := context.WithCancel(context.Background())
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      handler,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+		BaseContext:  func(net.Listener) context.Context { return baseCtx },
+	}
+	srv.RegisterOnShutdown(cancelBase)
+	return srv
+}
+
+// gracefulShutdown stops the process in dependency order: refuse new deploys,
+// drain HTTP (which cancels streams via the base context), and only then stop
+// the flows, so in-flight API calls never observe a half-stopped runtime and
+// nothing can be deployed after StopAll.
+func gracefulShutdown(srv *http.Server, flows *api.FlowsHandler, manager *flow.RuntimeManager, timeout time.Duration) error {
+	flows.BeginShutdown()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	err := srv.Shutdown(ctx)
+	manager.StopAll()
+	return err
+}
+
+// buildRouter wires middleware and every HTTP route. users is nil when
+// authentication is disabled.
+func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flow.RuntimeManager, registry *node.Registry, users *storage.SQLiteUserStore) (*mux.Router, *api.FlowsHandler) {
+	router := mux.NewRouter()
+
+	// CORS allowed origins (from config).
+	corsOrigins := cfg.CORSOrigins
+	log.Info().
+		Strs("origins", corsOrigins).
+		Msg("CORS allowed origins configured")
+
+	// Setup middleware. Recovery is outermost so it catches panics from every
+	// downstream handler; then logging, metrics, and CORS.
+	router.Use(api.RecoveryMiddleware(log.Logger))
+	router.Use(api.LoggingMiddleware(log.Logger))
+	router.Use(api.MetricsMiddleware)
+	router.Use(makeCorsMiddleware(corsOrigins))
+	// CSRF + JSON Content-Type enforcement for unsafe /api/ requests. Installed
+	// unconditionally: with auth disabled it is the only thing stopping a page in
+	// the admin's browser from creating and deploying flows.
+	router.Use(api.RequestGuardMiddleware(cfg.SessionSecure, cfg.CORSOrigins))
+
+	if users != nil {
+		authHandler := api.NewAuthHandler(users, cfg.SessionSecure, cfg.CORSOrigins)
 		authHandler.RegisterRoutes(router)
 		router.Use(api.AuthMiddleware(authHandler))
 		log.Info().Msg("Session authentication enabled")
@@ -229,9 +310,10 @@ func main() {
 	healthHandler := api.NewHealthHandler(store)
 	router.HandleFunc("/api/health", healthHandler.Health).Methods(http.MethodGet)
 
-	// Prometheus metrics endpoint
-	router.Handle("/metrics", promhttp.Handler()).Methods(http.MethodGet)
-	log.Info().Msg("Prometheus metrics endpoint available at /metrics")
+	// Prometheus metrics live under /api so they share the API's auth (and the
+	// session cookie, which is scoped to /api).
+	router.Handle("/api/metrics", promhttp.Handler()).Methods(http.MethodGet)
+	log.Info().Msg("Prometheus metrics endpoint available at /api/metrics")
 
 	// Webhook endpoints: trigger-webhook nodes register their paths on the shared
 	// hub, and incoming requests are dispatched to them. Public (the node's
@@ -252,71 +334,7 @@ func main() {
 	// Error handlers for API routes (these are overridden by the PathPrefix above for non-API)
 	router.NotFoundHandler = http.HandlerFunc(api.NotFoundHandler)
 	router.MethodNotAllowedHandler = http.HandlerFunc(api.MethodNotAllowedHandler)
-
-	// Handle graceful shutdown
-	shutdownCtx, cancel := context.WithCancel(context.Background())
-	_ = shutdownCtx // Used for future context propagation
-
-	// Setup signal handling
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	// Create HTTP server
-	srv := &http.Server{
-		Addr:         cfg.Addr,
-		Handler:      router,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
-	}
-
-	// Start the server in a goroutine
-	errCh := make(chan error, 1)
-	go func() {
-		log.Info().
-			Str("addr", cfg.Addr).
-			Msg("HTTP server started")
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errCh <- err
-		}
-	}()
-
-	// Wait for shutdown signal or error
-	select {
-	case sig := <-sigCh:
-		log.Info().
-			Str("signal", sig.String()).
-			Msg("Received shutdown signal")
-	case err := <-errCh:
-		log.Error().Err(err).Msg("Server error")
-	}
-
-	// Graceful shutdown
-	log.Info().Msg("Shutting down...")
-
-	// Stop all running flows
-	runtimeManager.StopAll()
-
-	// Cancel context
-	cancel()
-
-	// Flush and finalize the observability recorder before the store closes
-	// (store.Close is deferred and runs after main returns).
-	appCancel()
-	select {
-	case <-recorderDone:
-	case <-time.After(2 * time.Second):
-		log.Warn().Msg("Recorder did not drain within timeout on shutdown")
-	}
-
-	// Shutdown HTTP server with timeout
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Error().Err(err).Msg("Error during server shutdown")
-	}
-
-	log.Info().Msg("PiWorker stopped")
+	return router, flowsHandler
 }
 
 // setupLogging configures the global logger.
@@ -405,8 +423,6 @@ func applyFlagOverrides(cfg *config.Config) {
 			cfg.Auth = *authEnabled
 		case "session-secure":
 			cfg.SessionSecure = *sessionSecure
-		case "jwt-secret":
-			cfg.JWTSecret = *jwtSecret
 		case "cors-origins":
 			cfg.CORSOrigins = config.SplitOrigins(*allowedOrigins)
 		case "admin-user":
@@ -489,8 +505,9 @@ func ensureDefaultAdmin(store *storage.SQLiteUserStore, cfg config.Config) error
 			"Set PIWORKER_ADMIN_USER and PIWORKER_ADMIN_PASS environment variables")
 	}
 
-	if len(password) < 8 {
-		return fmt.Errorf("admin password must be at least 8 characters")
+	username, ok := api.NormalizeNewCredentials(username, password)
+	if !ok {
+		return fmt.Errorf("invalid admin credentials: username must be 1-%d bytes (surrounding whitespace is ignored) and password 8-72 bytes", api.MaxUsernameLength)
 	}
 
 	// Hash password and create user

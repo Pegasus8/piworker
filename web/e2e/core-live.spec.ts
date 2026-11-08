@@ -6,11 +6,13 @@ import { resolve, join } from 'node:path'
 let server: ChildProcess
 let directory: string
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('PIWORKER_')))
+// The API enforces its CSRF header on writes even with auth disabled.
+test.use({ extraHTTPHeaders: { 'X-PiWorker-Request': '1' } })
 test.beforeAll(async ({ request }) => {
  directory = mkdtempSync(join(tmpdir(), 'piworker-core-'))
  const binary = join(directory, 'piworker')
  execFileSync('go', ['build', '-o', binary, '.'], { cwd: resolve(process.cwd(), '..'), env })
- server = spawn(binary, ['-auth=false', '-db', join(directory, 'core.db'), '-addr', '127.0.0.1:18095'], { cwd: directory, env, stdio: 'ignore' })
+ server = spawn(binary, ['-auth=false', '-db', join(directory, 'core.db'), '-addr', '127.0.0.1:18095', '-cors-origins', 'http://127.0.0.1:18096'], { cwd: directory, env, stdio: 'ignore' })
  await expect.poll(async () => { try { return (await request.get('/api/health')).status() } catch { return 0 } }, { timeout: 15000 }).toBe(200)
 })
 test.afterAll(async () => {

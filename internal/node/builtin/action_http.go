@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strings"
@@ -129,8 +130,16 @@ func NewHTTPAction(config map[string]interface{}) (node.Node, error) {
 func newGuardedHTTPClient(timeout time.Duration, allowPrivate bool) *http.Client {
 	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
 
+	// With a proxy the client only dials the proxy, which then connects to the
+	// (possibly internal) target itself, bypassing the IP check below. Honour
+	// HTTP(S)_PROXY only when private targets are allowed anyway.
+	var proxy func(*http.Request) (*url.URL, error)
+	if allowPrivate {
+		proxy = http.ProxyFromEnvironment
+	}
+
 	transport := &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
+		Proxy:                 proxy,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
@@ -168,12 +177,131 @@ func newGuardedHTTPClient(timeout time.Duration, allowPrivate bool) *http.Client
 // isBlockedIP reports whether ip is a non-public address that SSRF protection
 // should refuse to connect to.
 func isBlockedIP(ip net.IP) bool {
-	return ip.IsLoopback() ||
+	if ip.IsLoopback() ||
 		ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() ||
-		ip.IsInterfaceLocalMulticast() ||
+		ip.IsMulticast() ||
 		ip.IsPrivate() ||
-		ip.IsUnspecified()
+		ip.IsUnspecified() {
+		return true
+	}
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return true
+	}
+	addr = addr.Unmap()
+	for _, p := range blockedPrefixes {
+		if p.Contains(addr) {
+			return true
+		}
+	}
+	// 6to4 (2002::/16) embeds an IPv4 address in bits 16-48; a relay would
+	// forward to it, so judge it by that address.
+	if addr.Is6() && sixToFour.Contains(addr) {
+		b := addr.As16()
+		return isBlockedIP(net.IPv4(b[2], b[3], b[4], b[5]))
+	}
+	return false
+}
+
+// blockedPrefixes are special-purpose ranges (RFC 6890 and friends) that are
+// not covered by the net.IP helpers above but still reach local, carrier or
+// non-routable networks.
+var blockedPrefixes = func() []netip.Prefix {
+	cidrs := []string{
+		"0.0.0.0/8",       // "this network"; 0.x reaches the local host on Linux
+		"100.64.0.0/10",   // carrier-grade NAT (also Tailscale)
+		"192.0.0.0/24",    // IETF protocol assignments
+		"192.0.2.0/24",    // TEST-NET-1
+		"198.18.0.0/15",   // benchmarking
+		"198.51.100.0/24", // TEST-NET-2
+		"203.0.113.0/24",  // TEST-NET-3
+		"240.0.0.0/4",     // reserved, incl. 255.255.255.255 broadcast
+		"64:ff9b::/96",    // NAT64 well-known prefix (maps to any IPv4)
+		"64:ff9b:1::/48",  // local-use NAT64
+		"100::/64",        // discard-only
+		"2001::/32",       // Teredo
+		"2001:db8::/32",   // documentation
+		"2001:10::/28",    // ORCHID
+		"2001:20::/28",    // ORCHIDv2
+	}
+	out := make([]netip.Prefix, 0, len(cidrs))
+	for _, c := range cidrs {
+		out = append(out, netip.MustParsePrefix(c))
+	}
+	return out
+}()
+
+var sixToFour = netip.MustParsePrefix("2002::/16")
+
+// urlEscaperAt picks the escaping for a template value placed in a URL after
+// the literal text prefix:
+//   - before the scheme separator (e.g. "{{payload.url}}" or "{{vars.base}}/x"):
+//     raw, so a whole URL or base URL can still come from a variable;
+//   - authority and path: url.PathEscape, so a value stays within one segment
+//     ("/" "?" "#" are escaped);
+//   - query: url.QueryEscape, so "&" and "=" can't add parameters;
+//   - fragment: url.PathEscape.
+func urlEscaperAt(prefix string) func(string) string {
+	switch {
+	case strings.Contains(prefix, "#"):
+		return url.PathEscape
+	case strings.Contains(prefix, "?"):
+		return url.QueryEscape
+	case strings.Contains(prefix, "://"):
+		return url.PathEscape
+	default:
+		return nil
+	}
+}
+
+// bodyEscaperAt picks the escaping for a template value in the request body.
+// json: values inside a JSON string literal are JSON-string escaped; values
+// outside strings (numbers, objects, a whole-body "{{payload}}") are inserted
+// raw, as before. form: values are query-escaped unless the placeholder
+// starts the body (whole-value template). text: always raw.
+func (a *HTTPAction) bodyEscaperAt(prefix string) func(string) string {
+	switch a.bodyType {
+	case "json":
+		if insideJSONString(prefix) {
+			return jsonStringEscape
+		}
+	case "form":
+		if prefix != "" {
+			return url.QueryEscape
+		}
+	}
+	return nil
+}
+
+// insideJSONString reports whether the end of the JSON fragment s lies inside
+// a string literal.
+func insideJSONString(s string) bool {
+	in, escaped := false, false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case escaped:
+			escaped = false
+		case in && c == '\\':
+			escaped = true
+		case c == '"':
+			in = !in
+		}
+	}
+	return in
+}
+
+// jsonStringEscape escapes s for use inside a JSON string literal (without
+// the surrounding quotes).
+func jsonStringEscape(s string) string {
+	var b strings.Builder
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(s); err != nil {
+		return ""
+	}
+	out := strings.TrimSuffix(b.String(), "\n")
+	return out[1 : len(out)-1]
 }
 
 // isIdempotent reports whether the HTTP method is safe to retry on a transient
@@ -189,8 +317,8 @@ func (a *HTTPAction) isIdempotent() bool {
 
 // Process makes the HTTP request and returns the response.
 func (a *HTTPAction) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
-	// Expand templates in URL
-	expandedURL := renderTemplate(a.url, msg, ctx)
+	// Expand templates in URL, escaping each value for where it lands.
+	expandedURL := renderTemplateEscaped(a.url, msg, ctx, urlEscaperAt)
 
 	// Validate URL: reject parse errors, non-http(s) schemes, and empty hosts.
 	// url.Parse is very lenient (it accepts relative paths and exotic schemes),
@@ -209,7 +337,7 @@ func (a *HTTPAction) Process(ctx context.Context, msg *types.Message) ([]*types.
 	// Prepare request body
 	var bodyReader io.Reader
 	if a.body != "" && (a.method == "POST" || a.method == "PUT" || a.method == "PATCH") {
-		expandedBody := renderTemplate(a.body, msg, ctx)
+		expandedBody := renderTemplateEscaped(a.body, msg, ctx, a.bodyEscaperAt)
 		bodyReader = strings.NewReader(expandedBody)
 	}
 
@@ -250,6 +378,8 @@ func (a *HTTPAction) Process(ctx context.Context, msg *types.Message) ([]*types.
 		// Retry them only for idempotent methods, or when the user opted in via
 		// `retryable`, so non-idempotent requests (POST/PATCH) are never re-sent
 		// and duplicated by the runtime's retry logic.
+		// Hide the query string and userinfo, where API keys usually live.
+		err = redactURLError(err, req.URL.String(), urlWithoutSecrets(req.URL), req.URL.RawQuery)
 		wrapped := fmt.Errorf("HTTP request failed: %w", err)
 		if a.isIdempotent() || a.retryable {
 			return nil, node.Transient(wrapped)
@@ -413,7 +543,7 @@ func httpActionConfigSchema() node.ConfigSchema {
 			"allowPrivate": {
 				Type:        "boolean",
 				Title:       "Allow Private Addresses",
-				Description: "Allow requests to loopback/private/link-local addresses (needed for LAN/local services). Off by default to prevent SSRF.",
+				Description: "Allow requests to loopback/private/link-local/CGNAT and other reserved addresses (needed for LAN/local services). Off by default to prevent SSRF; while off, HTTP(S)_PROXY settings are ignored.",
 				Default:     false,
 			},
 			"maxResponseSize": {
@@ -469,6 +599,21 @@ Use ` + "`{{variable}}`" + ` in URL, headers, and body:
 | {{topic}} | Message topic |
 | {{id}} | Message ID |
 | {{timestamp}} | ISO timestamp |
+
+## Escaping
+
+Values are escaped for the place they are inserted, so payload data can't
+change the structure of the request:
+
+| Where | Escaping |
+|-------|----------|
+| URL, before ` + "`://`" + ` (e.g. ` + "`{{payload.url}}`" + `, ` + "`{{vars.base}}/x`" + `) | none: a whole/base URL may come from a variable |
+| URL path segment | percent-encoded; ` + "`/ ? #`" + ` stay inside the segment |
+| URL query string | query-encoded; ` + "`& =`" + ` can't add parameters |
+| JSON body, inside a "string" | JSON string escaping (quotes, backslashes, newlines) |
+| JSON body, outside strings | inserted as is (numbers, objects, whole ` + "`{{payload}}`" + `) |
+| form body | query-encoded, except a whole-body placeholder |
+| text body, headers | none |
 
 ## Output Modes
 
