@@ -397,7 +397,9 @@ func callError(err error) error {
 		return toolError(ErrUnavailable, "the call did not start")
 	case errors.As(err, &argErr):
 		return invalidArguments(argErr.Issues)
-	case errors.Is(err, flow.ErrTooManyCalls):
+	case errors.Is(err, flow.ErrBusy):
+		// ErrTooManyCalls (waiter cap) or ErrTriggerBusy (hand-off timed out):
+		// no run started, so the call can be retried.
 		return toolError(ErrBusy, "too many calls of this flow are in progress; retry later")
 	case errors.Is(err, flow.ErrFlowNotRunning), errors.Is(err, flow.ErrNodeNotFound),
 		errors.Is(err, flow.ErrTriggerNotCallable), errors.Is(err, flow.ErrNoActiveTargets):
