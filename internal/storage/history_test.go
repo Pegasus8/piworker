@@ -100,6 +100,27 @@ func TestFinishFlowRunMerges(t *testing.T) {
 	assert.WithinDuration(t, later, *runs[0].FinishedAt, time.Second)
 }
 
+func TestListFlowRunEventsScopedToFlow(t *testing.T) {
+	store := createTestStore(t)
+	defer store.Close()
+
+	now := time.Now()
+	require.NoError(t, store.UpsertFlowRun("run-1", "flow-1", now))
+	require.NoError(t, store.InsertNodeEvents([]NodeEventRecord{
+		{RunID: "run-1", FlowID: "flow-1", NodeID: "n1", NodeType: "x", Phase: "success", CreatedAt: now},
+		{RunID: "run-1", FlowID: "flow-1", NodeID: "n2", NodeType: "x", Phase: "error", CreatedAt: now},
+	}))
+
+	evs, err := store.ListFlowRunEvents("flow-1", "run-1")
+	require.NoError(t, err)
+	require.Len(t, evs, 2)
+	assert.Equal(t, "n1", evs[0].NodeID)
+
+	evs, err = store.ListFlowRunEvents("flow-2", "run-1")
+	require.NoError(t, err)
+	assert.Empty(t, evs, "a run is only visible under its own flow")
+}
+
 func TestListFlowRunsScopedAndPaginated(t *testing.T) {
 	store := createTestStore(t)
 	defer store.Close()

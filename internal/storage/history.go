@@ -147,15 +147,30 @@ func (s *SQLiteStore) ListFlowRuns(flowID string, limit, offset int) ([]FlowRun,
 
 // ListNodeEvents returns all node events for a run in execution order.
 func (s *SQLiteStore) ListNodeEvents(runID string) ([]NodeEventRecord, error) {
-	if s.isClosed() {
-		return nil, ErrDatabaseClosed
-	}
-	rows, err := s.db.Query(`
+	return s.queryNodeEvents(`
 		SELECT id, run_id, flow_id, node_id, node_type, phase, msg_id, duration_ms, error, created_at
 		FROM node_events
 		WHERE run_id = ?
 		ORDER BY id ASC
 	`, runID)
+}
+
+// ListFlowRunEvents returns a run's node events in execution order, but only
+// if the run belongs to flowID — so a run can't be read through another flow.
+func (s *SQLiteStore) ListFlowRunEvents(flowID, runID string) ([]NodeEventRecord, error) {
+	return s.queryNodeEvents(`
+		SELECT id, run_id, flow_id, node_id, node_type, phase, msg_id, duration_ms, error, created_at
+		FROM node_events
+		WHERE run_id = ? AND flow_id = ?
+		ORDER BY id ASC
+	`, runID, flowID)
+}
+
+func (s *SQLiteStore) queryNodeEvents(query string, args ...any) ([]NodeEventRecord, error) {
+	if s.isClosed() {
+		return nil, ErrDatabaseClosed
+	}
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list node events: %w", err)
 	}
