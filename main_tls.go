@@ -19,6 +19,7 @@ import (
 	"github.com/Pegasus8/piworker/internal/tlsca"
 	"github.com/Pegasus8/piworker/internal/webhook"
 	"github.com/gorilla/mux"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -218,6 +219,8 @@ func watchTLS(ctx context.Context, src tlsSource, interval time.Duration) <-chan
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 	ticker := time.NewTicker(interval)
+	warner := caWarner{log: log.Logger}
+	warner.check(src.Status())
 	go func() {
 		defer close(done)
 		defer signal.Stop(hup)
@@ -228,12 +231,12 @@ func watchTLS(ctx context.Context, src tlsSource, interval time.Duration) <-chan
 				return
 			case <-ticker.C:
 				if m, ok := src.(*tlsca.Manager); ok {
-					refreshTLS(m)
+					refreshTLS(m, &warner)
 				}
 			case <-hup:
 				switch s := src.(type) {
 				case *tlsca.Manager:
-					refreshTLS(s)
+					refreshTLS(s, &warner)
 				case *tlsca.FileCertificate:
 					if err := s.Reload(); err != nil {
 						log.Error().Err(err).Msg("Cannot reload the TLS certificate; still serving the previous one")
@@ -247,12 +250,29 @@ func watchTLS(ctx context.Context, src tlsSource, interval time.Duration) <-chan
 	return done
 }
 
-func refreshTLS(m *tlsca.Manager) {
+func refreshTLS(m *tlsca.Manager, warner *caWarner) {
 	before := m.Status().NotAfter
 	if err := m.Refresh(); err != nil {
 		log.Error().Err(err).Msg("Cannot refresh the TLS certificate")
 	}
-	if st := m.Status(); !st.NotAfter.Equal(before) {
+	st := m.Status()
+	if !st.NotAfter.Equal(before) {
 		log.Info().Strs("names", st.SANs).Time("certificateExpires", st.NotAfter).Msg("TLS certificate re-issued")
 	}
+	warner.check(st)
+}
+
+// caWarner logs the local CA's expiry warning (tlsca.Status.Warning) when it
+// appears or its text changes. The text counts the days left, so a CA close
+// to expiry is reported about once a day, not on every refresh.
+type caWarner struct {
+	log  zerolog.Logger
+	last string
+}
+
+func (w *caWarner) check(st tlsca.Status) {
+	if st.Warning != "" && st.Warning != w.last {
+		w.log.Warn().Time("caExpires", st.CANotAfter).Msg(st.Warning)
+	}
+	w.last = st.Warning
 }
