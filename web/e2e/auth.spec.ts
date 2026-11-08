@@ -12,7 +12,7 @@ test.beforeAll(async () => {
  directory = mkdtempSync(join(tmpdir(), 'piworker-browser-'))
  binary = join(directory, 'piworker')
  execFileSync('go', ['build', '-o', binary, '.'], { cwd: resolve(process.cwd(), '..'), env })
- server = spawn(binary, ['-db', join(directory, 'auth.db'), '-addr', '127.0.0.1:18095', '-cors-origins', 'http://127.0.0.1:18096'], { cwd: directory, env })
+ server = spawn(binary, ['-tls=off', '-db', join(directory, 'auth.db'), '-addr', '127.0.0.1:18095', '-cors-origins', 'http://127.0.0.1:18096'], { cwd: directory, env })
  setupCode = await new Promise<string>((resolve, reject) => {
   let output = ''
   const timer = setTimeout(() => reject(new Error('Setup server did not start')), 15000)
