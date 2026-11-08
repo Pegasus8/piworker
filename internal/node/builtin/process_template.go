@@ -105,6 +105,7 @@ Temperature is {{payload.temperature}}°C in {{payload.room}}
 ` + "```" + `
 `,
 		Category: types.NodeCategoryProcessing,
+		Risk:     node.RiskSafe,
 		Inputs:   []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny, Required: true}},
 		Outputs:  []types.Port{{ID: "output", Name: "Output", DataType: types.DataTypeString, Multiple: true}},
 		Config:   &schema,
@@ -127,6 +128,14 @@ func renderTemplate(tmpl string, msg *types.Message, contexts ...context.Context
 // returns the escape function for the value substituted there (nil = raw).
 // Unresolved placeholders are left untouched and never escaped.
 func renderTemplateEscaped(tmpl string, msg *types.Message, ctx context.Context, escaperAt func(prefix string) func(string) string) string {
+	return renderTemplateWith(tmpl, msg, ctx, escaperAt, nil)
+}
+
+// renderTemplateWith is renderTemplateEscaped with an extra resolver that is
+// consulted first for each placeholder written in tmpl. Substituted values are
+// never scanned again, so text coming from the message can never reach extra:
+// that is what makes it safe to resolve {{secret.NAME}} through it.
+func renderTemplateWith(tmpl string, msg *types.Message, ctx context.Context, escaperAt func(prefix string) func(string) string, extra func(parts []string) (string, bool)) string {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -141,7 +150,13 @@ func renderTemplateEscaped(tmpl string, msg *types.Message, ctx context.Context,
 		b.WriteString(tmpl[last:loc[0]])
 		literal.WriteString(tmpl[last:loc[0]])
 		match := tmpl[loc[0]:loc[1]]
-		value, ok := resolvePlaceholder(match, msg, ctx)
+		value, ok := "", false
+		if extra != nil {
+			value, ok = extra(placeholderParts(match))
+		}
+		if !ok {
+			value, ok = resolvePlaceholder(match, msg, ctx)
+		}
 		if !ok {
 			b.WriteString(match)
 		} else {
@@ -224,6 +239,27 @@ func expandSecrets(s string) string {
 		}
 		return ""
 	})
+}
+
+// expandSecretsStrict is expandSecrets for values that must not silently
+// degrade: a reference to an undefined secret is an error, not "".
+func expandSecretsStrict(s string) (string, error) {
+	var missing string
+	out := templateRe.ReplaceAllStringFunc(s, func(match string) string {
+		name, ok := secretRef(placeholderParts(match))
+		if !ok {
+			return match
+		}
+		v, exists := secrets.DefaultStore.Get(name)
+		if !exists && missing == "" {
+			missing = name
+		}
+		return v
+	})
+	if missing != "" {
+		return "", fmt.Errorf("secret %q is not defined (referenced as {{secret.%s}})", missing, missing)
+	}
+	return out, nil
 }
 
 // placeholderParts splits a {{...}} match into its dot-separated head and rest

@@ -114,28 +114,32 @@ func (p *DebugProcess) GetConfigSchema() node.ConfigSchema {
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
 			"name": {
-				Type:        "string",
-				Title:       "Debug Name",
-				Description: "Identifier shown in logs to distinguish multiple debug nodes",
-				Default:     "Debug",
+				Type:         "string",
+				Title:        "Debug Name",
+				Description:  "Identifier shown in logs to distinguish multiple debug nodes",
+				Default:      "Debug",
+				AgentVisible: true,
 			},
 			"logPayload": {
-				Type:        "boolean",
-				Title:       "Log Payload",
-				Description: "Include the message payload in logs",
-				Default:     true,
+				Type:         "boolean",
+				Title:        "Log Payload",
+				Description:  "Include the message payload in logs",
+				Default:      true,
+				AgentVisible: true,
 			},
 			"logMeta": {
-				Type:        "boolean",
-				Title:       "Log Metadata",
-				Description: "Include message metadata in logs",
-				Default:     true,
+				Type:         "boolean",
+				Title:        "Log Metadata",
+				Description:  "Include message metadata in logs",
+				Default:      true,
+				AgentVisible: true,
 			},
 			"passThrough": {
-				Type:        "boolean",
-				Title:       "Pass Through",
-				Description: "Forward the message to the next node (disable to stop flow here)",
-				Default:     true,
+				Type:         "boolean",
+				Title:        "Pass Through",
+				Description:  "Forward the message to the next node (disable to stop flow here)",
+				Default:      true,
+				AgentVisible: true,
 			},
 		},
 		Required: []string{},
@@ -200,6 +204,7 @@ When passThrough=true, adds:
 - Terminating test flows
 `,
 		Category: types.NodeCategoryProcessing,
+		Risk:     node.RiskSafe,
 		Inputs: []types.Port{
 			{
 				ID:       "input",

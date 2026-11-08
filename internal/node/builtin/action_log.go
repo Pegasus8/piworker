@@ -124,11 +124,12 @@ func (a *LogAction) GetConfigSchema() node.ConfigSchema {
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
 			"level": {
-				Type:        "string",
-				Title:       "Log Level",
-				Description: "The severity level for the log message",
-				Default:     "info",
-				Enum:        []string{"debug", "info", "warn", "error"},
+				Type:         "string",
+				Title:        "Log Level",
+				Description:  "The severity level for the log message",
+				Default:      "info",
+				Enum:         []string{"debug", "info", "warn", "error"},
+				AgentVisible: true,
 			},
 			"message": {
 				Type:        "string",
@@ -195,6 +196,7 @@ INF Message received msgID=abc123 topic=sensor sourceNode=transform-1 payload={"
 - Development diagnostics
 `,
 		Category: types.NodeCategoryOutput,
+		Risk:     node.RiskSafe,
 		Inputs: []types.Port{
 			{
 				ID:       "input",

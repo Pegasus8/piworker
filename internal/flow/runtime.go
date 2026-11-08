@@ -167,10 +167,23 @@ type FlowRuntime struct {
 	// calls tracks runs started by Call (keyed by correlation ID). It lives on
 	// r.ctx so a reply node can find it (ReplyFromContext).
 	calls *callRegistry
+
+	// lenientConfig skips the deploy-time schema check (Flow.CheckConfig), so
+	// nodes clamp or default mismatched values as before it existed. Only
+	// RuntimeManager.Restore sets it.
+	lenientConfig bool
 }
 
 // RuntimeOption is a functional option for configuring the FlowRuntime.
 type RuntimeOption func(*FlowRuntime)
+
+// withLenientConfig makes NewFlowRuntime instantiate nodes whose config does
+// not match their schema instead of refusing the flow.
+func withLenientConfig() RuntimeOption {
+	return func(r *FlowRuntime) {
+		r.lenientConfig = true
+	}
+}
 
 // WithObserver sets the structured per-execution observer hook. The hook must
 // not block (see NodeEventHook).
@@ -282,6 +295,14 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 	// Apply options
 	for _, opt := range opts {
 		opt(rt)
+	}
+
+	// Mistyped config values fail the deploy with their path, before any node
+	// is instantiated with a silently defaulted value.
+	if !rt.lenientConfig {
+		if err := f.CheckConfig(registry); err != nil {
+			return nil, err
+		}
 	}
 
 	// Instantiate all nodes from the registry
@@ -1073,8 +1094,25 @@ func NewRuntimeManager(registry *node.Registry, logger zerolog.Logger, opts ...M
 	return m
 }
 
-// Deploy creates and starts a runtime for the given flow.
+// Deploy creates and starts a runtime for the given flow. A node config that
+// does not match its schema (Flow.CheckConfig) fails the deploy.
 func (m *RuntimeManager) Deploy(ctx context.Context, f *Flow) error {
+	return m.deploy(ctx, f)
+}
+
+// Restore redeploys a flow that was running before the process restarted.
+// Unlike Deploy it does not refuse node configs that fail the schema check:
+// it returns those issues for the caller to log and starts the flow anyway,
+// with the nodes clamping or defaulting such values exactly as they did
+// before the check existed. A flow that ran before an upgrade therefore keeps
+// running after it, while the next explicit Deploy asks for a fix. Any other
+// error (unknown type, a node that cannot be created or validated) still
+// fails the restore.
+func (m *RuntimeManager) Restore(ctx context.Context, f *Flow) ([]node.ConfigIssue, error) {
+	return f.ConfigIssues(m.registry), m.deploy(ctx, f, withLenientConfig())
+}
+
+func (m *RuntimeManager) deploy(ctx context.Context, f *Flow, extra ...RuntimeOption) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1095,6 +1133,7 @@ func (m *RuntimeManager) Deploy(ctx context.Context, f *Flow) error {
 	if m.observer != nil {
 		rtOpts = append(rtOpts, WithObserver(m.observer))
 	}
+	rtOpts = append(rtOpts, extra...)
 	rt, err := NewFlowRuntime(f, m.registry, rtOpts...)
 	if err != nil {
 		metrics.RecordFlowDeployment(false)

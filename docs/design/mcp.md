@@ -87,7 +87,9 @@ func RegenerateCA(dir string) error
 - `Node.Enabled` defaults to `true` when absent in JSON.
 - Config type errors are deploy errors with a path, e.g.
   `nodes[3].config.interval: expected number (milliseconds), got string "5s"`.
-  `ConfigSchema` descriptions state units.
+  `ConfigSchema` descriptions state units. Enums match exactly unless
+  `CaseInsensitive`. `RuntimeManager.Restore` (startup) logs these issues and
+  deploys anyway, so values saved before the check never stop a running flow.
 - **Host allowlist** for `/api`, `/mcp` and the webui: top-level `allowed_hosts`
   (TOML, `PIWORKER_ALLOWED_HOSTS`, `-allowed-hosts`), added to: `localhost`,
   hostname, `hostname.local`, current interface IPs (re-read lazily), and any
@@ -95,7 +97,10 @@ func RegenerateCA(dir string) error
   403 on mismatch. Compose files set `PIWORKER_ALLOWED_HOSTS`.
 - `action-http` resolves `{{secret.NAME}}` in headers and in the URL userinfo/
   query at request time (never in payload-derived text); `trigger-webhook`
-  `token` is `Sensitive` and supports `{{secret.NAME}}`.
+  `token` is `Sensitive` and supports `{{secret.NAME}}`. When the URL or a
+  header uses a secret, the URL must start with a literal scheme and host
+  (deploy error otherwise; §5 extends this to static credentials), and
+  cross-host redirects drop secret-bearing headers and the Referer.
 - `action-command` rejects placeholder values starting with `-` unless
   `allowDashArgs: true`.
 - `ConfigProperty` gains `Sensitive bool` and `AgentVisible bool` (default

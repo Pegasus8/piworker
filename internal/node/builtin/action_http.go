@@ -99,8 +99,26 @@ func NewHTTPAction(config map[string]interface{}) (node.Node, error) {
 		maxBytes = DefaultMaxResponseBytes
 	}
 
+	// Secrets may only go to a destination written in the configuration.
+	urlSecret := usesSecret(urlStr)
+	var secretHeaders []string
+	for k, v := range headers {
+		if usesSecret(v) {
+			secretHeaders = append(secretHeaders, k)
+		}
+	}
+	if urlSecret || len(secretHeaders) > 0 {
+		if err := checkSecretDestination(urlStr); err != nil {
+			return nil, err
+		}
+	}
+
 	timeout := time.Duration(timeoutMs) * time.Millisecond
 	allowPrivate := base.GetConfigBool("allowPrivate", false)
+	client := newGuardedHTTPClient(timeout, allowPrivate)
+	if urlSecret || len(secretHeaders) > 0 {
+		client.CheckRedirect = keepSecretsOnHost(secretHeaders, urlSecret)
+	}
 
 	action := &HTTPAction{
 		BaseNode:     base,
@@ -114,7 +132,7 @@ func NewHTTPAction(config map[string]interface{}) (node.Node, error) {
 		allowPrivate: allowPrivate,
 		maxBytes:     maxBytes,
 		retryable:    base.GetConfigBool("retryable", false),
-		client:       newGuardedHTTPClient(timeout, allowPrivate),
+		client:       client,
 	}
 
 	return action, nil
@@ -317,21 +335,36 @@ func (a *HTTPAction) isIdempotent() bool {
 
 // Process makes the HTTP request and returns the response.
 func (a *HTTPAction) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
+	// Secrets written in the URL (userinfo, query) and header templates are
+	// resolved now, at request time, so a rotated secret applies without a
+	// redeploy. Text that came from the message never resolves them.
+	sec, err := newRequestSecrets()
+	if err != nil {
+		return nil, err
+	}
+
 	// Expand templates in URL, escaping each value for where it lands.
-	expandedURL := renderTemplateEscaped(a.url, msg, ctx, urlEscaperAt)
+	// shownURL keeps secrets as placeholders, for errors and metadata.
+	expandedURL, shownURL, err := sec.requestURL(a.url, msg, ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	// Validate URL: reject parse errors, non-http(s) schemes, and empty hosts.
 	// url.Parse is very lenient (it accepts relative paths and exotic schemes),
 	// so explicit scheme/host checks are required.
 	parsedURL, err := url.Parse(expandedURL)
 	if err != nil {
+		if len(sec.values) > 0 { // the error would quote the resolved URL
+			return nil, fmt.Errorf("invalid URL %q", shownURL)
+		}
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 		return nil, fmt.Errorf("unsupported URL scheme %q (only http and https are allowed)", parsedURL.Scheme)
 	}
 	if parsedURL.Host == "" {
-		return nil, fmt.Errorf("URL has no host: %q", expandedURL)
+		return nil, fmt.Errorf("URL has no host: %q", shownURL)
 	}
 
 	// Prepare request body
@@ -364,8 +397,10 @@ func (a *HTTPAction) Process(ctx context.Context, msg *types.Message) ([]*types.
 
 	// Set custom headers (can override content type)
 	for k, v := range a.headers {
-		expandedValue := renderTemplate(v, msg, ctx)
-		req.Header.Set(k, expandedValue)
+		req.Header.Set(k, renderTemplateWith(v, msg, ctx, nil, sec.headerValue))
+	}
+	if sec.err != nil {
+		return nil, sec.err
 	}
 
 	// Execute request
@@ -379,7 +414,7 @@ func (a *HTTPAction) Process(ctx context.Context, msg *types.Message) ([]*types.
 		// `retryable`, so non-idempotent requests (POST/PATCH) are never re-sent
 		// and duplicated by the runtime's retry logic.
 		// Hide the query string and userinfo, where API keys usually live.
-		err = redactURLError(err, req.URL.String(), urlWithoutSecrets(req.URL), req.URL.RawQuery)
+		err = redactURLError(err, req.URL.String(), urlWithoutSecrets(req.URL), append([]string{req.URL.RawQuery}, sec.values...)...)
 		wrapped := fmt.Errorf("HTTP request failed: %w", err)
 		if a.isIdempotent() || a.retryable {
 			return nil, node.Transient(wrapped)
@@ -451,7 +486,7 @@ func (a *HTTPAction) Process(ctx context.Context, msg *types.Message) ([]*types.
 	outputMsg.SourcePort = "output"
 	outputMsg.SetMeta("httpStatus", resp.StatusCode)
 	outputMsg.SetMeta("httpDuration", duration.Milliseconds())
-	outputMsg.SetMeta("httpURL", expandedURL)
+	outputMsg.SetMeta("httpURL", shownURL)
 
 	return []*types.Message{outputMsg}, nil
 }
@@ -497,20 +532,23 @@ func httpActionConfigSchema() node.ConfigSchema {
 			"url": {
 				Type:        "string",
 				Title:       "URL",
-				Description: "Request URL (supports {{payload.field}} templates)",
+				Description: "Request URL (supports {{payload.field}} templates; {{secret.NAME}} only in the user:password@ part and the query string, and only when the URL starts with a literal scheme and host)",
 				Default:     "",
 			},
 			"method": {
-				Type:        "string",
-				Title:       "Method",
-				Description: "HTTP method",
-				Default:     "GET",
-				Enum:        []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"},
+				Type:            "string",
+				Title:           "Method",
+				Description:     "HTTP method",
+				Default:         "GET",
+				Enum:            []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"},
+				CaseInsensitive: true,
+				AgentVisible:    true,
 			},
 			"headers": {
 				Type:        "object",
 				Title:       "Headers",
-				Description: "HTTP headers (key-value pairs)",
+				Description: "HTTP headers (name → value pairs); values support {{secret.NAME}} and message templates",
+				Sensitive:   true,
 			},
 			"body": {
 				Type:        "string",
@@ -519,44 +557,52 @@ func httpActionConfigSchema() node.ConfigSchema {
 				Default:     "",
 			},
 			"bodyType": {
-				Type:        "string",
-				Title:       "Body Type",
-				Description: "Content type for the request body",
-				Default:     "json",
-				Enum:        []string{"json", "text", "form"},
+				Type:         "string",
+				Title:        "Body Type",
+				Description:  "Content type for the request body",
+				Default:      "json",
+				Enum:         []string{"json", "text", "form"},
+				AgentVisible: true,
 			},
 			"timeout": {
-				Type:        "number",
-				Title:       "Timeout (ms)",
-				Description: "Request timeout in milliseconds",
-				Default:     30000,
-				Minimum:     &minTimeout,
-				Maximum:     &maxTimeout,
+				Type:         "number",
+				Title:        "Timeout (ms)",
+				Description:  "Request timeout, in milliseconds (1000-60000)",
+				Default:      30000,
+				Minimum:      &minTimeout,
+				Maximum:      &maxTimeout,
+				Unit:         "milliseconds",
+				AgentVisible: true,
 			},
 			"outputMode": {
-				Type:        "string",
-				Title:       "Output Mode",
-				Description: "What to return: full response, just body, or just status",
-				Default:     "body",
-				Enum:        []string{"body", "full", "status"},
+				Type:         "string",
+				Title:        "Output Mode",
+				Description:  "What to return: full response, just body, or just status",
+				Default:      "body",
+				Enum:         []string{"body", "full", "status"},
+				AgentVisible: true,
 			},
 			"allowPrivate": {
-				Type:        "boolean",
-				Title:       "Allow Private Addresses",
-				Description: "Allow requests to loopback/private/link-local/CGNAT and other reserved addresses (needed for LAN/local services). Off by default to prevent SSRF; while off, HTTP(S)_PROXY settings are ignored.",
-				Default:     false,
+				Type:         "boolean",
+				Title:        "Allow Private Addresses",
+				Description:  "Allow requests to loopback/private/link-local/CGNAT and other reserved addresses (needed for LAN/local services). Off by default to prevent SSRF; while off, HTTP(S)_PROXY settings are ignored.",
+				Default:      false,
+				AgentVisible: true,
 			},
 			"maxResponseSize": {
-				Type:        "number",
-				Title:       "Max Response Size (bytes)",
-				Description: "Maximum response body size to read (protects against memory exhaustion)",
-				Default:     DefaultMaxResponseBytes,
+				Type:         "number",
+				Title:        "Max Response Size (bytes)",
+				Description:  "Maximum response body size to read, in bytes (protects against memory exhaustion)",
+				Default:      DefaultMaxResponseBytes,
+				Unit:         "bytes",
+				AgentVisible: true,
 			},
 			"retryable": {
-				Type:        "boolean",
-				Title:       "Retry on Failure",
-				Description: "Retry transient failures even for non-idempotent methods (POST/PATCH). May cause duplicate requests.",
-				Default:     false,
+				Type:         "boolean",
+				Title:        "Retry on Failure",
+				Description:  "Retry transient failures even for non-idempotent methods (POST/PATCH). May cause duplicate requests.",
+				Default:      false,
+				AgentVisible: true,
 			},
 		},
 		Required: []string{"url"},
@@ -580,7 +626,7 @@ Makes HTTP requests to external APIs and services. Supports all common HTTP meth
 |----------|------|---------|-------------|
 | url | string | - | Request URL (required, supports templates) |
 | method | enum | GET | HTTP method |
-| headers | object | {} | Custom headers (key-value pairs) |
+| headers | object | {} | Custom headers (key-value pairs; values support secrets) |
 | body | string | - | Request body (for POST/PUT/PATCH) |
 | bodyType | enum | json | Content type: json, text, form |
 | timeout | number | 30000 | Timeout in ms (1000-60000) |
@@ -615,6 +661,33 @@ change the structure of the request:
 | form body | query-encoded, except a whole-body placeholder |
 | text body, headers | none |
 
+## Secrets
+
+Write ` + "`{{secret.NAME}}`" + ` (managed under **Secrets**) instead of a
+credential:
+
+- in **header values**, e.g. ` + "`Authorization: Bearer {{secret.api_token}}`" + `;
+- in the URL's **user:password@** part, e.g.
+  ` + "`https://{{secret.user}}:{{secret.pass}}@api.example.com/`" + `;
+- in the URL's **query string**, e.g. ` + "`?apikey={{secret.api_key}}`" + `
+  (the value is query-encoded).
+
+Secrets are read when each request is sent, so rotating one takes effect
+without redeploying. They are only resolved where they are written in this
+node's configuration, never inside message data, and never in the body. A
+secret in the scheme, host, path or fragment of the URL fails the deploy; a
+secret that does not exist fails the request before anything is sent.
+**meta.httpURL** and error messages show the placeholder, not the value.
+
+When the URL or a header uses a secret, the URL must start with a literal
+scheme and host (` + "`https://api.example.com/...`" + `): a URL that starts with a
+placeholder (` + "`{{payload.url}}`" + `, ` + "`{{flowVars.base}}/x`" + `) or takes part of
+its scheme, host or port from one fails the deploy with *secrets require a
+fixed scheme and host*, because message data could then send the secret
+anywhere. Placeholders in the path, query string and fragment stay allowed.
+On a redirect to another host, headers that carry secrets and a Referer that
+would repeat a query secret are dropped.
+
 ## Output Modes
 
 | Mode | Returns |
@@ -629,7 +702,7 @@ All modes add:
 
 - **meta.httpStatus** - HTTP status code
 - **meta.httpDuration** - Request duration in ms
-- **meta.httpURL** - Expanded URL used
+- **meta.httpURL** - Expanded URL used (secrets shown as placeholders)
 
 ## Examples
 
@@ -660,6 +733,7 @@ headers:
 - Data synchronization
 `,
 		Category: types.NodeCategoryOutput,
+		Risk:     node.RiskExternal,
 		Inputs: []types.Port{
 			{
 				ID:       "input",

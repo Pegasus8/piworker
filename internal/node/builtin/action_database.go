@@ -280,23 +280,28 @@ func databaseActionConfigSchema() node.ConfigSchema {
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
 			"driver": {
-				Type:        "string",
-				Title:       "Driver",
-				Description: "Database driver",
-				Default:     "sqlite",
-				Enum:        []string{"sqlite", "postgres", "mysql"},
+				Type:            "string",
+				Title:           "Driver",
+				Description:     "Database driver (sqlite3 and postgresql are accepted aliases)",
+				Default:         "sqlite",
+				Enum:            []string{"sqlite", "postgres", "mysql", "sqlite3", "postgresql"},
+				CaseInsensitive: true,
+				AgentVisible:    true,
 			},
 			"dsn": {
 				Type:        "string",
 				Title:       "DSN",
 				Description: "Connection string (supports {{secret.NAME}} for credentials)",
+				Sensitive:   true,
 			},
 			"mode": {
-				Type:        "string",
-				Title:       "Mode",
-				Description: "query returns rows; exec returns affected-row counts",
-				Default:     "query",
-				Enum:        []string{"query", "exec"},
+				Type:            "string",
+				Title:           "Mode",
+				Description:     "query returns rows; exec returns affected-row counts",
+				Default:         "query",
+				Enum:            []string{"query", "exec"},
+				CaseInsensitive: true,
+				AgentVisible:    true,
 			},
 			"query": {
 				Type:        "string",
@@ -362,6 +367,7 @@ params: [payload.sensor, payload.threshold]
 ` + "```" + `
 `,
 		Category: types.NodeCategoryOutput,
+		Risk:     node.RiskPrivileged,
 		Inputs:   []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny, Required: true}},
 		Outputs:  []types.Port{{ID: "output", Name: "Output", DataType: types.DataTypeAny, Multiple: true}},
 		Config:   &schema,

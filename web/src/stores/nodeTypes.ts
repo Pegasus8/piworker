@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { NodeTypeConfig, NodeCategory, ConfigField } from '@/types'
+import type { NodeTypeConfig, NodeCategory } from '@/types'
 import { useApi } from '@/composables/useApi'
+import { configFieldsFromSchema } from '@/lib/configValues'
 
 // Map backend categories to frontend categories
 const categoryMap: Record<string, NodeCategory> = {
@@ -81,35 +82,11 @@ export const useNodeTypesStore = defineStore('nodeTypes', () => {
     return inFlight
   }
 
-  // Convert a backend JSON config schema ({ properties, required }) into the
-  // frontend ConfigField[] the config panel renders.
-  function configSchemaFromBackend(schema: any): ConfigField[] {
-    const required: string[] = schema.required || []
-    const props = schema.properties || {}
-    return Object.keys(props).map((key): ConfigField => {
-      const p = props[key]
-      const hasEnum = Array.isArray(p.enum) && p.enum.length > 0
-      let type: ConfigField['type'] = 'text'
-      if (p.type === 'number') type = 'number'
-      else if (p.type === 'boolean') type = 'boolean'
-      else if (hasEnum) type = 'select'
-      return {
-        key,
-        label: p.title || key,
-        type,
-        required: required.includes(key),
-        default: p.default,
-        placeholder: p.description || '',
-        options: hasEnum ? p.enum.map((v: string) => ({ label: v, value: v })) : undefined
-      }
-    })
-  }
-
   // Build a node's config form from the backend-provided JSON schema. Every node
   // now exposes its schema via `config`, so there is no per-type fallback.
   function buildConfigSchema(node: any): NodeTypeConfig['configSchema'] {
     if (node.config && node.config.properties) {
-      return configSchemaFromBackend(node.config)
+      return configFieldsFromSchema(node.config)
     }
     return []
   }

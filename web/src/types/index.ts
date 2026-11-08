@@ -17,7 +17,7 @@ export interface NodeTypeConfig {
 export interface ConfigField {
   key: string
   label: string
-  type: 'text' | 'number' | 'select' | 'boolean' | 'textarea' | 'cron'
+  type: 'text' | 'number' | 'select' | 'boolean' | 'textarea' | 'cron' | 'keyvalue'
   required?: boolean
   default?: any
   options?: { label: string; value: string }[]

@@ -22,7 +22,7 @@ type WebhookTrigger struct {
 
 	path   string
 	method string // optional method filter ("" = any)
-	token  string // optional shared secret
+	token  string // optional shared secret; may reference {{secret.NAME}}
 
 	hub *webhook.Hub
 
@@ -71,8 +71,15 @@ func (t *WebhookTrigger) Validate() error {
 	return nil
 }
 
-// Start registers the webhook path on the hub.
+// Start registers the webhook path on the hub. A token referencing an
+// undefined secret fails the start (and so the deploy).
 func (t *WebhookTrigger) Start(ctx context.Context, out chan<- *types.Message) error {
+	if t.token != "" {
+		if _, err := expandSecretsStrict(t.token); err != nil {
+			return fmt.Errorf("webhook token: %w", err)
+		}
+	}
+
 	t.mu.Lock()
 	if t.running {
 		t.mu.Unlock()
@@ -130,11 +137,19 @@ func (t *WebhookTrigger) handle(req webhook.Request) webhook.Result {
 	}
 
 	// Optional shared-secret check (the hub extracts ?token=... or the
-	// X-Webhook-Token header into req.Token). Constant-time comparison so
-	// response timing doesn't leak how much of a guess was right.
-	if t.token != "" &&
-		subtle.ConstantTimeCompare([]byte(req.Token), []byte(t.token)) != 1 {
-		return webhook.Unauthorized
+	// X-Webhook-Token header into req.Token). Secrets are resolved per request
+	// so a rotated secret applies at once; one that is missing or empty
+	// rejects every request instead of disabling the check. Constant-time
+	// comparison so response timing doesn't leak how much of a guess was right.
+	if t.token != "" {
+		expected, err := expandSecretsStrict(t.token)
+		if err != nil || expected == "" {
+			log.Warn().Err(err).Str("path", t.path).Msg("webhook token resolves to nothing; rejecting request")
+			return webhook.Unauthorized
+		}
+		if subtle.ConstantTimeCompare([]byte(req.Token), []byte(expected)) != 1 {
+			return webhook.Unauthorized
+		}
 	}
 
 	t.mu.Lock()
@@ -192,16 +207,18 @@ func webhookTriggerConfigSchema() node.ConfigSchema {
 				Description: "URL path segment under /webhooks/ (e.g. 'github-push')",
 			},
 			"method": {
-				Type:        "string",
-				Title:       "Method Filter",
-				Description: "Only accept this HTTP method; leave empty to accept any",
-				Default:     "",
+				Type:         "string",
+				Title:        "Method Filter",
+				Description:  "Only accept this HTTP method; leave empty to accept any",
+				Default:      "",
+				AgentVisible: true,
 			},
 			"token": {
 				Type:        "string",
 				Title:       "Secret Token",
-				Description: "Optional shared secret, required as ?token=... or the X-Webhook-Token header",
+				Description: "Optional shared secret, required as ?token=... or the X-Webhook-Token header ({{secret.NAME}} supported)",
 				Default:     "",
+				Sensitive:   true,
 			},
 		},
 		Required: []string{"path"},
@@ -238,7 +255,7 @@ http(s)://<host>/webhooks/<path>
 |----------|------|---------|-------------|
 | path | string | - | Path segment under /webhooks/ (required, unique per flow) |
 | method | string | (any) | Only accept this HTTP method |
-| token | string | - | Optional shared secret (` + "`?token=`" + ` or ` + "`X-Webhook-Token`" + ` header) |
+| token | string | - | Optional shared secret (` + "`?token=`" + ` or ` + "`X-Webhook-Token`" + ` header); ` + "`{{secret.NAME}}`" + ` supported |
 
 ## Output
 
@@ -257,6 +274,11 @@ Each request produces a message with:
 The webhook endpoint is public (no login session). Set a **token** to require a shared
 secret, and avoid exposing destructive flows without one.
 
+Prefer storing the token under **Secrets** and writing ` + "`{{secret.NAME}}`" + `
+here. The secret is read on every request, so rotating it applies at once.
+Deploying fails if the secret does not exist; if it is later deleted or emptied,
+every request is rejected with 401 (the check is never disabled).
+
 The token, the ` + "`token`" + ` query parameter and the Cookie, Authorization,
 X-Webhook-Token and X-PiWorker-* headers are never included in the payload.
 
@@ -273,6 +295,7 @@ X-Webhook-Token and X-PiWorker-* headers are never included in the payload.
 | 503 | Flow busy (queue full) or stopping; retry later |
 `,
 		Category: types.NodeCategoryInput,
+		Risk:     node.RiskSafe,
 		Inputs:   nil,
 		Outputs: []types.Port{
 			{ID: "output", Name: "Output", DataType: types.DataTypeObject, Multiple: true},

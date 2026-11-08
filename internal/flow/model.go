@@ -3,6 +3,8 @@ package flow
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,7 +68,20 @@ type Node struct {
 	Config   map[string]interface{} `json:"config"`   // Node-specific configuration
 	Inputs   []Port                 `json:"inputs"`   // Input ports
 	Outputs  []Port                 `json:"outputs"`  // Output ports
-	Enabled  bool                   `json:"enabled"`  // Whether this node is active
+	Enabled  bool                   `json:"enabled"`  // Whether this node is active; true when absent in JSON
+}
+
+// UnmarshalJSON decodes a node, treating an absent (or null) "enabled" field
+// as true. Definitions written by hand, by older editors or by agents often
+// omit it, and decoding that as false would silently drop the node.
+func (n *Node) UnmarshalJSON(data []byte) error {
+	type plainNode Node // same fields, no methods: avoids recursing into UnmarshalJSON
+	decoded := plainNode{Enabled: true}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*n = Node(decoded)
+	return nil
 }
 
 // Connection represents a link between two nodes.
@@ -210,6 +225,48 @@ func (f *Flow) Validate(reg *node.Registry) error {
 		info, ok := reg.Get(n.Type)
 		return ok && info.Category == NodeCategoryInput
 	})
+}
+
+// ConfigIssues checks the config of every enabled node against its registered
+// type's schema (node.CheckConfig: types, enums, bounds) and returns the
+// problems with flow-level paths such as "nodes[3].config.interval". Disabled
+// nodes are never instantiated and are skipped, as are unregistered types
+// (instantiating them reports the unknown type).
+func (f *Flow) ConfigIssues(reg *node.Registry) []node.ConfigIssue {
+	if reg == nil {
+		return nil
+	}
+	var issues []node.ConfigIssue
+	for i := range f.Nodes {
+		n := &f.Nodes[i]
+		if !n.Enabled {
+			continue
+		}
+		info, ok := reg.Get(n.Type)
+		if !ok {
+			continue
+		}
+		for _, issue := range node.CheckConfig(info.Config, n.Config) {
+			issue.Path = fmt.Sprintf("nodes[%d].config.%s", i, issue.Path)
+			issues = append(issues, issue)
+		}
+	}
+	return issues
+}
+
+// CheckConfig returns a *ValidationError listing every ConfigIssues entry, or
+// nil when all node configs match their schemas. Deploy calls it so a mistyped
+// value fails visibly instead of a node silently using its default.
+func (f *Flow) CheckConfig(reg *node.Registry) error {
+	issues := f.ConfigIssues(reg)
+	if len(issues) == 0 {
+		return nil
+	}
+	msgs := make([]string, len(issues))
+	for i, issue := range issues {
+		msgs[i] = issue.String()
+	}
+	return NewValidationError("%s", strings.Join(msgs, "; "))
 }
 
 // validate runs the structural checks and requires at least one enabled node

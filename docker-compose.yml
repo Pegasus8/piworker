@@ -26,6 +26,9 @@ services:
       - PIWORKER_ADDR=:8080
       - PIWORKER_DB=/app/data/piworker.db
       - PIWORKER_DEBUG=true
+      # Host names accepted besides localhost, the hostname and IPs: the Vite
+      # proxy (changeOrigin) reaches the API as "backend:8080".
+      - PIWORKER_ALLOWED_HOSTS=backend
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
       interval: 10s

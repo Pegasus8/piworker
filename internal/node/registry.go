@@ -21,6 +21,31 @@ type NodeTypeInfo struct {
 	Outputs       []types.Port       `json:"outputs"`                 // Output port definitions
 	Config        *ConfigSchema      `json:"config,omitempty"`        // Configuration schema
 	Icon          string             `json:"icon,omitempty"`          // Icon name for UI
+	Risk          Risk               `json:"risk"`                    // What the node can affect; every registered type declares it
+}
+
+// Risk classifies what a node type can affect outside the flow. It drives the
+// risk of MCP tools built from flows and the agent policies.
+type Risk string
+
+const (
+	// RiskSafe nodes only compute, read local state or log.
+	RiskSafe Risk = "safe"
+	// RiskExternal nodes send data to other services (HTTP, MQTT, e-mail,
+	// chat/notification services).
+	RiskExternal Risk = "external"
+	// RiskPrivileged nodes act on the host itself: shell commands, files,
+	// databases and hardware (GPIO, I2C).
+	RiskPrivileged Risk = "privileged"
+)
+
+// Valid reports whether r is one of the declared risk levels.
+func (r Risk) Valid() bool {
+	switch r {
+	case RiskSafe, RiskExternal, RiskPrivileged:
+		return true
+	}
+	return false
 }
 
 // Registry manages node type registration and instantiation.

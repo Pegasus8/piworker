@@ -276,13 +276,14 @@ func (a *EmailAction) Validate() error {
 }
 
 func emailActionConfigSchema() node.ConfigSchema {
+	minPort, maxPort := float64(1), float64(65535)
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
 			"host":     {Type: "string", Title: "SMTP Host", Description: "SMTP server hostname"},
-			"port":     {Type: "number", Title: "SMTP Port", Description: "Submission port (587 for STARTTLS, 465 for implicit TLS)", Default: 587},
-			"tls":      {Type: "string", Title: "TLS", Description: "auto: implicit TLS on 465, STARTTLS when offered otherwise; implicit; starttls (required)", Default: "auto", Enum: []string{"auto", "implicit", "starttls"}},
-			"username": {Type: "string", Title: "Username", Description: "SMTP username (optional)", Default: ""},
-			"password": {Type: "string", Title: "Password", Description: "SMTP password (optional)", Default: ""},
+			"port":     {Type: "number", Title: "SMTP Port", Description: "Submission port (587 for STARTTLS, 465 for implicit TLS)", Default: 587, Minimum: &minPort, Maximum: &maxPort, AgentVisible: true},
+			"tls":      {Type: "string", Title: "TLS", Description: "auto: implicit TLS on 465, STARTTLS when offered otherwise; implicit; starttls (required)", Default: "auto", Enum: []string{"auto", "implicit", "starttls"}, CaseInsensitive: true, AgentVisible: true},
+			"username": {Type: "string", Title: "Username", Description: "SMTP username (optional; {{secret.NAME}} supported)", Default: ""},
+			"password": {Type: "string", Title: "Password", Description: "SMTP password (optional; use {{secret.NAME}})", Default: "", Sensitive: true},
 			"from":     {Type: "string", Title: "From", Description: "Sender address"},
 			"to":       {Type: "string", Title: "To", Description: "Recipient address(es), comma-separated"},
 			"subject":  {Type: "string", Title: "Subject", Description: "Subject (supports templates)", Default: "PiWorker notification"},
@@ -330,6 +331,7 @@ network errors are retried as transient; 5xx replies are permanent.
 | body | string | {{payload}} | Body (supports templates) |
 `,
 		Category: types.NodeCategoryOutput,
+		Risk:     node.RiskExternal,
 		Inputs:   []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny, Required: true}},
 		Outputs:  []types.Port{{ID: "output", Name: "Output", DataType: types.DataTypeAny, Multiple: true}},
 		Config:   &schema,

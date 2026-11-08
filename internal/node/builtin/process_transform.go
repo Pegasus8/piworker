@@ -267,6 +267,7 @@ The expression result becomes the new payload. Output metadata:
 - Field extraction
 `,
 		Category: types.NodeCategoryProcessing,
+		Risk:     node.RiskSafe,
 		Inputs: []types.Port{
 			{
 				ID:       "input",
