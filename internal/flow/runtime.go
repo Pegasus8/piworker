@@ -614,8 +614,11 @@ func (r *FlowRuntime) executeNode(routedMsg RoutedMessage) {
 func (r *FlowRuntime) executeNodeWithRetry(nodeInstance node.Node, routedMsg RoutedMessage, flowNode *Node, logger zerolog.Logger) ([]*types.Message, error) {
 	var lastErr error
 	wait := r.retryConfig.InitialWait
+	// A negative MaxRetries would skip the loop entirely and report success
+	// without ever running the node; clamp so the node always runs once.
+	maxRetries := max(r.retryConfig.MaxRetries, 0)
 
-	for attempt := 0; attempt <= r.retryConfig.MaxRetries; attempt++ {
+	for attempt := 0; attempt <= maxRetries; attempt++ {
 		outputs, err := nodeInstance.Process(r.ctx, routedMsg.Message)
 
 		if err == nil {
@@ -643,7 +646,7 @@ func (r *FlowRuntime) executeNodeWithRetry(nodeInstance node.Node, routedMsg Rou
 		}
 
 		// Don't retry if we've exhausted all attempts
-		if attempt >= r.retryConfig.MaxRetries {
+		if attempt >= maxRetries {
 			break
 		}
 
@@ -653,7 +656,7 @@ func (r *FlowRuntime) executeNodeWithRetry(nodeInstance node.Node, routedMsg Rou
 		logger.Warn().
 			Err(err).
 			Int("attempt", attempt).
-			Int("maxRetries", r.retryConfig.MaxRetries).
+			Int("maxRetries", maxRetries).
 			Dur("nextWait", wait).
 			Msg("Node execution failed, retrying")
 
