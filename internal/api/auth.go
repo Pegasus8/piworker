@@ -180,7 +180,19 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	h.setCookie(w, r, "", -1)
 	writeSuccess(w, 200, nil, "")
 }
-func validNewPassword(password string) bool                           { return len(password) >= 8 && len(password) <= 72 }
+func validNewPassword(password string) bool { return len(password) >= 8 && len(password) <= 72 }
+
+// MaxUsernameLength bounds account names for setup, recovery and bootstrap.
+const MaxUsernameLength = 128
+
+// NormalizeNewCredentials applies the same rules as browser setup: the
+// username is trimmed (login trims too) and must be 1..MaxUsernameLength bytes,
+// and the password must be 8..72 bytes (bcrypt's limit).
+func NormalizeNewCredentials(username, password string) (string, bool) {
+	username = strings.TrimSpace(username)
+	return username, username != "" && len(username) <= MaxUsernameLength && validNewPassword(password)
+}
+
 func (h *AuthHandler) Setup(w http.ResponseWriter, r *http.Request)   { h.redeem(w, r, "setup") }
 func (h *AuthHandler) Recover(w http.ResponseWriter, r *http.Request) { h.redeem(w, r, "recovery") }
 func (h *AuthHandler) redeem(w http.ResponseWriter, r *http.Request, purpose string) {
@@ -188,7 +200,7 @@ func (h *AuthHandler) redeem(w http.ResponseWriter, r *http.Request, purpose str
 	if !ok {
 		return
 	}
-	if req.Username == "" || len(req.Username) > 128 || !validNewPassword(req.Password) {
+	if _, ok := NormalizeNewCredentials(req.Username, req.Password); !ok {
 		writeError(w, 400, "Enter a username and a password between 8 and 72 bytes.")
 		return
 	}

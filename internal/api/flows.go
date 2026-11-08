@@ -28,9 +28,9 @@ type FlowsHandler struct {
 	// process has begun stopping, so nothing starts after StopAll.
 	shuttingDown bool
 	store        *storage.SQLiteStore
-	manager     *flow.RuntimeManager
-	registry    *node.Registry
-	logger      zerolog.Logger
+	manager      *flow.RuntimeManager
+	registry     *node.Registry
+	logger       zerolog.Logger
 }
 
 // NewFlowsHandler creates a new FlowsHandler.

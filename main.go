@@ -510,8 +510,9 @@ func ensureDefaultAdmin(store *storage.SQLiteUserStore, cfg config.Config) error
 			"Set PIWORKER_ADMIN_USER and PIWORKER_ADMIN_PASS environment variables")
 	}
 
-	if len(password) < 8 {
-		return fmt.Errorf("admin password must be at least 8 characters")
+	username, ok := api.NormalizeNewCredentials(username, password)
+	if !ok {
+		return fmt.Errorf("invalid admin credentials: username must be 1-%d bytes (surrounding whitespace is ignored) and password 8-72 bytes", api.MaxUsernameLength)
 	}
 
 	// Hash password and create user
