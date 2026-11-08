@@ -98,9 +98,20 @@ func TestCallHandOffIsBoundedByTheTimeout(t *testing.T) {
 		t.Fatal("Call blocked on the trigger hand-off past its timeout")
 	}
 	require.ErrorIs(t, out.err, ErrTriggerBusy)
+	assert.ErrorIs(t, out.err, ErrBusy, "callers map every busy refusal with one errors.Is")
 	assert.Empty(t, out.res.RunID, "no run was started")
 	assert.Less(t, time.Since(start), 2*time.Second)
 	assert.Equal(t, 0, rt.calls.count(), "the waiter is removed")
+}
+
+// Every "busy, retry later" refusal of Call wraps ErrBusy, so the service maps
+// them to the busy tool error with a single errors.Is; other errors do not.
+func TestBusyRefusalsWrapErrBusy(t *testing.T) {
+	assert.ErrorIs(t, ErrTooManyCalls, ErrBusy)
+	assert.ErrorIs(t, ErrTriggerBusy, ErrBusy)
+	for _, err := range []error{ErrFlowNotRunning, ErrNodeNotFound, ErrTriggerNotCallable, ErrNoActiveTargets} {
+		assert.NotErrorIs(t, err, ErrBusy, "%v is not a busy refusal", err)
+	}
 }
 
 // The caller's own cancellation during the hand-off is reported as such, not

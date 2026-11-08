@@ -133,7 +133,11 @@ type CallRequest struct {
 // Call starts a run on a trigger-tool node and waits for its reply, the end of
 // the run, the timeout, or ctx cancellation (whichever first). On timeout it
 // returns Status "running"; the run continues and Wait can be used later.
+// The timeout counts from the start of Call, including the hand-off to the
+// trigger. An error without a run ID means no run was started.
 func (r *FlowRuntime) Call(ctx context.Context, req CallRequest) (CallResult, error)
+// "Busy, retry later" refusals of Call (no run started); both wrap ErrBusy.
+var ErrBusy, ErrTooManyCalls, ErrTriggerBusy error
 // Wait returns the final result of a run started by Call (or "expired").
 func (r *FlowRuntime) Wait(ctx context.Context, runID string) (CallResult, error)
 // RunDone returns a channel closed when the run identified by runID finishes.
@@ -145,7 +149,10 @@ func (r *FlowRuntime) RunDone(runID string) <-chan struct{}
   serialized deep copy inside the call).
 - `runID` is generated server-side (UUID) and set as `correlationID`.
 - Node errors in a called run are collected (`CallError`, redacted by the
-  caller); `runDone` closes the waiter.
+  caller); `runDone` closes the waiter. A message of the run that is dropped
+  before it executes (full node queue, unknown target, routing timeout) is
+  recorded the same way (`message dropped at node X: …`): the call ends as
+  `error`, not `completed_no_reply`, unless a reply already won.
 - Waiter hard lifetime: `timeout + 10 min` from the call's start, then
   `expired`. `Stop` cancels waiters (`error`: "flow stopped") and frees them.
 - **Results are handed over once.** A final result returned by `Call` is
@@ -153,11 +160,18 @@ func (r *FlowRuntime) RunDone(runID string) <-chan struct{}
   retrievable with `Wait`. Callers that need a result later (approvals,
   `pw_get_result`) keep the `CallResult` they received.
 - Bounds: at most `DefaultMaxCallWaiters` (64) tracked calls per runtime (the
-  uncollected result closest to expiry is evicted first; `ErrTooManyCalls`,
-  mapped to `busy`, only when all belong to running runs); a reply larger than
+  uncollected result closest to expiry is evicted first; `ErrTooManyCalls`
+  only when all belong to running runs); a reply larger than
   `DefaultMaxCallResultBytes` (256 KiB) is refused (the service truncates to
   `max_result_bytes` itself). `RunDone` also closes on `Stop` and on waiter
   expiry, so a stuck run cannot hold service slots forever.
+- The request timeout counts from the start of `Call` and covers the hand-off
+  to the trigger as well as the wait: a trigger that does not accept the
+  message in time (its output stays full) fails the call with
+  `ErrTriggerBusy`; no run is started and there is no run ID.
+- `ErrTooManyCalls` and `ErrTriggerBusy` both wrap `flow.ErrBusy`; callers map
+  `errors.Is(err, flow.ErrBusy)` to `busy` (retryable), never to an internal
+  error.
 - A trigger-tool with no active router edge (`targetCount == 0`) fails deploy.
 - `flow_runs` gains an `actor` column, filled from the run's meta `actor`.
 
@@ -243,9 +257,10 @@ Shared by REST and MCP (thin adapters):
 - `Tools.Call(ctx, actor Actor, toolRef, args) (flow.CallResult, error)`:
   permission + fingerprint check, schema validation (`toolschema`), slots
   (`maxConcurrent`, global `max_inflight`, per-token 2) held until
-  `RunDone`, cooldown from run end (`busy` / `cooldown` tool errors), confirm
-  policy (`admin` → creates an approval, returns `approval_required`),
-  result size cap (`max_result_bytes`, `truncated`), redaction of known secret
+  `RunDone`, cooldown from run end (`busy` / `cooldown` tool errors; the
+  runtime's `flow.ErrBusy` refusals, `ErrTooManyCalls` and `ErrTriggerBusy`,
+  are `busy` too), confirm policy (`admin` → creates an approval, returns
+  `approval_required`), result size cap (`max_result_bytes`, `truncated`), redaction of known secret
   values (literal, URL-encoded, base64) and URLs (`urlWithoutSecrets`).
 - `Tools.Result(actor, runID)`: only the actor that started the run.
 - Read views (phase 2), drafts/dry-run (phase 3), deploy policy (agent deploy).

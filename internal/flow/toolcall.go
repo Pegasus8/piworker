@@ -50,19 +50,29 @@ const (
 
 // Errors returned by Call before a run is started.
 var (
+	// ErrBusy is wrapped by every refusal that means "busy, retry later"
+	// (ErrTooManyCalls, ErrTriggerBusy): callers map them with one errors.Is.
+	ErrBusy = errors.New("busy")
 	// ErrTriggerNotCallable: the trigger does not implement node.Emitter.
 	ErrTriggerNotCallable = errors.New("trigger cannot be called synchronously")
 	// ErrNoActiveTargets: the trigger has no connection to an enabled node, so
 	// a run started from it could never do anything (or finish).
 	ErrNoActiveTargets = errors.New("trigger has no active downstream connection")
-	// ErrTooManyCalls: the runtime already tracks its maximum of called runs
-	// and none of them is a finished result that could make room.
-	ErrTooManyCalls = errors.New("too many calls in progress")
-	// ErrTriggerBusy: the trigger did not accept the call within its timeout
-	// (its output stayed full). Like ErrTooManyCalls it means "busy, retry
-	// later"; no run was started.
-	ErrTriggerBusy = errors.New("trigger is busy")
+	// ErrTooManyCalls (wraps ErrBusy): the runtime already tracks its maximum
+	// of called runs and none of them is a finished result that could make
+	// room.
+	ErrTooManyCalls error = &busyError{"too many calls in progress"}
+	// ErrTriggerBusy (wraps ErrBusy): the trigger did not accept the call
+	// within its timeout (its output stayed full).
+	ErrTriggerBusy error = &busyError{"trigger is busy"}
 )
+
+// busyError is a "busy, retry later" refusal: its message is its own, and it
+// wraps ErrBusy.
+type busyError struct{ msg string }
+
+func (e *busyError) Error() string { return e.msg }
+func (e *busyError) Unwrap() error { return ErrBusy }
 
 // flowStoppedMessage is the CallError message of calls cancelled by Stop.
 const flowStoppedMessage = "flow stopped"
