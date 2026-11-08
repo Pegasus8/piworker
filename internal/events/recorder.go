@@ -38,6 +38,7 @@ type Recorder struct {
 	batchSize      int
 	flushInterval  time.Duration
 	idleTimeout    time.Duration
+	staleTimeout   time.Duration
 	pruneInterval  time.Duration
 	retention      time.Duration
 	maxRunsPerFlow int
@@ -53,6 +54,10 @@ type runAgg struct {
 	lastSeen  time.Time
 	nodeCount int
 	errCount  int
+	// running is how many node executions of the run have started but not yet
+	// reported a terminal event. A quiet run with running > 0 is waiting on a
+	// slow node (e.g. a long process-delay), not finished.
+	running int
 }
 
 // RecorderOption configures a Recorder.
@@ -81,6 +86,17 @@ func WithIdleTimeout(d time.Duration) RecorderOption {
 		}
 	}
 }
+
+// WithStaleTimeout sets how long a run with node executions still marked
+// running may stay quiet before it is finalized anyway (a safety net for a
+// terminal event lost to queue overflow).
+func WithStaleTimeout(d time.Duration) RecorderOption {
+	return func(r *Recorder) {
+		if d > 0 {
+			r.staleTimeout = d
+		}
+	}
+}
 func WithQueueSize(n int) RecorderOption {
 	return func(r *Recorder) {
 		if n > 0 {
@@ -100,6 +116,7 @@ func NewRecorder(store HistoryStore, opts ...RecorderOption) *Recorder {
 		batchSize:      200,
 		flushInterval:  500 * time.Millisecond,
 		idleTimeout:    30 * time.Second, // safety net; runs normally finalize on the run-finished signal
+		staleTimeout:   time.Hour,        // last resort for runs whose node is still marked running
 		pruneInterval:  time.Hour,
 		retention:      7 * 24 * time.Hour,
 		maxRunsPerFlow: 500,
@@ -199,11 +216,17 @@ func (r *Recorder) persist(e flow.NodeEvent, now time.Time) {
 	}
 	agg.lastSeen = now
 
-	if e.Phase == flow.NodePhaseSuccess || e.Phase == flow.NodePhaseError {
+	switch e.Phase {
+	case flow.NodePhaseRunning:
+		agg.running++
+	case flow.NodePhaseSuccess, flow.NodePhaseError:
 		r.pending = append(r.pending, toRecord(e, now))
 		agg.nodeCount++
 		if e.Phase == flow.NodePhaseError {
 			agg.errCount++
+		}
+		if agg.running > 0 {
+			agg.running--
 		}
 	}
 }
@@ -221,14 +244,20 @@ func (r *Recorder) flush() bool {
 	return true
 }
 
-// finalizeIdle finalizes runs with no activity within idleTimeout of asOf. The
-// runtime has no per-trigger "done" signal, so a run is considered complete once
-// it goes quiet — a pragmatic approximation.
+// finalizeIdle finalizes runs with no activity within idleTimeout of asOf. It
+// is a safety net behind the runtime's run-finished signal (e.g. a signal lost
+// to queue overflow). A run that still has a node executing is not idle, merely
+// slow, so it is only finalized once quiet for staleTimeout.
 func (r *Recorder) finalizeIdle(asOf time.Time) {
 	for corr, agg := range r.runs {
-		if asOf.Sub(agg.lastSeen) >= r.idleTimeout {
-			r.finalize(corr, agg)
+		quiet := asOf.Sub(agg.lastSeen)
+		if quiet < r.idleTimeout {
+			continue
 		}
+		if agg.running > 0 && quiet < r.staleTimeout {
+			continue
+		}
+		r.finalize(corr, agg)
 	}
 }
 

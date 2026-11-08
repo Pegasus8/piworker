@@ -76,6 +76,30 @@ func TestFinishFlowRun(t *testing.T) {
 	assert.WithinDuration(t, finish, *runs[0].FinishedAt, time.Second)
 }
 
+// TestFinishFlowRunMerges: finishing a run twice (e.g. it was finalized and
+// later events for the same run arrived) adds the counts and never downgrades
+// an error run to success.
+func TestFinishFlowRunMerges(t *testing.T) {
+	store := createTestStore(t)
+	defer store.Close()
+
+	start := time.Now()
+	require.NoError(t, store.UpsertFlowRun("run-1", "flow-1", start))
+	require.NoError(t, store.FinishFlowRun("run-1", "error", start.Add(time.Second), 2, 1))
+	require.NoError(t, store.UpsertFlowRun("run-1", "flow-1", start.Add(time.Minute)))
+	later := start.Add(2 * time.Minute)
+	require.NoError(t, store.FinishFlowRun("run-1", "success", later, 3, 0))
+
+	runs, err := store.ListFlowRuns("flow-1", 10, 0)
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	assert.Equal(t, "error", runs[0].Status, "an error run must never be downgraded to success")
+	assert.Equal(t, 5, runs[0].NodeCount)
+	assert.Equal(t, 1, runs[0].ErrorCount)
+	require.NotNil(t, runs[0].FinishedAt)
+	assert.WithinDuration(t, later, *runs[0].FinishedAt, time.Second)
+}
+
 func TestListFlowRunsScopedAndPaginated(t *testing.T) {
 	store := createTestStore(t)
 	defer store.Close()

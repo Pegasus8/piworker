@@ -49,16 +49,26 @@ func (s *SQLiteStore) UpsertFlowRun(runID, flowID string, startedAt time.Time) e
 	return nil
 }
 
-// FinishFlowRun marks a run complete with its final status and aggregate counts.
+// FinishFlowRun marks a run complete, merging into what is already recorded:
+// nodeCount/errorCount are the counts observed since the run was last
+// finished and are ADDED to the stored totals, and the status never moves from
+// error back to success. A run can be finished more than once when events for
+// it arrive after an earlier finalization; merging keeps the totals right.
 func (s *SQLiteStore) FinishFlowRun(runID, status string, finishedAt time.Time, nodeCount, errorCount int) error {
 	if s.isClosed() {
 		return ErrDatabaseClosed
 	}
 	_, err := s.db.Exec(`
 		UPDATE flow_runs
-		SET status = ?, finished_at = ?, node_count = ?, error_count = ?
+		SET status = CASE
+				WHEN status = 'error' OR ? = 'error' OR error_count + ? > 0 THEN 'error'
+				ELSE ?
+			END,
+			finished_at = ?,
+			node_count = node_count + ?,
+			error_count = error_count + ?
 		WHERE id = ?
-	`, status, finishedAt, nodeCount, errorCount, runID)
+	`, status, errorCount, status, finishedAt, nodeCount, errorCount, runID)
 	if err != nil {
 		return fmt.Errorf("failed to finish flow run: %w", err)
 	}
