@@ -5,10 +5,9 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
-	"net"
 	"net/http"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/storage"
@@ -33,21 +32,19 @@ type AuthStatusResponse struct {
 	Enabled       bool `json:"enabled"`
 	SetupRequired bool `json:"setupRequired"`
 }
-type attemptWindow struct {
-	count int
-	until time.Time
-}
 type AuthHandler struct {
-	store    *storage.SQLiteUserStore
-	secure   bool
-	origins  map[string]bool
-	mu       sync.Mutex
-	attempts map[string]attemptWindow
-	global   attemptWindow
+	store   *storage.SQLiteUserStore
+	secure  bool
+	origins map[string]bool
+	// login throttles unauthenticated credential/code attempts; password
+	// throttles current-password checks by signed-in users separately, so they
+	// never consume the login budget.
+	login    *loginLimiter
+	password *loginLimiter
 }
 
 func NewAuthHandler(store *storage.SQLiteUserStore, secure bool, origins []string) *AuthHandler {
-	h := &AuthHandler{store: store, secure: secure, origins: make(map[string]bool), attempts: make(map[string]attemptWindow)}
+	h := &AuthHandler{store: store, secure: secure, origins: make(map[string]bool), login: newLoginLimiter(), password: newLoginLimiter()}
 	for _, origin := range origins {
 		h.origins[origin] = true
 	}
@@ -77,46 +74,9 @@ func (h *AuthHandler) Status(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, 200, AuthStatusResponse{Enabled: true, SetupRequired: !exists}, "")
 }
 
-// Rate limiting uses the socket peer, never an untrusted forwarded IP. A global
-// budget and bounded peer map prevent bypass through unbounded source addresses.
-func (h *AuthHandler) allowAttempt(r *http.Request) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	now := time.Now()
-	if !now.Before(h.global.until) {
-		h.global = attemptWindow{until: now.Add(time.Minute)}
-		for ip, v := range h.attempts {
-			if !now.Before(v.until) {
-				delete(h.attempts, ip)
-			}
-		}
-	}
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		ip = r.RemoteAddr
-	}
-	v, ok := h.attempts[ip]
-	if !ok && len(h.attempts) >= 2048 {
-		return false
-	}
-	if !now.Before(v.until) {
-		v = attemptWindow{until: now.Add(time.Minute)}
-	}
-	if v.count >= 10 || h.global.count >= 100 {
-		return false
-	}
-	v.count++
-	h.global.count++
-	h.attempts[ip] = v
-	return true
-}
-func (h *AuthHandler) readCredentials(w http.ResponseWriter, r *http.Request) (LoginRequest, bool) {
+// readBody decodes a bounded credentials body and trims the username.
+func readBody(w http.ResponseWriter, r *http.Request) (LoginRequest, bool) {
 	var req LoginRequest
-	if !h.allowAttempt(r) {
-		w.Header().Set("Retry-After", "60")
-		writeError(w, 429, "Too many attempts. Try again in a minute.")
-		return req, false
-	}
 	r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
 	if err := json.UnmarshalRead(r.Body, &req); err != nil {
 		writeError(w, 400, "Invalid request body")
@@ -126,10 +86,36 @@ func (h *AuthHandler) readCredentials(w http.ResponseWriter, r *http.Request) (L
 	return req, true
 }
 
+// reserve asks lim for an attempt by (peer IP, user), answering 429 with a
+// Retry-After when refused.
+func reserve(w http.ResponseWriter, lim *loginLimiter, ip, user string) bool {
+	ok, wait := lim.allow(ip, user)
+	if ok {
+		return true
+	}
+	secs := int((wait + time.Second - 1) / time.Second)
+	if secs < 1 {
+		secs = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(secs))
+	writeError(w, 429, "Too many attempts. Please wait before trying again.")
+	return false
+}
+
+// readCredentials decodes the body and reserves a login attempt for it.
+func (h *AuthHandler) readCredentials(w http.ResponseWriter, r *http.Request) (LoginRequest, string, bool) {
+	req, ok := readBody(w, r)
+	if !ok {
+		return req, "", false
+	}
+	ip := peerIP(r)
+	return req, ip, reserve(w, h.login, ip, req.Username)
+}
+
 var dummyBcryptHash, _ = bcrypt.GenerateFromPassword([]byte("piworker-dummy-password"), bcrypt.DefaultCost)
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
-	req, ok := h.readCredentials(w, r)
+	req, ip, ok := h.readCredentials(w, r)
 	if !ok {
 		return
 	}
@@ -143,9 +129,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		hash = []byte(user.PasswordHash)
 	}
 	if err = bcrypt.CompareHashAndPassword(hash, []byte(req.Password)); err != nil || user == nil {
+		h.login.failure(ip, req.Username)
 		writeError(w, 401, "Invalid credentials")
 		return
 	}
+	h.login.success(ip, req.Username)
 	token, err := h.store.CreateSession(user.Username, user.PasswordHash, time.Now())
 	if err != nil {
 		writeError(w, 500, "Cannot create session. Please try again.")
@@ -196,7 +184,7 @@ func NormalizeNewCredentials(username, password string) (string, bool) {
 func (h *AuthHandler) Setup(w http.ResponseWriter, r *http.Request)   { h.redeem(w, r, "setup") }
 func (h *AuthHandler) Recover(w http.ResponseWriter, r *http.Request) { h.redeem(w, r, "recovery") }
 func (h *AuthHandler) redeem(w http.ResponseWriter, r *http.Request, purpose string) {
-	req, ok := h.readCredentials(w, r)
+	req, ip, ok := h.readCredentials(w, r)
 	if !ok {
 		return
 	}
@@ -205,6 +193,7 @@ func (h *AuthHandler) redeem(w http.ResponseWriter, r *http.Request, purpose str
 		return
 	}
 	if len(req.Code) != 43 {
+		h.login.failure(ip, req.Username)
 		writeError(w, 403, "Invalid or expired code")
 		return
 	}
@@ -215,6 +204,7 @@ func (h *AuthHandler) redeem(w http.ResponseWriter, r *http.Request, purpose str
 	}
 	err = h.store.RedeemAuthCode(purpose, req.Code, req.Username, hash, time.Now())
 	if errors.Is(err, storage.ErrAuthCode) {
+		h.login.failure(ip, req.Username)
 		writeError(w, 403, "Invalid or expired code, or setup already completed")
 		return
 	}
@@ -222,6 +212,7 @@ func (h *AuthHandler) redeem(w http.ResponseWriter, r *http.Request, purpose str
 		writeError(w, 500, "Cannot update account")
 		return
 	}
+	h.login.success(ip, req.Username)
 	h.setCookie(w, r, "", -1)
 	status := 200
 	if purpose == "setup" {
@@ -230,7 +221,7 @@ func (h *AuthHandler) redeem(w http.ResponseWriter, r *http.Request, purpose str
 	writeSuccess(w, status, nil, "")
 }
 func (h *AuthHandler) Password(w http.ResponseWriter, r *http.Request) {
-	req, ok := h.readCredentials(w, r)
+	req, ok := readBody(w, r)
 	if !ok {
 		return
 	}
@@ -238,16 +229,28 @@ func (h *AuthHandler) Password(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "Password must be between 8 and 72 bytes.")
 		return
 	}
-	session, _ := GetUserFromContext(r.Context())
+	session, ok := GetUserFromContext(r.Context())
+	if !ok || session == nil {
+		writeError(w, 401, "Sign in to continue")
+		return
+	}
+	// Signed-in users have their own budget, keyed by account, so a password
+	// change never eats into the login budget for this IP.
+	ip := peerIP(r)
+	if !reserve(w, h.password, ip, session.Username) {
+		return
+	}
 	user, err := h.store.GetUser(session.Username)
 	if err != nil {
 		writeError(w, 500, "Cannot read account")
 		return
 	}
 	if user == nil || bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)) != nil {
+		h.password.failure(ip, session.Username)
 		writeError(w, 403, "Current password is incorrect")
 		return
 	}
+	h.password.success(ip, session.Username)
 	hash, err := HashPassword(req.Password)
 	if err != nil {
 		writeError(w, 500, "Cannot set password")
