@@ -12,7 +12,9 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -185,4 +187,30 @@ func TestBridgeNeverQuotesWhatAnUnverifiedServerAnswersForTheCA(t *testing.T) {
 		assert.Contains(t, msg, "/piworker-ca.crt")
 		assertNotQuoted(t, msg, log)
 	})
+}
+
+func TestBridgeExplainsAnExpiredCertificate(t *testing.T) {
+	ca := newTestCA(t, "PiWorker Local CA test")
+	cert := ca.issueWith(t, &x509.Certificate{IPAddresses: []net.IP{net.IPv4(127, 0, 0, 1)}})
+	// issueWith sets a valid period; re-issue one that ended yesterday.
+	leaf, err := x509.ParseCertificate(cert.Certificate[0])
+	require.NoError(t, err)
+	leaf.NotBefore, leaf.NotAfter = time.Now().Add(-48*time.Hour), time.Now().Add(-24*time.Hour)
+	der, err := x509.CreateCertificate(rand.Reader, leaf, ca.cert, cert.PrivateKey.(*ecdsa.PrivateKey).Public(), ca.key)
+	require.NoError(t, err)
+	cert.Certificate = [][]byte{der}
+
+	base, rec := serveTLS(t, cert, http.NotFoundHandler())
+	msg, _ := connectFails(t, base+"/mcp", trustOptions{CAFile: ca.file(t)})
+	assert.Contains(t, msg, "has expired or is not valid yet")
+	assert.Contains(t, msg, "date and time")
+	assert.Empty(t, rec.requests())
+}
+
+func TestBridgeExplainsAServerWithoutTLS(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(srv.Close)
+	msg, _ := connectFails(t, strings.Replace(srv.URL, "http://", "https://", 1)+"/mcp", trustOptions{})
+	assert.Contains(t, msg, "does not answer with TLS")
+	assert.Contains(t, msg, "8443")
 }
