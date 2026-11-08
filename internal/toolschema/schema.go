@@ -9,7 +9,8 @@
 //     `properties` and `required`; objects nest at most MaxDepth levels;
 //   - a property has exactly one type: string, integer, number, boolean, an
 //     array of one of those with a mandatory `maxItems`, or an object;
-//   - strings: `enum`, `pattern` (anchored `^…$`), `minLength`, `maxLength`
+//   - strings: `enum`, `pattern` (anchored `^…$`, in the regular expression
+//     syntax Go and JavaScript share), `minLength`, `maxLength`
 //     (DefaultMaxLength when absent), `format` (an annotation only);
 //   - integers and numbers: `minimum`, `maximum`, `enum`;
 //   - `title`, `description`, `default` (must validate) and `examples`;
@@ -511,7 +512,8 @@ func (c *compiler) number(v any, ptr, kw string) *float64 {
 // pattern checks that a pattern compiles and is anchored: it starts with ^,
 // ends with $, has no top-level alternation, and its parse tree begins at
 // the start of the text and ends at its end (so flags such as (?m) or an
-// escaped \$ cannot unanchor it).
+// escaped \$ cannot unanchor it). It must also use only the syntax Go and
+// JavaScript share (portabilityProblem): clients read it as ECMA-262.
 func (c *compiler) pattern(v any, ptr string) (string, *regexp.Regexp) {
 	p, ok := v.(string)
 	if !ok {
@@ -528,6 +530,10 @@ func (c *compiler) pattern(v any, ptr string) (string, *regexp.Regexp) {
 		return "", nil
 	}
 	if msg := anchoringProblem(p); msg != "" {
+		c.add(ptr, "%s", msg)
+		return "", nil
+	}
+	if msg := portabilityProblem(p); msg != "" {
 		c.add(ptr, "%s", msg)
 		return "", nil
 	}

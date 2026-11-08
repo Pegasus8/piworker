@@ -387,3 +387,102 @@ func TestJSONReturnsACopy(t *testing.T) {
 	first[0] = 'X'
 	assert.Equal(t, byte('{'), s.JSON()[0])
 }
+
+// Patterns are advertised to MCP clients, which read them as ECMA-262
+// (JavaScript) regular expressions: only the syntax Go's RE2 and JavaScript
+// (with the u flag) share is accepted.
+func TestCompilePatternsArePortable(t *testing.T) {
+	compilePattern := func(t *testing.T, pattern string) error {
+		t.Helper()
+		raw, err := json.Marshal(map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"s": map[string]any{"type": "string", "pattern": pattern}},
+		})
+		require.NoError(t, err)
+		_, err = Compile(raw)
+		return err
+	}
+	for _, pattern := range []string{
+		`^[a-z][a-z0-9_]*$`,
+		`^[a-z\-]+$`,
+		`^[-a-z]+$`,
+		`^\p{L}+$`,
+		`^\P{Lu}$`,
+		`^[\p{L}\d_]+$`,
+		`^a{2,3}$`,
+		`^a{2}$`,
+		`^a{2,}$`,
+		`^a{2,3}?$`,
+		`^(?:a|b)$`,
+		`^\$\.\*\+\?\(\)\[\]\{\}\|\/\\\^$`,
+		`^\x41\t\n\r\f\v$`,
+		`^[^\]]+$`,
+		`^[\[]$`,
+		`^[\^a]$`,
+		`^\d\D\w\W\s\S$`,
+		`^\bfoo\b\B$`,
+		`^a*?b+?c??$`,
+		`^é+$`,
+		`^[\x41-\x5A]$`,
+		`^[{}()|$^.*+?/]$`,
+		`^[\d-]$`,
+		`^[a&&b]$`,
+		`^[\w-]$`,
+		`^[\w\-.]$`,
+		`^[a-z-\d]$`,
+	} {
+		t.Run("accepts "+pattern, func(t *testing.T) {
+			assert.NoError(t, compilePattern(t, pattern))
+		})
+	}
+	for pattern, want := range map[string]string{
+		`^(?i)[a-z]+$`:   "flags",
+		`^(?i:a)$`:       "flags",
+		`^(?s)a.*$`:      "flags",
+		`^(?U)a*$`:       "flags",
+		`^(?P<n>a)$`:     "named groups",
+		`^(?<n>a)$`:      "named groups",
+		`^a\z$`:          `\z`,
+		`^\Aa$`:          `\A`,
+		`^\Qa.b\E$`:      `\Q`,
+		`^\pL+$`:         `\p{`,
+		`^[\pL]$`:        `\p{`,
+		`^\p{Greek}$`:    "Greek",
+		`^[\p{Greek}]$`:  "Greek",
+		`^\p{^L}$`:       "^L",
+		`^\p{Any}$`:      "Any",
+		`^[[:alpha:]]+$`: `\[`,
+		`^[[]$`:          `\[`,
+		`^a\-b$`:         `\-`,
+		`^\x{41}$`:       `\x`,
+		`^\a$`:           `\a`,
+		`^\_$`:           `\_`,
+		`^\#$`:           `\#`,
+		`^\101$`:         `\1`,
+		`^\0$`:           `\0`,
+		`^[\a]$`:         `\a`,
+		`^a{,3}$`:        `\{`,
+		`^a{$`:           `\{`,
+		`^a}$`:           `\}`,
+		`^a]$`:           `\]`,
+		`^[]a]$`:         `\]`,
+		`^[^]a]$`:        `\]`,
+		`^a\b+$`:         "quantifier",
+		`^^*a$`:          "quantifier",
+		`^a$?$`:          "quantifier",
+		`^a\B{2}$`:       "quantifier",
+		`^[\w-.]$`:       `\-`,
+		`^[^a\d-z]$`:     `\-`,
+		`^[\p{L}-/]$`:    `\-`,
+	} {
+		t.Run("rejects "+pattern, func(t *testing.T) {
+			err := compilePattern(t, pattern)
+			var ce *Error
+			require.ErrorAs(t, err, &ce)
+			require.Len(t, ce.Issues, 1, "%v", ce.Issues)
+			assert.Equal(t, "/properties/s/pattern", ce.Issues[0].Pointer)
+			assert.Contains(t, ce.Issues[0].Message, "JavaScript")
+			assert.Contains(t, ce.Issues[0].Message, want)
+		})
+	}
+}

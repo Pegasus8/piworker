@@ -497,6 +497,10 @@ A closed subset of JSON Schema, checked when the flow is deployed:
 - ` + "`title`, `description`, `default`" + ` (must be valid) and ` + "`examples`" + `
 - patterns must be anchored: start with ` + "`^`" + `, end with ` + "`$`" + `, and keep
   alternatives in a group (` + "`^(on|off)$`" + `, not ` + "`^on|off$`" + `)
+- patterns use the syntax Go and JavaScript share (agents' clients read them
+  as JavaScript): no flags such as ` + "`(?i)`" + ` (write ` + "`[A-Za-z]`" + `), no ` + "`\\A`, `\\z`" + `,
+  ` + "`\\Q…\\E`, `[[:alpha:]]`" + ` or named groups; write ` + "`\\p{L}`" + `, not ` + "`\\pL`" + `; escape a
+  literal ` + "`{`, `}`, `]`" + ` and only escape punctuation with a special meaning
 
 Not accepted: ` + "`$ref`, `$defs`, `anyOf`, `oneOf`, `allOf`, `not`, `if`/`then`/`else`,\n`patternProperties`, `const`" + `, type lists, untyped or boolean schemas and
 any other keyword.
