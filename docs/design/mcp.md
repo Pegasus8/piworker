@@ -294,7 +294,42 @@ Shared by REST and MCP (thin adapters):
   `approval_required`), result size cap (`max_result_bytes`, `truncated`), redaction of known secret
   values (literal, URL-encoded, base64) and URLs (`urlWithoutSecrets`).
 - `Tools.Result(actor, runID)`: only the actor that started the run.
-- Read views (phase 2), drafts/dry-run (phase 3), deploy policy (agent deploy).
+- Read views (phase 2), `service.Reads`, for the editor and tokens with the
+  `read` scope (others: `forbidden`); JSON with camelCase fields, bounded,
+  in a deterministic order:
+  - `ListFlows`: the newest 200 flows (`total`, `truncated`) with id, name,
+    state (`running`, `stopped`, or `failed`: meant to run but not running),
+    node count, tool names (at most 20, `toolCount`) and the latest run.
+  - `GetFlow`: nodes (id, type, type name, enabled, position, type risk,
+    config), connections and the running tools (risk, annotations,
+    fingerprint, confirm, timeout); at most 200 nodes, 400 connections,
+    100 tools and 128 KiB of config (`truncated`). Config redaction is
+    default-deny: a property is shown only when its schema marks it
+    `AgentVisible` and not `Sensitive`; every other present value,
+    undeclared properties, every property of an unknown type, and whole
+    nested values under a hidden property become `"<redacted>"` (the
+    sentinel drafts read as "keep the base value", §10). A shown value is
+    cut to 8 KiB.
+  - `ListRuns(flowId, limit ≤ 100, before)` newest first (`nextBefore` is the
+    next page's cursor) and `GetRun(flowId, runId)`: status, actor
+    (`trigger`, `editor`, or `agent` with the token's name), timings,
+    counts, and the node events in order (node, type, phase, duration,
+    error ≤ 2 KiB, the run ≤ 64 KiB). The recorder stores no payloads, so
+    there are no payload previews; events never carry node config. A run is
+    read only through its own flow (`run_not_found`).
+  - `SystemStatus`: version, platform, uptime, running/total flows, tools,
+    `max_inflight`, `max_result_bytes`, the agent deploy level and, best
+    effort on Linux, free disk of the data directory, memory and CPU
+    temperature (omitted when unknown); no host names, addresses or paths.
+  - `DiagnoseFlowPrompt` / `DiagnoseFlow`: the `diagnose_flow` prompt text,
+    which points to the read tools and inlines only the flow's quoted ID and
+    name.
+  Known secret values (literal, URL-encoded, base64, JSON- or Go-escaped)
+  are redacted from every view, as are credentials typed literally into a
+  flow's `Sensitive` properties (in `GetFlow` and `GetRun`) and URL
+  credentials and queries in recorded errors. An unknown flow is
+  `flow_not_found`.
+- Drafts/dry-run (phase 3), deploy policy (agent deploy).
 - REST twin: `POST /api/flows/{id}/call/{nodeId}` (editor "Test tool").
 
 ## 7. Tokens
