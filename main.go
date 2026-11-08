@@ -259,7 +259,8 @@ func main() {
 // newHTTPServer builds the HTTP server. Every request context derives from a
 // base context that is cancelled as soon as Shutdown begins, so long-lived
 // requests that honour r.Context() (the SSE event stream) end promptly instead
-// of holding Shutdown until its timeout.
+// of holding Shutdown until its timeout. Server errors go to zerolog, with TLS
+// handshake errors at debug level and rate limited (serverErrorWriter).
 func newHTTPServer(addr string, handler http.Handler) *http.Server {
 	baseCtx, cancelBase := context.WithCancel(context.Background())
 	srv := &http.Server{
@@ -269,6 +270,7 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 		BaseContext:  func(net.Listener) context.Context { return baseCtx },
+		ErrorLog:     newServerErrorWriter(log.Logger, time.Now).logger(),
 	}
 	srv.RegisterOnShutdown(cancelBase)
 	return srv

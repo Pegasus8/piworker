@@ -5,12 +5,14 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	stdlog "log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -260,6 +262,64 @@ func refreshTLS(m *tlsca.Manager, warner *caWarner) {
 		log.Info().Strs("names", st.SANs).Time("certificateExpires", st.NotAfter).Msg("TLS certificate re-issued")
 	}
 	warner.check(st)
+}
+
+// Rate limit for TLS handshake errors in the server error log.
+const (
+	handshakeLogBurst  = 10
+	handshakeLogWindow = time.Minute
+)
+
+// serverErrorWriter receives net/http's server error log (http.Server.ErrorLog)
+// and forwards it to zerolog. "TLS handshake error" lines are routine on a LAN
+// device (browsers that do not trust the CA yet, scanners, probes), so they
+// are logged at debug level and at most handshakeLogBurst per
+// handshakeLogWindow, with the number dropped reported in the next window.
+// Every other line is a warning.
+type serverErrorWriter struct {
+	log zerolog.Logger
+	now func() time.Time
+
+	mu          sync.Mutex
+	windowStart time.Time
+	inWindow    int
+	suppressed  int
+}
+
+func newServerErrorWriter(logger zerolog.Logger, now func() time.Time) *serverErrorWriter {
+	return &serverErrorWriter{log: logger, now: now}
+}
+
+// logger returns a standard logger for http.Server.ErrorLog.
+func (w *serverErrorWriter) logger() *stdlog.Logger { return stdlog.New(w, "", 0) }
+
+func (w *serverErrorWriter) Write(p []byte) (int, error) {
+	line := strings.TrimRight(string(p), "\r\n")
+	if !strings.Contains(line, "TLS handshake error") {
+		w.log.Warn().Str("component", "http").Msg(line)
+		return len(p), nil
+	}
+	w.mu.Lock()
+	now := w.now()
+	reported := 0
+	if now.Sub(w.windowStart) >= handshakeLogWindow {
+		reported = w.suppressed
+		w.windowStart, w.inWindow, w.suppressed = now, 0, 0
+	}
+	allowed := w.inWindow < handshakeLogBurst
+	if allowed {
+		w.inWindow++
+	} else {
+		w.suppressed++
+	}
+	w.mu.Unlock()
+	if reported > 0 {
+		w.log.Debug().Str("component", "http").Int("suppressed", reported).Msg("More TLS handshake errors were not logged")
+	}
+	if allowed {
+		w.log.Debug().Str("component", "http").Msg(line)
+	}
+	return len(p), nil
 }
 
 // caWarner logs the local CA's expiry warning (tlsca.Status.Warning) when it
