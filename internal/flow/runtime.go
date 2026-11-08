@@ -245,6 +245,12 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 		opt(rt)
 	}
 
+	// Mistyped config values fail the deploy with their path, before any node
+	// is instantiated with a silently defaulted value.
+	if err := f.CheckConfig(registry); err != nil {
+		return nil, err
+	}
+
 	// Instantiate all nodes from the registry
 	for i := range f.Nodes {
 		n := &f.Nodes[i]
