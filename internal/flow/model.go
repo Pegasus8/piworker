@@ -66,7 +66,20 @@ type Node struct {
 	Config   map[string]interface{} `json:"config"`   // Node-specific configuration
 	Inputs   []Port                 `json:"inputs"`   // Input ports
 	Outputs  []Port                 `json:"outputs"`  // Output ports
-	Enabled  bool                   `json:"enabled"`  // Whether this node is active
+	Enabled  bool                   `json:"enabled"`  // Whether this node is active; true when absent in JSON
+}
+
+// UnmarshalJSON decodes a node, treating an absent (or null) "enabled" field
+// as true. Definitions written by hand, by older editors or by agents often
+// omit it, and decoding that as false would silently drop the node.
+func (n *Node) UnmarshalJSON(data []byte) error {
+	type plainNode Node // same fields, no methods: avoids recursing into UnmarshalJSON
+	decoded := plainNode{Enabled: true}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*n = Node(decoded)
+	return nil
 }
 
 // Connection represents a link between two nodes.
