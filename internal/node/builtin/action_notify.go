@@ -86,7 +86,7 @@ func (a *NotifyAction) Process(ctx context.Context, msg *types.Message) ([]*type
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, a.url, body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", redactURLError(err, a.url, displayURL(a.url)))
 	}
 	req.Header.Set("Content-Type", contentType)
 	for k, v := range extraHeaders {
@@ -97,10 +97,21 @@ func (a *NotifyAction) Process(ctx context.Context, msg *types.Message) ([]*type
 	if err != nil {
 		// Connection-level failures are transient and safe to retry (the POST is
 		// idempotent enough for a best-effort notification).
-		return nil, node.Transient(fmt.Errorf("notification request failed: %w", err))
+		// The webhook URL usually embeds its token, so it is redacted.
+		return nil, node.Transient(fmt.Errorf("notification request failed: %w", redactURLError(err, a.url, displayURL(a.url))))
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
+
+	// A rejected notification (bad webhook, revoked token, rate limit) must
+	// fail the node rather than report success. 5xx and 429 are transient.
+	if resp.StatusCode >= 400 {
+		statusErr := fmt.Errorf("notification webhook %s returned HTTP %d", displayURL(a.url), resp.StatusCode)
+		if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+			return nil, node.Transient(statusErr)
+		}
+		return nil, statusErr
+	}
 
 	out := msg.Clone()
 	out.SourcePort = "output"
@@ -195,6 +206,12 @@ that matches your destination.
 | slack | ` + "`{\"text\": ...}`" + ` |
 | ntfy | raw text, optional Title header |
 | raw | raw text |
+
+## Errors
+
+An HTTP 4xx response fails the node (permanent); 5xx, 429 and network errors
+are transient and retried. The webhook URL's path and query (where services
+put their token) are redacted from error messages.
 `,
 		Category: types.NodeCategoryOutput,
 		Inputs:   []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny, Required: true}},

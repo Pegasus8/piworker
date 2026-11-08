@@ -65,19 +65,21 @@ func (a *TelegramAction) Process(ctx context.Context, msg *types.Message) ([]*ty
 	bodyBytes, _ := json.Marshal(payload)
 
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", a.botToken)
+	// The bot token is part of the URL; keep it out of every error message.
+	const shownURL = "https://api.telegram.org/bot<redacted>/sendMessage"
 
 	reqCtx, cancel := context.WithTimeout(ctx, a.timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", redactURLError(err, url, shownURL, a.botToken))
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return nil, node.Transient(fmt.Errorf("telegram request failed: %w", err))
+		return nil, node.Transient(fmt.Errorf("telegram request failed: %w", redactURLError(err, url, shownURL, a.botToken)))
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
