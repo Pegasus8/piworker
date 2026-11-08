@@ -5,12 +5,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
+	"runtime/debug"
 
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/service"
 	"github.com/Pegasus8/piworker/internal/storage"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -135,7 +138,8 @@ func (h *Handler) buildServer(actor service.Actor, tools []flow.ToolInfo) *mcp.S
 			})
 		}
 	}
-	srv.AddReceivingMiddleware(h.routeUnheldTools(actor, held))
+	// Outermost: recover from a panic of any handler below.
+	srv.AddReceivingMiddleware(h.recoverPanics(actor), h.routeUnheldTools(actor, held))
 	return srv
 }
 
@@ -219,13 +223,7 @@ func (h *Handler) addStaticTool(srv *mcp.Server, actor service.Actor, st *static
 	})
 }
 
-func (h *Handler) callStaticTool(ctx context.Context, actor service.Actor, st *staticTool, raw json.RawMessage) (res *mcp.CallToolResult) {
-	defer func() {
-		if r := recover(); r != nil {
-			h.log.Error().Str("tool", st.Name).Str("panic", fmt.Sprint(r)).Msg("Built-in MCP tool panicked")
-			res = errorResult(fmt.Errorf("panic: %v", r))
-		}
-	}()
+func (h *Handler) callStaticTool(ctx context.Context, actor service.Actor, st *staticTool, raw json.RawMessage) *mcp.CallToolResult {
 	args, err := decodeArgs(raw)
 	if err != nil {
 		return errorResult(err)
@@ -233,7 +231,7 @@ func (h *Handler) callStaticTool(ctx context.Context, actor service.Actor, st *s
 	if issues := st.schema.Validate(args); len(issues) > 0 {
 		return errorResult(invalidArguments(issues))
 	}
-	res, err = st.Handler(ctx, actor, args)
+	res, err := st.Handler(ctx, actor, args)
 	if err != nil {
 		h.logFailure(err, st.Name, actor)
 		return errorResult(err)
@@ -280,6 +278,47 @@ func (h *Handler) routeUnheldTools(actor service.Actor, held map[string]bool) mc
 		}
 	}
 }
+
+// recoverPanics answers a request whose handler panicked instead of letting
+// the panic end the process: the SDK runs every handler on a goroutine of
+// its own, out of reach of the router's recovery. The panic is logged with
+// the method, the tool or prompt and the token; a tool call gets a "failed"
+// result (no details), any other method a JSON-RPC internal error.
+func (h *Handler) recoverPanics(actor service.Actor) mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (res mcp.Result, err error) {
+			defer func() {
+				p := recover()
+				if p == nil {
+					return
+				}
+				ev := h.log.Error().Str("method", method).Str("tokenId", actor.TokenID).
+					Str("panic", fmt.Sprint(p)).Bytes("stack", debug.Stack())
+				switch r := req.(type) {
+				case *mcp.CallToolRequest:
+					if r.Params != nil {
+						ev = ev.Str("tool", shorten(r.Params.Name, maxToolNameLength))
+					}
+				case *mcp.GetPromptRequest:
+					if r.Params != nil {
+						ev = ev.Str("prompt", shorten(r.Params.Name, maxToolNameLength))
+					}
+				}
+				ev.Msg("MCP handler panicked")
+				if method == "tools/call" {
+					res, err = errorResult(errHandlerPanicked), nil
+					return
+				}
+				res, err = nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "internal error; see the PiWorker log"}
+			}()
+			return next(ctx, method, req)
+		}
+	}
+}
+
+// errHandlerPanicked is the (internal) failure of a call whose handler
+// panicked.
+var errHandlerPanicked = errors.New("the handler panicked")
 
 // logFailure logs internal failures of a call (the agent only sees that it
 // failed). Refusals are audited by the service and not logged here.

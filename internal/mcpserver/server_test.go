@@ -484,3 +484,56 @@ func TestImpossibleToolNamesAreUnknown(t *testing.T) {
 	assert.Equal(t, strings.ReplaceAll(fmt.Sprint(unknown), longest, "X"), strings.ReplaceAll(fmt.Sprint(impossible), longest+"…", "X"),
 		"an impossible name looks like any unknown one")
 }
+
+// The SDK runs every handler on a goroutine of its own, out of reach of
+// the router's recovery: a panic in a tool call (flow tool, unheld name or
+// built-in tool) or a prompt is recovered and logged, the agent gets an
+// error without details, and the process keeps serving.
+func TestPanicsAreRecovered(t *testing.T) {
+	boom := func() { var m map[string]int; m["x"] = 1 }
+	prompt := StaticPrompt{
+		Prompt: &mcp.Prompt{Name: "boom", Description: "Panics"},
+		Scope:  storage.ScopeRead,
+		Handler: func(context.Context, service.Actor, map[string]string) (*mcp.GetPromptResult, error) {
+			boom()
+			return nil, nil
+		},
+	}
+	static := echoTool()
+	static.Name, static.Scope = "pw_boom", storage.ScopeCall
+	static.Handler = func(context.Context, service.Actor, map[string]any) (*mcp.CallToolResult, error) {
+		boom()
+		return nil, nil
+	}
+	e := newTestEnv(t, func(o *Options) {
+		o.Prompts = []StaticPrompt{prompt}
+		o.StaticTools = []StaticTool{static}
+	})
+	e.tools.setTools(2, testTool(t, "garage"))
+	e.tools.call = func(context.Context, service.Actor, service.ToolRef, map[string]any) (flow.CallResult, error) {
+		panic("service exploded at /var/lib/piworker")
+	}
+
+	for _, tc := range []struct{ name, args string }{{"garage", `{"door":"left"}`}, {"no_such", `{}`}, {"pw_boom", `{"word":"hi"}`}} {
+		res, structured := called(t, e, callToken, tc.name, tc.args)
+		assert.Equal(t, true, res["isError"], tc.name)
+		assert.Equal(t, "failed", errorCode(structured), tc.name)
+		assert.NotContains(t, fmt.Sprint(res), "/var/lib", tc.name)
+	}
+
+	get := `{"jsonrpc":"2.0","id":6,"method":"prompts/get","params":{"name":"boom"}}`
+	_, rpcErr := rpcResult(t, e.serve(withToken(rpc(get), readToken)))
+	require.NotNil(t, rpcErr)
+	assert.EqualValues(t, -32603, rpcErr["code"])
+	assert.NotContains(t, fmt.Sprint(rpcErr), "nil map")
+
+	logs := e.logs.String()
+	assert.Contains(t, logs, "service exploded")
+	assert.Contains(t, logs, "nil map")
+	assert.Contains(t, logs, `"tool":"garage"`)
+	assert.Contains(t, logs, `"prompt":"boom"`)
+	assert.Contains(t, logs, `"tokenId":"callcallcallcall"`)
+
+	_, rpcErr = rpcResult(t, e.serve(withToken(rpc(listToolsBody), callToken)))
+	assert.Nil(t, rpcErr, "still serving")
+}
