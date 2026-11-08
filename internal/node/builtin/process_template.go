@@ -128,6 +128,14 @@ func renderTemplate(tmpl string, msg *types.Message, contexts ...context.Context
 // returns the escape function for the value substituted there (nil = raw).
 // Unresolved placeholders are left untouched and never escaped.
 func renderTemplateEscaped(tmpl string, msg *types.Message, ctx context.Context, escaperAt func(prefix string) func(string) string) string {
+	return renderTemplateWith(tmpl, msg, ctx, escaperAt, nil)
+}
+
+// renderTemplateWith is renderTemplateEscaped with an extra resolver that is
+// consulted first for each placeholder written in tmpl. Substituted values are
+// never scanned again, so text coming from the message can never reach extra:
+// that is what makes it safe to resolve {{secret.NAME}} through it.
+func renderTemplateWith(tmpl string, msg *types.Message, ctx context.Context, escaperAt func(prefix string) func(string) string, extra func(parts []string) (string, bool)) string {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -142,7 +150,13 @@ func renderTemplateEscaped(tmpl string, msg *types.Message, ctx context.Context,
 		b.WriteString(tmpl[last:loc[0]])
 		literal.WriteString(tmpl[last:loc[0]])
 		match := tmpl[loc[0]:loc[1]]
-		value, ok := resolvePlaceholder(match, msg, ctx)
+		value, ok := "", false
+		if extra != nil {
+			value, ok = extra(placeholderParts(match))
+		}
+		if !ok {
+			value, ok = resolvePlaceholder(match, msg, ctx)
+		}
 		if !ok {
 			b.WriteString(match)
 		} else {
