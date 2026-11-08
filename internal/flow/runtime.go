@@ -84,6 +84,10 @@ type NodeEvent struct {
 	NodeID   string
 	NodeType string
 	CorrID   string
+	// Actor is the run's "actor" meta (who started it, e.g. "token:bot"),
+	// copied by the executor before the node runs so observers never read
+	// Input's meta while the node may still change it. "" when unknown.
+	Actor    string
 	Phase    string // NodePhaseRunning | NodePhaseSuccess | NodePhaseError
 	Input    *types.Message
 	Outputs  []*types.Message
@@ -618,6 +622,17 @@ func (r *FlowRuntime) dispatch() {
 	}
 }
 
+// actorOf returns msg's "actor" meta (set by Call on a run's first message
+// and inherited by its clones), or "" when it is missing or not a string.
+func actorOf(msg *types.Message) string {
+	if msg == nil {
+		return ""
+	}
+	v, _ := msg.GetMeta("actor")
+	actor, _ := v.(string)
+	return actor
+}
+
 // releaseDropped accounts for a routed message that will never execute: it
 // counts the drop and releases the message's slot in its run, so the run still
 // finishes. Every drop path (queue overflow, unknown target, router send
@@ -730,6 +745,7 @@ func (r *FlowRuntime) executeNodeInSlot(routedMsg RoutedMessage, slot *semSlot) 
 		NodeID:   routedMsg.TargetNode,
 		NodeType: flowNode.Type,
 		CorrID:   correlationID,
+		Actor:    actorOf(routedMsg.Message),
 		Input:    routedMsg.Message,
 	}
 

@@ -211,7 +211,9 @@ func (r *Recorder) persist(e flow.NodeEvent, now time.Time) {
 	}
 
 	agg, ok := r.runs[e.CorrID]
-	actor := runActor(e)
+	// The executor copied the run's actor onto the event; e.Input's meta is
+	// never read here, the node may still be using the message.
+	actor := e.Actor
 	// Upsert on the first event of a run, and again only to fill in an actor
 	// the first event did not carry.
 	if !ok || (agg.actor == "" && actor != "") {
@@ -239,17 +241,6 @@ func (r *Recorder) persist(e flow.NodeEvent, now time.Time) {
 			agg.running--
 		}
 	}
-}
-
-// runActor returns the "actor" meta of the event's input message (set by
-// FlowRuntime.Call on the run's first message and inherited by its clones).
-func runActor(e flow.NodeEvent) string {
-	if e.Input == nil {
-		return ""
-	}
-	v, _ := e.Input.GetMeta("actor")
-	actor, _ := v.(string)
-	return actor
 }
 
 // flush writes the pending batch in one transaction.

@@ -14,10 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func withActor(e flow.NodeEvent, actor any) flow.NodeEvent {
-	in := e.Input.Clone()
-	in.SetMeta("actor", actor)
-	e.Input = in
+// withActor sets the actor the executor copies from the input message's
+// "actor" meta onto the event.
+func withActor(e flow.NodeEvent, actor string) flow.NodeEvent {
+	e.Actor = actor
 	return e
 }
 
@@ -32,12 +32,34 @@ func TestRecorderRecordsRunActor(t *testing.T) {
 	assert.Equal(t, "", store.getRun("plain").Actor)
 }
 
-func TestRecorderIgnoresNonStringActor(t *testing.T) {
+// TestRecorderDoesNotReadInputMeta: persist runs on the recorder goroutine
+// while the node that received Input may still be using (and changing) it, so
+// the actor must come from the event itself, never from Input.Meta. Run with
+// -race.
+func TestRecorderDoesNotReadInputMeta(t *testing.T) {
 	store := newFakeStore()
 	rec := NewRecorder(store, WithHub(NewHub()))
 
-	rec.persist(withActor(runningEvent("r1", "f1", "n1", "x"), 42), time.Now())
-	assert.Equal(t, "", store.getRun("r1").Actor)
+	e := runningEvent("r1", "f1", "n1", "x")
+	e.Input.SetMeta("actor", "token:bot")
+	e.Actor = "token:bot"
+	msg := e.Input // still owned by the node
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range 1000 {
+			msg.SetMeta("progress", i)
+		}
+	}()
+	rec.persist(e, time.Now())
+	<-done
+	assert.Equal(t, "token:bot", store.getRun("r1").Actor)
+
+	// The actor is the event's: meta alone is not read.
+	other := runningEvent("r2", "f1", "n1", "x")
+	other.Input.SetMeta("actor", "token:meta-only")
+	rec.persist(other, time.Now())
+	assert.Equal(t, "", store.getRun("r2").Actor)
 }
 
 // TestRecorderFillsActorFromLaterEvent: when the first event seen for a run
