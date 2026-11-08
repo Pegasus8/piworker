@@ -280,6 +280,18 @@ test('approvals render agent text as plain text and report the execution', async
   await expect(call.getByRole('button', { name: 'Approve…' })).toHaveCount(0)
 })
 
+test('an approval for a tool that is not published says its risk is unknown', async ({ page }) => {
+  await mockServer(page, { extraApprovals: [{ ...approvals[0], id: 'ap4', ref: 'gone', flowId: 'f2', args: {} }] })
+  await page.goto('/agents/approvals')
+  const call = page.getByRole('article', { name: 'Request gone' })
+  await expect(call.getByText('risk unknown', { exact: true })).toBeVisible()
+  await expect(call.getByText('Risk unknown: the tool is not published now')).toBeVisible()
+  await expect(page.getByRole('article', { name: 'Request garage_open' }).getByText('external', { exact: true })).toBeVisible()
+  await expect(page.getByRole('article', { name: 'Request garage_open' }).getByText(/risk unknown/i)).toHaveCount(0)
+  // Draft deploys get their risk on the draft review.
+  await expect(page.getByRole('article', { name: 'Request draft-1' }).getByText(/risk/i)).toHaveCount(0)
+})
+
 test('hidden and direction-changing characters from agents are shown as escapes', async ({ page }) => {
   // Trojan Source: "/home/pi/<RLO>gnp.sh" displays as "/home/pi/hs.png".
   const RLO = '\u202E'

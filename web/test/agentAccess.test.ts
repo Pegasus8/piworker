@@ -9,6 +9,7 @@ import {
   visibleText,
   revealHidden,
   countHidden,
+  approvalRisk,
   formatRelative,
   auditParams,
   toolKey,
@@ -195,6 +196,20 @@ test('JSON text from agents never carries hidden characters', () => {
   expect(formatJSONText(`summary ${RLO}`)).toBe('summary \\u202E')
   // The raw text keeps them, for counting and highlighting.
   expect(countHidden(jsonText(args))).toBe(3)
+})
+
+test('approvals show the tool risk, or say why it is unknown', () => {
+  expect(approvalRisk('tool_call', tool({ risk: 'privileged' }), false)).toMatchObject({ risk: 'privileged', label: 'privileged' })
+  expect(approvalRisk('tool_call', tool({ risk: 'privileged' }), false)!.reason).toContain('as published now')
+  // A tool that is not published now has no known risk: never show none.
+  const missing = approvalRisk('tool_call', undefined, false)!
+  expect(missing).toMatchObject({ risk: 'unknown', label: 'risk unknown' })
+  expect(missing.reason).toContain('not published')
+  const unavailable = approvalRisk('tool_call', undefined, true)!
+  expect(unavailable).toMatchObject({ risk: 'unknown', label: 'risk unknown' })
+  expect(unavailable.reason).toContain('could not be loaded')
+  // Draft deploys are reviewed with their own risk on the draft page.
+  expect(approvalRisk('draft_deploy', undefined, false)).toBeNull()
 })
 
 test('relative times read naturally in both directions', () => {

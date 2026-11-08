@@ -12,7 +12,7 @@ import AgentText from '@/components/agent/AgentText.vue'
 import type { Feedback } from '@/composables/useFeedback'
 import { useAgentStore, apiErrorMessage, type ApprovalFilter } from '@/stores/agent'
 import { useAuthStore } from '@/stores/auth'
-import { countHidden, formatDateTime, formatRelative, jsonText, visibleText, type AgentApproval, type ApprovalDecision } from '@/lib/agentAccess'
+import { approvalRisk, countHidden, formatDateTime, formatRelative, jsonText, visibleText, type AgentApproval, type ApprovalDecision } from '@/lib/agentAccess'
 
 const agent = useAgentStore()
 const auth = useAuthStore()
@@ -68,7 +68,8 @@ const flowName = (a: AgentApproval) => a.flowId ? (toolOf(a)?.flowName ?? agent.
 const kindLabel = (a: AgentApproval) => isTool(a) ? 'Tool call' : a.kind === 'draft_deploy' ? 'Draft deploy' : a.kind
 const statusLabel: Record<string, string> = { pending: 'Waiting', approved: 'Approved', rejected: 'Rejected', expired: 'Expired' }
 const tokenStatusLabel: Record<string, string> = { active: 'active', expired: 'token expired', revoked: 'token revoked', unknown: 'token deleted' }
-const riskVariant = (risk: string) => risk === 'privileged' ? 'destructive' : risk === 'external' ? 'secondary' : 'outline'
+const riskVariant = (risk: string) => risk === 'privileged' || risk === 'unknown' ? 'destructive' : risk === 'external' ? 'secondary' : 'outline'
+const riskOf = (a: AgentApproval) => approvalRisk(a.kind, toolOf(a), !!agent.toolsError)
 const canApprove = (a: AgentApproval) => a.status === 'pending' && isTool(a) && a.tokenStatus === 'active'
 const hasArgs = (a: AgentApproval) => a.args !== undefined && a.args !== null
 // Invisible or direction-changing characters in what the agent sent.
@@ -146,7 +147,7 @@ const decisions = computed(() => agent.recentDecisions)
             <Badge variant="outline">{{ kindLabel(a) }}</Badge>
             <h3 class="break-all font-mono font-semibold">{{ title(a) }}</h3>
             <Badge :variant="a.status === 'pending' ? 'default' : 'secondary'">{{ statusLabel[a.status] ?? a.status }}</Badge>
-            <Badge v-if="toolOf(a)" :variant="riskVariant(toolOf(a)!.risk)" title="Risk of the tool as published now">{{ toolOf(a)!.risk }}</Badge>
+            <Badge v-if="riskOf(a)" :variant="riskVariant(riskOf(a)!.risk)" :title="riskOf(a)!.reason">{{ riskOf(a)!.label }}</Badge>
             <Badge v-if="hiddenCount(a)" variant="destructive" title="Invisible or direction-changing characters, shown highlighted as \u escapes">{{ hiddenLabel(hiddenCount(a)) }}</Badge>
           </div>
           <dl class="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
@@ -162,6 +163,7 @@ const decisions = computed(() => agent.recentDecisions)
             <div v-if="a.status === 'pending'"><dt class="text-xs text-muted-foreground">Expires</dt><dd :title="formatDateTime(a.expiresAt)">{{ formatRelative(a.expiresAt, now) }}</dd></div>
             <div v-else-if="a.decidedAt"><dt class="text-xs text-muted-foreground">Decided</dt><dd :title="formatDateTime(a.decidedAt)">{{ formatRelative(a.decidedAt, now) }}{{ a.decidedBy ? ` by ${a.decidedBy}` : '' }}</dd></div>
           </dl>
+          <p v-if="riskOf(a)?.risk === 'unknown'" class="text-sm text-muted-foreground">{{ riskOf(a)!.reason }}</p>
           <div v-if="a.summary" class="space-y-1">
             <p class="text-xs text-muted-foreground">Summary (from the request, shown as text)</p>
             <p aria-label="Summary" class="whitespace-pre-wrap break-words rounded-md border p-2 text-sm"><AgentText :text="a.summary" /></p>

@@ -309,6 +309,28 @@ export function grantStatus(grant: TokenGrant, tool: AgentTool | undefined): Gra
   return { state: 'active', reason: '', needsConfirm: false, confirmFingerprint: current }
 }
 
+export interface ApprovalRisk {
+  risk: AgentRisk | 'unknown'
+  label: string
+  /** Where the risk comes from, or why it is unknown. */
+  reason: string
+}
+
+/**
+ * The risk shown on an approval. Approvals do not record the tool's risk, so
+ * it is the risk of the tool as published now; a tool call whose tool is not
+ * published (or when the tools could not be loaded) says its risk is unknown
+ * rather than showing none. Draft deploys get their risk on the draft review.
+ */
+export function approvalRisk(kind: string, tool: AgentTool | undefined, toolsUnavailable: boolean): ApprovalRisk | null {
+  if (kind !== 'tool_call') return null
+  if (tool) return { risk: tool.risk, label: tool.risk, reason: 'Risk of the tool as published now.' }
+  const reason = toolsUnavailable
+    ? 'Risk unknown: the published tools could not be loaded.'
+    : 'Risk unknown: the tool is not published now (its flow is stopped or the node was removed).'
+  return { risk: 'unknown', label: 'risk unknown', reason }
+}
+
 // Characters that are invisible or change how the text around them is shown,
 // so that what an admin reads differs from what runs ("Trojan Source"):
 // format characters (bidi embeddings, overrides and isolates, zero-width
