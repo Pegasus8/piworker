@@ -23,6 +23,13 @@ type Config struct {
 	CORSOrigins   []string `toml:"cors_origins"`
 	AdminUser     string   `toml:"admin_user"`
 	AdminPass     string   `toml:"admin_pass"`
+
+	// Addr serves HTTPS unless TLS.Mode is "off"; HTTPAddr serves plain HTTP
+	// that redirects to it (empty disables it). WebhooksHTTP serves /webhooks/
+	// directly on HTTPAddr, for devices that cannot trust a local CA.
+	HTTPAddr     string    `toml:"http_addr"`
+	WebhooksHTTP bool      `toml:"webhooks_http"`
+	TLS          TLSConfig `toml:"tls"`
 }
 
 // DefaultConfigPath is the config file looked up when none is specified.
@@ -31,11 +38,15 @@ const DefaultConfigPath = "piworker.toml"
 // Default returns the built-in default configuration.
 func Default() Config {
 	return Config{
-		Addr:        ":8080",
+		Addr:        ":8443",
 		DBPath:      "piworker.db",
 		Debug:       false,
 		Auth:        true,
 		CORSOrigins: []string{"http://localhost:3000", "http://localhost:8080"},
+
+		HTTPAddr:     ":8080",
+		WebhooksHTTP: true,
+		TLS:          TLSConfig{Mode: TLSModeAuto},
 	}
 }
 
@@ -60,6 +71,9 @@ func Load(path string) (Config, error) {
 					keys[i] = k.String()
 				}
 				return cfg, fmt.Errorf("config file %q has unknown keys: %s", path, strings.Join(keys, ", "))
+			}
+			if err := cfg.normalizeTLSMode(); err != nil {
+				return cfg, fmt.Errorf("config file %q: %w", path, err)
 			}
 		} else if !os.IsNotExist(err) || path != DefaultConfigPath {
 			return cfg, fmt.Errorf("failed to access config file %q: %w", path, err)
@@ -92,6 +106,13 @@ func (c *Config) applyEnv() error {
 	boolEnv("PIWORKER_SESSION_SECURE", &c.SessionSecure)
 	boolEnv("PIWORKER_DEBUG", &c.Debug)
 	boolEnv("PIWORKER_AUTH", &c.Auth)
+	boolEnv("PIWORKER_WEBHOOKS_HTTP", &c.WebhooksHTTP)
+	if v, ok := os.LookupEnv("PIWORKER_HTTP_ADDR"); ok {
+		c.HTTPAddr = v
+	}
+	if err := c.applyTLSEnv(); err != nil {
+		errs = append(errs, err)
+	}
 	if v, ok := os.LookupEnv("PIWORKER_ADDR"); ok {
 		c.Addr = v
 	}
