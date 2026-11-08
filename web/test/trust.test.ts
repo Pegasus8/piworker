@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { detectPlatform, fingerprintRows, TRUST_GUIDES, PLATFORMS, caFileName } from '../src/lib/trust'
+import { detectPlatform, fingerprintRows, TRUST_GUIDES, PLATFORMS, caFileName, trustUrls } from '../src/lib/trust'
 
 const UA = {
   mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
@@ -48,4 +48,35 @@ test('fingerprints are split into readable rows without losing bytes', () => {
 
 test('the downloaded file keeps the server name', () => {
   expect(caFileName()).toBe('piworker-ca.crt')
+})
+
+const httpPage = { protocol: 'http:', hostname: 'raspberrypi.local', host: 'raspberrypi.local:8080', origin: 'http://raspberrypi.local:8080' }
+const httpsPage = { protocol: 'https:', hostname: '192.168.1.10', host: '192.168.1.10:9443', origin: 'https://192.168.1.10:9443' }
+
+test('command-line links use the ports PiWorker reports', () => {
+  const urls = trustUrls(httpPage, { httpsPort: 9443, httpPort: 9080 })
+  expect(urls.httpsBase).toBe('https://raspberrypi.local:9443')
+  expect(urls.caDownload).toBe('curl -o ~/piworker-ca.crt http://raspberrypi.local:9080/piworker-ca.crt')
+
+  // An HTTPS page keeps the address the browser used.
+  expect(trustUrls(httpsPage, { httpsPort: 8443, httpPort: 8080 }).httpsBase).toBe('https://192.168.1.10:9443')
+  // Default ports are left out; IPv6 hosts are bracketed.
+  const v6 = { protocol: 'http:', hostname: 'fd00::10', host: '[fd00::10]:80', origin: 'http://[fd00::10]' }
+  const def = trustUrls(v6, { httpsPort: 443, httpPort: 80 })
+  expect(def.httpsBase).toBe('https://[fd00::10]')
+  expect(def.caDownload).toBe('curl -o ~/piworker-ca.crt http://[fd00::10]/piworker-ca.crt')
+})
+
+test('without known ports the links fall back to the page address', () => {
+  for (const ports of [null, { httpsPort: null, httpPort: null }]) {
+    const urls = trustUrls(httpsPage, ports)
+    expect(urls.httpsBase).toBe('https://192.168.1.10:9443')
+    // Nothing trusts the CA yet, so curl cannot verify it; the fingerprint check that follows does.
+    expect(urls.caDownload).toBe('curl --insecure -o ~/piworker-ca.crt https://192.168.1.10:9443/piworker-ca.crt')
+  }
+  const urls = trustUrls(httpPage, null)
+  expect(urls.httpsBase).toBe('https://raspberrypi.local:8080')
+  expect(urls.caDownload).toBe('curl -o ~/piworker-ca.crt http://raspberrypi.local:8080/piworker-ca.crt')
+  // HTTPS disabled on the plain listener: no HTTPS port, CA over the reported HTTP port.
+  expect(trustUrls(httpPage, { httpsPort: null, httpPort: 8080 }).caDownload).toBe('curl -o ~/piworker-ca.crt http://raspberrypi.local:8080/piworker-ca.crt')
 })

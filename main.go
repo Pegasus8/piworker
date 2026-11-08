@@ -191,13 +191,16 @@ func main() {
 		tlsConf = tlsSrc.TLSConfig()
 	}
 
-	router, flowsHandler := buildRouter(cfg, store, runtimeManager, registry, userStore, tlsRoutes(cfg.TLS.Mode, tlsSrc))
+	tlsHandler := newTLSHandler(cfg.TLS.Mode, tlsSrc)
+	router, flowsHandler := buildRouter(cfg, store, runtimeManager, registry, userStore, tlsRoutes(tlsHandler))
 
 	// Bind before restoring flows, so a busy port fails before anything runs.
 	servers, err := listen(cfg, router, tlsConf)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Cannot listen")
 	}
+	// GET /api/tls reports the real ports (the trust page builds links from them).
+	tlsHandler.SetPorts(servers.ports())
 
 	// Restore previously running flows
 	restoreRunningFlows(store, runtimeManager)

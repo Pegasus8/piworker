@@ -52,16 +52,20 @@ func newTLSSource(cfg config.Config) (tlsSource, error) {
 	return nil, nil
 }
 
-// tlsRoutes registers the CA download and GET /api/tls.
-func tlsRoutes(mode string, src tlsSource) routerOption {
-	return func(r *mux.Router) {
-		var status func() tlsca.Status
-		var caPEM []byte
-		if src != nil {
-			status, caPEM = src.Status, src.CACertPEM()
-		}
-		api.NewTLSHandler(mode, status, caPEM).RegisterRoutes(r)
+// newTLSHandler builds the handler for the CA download and GET /api/tls.
+// Once the listeners are bound, SetPorts(serverSet.ports()) completes it.
+func newTLSHandler(mode string, src tlsSource) *api.TLSHandler {
+	var status func() tlsca.Status
+	var caPEM []byte
+	if src != nil {
+		status, caPEM = src.Status, src.CACertPEM()
 	}
+	return api.NewTLSHandler(mode, status, caPEM)
+}
+
+// tlsRoutes registers h's routes (the CA download and GET /api/tls).
+func tlsRoutes(h *api.TLSHandler) routerOption {
+	return func(r *mux.Router) { h.RegisterRoutes(r) }
 }
 
 // regenerateCA replaces the local CA (piworker -tls-regenerate-ca), issues a
@@ -128,6 +132,24 @@ func (s *serverSet) serve(errCh chan<- error) {
 	if s.redirect != nil {
 		go run(func() error { return s.redirect.Serve(s.redirectLn) })
 	}
+}
+
+// ports returns the bound HTTPS port and plain HTTP port (the redirect
+// listener, or the main listener when TLS is off); 0 when not served.
+func (s *serverSet) ports() (httpsPort, httpPort int) {
+	port := func(ln net.Listener) int {
+		if ln == nil {
+			return 0
+		}
+		if a, ok := ln.Addr().(*net.TCPAddr); ok {
+			return a.Port
+		}
+		return 0
+	}
+	if !s.tls {
+		return 0, port(s.mainLn)
+	}
+	return port(s.mainLn), port(s.redirectLn)
 }
 
 func (s *serverSet) all() []*http.Server {

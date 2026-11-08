@@ -81,7 +81,50 @@ func TestTLSStatusWhenOff(t *testing.T) {
 	w := httptest.NewRecorder()
 	tlsRouter(NewTLSHandler("off", nil, nil)).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/tls", nil))
 	require.Equal(t, http.StatusOK, w.Code)
-	assert.JSONEq(t, `{"success":true,"data":{"mode":"off","caFingerprint":"","sans":[],"notAfter":null,"caCertUrl":""}}`, w.Body.String())
+	assert.JSONEq(t, `{"success":true,"data":{"mode":"off","caFingerprint":"","sans":[],"notAfter":null,"caCertUrl":"","httpsPort":null,"httpPort":null}}`, w.Body.String())
+}
+
+// The trust page builds its links (HTTPS address, CA download over plain HTTP)
+// from the ports PiWorker really listens on; null while unknown or not served.
+func TestTLSStatusReportsListenerPorts(t *testing.T) {
+	type ports struct {
+		HTTPSPort *int `json:"httpsPort"`
+		HTTPPort  *int `json:"httpPort"`
+	}
+	read := func(h *TLSHandler) ports {
+		w := httptest.NewRecorder()
+		tlsRouter(h).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/tls", nil))
+		require.Equal(t, http.StatusOK, w.Code)
+		var body struct {
+			Data ports `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		return body.Data
+	}
+	intp := func(n int) *int { return &n }
+
+	h := NewTLSHandler("auto", func() tlsca.Status { return tlsca.Status{} }, []byte(testCAPEM))
+	assert.Equal(t, ports{}, read(h), "unknown before the listeners are bound")
+	h.SetPorts(9443, 9080)
+	assert.Equal(t, ports{HTTPSPort: intp(9443), HTTPPort: intp(9080)}, read(h))
+	h.SetPorts(8443, 0)
+	assert.Equal(t, ports{HTTPSPort: intp(8443)}, read(h), "http_addr disabled")
+
+	off := NewTLSHandler("off", nil, nil)
+	off.SetPorts(0, 8080)
+	assert.Equal(t, ports{HTTPPort: intp(8080)}, read(off), "TLS off: plain HTTP only")
+}
+
+// A CA close to expiry is reported to the editor too.
+func TestTLSStatusCarriesTheCAWarning(t *testing.T) {
+	h := NewTLSHandler("auto", func() tlsca.Status { return tlsca.Status{Warning: "The local CA expires soon"} }, []byte(testCAPEM))
+	w := httptest.NewRecorder()
+	tlsRouter(h).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/tls", nil))
+	var body struct {
+		Data TLSInfo `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "The local CA expires soon", body.Data.Warning)
 }
 
 // With native HTTPS the session cookie must be Secure even if a request reached

@@ -51,6 +51,40 @@ export function fingerprintRows(fingerprint: string): string[] {
   return rows
 }
 
+/** The parts of window.location the trust page builds links from. */
+export interface PageLocation {
+  protocol: string
+  hostname: string
+  host: string
+  origin: string
+}
+
+/** Listener ports reported by GET /api/tls (null or missing when unknown). */
+export interface ListenerPorts {
+  httpsPort?: number | null
+  httpPort?: number | null
+}
+
+/**
+ * Builds the HTTPS address and the CA download command shown for
+ * command-line tools. Ports come from the server; without them the page's own
+ * address is used. An HTTPS page keeps the address the browser used.
+ */
+export function trustUrls(page: PageLocation, ports: ListenerPorts | null): { httpsBase: string; caDownload: string } {
+  const host = page.hostname.includes(':') ? `[${page.hostname}]` : page.hostname
+  const withPort = (scheme: string, port: number, defaultPort: number) =>
+    `${scheme}://${host}${port === defaultPort ? '' : ':' + port}`
+  let httpsBase = `https://${page.host}`
+  if (page.protocol === 'https:') httpsBase = page.origin
+  else if (ports?.httpsPort) httpsBase = withPort('https', ports.httpsPort, 443)
+
+  // The plain HTTP listener serves the CA without a certificate warning; the
+  // fingerprint check that follows is what makes the download trustworthy.
+  const base = ports?.httpPort ? withPort('http', ports.httpPort, 80) : page.origin
+  const insecure = base.startsWith('https:') ? '--insecure ' : ''
+  return { httpsBase, caDownload: `curl ${insecure}-o ~/${CA_FILE} ${base}/${CA_FILE}` }
+}
+
 const opensslVerify: TrustStep = {
   text: 'Compare the SHA-256 fingerprint of the downloaded file with the one printed on the PiWorker device:',
   code: `openssl x509 -in ${CA_FILE} -noout -fingerprint -sha256`
