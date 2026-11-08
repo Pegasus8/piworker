@@ -23,6 +23,10 @@ type Config struct {
 	CORSOrigins   []string `toml:"cors_origins"`
 	AdminUser     string   `toml:"admin_user"`
 	AdminPass     string   `toml:"admin_pass"`
+
+	// AllowedHosts are extra Host header names accepted by /api, /mcp and the
+	// web UI, on top of localhost, the hostname, hostname.local and IPs.
+	AllowedHosts []string `toml:"allowed_hosts"`
 }
 
 // DefaultConfigPath is the config file looked up when none is specified.
@@ -101,6 +105,9 @@ func (c *Config) applyEnv() error {
 	if v, ok := os.LookupEnv("PIWORKER_CORS_ORIGINS"); ok {
 		c.CORSOrigins = SplitOrigins(v)
 	}
+	if v, ok := os.LookupEnv("PIWORKER_ALLOWED_HOSTS"); ok {
+		c.AllowedHosts = SplitList(v)
+	}
 	if v, ok := os.LookupEnv("PIWORKER_ADMIN_USER"); ok {
 		c.AdminUser = v
 	}
@@ -124,6 +131,12 @@ func ResolveConfigPath(flagValue string) string {
 
 // SplitOrigins parses a comma-separated list of origins, trimming blanks.
 func SplitOrigins(s string) []string {
+	return SplitList(s)
+}
+
+// SplitList parses a comma-separated list, trimming blanks and dropping empty
+// entries. It returns nil for an empty list.
+func SplitList(s string) []string {
 	if s == "" {
 		return nil
 	}

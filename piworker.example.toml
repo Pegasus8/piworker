@@ -26,6 +26,13 @@ session_secure = false
 # Allowed CORS origins (credentials are only sent for specific allowlisted origins).
 cors_origins = ["http://localhost:3000", "http://localhost:8080"]
 
+# Extra host names accepted in the Host header of /api, /mcp and the web UI
+# (protects against DNS rebinding). localhost, this machine's hostname,
+# <hostname>.local and any IP address are always accepted. Add the names you
+# use to reach PiWorker otherwise, e.g. a DNS name or a reverse proxy's name.
+# Env: PIWORKER_ALLOWED_HOSTS (comma-separated). Flag: -allowed-hosts.
+allowed_hosts = []
+
 # Optional unattended admin credentials. Only used to bootstrap the first user when auth
 # is enabled and no users exist yet. Prefer providing these via the
 # PIWORKER_ADMIN_USER / PIWORKER_ADMIN_PASS environment variables instead of
