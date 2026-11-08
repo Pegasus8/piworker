@@ -199,9 +199,11 @@ export NODE_EXTRA_CA_CERTS=~/{{ caFileName() }}</code></pre>
           means something is wrong: do not continue.
         </p>
         <p class="text-sm text-muted-foreground">
-          A trusted CA can vouch for any website on that device. PiWorker's CA key never leaves the PiWorker device,
-          but keep that device secure, and remove the trust when you stop using PiWorker. If the key may have been
-          exposed, create a new CA with <code>piworker -tls-regenerate-ca</code> and trust the new one.
+          A trusted CA can vouch for any website on that device. PiWorker stores its CA key only in its data directory,
+          but flows run as the PiWorker user: anyone who can create command flows in PiWorker, or read its data or
+          backups, can copy the key and impersonate any website to devices that trust this CA. Protect PiWorker
+          accounts, the device and its backups, and remove the trust when you stop using PiWorker. If the key may have
+          been exposed, create a new CA with <code>piworker -tls-regenerate-ca</code> and trust the new one.
         </p>
       </Card>
     </div>

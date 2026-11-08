@@ -63,7 +63,7 @@ with `make test-installer`; running the installer still requires published asset
 | Configuration | `/etc/piworker/piworker.toml` |
 | Accounts, flows, secrets and variables | `/var/lib/piworker/piworker.db` |
 | Local CA and server certificate | `/var/lib/piworker/tls/` |
-| Update backups (private, retained until you remove them) | `/var/backups/piworker/` |
+| Update backups (private, include the CA key; retained until you remove them) | `/var/backups/piworker/` |
 | Logs / status | `sudo journalctl -u piworker` / `systemctl status piworker` |
 | Restart after changing configuration | `sudo systemctl restart piworker` |
 
@@ -635,9 +635,12 @@ its fingerprint, then use `curl --cacert ~/piworker-ca.crt …` or, for Claude C
 `export NODE_EXTRA_CA_CERTS=~/piworker-ca.crt` before starting it.
 
 **What trusting the CA means.** A trusted CA can vouch for any website on that
-device. The CA key never leaves the PiWorker device, but protect that device and
-remove the trust when you stop using PiWorker. If the key may have been exposed,
-replace the CA and trust the new one:
+device. PiWorker stores the CA key only in its data directory (`tls/ca.key`), but
+flows run as the PiWorker user: anyone who can create command flows in PiWorker,
+or read its data directory or update backups, can copy the key and use it to
+impersonate any website to devices that trust the CA. Protect PiWorker accounts,
+the device and its backups accordingly, and remove the trust when you stop using
+PiWorker. If the key may have been exposed, replace the CA and trust the new one:
 
 ```bash
 sudo systemctl stop piworker

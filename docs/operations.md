@@ -51,7 +51,11 @@ and prints its path. It contains `piworker` (the old binary), `data/` (the entir
 stopped data directory) and `config/` (including the old installed-version marker).
 Backups are retained automatically; review disk usage and remove only backups
 you no longer need. Protect them like credentials because the database contains
-accounts and secrets. Keep an off-device copy for disk failure recovery.
+accounts and secrets, and `data/tls/ca.key` is the private key of the local CA
+that your devices trust: whoever holds it can impersonate any website to them.
+Keep an off-device copy for disk failure recovery, stored as securely; if a copy
+may have been exposed, regenerate the CA (see HTTPS in the README) and trust the
+new one on each device.
 
 For a manual backup, stop the service first, copy the whole data directory and
 configuration while preserving ownership/permissions, then start it again.
