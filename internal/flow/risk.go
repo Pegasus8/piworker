@@ -571,3 +571,9 @@ func (m *RuntimeManager) Tools() (version uint64, tools []ToolInfo) {
 	})
 	return m.toolsVersion, tools
 }
+
+// Tools returns the tools this runtime publishes (computed at deploy), in
+// definition order. The slice is a copy; Schema and OutputSchema are shared.
+func (r *FlowRuntime) Tools() []ToolInfo {
+	return append([]ToolInfo(nil), r.tools...)
+}

@@ -151,3 +151,19 @@ func TestToolsSnapshotIsSafeForConcurrentUse(t *testing.T) {
 	close(stop)
 	wg.Wait()
 }
+
+// The runtime's own tools, so a caller can use the tool of the instance it
+// calls even when the flow was redeployed in between.
+func TestRuntimeTools(t *testing.T) {
+	m := newManager(t)
+	f := chainFlow(strictToolConfig(), reply())
+	require.NoError(t, m.Deploy(context.Background(), f))
+	rt, ok := m.GetRuntime(f.ID)
+	require.True(t, ok)
+	tools := rt.Tools()
+	require.Len(t, tools, 1)
+	_, all := m.Tools()
+	assert.Equal(t, all, tools)
+	tools[0].ToolName = "changed"
+	assert.NotEqual(t, "changed", rt.Tools()[0].ToolName, "a copy")
+}
