@@ -1,8 +1,13 @@
 package builtin
 
 import (
+	"context"
+	"net"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,4 +42,61 @@ func TestMqttActionRequiresBrokerAndTopic(t *testing.T) {
 func TestMqttActionClampsQoS(t *testing.T) {
 	a := newMqttAction(t, map[string]interface{}{"broker": "tcp://x:1883", "topic": "t", "qos": 9})
 	assert.Equal(t, byte(0), a.qos, "out-of-range QoS falls back to 0")
+}
+
+func TestMqttActionDefaultClientIDIsUnique(t *testing.T) {
+	a := newMqttAction(t, map[string]interface{}{"broker": "tcp://x:1883", "topic": "t"})
+	b := newMqttAction(t, map[string]interface{}{"broker": "tcp://x:1883", "topic": "t", "clientId": ""})
+	assert.True(t, strings.HasPrefix(a.clientID, "piworker-pub-"), a.clientID)
+	assert.NotEqual(t, a.clientID, b.clientID)
+}
+
+func TestMqttActionPublishesAndCloseDisconnects(t *testing.T) {
+	b := newFakeBroker(t)
+	a := newMqttAction(t, map[string]interface{}{"broker": b.url(), "topic": "out/t", "payload": "hi", "qos": 1})
+
+	_, err := a.Process(context.Background(), types.NewMessage("x", types.DataTypeString))
+	require.NoError(t, err)
+	_, _, pubs, _ := b.snapshot()
+	assert.Equal(t, []string{"out/t=hi"}, pubs)
+
+	require.NoError(t, a.Close())
+	require.Eventually(t, func() bool {
+		_, _, _, d := b.snapshot()
+		return d == 1 && b.connCount() == 0
+	}, 5*time.Second, 20*time.Millisecond, "Close must disconnect the publish client")
+	require.NoError(t, a.Close(), "Close is idempotent")
+}
+
+// A broker that accepts TCP but never answers CONNECT must not pin the node's
+// executor past the caller's deadline.
+func TestMqttActionPublishRespectsContext(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		var conns []net.Conn
+		defer func() {
+			for _, c := range conns {
+				_ = c.Close()
+			}
+		}()
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			conns = append(conns, c)
+		}
+	}()
+
+	a := newMqttAction(t, map[string]interface{}{"broker": "tcp://" + ln.Addr().String(), "topic": "t"})
+	t.Cleanup(func() { _ = a.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err = a.Process(ctx, types.NewMessage("x", types.DataTypeString))
+	assert.Error(t, err)
+	assert.Less(t, time.Since(start), 3*time.Second)
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"runtime/debug"
-	"sync"
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/metrics"
@@ -24,10 +23,7 @@ type GPIOTrigger struct {
 	edge string
 	pull string
 
-	mu      sync.Mutex
-	running bool
-	stopCh  chan struct{}
-	wg      sync.WaitGroup
+	run triggerRun
 }
 
 // NewGPIOTrigger creates a GPIOTrigger from configuration.
@@ -42,7 +38,6 @@ func NewGPIOTrigger(config map[string]interface{}) (node.Node, error) {
 		pin:      pin,
 		edge:     base.GetConfigString("edge", "both"),
 		pull:     base.GetConfigString("pull", "none"),
-		stopCh:   make(chan struct{}),
 	}, nil
 }
 
@@ -61,18 +56,13 @@ func (t *GPIOTrigger) Start(ctx context.Context, out chan<- *types.Message) erro
 		return fmt.Errorf("failed to configure %s as input: %w", t.pin, err)
 	}
 
-	t.mu.Lock()
-	if t.running {
-		t.mu.Unlock()
-		return fmt.Errorf("trigger already running")
+	stopCh, done, err := t.run.begin()
+	if err != nil {
+		return err
 	}
-	t.running = true
-	t.stopCh = make(chan struct{})
-	t.mu.Unlock()
 
-	t.wg.Add(1)
 	go func() {
-		defer t.wg.Done()
+		defer close(done)
 		defer func() {
 			if r := recover(); r != nil {
 				log.Error().Interface("panic", r).Bytes("stack", debug.Stack()).Msg("gpio trigger goroutine panicked")
@@ -83,7 +73,7 @@ func (t *GPIOTrigger) Start(ctx context.Context, out chan<- *types.Message) erro
 			select {
 			case <-ctx.Done():
 				return
-			case <-t.stopCh:
+			case <-stopCh:
 				return
 			default:
 			}
@@ -103,7 +93,7 @@ func (t *GPIOTrigger) Start(ctx context.Context, out chan<- *types.Message) erro
 			select {
 			case <-ctx.Done():
 				return
-			case <-t.stopCh:
+			case <-stopCh:
 				return
 			case out <- msg:
 			default:
@@ -117,15 +107,7 @@ func (t *GPIOTrigger) Start(ctx context.Context, out chan<- *types.Message) erro
 
 // Stop stops watching the pin.
 func (t *GPIOTrigger) Stop() error {
-	t.mu.Lock()
-	if !t.running {
-		t.mu.Unlock()
-		return nil
-	}
-	close(t.stopCh)
-	t.running = false
-	t.mu.Unlock()
-	t.wg.Wait()
+	t.run.end()
 	return nil
 }
 

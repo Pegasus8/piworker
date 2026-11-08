@@ -119,53 +119,93 @@ func renderTemplate(tmpl string, msg *types.Message, contexts ...context.Context
 	if len(contexts) > 0 {
 		ctx = contexts[0]
 	}
-	return templateRe.ReplaceAllStringFunc(tmpl, func(match string) string {
-		parts := placeholderParts(match)
+	return renderTemplateEscaped(tmpl, msg, ctx, nil)
+}
 
-		switch parts[0] {
-		case "vars", "flowVars":
-			store := vars.FromContext(ctx)
-			if parts[0] == "flowVars" {
-				store = vars.FlowFromContext(ctx)
-			}
-			if store == nil {
-				return ""
-			}
-			if len(parts) > 1 {
-				if v, ok := store.Get(parts[1]); ok {
-					return tmplStringify(v)
+// renderTemplateEscaped is renderTemplate with per-placeholder escaping:
+// escaperAt receives the literal template text preceding a placeholder and
+// returns the escape function for the value substituted there (nil = raw).
+// Unresolved placeholders are left untouched and never escaped.
+func renderTemplateEscaped(tmpl string, msg *types.Message, ctx context.Context, escaperAt func(prefix string) func(string) string) string {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	locs := templateRe.FindAllStringIndex(tmpl, -1)
+	if len(locs) == 0 {
+		return tmpl
+	}
+	var b strings.Builder
+	var literal strings.Builder // template text outside placeholders seen so far
+	last := 0
+	for _, loc := range locs {
+		b.WriteString(tmpl[last:loc[0]])
+		literal.WriteString(tmpl[last:loc[0]])
+		match := tmpl[loc[0]:loc[1]]
+		value, ok := resolvePlaceholder(match, msg, ctx)
+		if !ok {
+			b.WriteString(match)
+		} else {
+			if escaperAt != nil {
+				if esc := escaperAt(literal.String()); esc != nil {
+					value = esc(value)
 				}
 			}
-			return ""
-		case "payload":
-			if len(parts) == 1 {
-				return tmplStringify(msg.Payload)
-			}
-			return tmplNestedValue(msg.Payload, parts[1])
-		case "meta":
-			if len(parts) > 1 {
-				if v, ok := msg.GetMeta(parts[1]); ok {
-					return tmplStringify(v)
-				}
-			}
-			return ""
-		case "topic":
-			return msg.Topic
-		case "id":
-			return msg.ID
-		case "timestamp":
-			return msg.Timestamp.Format(time.RFC3339)
-		default:
-			// NOTE: {{secret.NAME}} is deliberately NOT resolved here.
-			// renderTemplate produces message payloads — its output is echoed by
-			// the node-test endpoint and flows downstream into logs/files/HTTP.
-			// Resolving secrets here would let any flow exfiltrate them. Secrets
-			// are resolved only in expandSecrets, used by credential fields of
-			// action nodes whose resolved value goes to the network, never the
-			// payload.
-			return match
+			b.WriteString(value)
 		}
-	})
+		last = loc[1]
+	}
+	b.WriteString(tmpl[last:])
+	return b.String()
+}
+
+// resolvePlaceholder returns the value for one {{...}} match, or false when
+// the placeholder is not a known template variable (it is then kept as is).
+func resolvePlaceholder(match string, msg *types.Message, ctx context.Context) (string, bool) {
+	parts := placeholderParts(match)
+
+	switch parts[0] {
+	case "vars", "flowVars":
+		store := vars.FromContext(ctx)
+		if parts[0] == "flowVars" {
+			store = vars.FlowFromContext(ctx)
+		}
+		if store == nil {
+			return "", true
+		}
+		if len(parts) > 1 {
+			if v, ok := store.Get(parts[1]); ok {
+				return tmplStringify(v), true
+			}
+		}
+		return "", true
+	case "payload":
+		if len(parts) == 1 {
+			return tmplStringify(msg.Payload), true
+		}
+		return tmplNestedValue(msg.Payload, parts[1]), true
+	case "meta":
+		if len(parts) > 1 {
+			if v, ok := msg.GetMeta(parts[1]); ok {
+				return tmplStringify(v), true
+			}
+		}
+		return "", true
+	case "topic":
+		return msg.Topic, true
+	case "id":
+		return msg.ID, true
+	case "timestamp":
+		return msg.Timestamp.Format(time.RFC3339), true
+	default:
+		// NOTE: {{secret.NAME}} is deliberately NOT resolved here.
+		// renderTemplate produces message payloads — its output is echoed by
+		// the node-test endpoint and flows downstream into logs/files/HTTP.
+		// Resolving secrets here would let any flow exfiltrate them. Secrets
+		// are resolved only in expandSecrets, used by credential fields of
+		// action nodes whose resolved value goes to the network, never the
+		// payload.
+		return match, false
+	}
 }
 
 // expandSecrets resolves only {{secret.NAME}} placeholders, leaving every other

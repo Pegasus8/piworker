@@ -3,15 +3,64 @@ package builtin
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/google/uuid"
 )
 
-const mqttConnectTimeout = 10 * time.Second
+const (
+	mqttConnectTimeout       = 10 * time.Second
+	mqttConnectRetryInterval = 10 * time.Second
+	mqttKeepAlive            = 30 * time.Second
+	mqttPingTimeout          = 10 * time.Second
+	mqttWriteTimeout         = 10 * time.Second
+	mqttMaxReconnectInterval = time.Minute
+)
+
+// defaultMqttClientID returns a client id unique to this node instance. MQTT
+// brokers disconnect the older session when a second client connects with
+// the same id, so a shared constant default makes two nodes on one broker
+// knock each other off in a reconnect loop.
+func defaultMqttClientID(prefix string) string {
+	return prefix + "-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+}
+
+// resolveMqttClientID returns the configured client id, or a unique default
+// when it is empty or still the old shared constant (prefix itself), which
+// older flows stored because the editor pre-filled it.
+func resolveMqttClientID(configured, prefix string) string {
+	configured = strings.TrimSpace(configured)
+	if configured == "" || configured == prefix {
+		return defaultMqttClientID(prefix)
+	}
+	return configured
+}
+
+// newMqttClientOptions builds client options with bounded timeouts suitable
+// for a flaky Wi-Fi link.
+func newMqttClientOptions(broker, clientID, username, password string) *mqtt.ClientOptions {
+	opts := mqtt.NewClientOptions().
+		AddBroker(broker).
+		SetClientID(clientID).
+		SetConnectTimeout(mqttConnectTimeout).
+		SetKeepAlive(mqttKeepAlive).
+		SetPingTimeout(mqttPingTimeout).
+		SetWriteTimeout(mqttWriteTimeout).
+		SetAutoReconnect(true).
+		SetMaxReconnectInterval(mqttMaxReconnectInterval)
+	if username != "" {
+		opts.SetUsername(username)
+	}
+	if password != "" {
+		opts.SetPassword(password)
+	}
+	return opts
+}
 
 // MqttAction publishes a message to an MQTT topic. The client connects lazily on
 // first use and is reused for the node's lifetime.
@@ -52,7 +101,7 @@ func NewMqttAction(config map[string]interface{}) (node.Node, error) {
 	return &MqttAction{
 		BaseNode: base,
 		broker:   broker,
-		clientID: base.GetConfigString("clientId", "piworker-pub"),
+		clientID: resolveMqttClientID(base.GetConfigString("clientId", ""), "piworker-pub"),
 		username: expandSecrets(base.GetConfigString("username", "")),
 		password: expandSecrets(base.GetConfigString("password", "")),
 		topic:    topic,
@@ -62,28 +111,33 @@ func NewMqttAction(config map[string]interface{}) (node.Node, error) {
 	}, nil
 }
 
-func (a *MqttAction) ensureClient() (mqtt.Client, error) {
+// waitMqttToken waits for tok to complete, giving up when ctx is done or
+// after timeout, whichever comes first.
+func waitMqttToken(ctx context.Context, tok mqtt.Token, timeout time.Duration) error {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-tok.Done():
+		return tok.Error()
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return fmt.Errorf("timed out after %s", timeout)
+	}
+}
+
+func (a *MqttAction) ensureClient(ctx context.Context) (mqtt.Client, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.client == nil {
-		opts := mqtt.NewClientOptions().
-			AddBroker(a.broker).
-			SetClientID(a.clientID).
-			SetConnectTimeout(mqttConnectTimeout)
-		if a.username != "" {
-			opts.SetUsername(a.username)
-		}
-		if a.password != "" {
-			opts.SetPassword(a.password)
-		}
-		a.client = mqtt.NewClient(opts)
+		a.client = mqtt.NewClient(newMqttClientOptions(a.broker, a.clientID, a.username, a.password))
 	}
 	if !a.client.IsConnected() {
-		tok := a.client.Connect()
-		if !tok.WaitTimeout(mqttConnectTimeout) {
-			return nil, fmt.Errorf("mqtt connect timed out")
-		}
-		if err := tok.Error(); err != nil {
+		if err := waitMqttToken(ctx, a.client.Connect(), mqttConnectTimeout); err != nil {
+			// Drop the half-open client so a later message starts afresh
+			// instead of racing an abandoned connect attempt.
+			a.client.Disconnect(0)
+			a.client = nil
 			return nil, err
 		}
 	}
@@ -92,7 +146,7 @@ func (a *MqttAction) ensureClient() (mqtt.Client, error) {
 
 // Process renders the topic/payload and publishes the message.
 func (a *MqttAction) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
-	client, err := a.ensureClient()
+	client, err := a.ensureClient(ctx)
 	if err != nil {
 		return nil, node.Transient(fmt.Errorf("mqtt connect failed: %w", err))
 	}
@@ -100,11 +154,7 @@ func (a *MqttAction) Process(ctx context.Context, msg *types.Message) ([]*types.
 	topic := renderTemplate(a.topic, msg, ctx)
 	payload := renderTemplate(a.payload, msg, ctx)
 
-	tok := client.Publish(topic, a.qos, a.retained, payload)
-	if !tok.WaitTimeout(mqttConnectTimeout) {
-		return nil, node.Transient(fmt.Errorf("mqtt publish timed out"))
-	}
-	if err := tok.Error(); err != nil {
+	if err := waitMqttToken(ctx, client.Publish(topic, a.qos, a.retained, payload), mqttConnectTimeout); err != nil {
 		return nil, node.Transient(fmt.Errorf("mqtt publish failed: %w", err))
 	}
 
@@ -112,6 +162,18 @@ func (a *MqttAction) Process(ctx context.Context, msg *types.Message) ([]*types.
 	out.SourcePort = "output"
 	out.SetMeta("mqttTopic", topic)
 	return []*types.Message{out}, nil
+}
+
+// Close disconnects the publish client. The runtime calls it when the flow
+// stops; without it every redeploy leaked a connection to the broker.
+func (a *MqttAction) Close() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.client != nil {
+		a.client.Disconnect(250)
+		a.client = nil
+	}
+	return nil
 }
 
 // Ports returns the port definitions.
@@ -139,7 +201,7 @@ func mqttActionConfigSchema() node.ConfigSchema {
 			"payload":  {Type: "string", Title: "Payload", Description: "Message payload (supports {{templates}})", Default: "{{payload}}"},
 			"qos":      {Type: "number", Title: "QoS", Description: "0, 1 or 2", Default: 0},
 			"retained": {Type: "boolean", Title: "Retained", Description: "Set the retained flag", Default: false},
-			"clientId": {Type: "string", Title: "Client ID", Description: "MQTT client id", Default: "piworker-pub"},
+			"clientId": {Type: "string", Title: "Client ID", Description: "MQTT client id (leave empty for a unique per-node id)", Default: ""},
 			"username": {Type: "string", Title: "Username", Description: "Optional ({{secret.NAME}} supported)"},
 			"password": {Type: "string", Title: "Password", Description: "Optional ({{secret.NAME}} supported)"},
 		},
@@ -173,7 +235,7 @@ Publishes the rendered payload to an MQTT topic. Credentials support
 | payload | string | {{payload}} | Payload (templated) |
 | qos | number | 0 | 0, 1 or 2 |
 | retained | boolean | false | Retained flag |
-| clientId | string | piworker-pub | Client id |
+| clientId | string | (unique) | Client id; empty generates piworker-pub-<random> per node |
 | username/password | string | - | Optional credentials |
 `,
 		Category: types.NodeCategoryOutput,

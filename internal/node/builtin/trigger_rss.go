@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"runtime/debug"
+	"slices"
 	"sync"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 const (
 	rssMinInterval  = 10 * time.Second
 	rssMaxBodyBytes = 5 << 20 // 5 MiB
+	rssMinSeen      = 1000
 )
 
 // RSSTrigger polls an RSS/Atom feed and emits a message per newly-seen item.
@@ -32,11 +34,15 @@ type RSSTrigger struct {
 	client *http.Client
 	parser *gofeed.Parser
 
-	mu      sync.Mutex
-	running bool
-	stopCh  chan struct{}
-	wg      sync.WaitGroup
-	seen    map[string]bool
+	run triggerRun
+
+	mu sync.Mutex // guards seen, pollSeq, seeded
+	// seen maps item id -> the poll sequence it was last present in. It is
+	// pruned to the most recently present ids (see newItems), so it doesn't
+	// grow with every item a feed ever published.
+	seen    map[string]uint64
+	pollSeq uint64
+	seeded  bool
 }
 
 // NewRSSTrigger creates an RSSTrigger from configuration.
@@ -47,10 +53,7 @@ func NewRSSTrigger(config map[string]interface{}) (node.Node, error) {
 	if url == "" {
 		return nil, fmt.Errorf("url is required")
 	}
-	interval := time.Duration(base.GetConfigInt("intervalSec", 300)) * time.Second
-	if interval < rssMinInterval {
-		interval = rssMinInterval
-	}
+	interval := secDuration(base.GetConfigInt("intervalSec", 300), 300*time.Second, rssMinInterval, maxTriggerInterval)
 	allowPrivate := base.GetConfigBool("allowPrivate", false)
 
 	return &RSSTrigger{
@@ -60,8 +63,7 @@ func NewRSSTrigger(config map[string]interface{}) (node.Node, error) {
 		allowPrivate: allowPrivate,
 		client:       newGuardedHTTPClient(30*time.Second, allowPrivate),
 		parser:       gofeed.NewParser(),
-		stopCh:       make(chan struct{}),
-		seen:         make(map[string]bool),
+		seen:         make(map[string]uint64),
 	}, nil
 }
 
@@ -83,29 +85,67 @@ func itemID(item *gofeed.Item) string {
 	}
 }
 
-// newItems returns the feed items not seen before, marking them seen.
+// newItems returns the feed items not seen before and records every item of
+// the feed as seen. The seen set keeps at most max(rssMinSeen, 2*feed size)
+// ids, dropping those absent from the feed for longest, so it stays bounded
+// while still tolerating a feed that briefly omits items.
 func (t *RSSTrigger) newItems(feed *gofeed.Feed) []*gofeed.Item {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.pollSeq++
 	var fresh []*gofeed.Item
 	for _, item := range feed.Items {
 		id := itemID(item)
-		if !t.seen[id] {
-			t.seen[id] = true
+		if _, ok := t.seen[id]; !ok {
 			fresh = append(fresh, item)
 		}
+		t.seen[id] = t.pollSeq
 	}
+	t.pruneSeen(max(rssMinSeen, 2*len(feed.Items)))
 	return fresh
 }
 
-// markAllSeen records every current item as seen without emitting, used on the
-// first poll so deploying a flow doesn't replay the whole backlog.
-func (t *RSSTrigger) markAllSeen(feed *gofeed.Feed) {
+// pruneSeen drops the least recently present ids beyond limit. Called with
+// t.mu held.
+func (t *RSSTrigger) pruneSeen(limit int) {
+	if len(t.seen) <= limit {
+		return
+	}
+	seqs := make([]uint64, 0, len(t.seen))
+	for _, seq := range t.seen {
+		seqs = append(seqs, seq)
+	}
+	slices.Sort(seqs)
+	cutoff := seqs[len(seqs)-limit] // keep ids last seen at or after this poll
+	for id, seq := range t.seen {
+		if seq < cutoff {
+			delete(t.seen, id)
+		}
+	}
+	// Ties at the cutoff can leave us above limit; trim arbitrarily among them.
+	for id, seq := range t.seen {
+		if len(t.seen) <= limit {
+			break
+		}
+		if seq == cutoff {
+			delete(t.seen, id)
+		}
+	}
+}
+
+// pollItems returns the items to emit for a successfully fetched feed. The
+// first successful fetch only seeds the seen set, so deploying a flow (or
+// booting before the network is up, when the first attempts fail) doesn't
+// replay the whole backlog.
+func (t *RSSTrigger) pollItems(feed *gofeed.Feed) []*gofeed.Item {
+	fresh := t.newItems(feed)
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	for _, item := range feed.Items {
-		t.seen[itemID(item)] = true
+	if !t.seeded {
+		t.seeded = true
+		return nil
 	}
+	return fresh
 }
 
 func rssItemPayload(item *gofeed.Item) map[string]interface{} {
@@ -136,24 +176,22 @@ func (t *RSSTrigger) fetch(ctx context.Context) (*gofeed.Feed, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, fmt.Errorf("feed returned HTTP %d", resp.StatusCode)
+	}
 	body := io.LimitReader(resp.Body, rssMaxBodyBytes)
 	return t.parser.Parse(body)
 }
 
 // Start begins polling the feed.
 func (t *RSSTrigger) Start(ctx context.Context, out chan<- *types.Message) error {
-	t.mu.Lock()
-	if t.running {
-		t.mu.Unlock()
-		return fmt.Errorf("trigger already running")
+	stopCh, done, err := t.run.begin()
+	if err != nil {
+		return err
 	}
-	t.running = true
-	t.stopCh = make(chan struct{})
-	t.mu.Unlock()
 
-	t.wg.Add(1)
 	go func() {
-		defer t.wg.Done()
+		defer close(done)
 		defer func() {
 			if r := recover(); r != nil {
 				log.Error().Interface("panic", r).Bytes("stack", debug.Stack()).Msg("rss trigger goroutine panicked")
@@ -163,18 +201,18 @@ func (t *RSSTrigger) Start(ctx context.Context, out chan<- *types.Message) error
 		ticker := time.NewTicker(t.interval)
 		defer ticker.Stop()
 
-		// First poll seeds the seen-set without emitting the existing backlog.
+		// Poll right away; the first successful poll only seeds the seen set.
 		if feed, err := t.fetch(ctx); err != nil {
-			log.Warn().Err(err).Str("url", t.url).Msg("rss initial fetch failed")
+			log.Warn().Err(err).Str("url", t.url).Msg("rss initial fetch failed; will retry")
 		} else {
-			t.markAllSeen(feed)
+			t.pollItems(feed)
 		}
 
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-t.stopCh:
+			case <-stopCh:
 				return
 			case <-ticker.C:
 				feed, err := t.fetch(ctx)
@@ -182,14 +220,14 @@ func (t *RSSTrigger) Start(ctx context.Context, out chan<- *types.Message) error
 					log.Warn().Err(err).Str("url", t.url).Msg("rss fetch failed")
 					continue
 				}
-				for _, item := range t.newItems(feed) {
+				for _, item := range t.pollItems(feed) {
 					msg := types.NewMessage(rssItemPayload(item), types.DataTypeObject)
 					msg.SourcePort = "output"
 					msg.Topic = "rss"
 					select {
 					case <-ctx.Done():
 						return
-					case <-t.stopCh:
+					case <-stopCh:
 						return
 					case out <- msg:
 					default:
@@ -205,15 +243,7 @@ func (t *RSSTrigger) Start(ctx context.Context, out chan<- *types.Message) error
 
 // Stop stops polling.
 func (t *RSSTrigger) Stop() error {
-	t.mu.Lock()
-	if !t.running {
-		t.mu.Unlock()
-		return nil
-	}
-	close(t.stopCh)
-	t.running = false
-	t.mu.Unlock()
-	t.wg.Wait()
+	t.run.end()
 	return nil
 }
 
@@ -272,7 +302,8 @@ func RSSTriggerInfo() node.NodeTypeInfo {
 		Documentation: `## RSS Feed
 
 Polls an RSS or Atom feed and emits one message per newly-seen item. The first
-poll seeds the seen-set without emitting, so deploying a flow doesn't replay the
+successful poll seeds the seen-set without emitting, so deploying a flow (or booting
+before the network is up) doesn't replay the
 existing backlog.
 
 ## Configuration

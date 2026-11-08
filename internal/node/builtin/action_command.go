@@ -12,6 +12,30 @@ import (
 	"github.com/Pegasus8/piworker/internal/types"
 )
 
+// commandMaxOutputBytes caps how much of stdout and of stderr is kept, so a
+// chatty or runaway command can't exhaust RAM.
+const commandMaxOutputBytes = 1 << 20 // 1 MiB each
+
+// cappedBuffer keeps the first limit bytes written and discards the rest. It
+// always reports a full write so the command keeps running normally instead
+// of failing on a short write / broken pipe.
+type cappedBuffer struct {
+	buf       bytes.Buffer
+	limit     int
+	truncated bool
+}
+
+func (b *cappedBuffer) Write(p []byte) (int, error) {
+	if room := b.limit - b.buf.Len(); room < len(p) {
+		b.truncated = true
+		if room > 0 {
+			b.buf.Write(p[:room])
+		}
+		return len(p), nil
+	}
+	return b.buf.Write(p)
+}
+
 // CommandAction executes shell commands.
 type CommandAction struct {
 	*node.BaseNode
@@ -65,9 +89,10 @@ func (a *CommandAction) Process(ctx context.Context, msg *types.Message) ([]*typ
 	cmd := exec.CommandContext(execCtx, a.shell, args...)
 	isolateCommand(cmd)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := &cappedBuffer{limit: commandMaxOutputBytes}
+	stderr := &cappedBuffer{limit: commandMaxOutputBytes}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	startTime := time.Now()
 	err = cmd.Run()
@@ -79,12 +104,16 @@ func (a *CommandAction) Process(ctx context.Context, msg *types.Message) ([]*typ
 	// NOT trigger the runtime's retry/error path.
 	output := map[string]interface{}{
 		"command":  a.command,
-		"stdout":   strings.TrimSpace(stdout.String()),
-		"stderr":   strings.TrimSpace(stderr.String()),
+		"stdout":   strings.TrimSpace(stdout.buf.String()),
+		"stderr":   strings.TrimSpace(stderr.buf.String()),
 		"duration": duration.Milliseconds(),
 		"exitCode": 0,
 		"success":  true,
 		"timedOut": false,
+
+		"stdoutTruncated": stdout.truncated,
+		"stderrTruncated": stderr.truncated,
+		"truncated":       stdout.truncated || stderr.truncated,
 	}
 
 	if err != nil {
@@ -226,8 +255,9 @@ reserved for placeholder values; do not change them with set/shift in the comman
 Returns an object with:
 
 - **command** - The configured command template (values are not included)
-- **stdout** - Standard output (trimmed)
-- **stderr** - Standard error (trimmed)
+- **stdout** - Standard output (trimmed; only the first 1 MiB is kept)
+- **stderr** - Standard error (trimmed; only the first 1 MiB is kept)
+- **stdoutTruncated** / **stderrTruncated** / **truncated** - Whether output was cut off
 - **exitCode** - Exit code (0 = success)
 - **success** - Boolean indicating success
 - **timedOut** - Whether the execution deadline expired

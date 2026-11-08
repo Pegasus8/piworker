@@ -19,29 +19,24 @@ type IntervalTrigger struct {
 	*node.BaseNode
 
 	interval time.Duration
-	mu       sync.Mutex
-	running  bool
-	stopCh   chan struct{}
+	mu       sync.Mutex // guards count
 	count    uint64
-	wg       sync.WaitGroup
+	run      triggerRun
 }
 
 // NewIntervalTrigger creates a new IntervalTrigger with the given configuration.
 func NewIntervalTrigger(config map[string]interface{}) (node.Node, error) {
 	base := node.NewBaseNode(config)
 
-	trigger := &IntervalTrigger{
-		BaseNode: base,
-		stopCh:   make(chan struct{}),
-	}
+	trigger := &IntervalTrigger{BaseNode: base}
 
-	// Parse interval from config
+	// Parse interval from config. Minimum 100ms to prevent excessive
+	// triggering; capped so huge values can't overflow the Duration.
 	intervalMs := base.GetConfigInt("interval", 1000)
 	if intervalMs < 100 {
 		log.Warn().Int("requested", intervalMs).Msg("interval below 100ms minimum; clamping to 100ms")
-		intervalMs = 100 // Minimum 100ms to prevent excessive triggering
 	}
-	trigger.interval = time.Duration(intervalMs) * time.Millisecond
+	trigger.interval = msDuration(intervalMs, 100*time.Millisecond, 100*time.Millisecond, maxTriggerInterval)
 
 	return trigger, nil
 }
@@ -74,20 +69,13 @@ func (t *IntervalTrigger) Validate() error {
 
 // Start begins the interval trigger.
 func (t *IntervalTrigger) Start(ctx context.Context, out chan<- *types.Message) error {
-	t.mu.Lock()
-	if t.running {
-		t.mu.Unlock()
-		return fmt.Errorf("trigger already running")
+	stopCh, done, err := t.run.begin()
+	if err != nil {
+		return err
 	}
-	t.running = true
-	t.stopCh = make(chan struct{})
-	t.mu.Unlock()
 
-	t.wg.Add(1)
 	go func() {
-		defer t.wg.Done()
-		ticker := time.NewTicker(t.interval)
-		defer ticker.Stop()
+		defer close(done)
 
 		// The router no longer closes the output channel under the sender, so a
 		// panic here means a genuine bug, not a benign closed-channel send. Log
@@ -102,11 +90,14 @@ func (t *IntervalTrigger) Start(ctx context.Context, out chan<- *types.Message) 
 			}
 		}()
 
+		ticker := time.NewTicker(t.interval)
+		defer ticker.Stop()
+
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-t.stopCh:
+			case <-stopCh:
 				return
 			case tickTime := <-ticker.C:
 				t.mu.Lock()
@@ -127,7 +118,7 @@ func (t *IntervalTrigger) Start(ctx context.Context, out chan<- *types.Message) 
 				select {
 				case <-ctx.Done():
 					return
-				case <-t.stopCh:
+				case <-stopCh:
 					return
 				case out <- msg:
 				default:
@@ -143,18 +134,7 @@ func (t *IntervalTrigger) Start(ctx context.Context, out chan<- *types.Message) 
 
 // Stop stops the interval trigger.
 func (t *IntervalTrigger) Stop() error {
-	t.mu.Lock()
-	if !t.running {
-		t.mu.Unlock()
-		return nil
-	}
-
-	close(t.stopCh)
-	t.running = false
-	t.mu.Unlock()
-
-	// Wait for goroutine to exit (outside the lock to avoid deadlock)
-	t.wg.Wait()
+	t.run.end()
 	return nil
 }
 

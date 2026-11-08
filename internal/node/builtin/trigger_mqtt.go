@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/Pegasus8/piworker/internal/metrics"
 	"github.com/Pegasus8/piworker/internal/node"
@@ -24,6 +25,9 @@ type MqttTrigger struct {
 	password string
 	topic    string
 	qos      byte
+
+	initialConnectWait   time.Duration
+	connectRetryInterval time.Duration
 
 	mu      sync.Mutex
 	running bool
@@ -50,11 +54,14 @@ func NewMqttTrigger(config map[string]interface{}) (node.Node, error) {
 	return &MqttTrigger{
 		BaseNode: base,
 		broker:   broker,
-		clientID: base.GetConfigString("clientId", "piworker-sub"),
+		clientID: resolveMqttClientID(base.GetConfigString("clientId", ""), "piworker-sub"),
 		username: expandSecrets(base.GetConfigString("username", "")),
 		password: expandSecrets(base.GetConfigString("password", "")),
 		topic:    topic,
 		qos:      qos,
+
+		initialConnectWait:   mqttInitialConnectWait,
+		connectRetryInterval: mqttConnectRetryInterval,
 	}, nil
 }
 
@@ -74,33 +81,23 @@ func mqttMessagePayload(topic string, payload []byte) map[string]interface{} {
 	return map[string]interface{}{"topic": topic, "payload": body}
 }
 
+// mqttInitialConnectWait is how long Start waits for the first connection
+// before returning and leaving the client to retry in the background.
+const mqttInitialConnectWait = 2 * time.Second
+
 // Start connects to the broker and subscribes to the topic.
+//
+// The subscription is (re)issued from the OnConnect handler: with a clean
+// session the broker forgets subscriptions whenever the connection drops, so
+// subscribing only once would silently stop delivery after the first Wi-Fi
+// flap. If the broker is not reachable yet (e.g. the Pi booted before the
+// network came up) Start still succeeds and the client keeps retrying in the
+// background.
 func (t *MqttTrigger) Start(ctx context.Context, out chan<- *types.Message) error {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	if t.running {
-		t.mu.Unlock()
 		return fmt.Errorf("trigger already running")
-	}
-	t.mu.Unlock()
-
-	opts := mqtt.NewClientOptions().
-		AddBroker(t.broker).
-		SetClientID(t.clientID).
-		SetConnectTimeout(mqttConnectTimeout)
-	if t.username != "" {
-		opts.SetUsername(t.username)
-	}
-	if t.password != "" {
-		opts.SetPassword(t.password)
-	}
-
-	client := mqtt.NewClient(opts)
-	tok := client.Connect()
-	if !tok.WaitTimeout(mqttConnectTimeout) {
-		return fmt.Errorf("mqtt connect timed out")
-	}
-	if err := tok.Error(); err != nil {
-		return fmt.Errorf("mqtt connect failed: %w", err)
 	}
 
 	handler := func(_ mqtt.Client, m mqtt.Message) {
@@ -116,24 +113,41 @@ func (t *MqttTrigger) Start(ctx context.Context, out chan<- *types.Message) erro
 		}
 	}
 
-	subTok := client.Subscribe(t.topic, t.qos, handler)
-	if !subTok.WaitTimeout(mqttConnectTimeout) {
-		client.Disconnect(250)
-		return fmt.Errorf("mqtt subscribe timed out")
-	}
-	if err := subTok.Error(); err != nil {
-		client.Disconnect(250)
-		return fmt.Errorf("mqtt subscribe failed: %w", err)
+	opts := newMqttClientOptions(t.broker, t.clientID, t.username, t.password).
+		SetConnectRetry(true).
+		SetConnectRetryInterval(t.connectRetryInterval).
+		SetOnConnectHandler(func(c mqtt.Client) {
+			// Runs in its own goroutine, so waiting here is safe.
+			tok := c.Subscribe(t.topic, t.qos, handler)
+			if !tok.WaitTimeout(mqttConnectTimeout) {
+				log.Warn().Str("topic", t.topic).Msg("mqtt subscribe timed out")
+				return
+			}
+			if err := tok.Error(); err != nil {
+				log.Error().Err(err).Str("topic", t.topic).Msg("mqtt subscribe failed")
+			}
+		}).
+		SetConnectionLostHandler(func(_ mqtt.Client, err error) {
+			log.Warn().Err(err).Str("broker", t.broker).Msg("mqtt connection lost; reconnecting")
+		})
+
+	client := mqtt.NewClient(opts)
+	tok := client.Connect()
+	// Wait only briefly: the runtime starts triggers synchronously, and an
+	// unreachable broker is not a configuration error. Only invalid config
+	// (checked in the constructor) makes Start fail.
+	if !tok.WaitTimeout(t.initialConnectWait) {
+		log.Warn().Str("broker", t.broker).Msg("mqtt broker not reachable yet; retrying in background")
+	} else if err := tok.Error(); err != nil {
+		log.Warn().Err(err).Str("broker", t.broker).Msg("mqtt connect failed; retrying in background")
 	}
 
-	t.mu.Lock()
 	t.client = client
 	t.running = true
-	t.mu.Unlock()
 	return nil
 }
 
-// Stop unsubscribes and disconnects.
+// Stop unsubscribes and disconnects. It also aborts a pending connect retry.
 func (t *MqttTrigger) Stop() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -141,7 +155,9 @@ func (t *MqttTrigger) Stop() error {
 		return nil
 	}
 	if t.client != nil {
-		t.client.Unsubscribe(t.topic)
+		if t.client.IsConnected() {
+			t.client.Unsubscribe(t.topic).WaitTimeout(time.Second)
+		}
 		t.client.Disconnect(250)
 		t.client = nil
 	}
@@ -171,7 +187,7 @@ func mqttTriggerConfigSchema() node.ConfigSchema {
 			"broker":   {Type: "string", Title: "Broker", Description: "Broker URL, e.g. tcp://host:1883"},
 			"topic":    {Type: "string", Title: "Topic", Description: "Topic filter to subscribe to (supports +/# wildcards)"},
 			"qos":      {Type: "number", Title: "QoS", Description: "0, 1 or 2", Default: 0},
-			"clientId": {Type: "string", Title: "Client ID", Description: "MQTT client id", Default: "piworker-sub"},
+			"clientId": {Type: "string", Title: "Client ID", Description: "MQTT client id (leave empty for a unique per-node id)", Default: ""},
 			"username": {Type: "string", Title: "Username", Description: "Optional ({{secret.NAME}} supported)"},
 			"password": {Type: "string", Title: "Password", Description: "Optional ({{secret.NAME}} supported)"},
 		},
@@ -204,8 +220,15 @@ payloads are parsed; others pass through as strings. Credentials support
 | broker | string | - | Broker URL (tcp://host:1883) |
 | topic | string | - | Topic filter (+/# wildcards) |
 | qos | number | 0 | 0, 1 or 2 |
-| clientId | string | piworker-sub | Client id |
+| clientId | string | (unique) | Client id; empty generates piworker-sub-<random> per node |
 | username/password | string | - | Optional credentials |
+
+## Connection
+
+The node reconnects automatically after a network drop and re-subscribes on
+every (re)connect. If the broker is unreachable when the flow starts (e.g. the
+device booted before the network was up) the flow still starts and the node
+keeps retrying in the background.
 
 ## Output payload
 
