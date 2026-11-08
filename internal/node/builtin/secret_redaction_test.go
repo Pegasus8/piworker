@@ -72,3 +72,22 @@ func TestNotifyHTTPErrorStatusFails(t *testing.T) {
 		assert.Equal(t, retryable, node.IsRetryable(err), "status %d", status)
 	}
 }
+
+// API keys are often put in the query string or userinfo; a network error must
+// not echo them into logs and the UI. Host and path stay visible for debugging.
+func TestHTTPErrorDoesNotLeakQueryOrUserinfo(t *testing.T) {
+	n, err := NewHTTPAction(map[string]interface{}{
+		"url":    "https://user:pa55word@api.example.com/v1/items?apikey=supersecret&x=1",
+		"method": "GET",
+	})
+	require.NoError(t, err)
+	a := n.(*HTTPAction)
+	a.client = failingClient()
+
+	_, err = a.Process(context.Background(), types.NewMessage("x", types.DataTypeString))
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "supersecret")
+	assert.NotContains(t, err.Error(), "pa55word")
+	assert.Contains(t, err.Error(), "api.example.com/v1/items")
+	assert.True(t, node.IsRetryable(err), "GET network failures stay transient")
+}

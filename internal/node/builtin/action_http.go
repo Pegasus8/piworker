@@ -378,6 +378,8 @@ func (a *HTTPAction) Process(ctx context.Context, msg *types.Message) ([]*types.
 		// Retry them only for idempotent methods, or when the user opted in via
 		// `retryable`, so non-idempotent requests (POST/PATCH) are never re-sent
 		// and duplicated by the runtime's retry logic.
+		// Hide the query string and userinfo, where API keys usually live.
+		err = redactURLError(err, req.URL.String(), urlWithoutSecrets(req.URL), req.URL.RawQuery)
 		wrapped := fmt.Errorf("HTTP request failed: %w", err)
 		if a.isIdempotent() || a.retryable {
 			return nil, node.Transient(wrapped)

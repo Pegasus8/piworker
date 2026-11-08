@@ -55,3 +55,13 @@ func displayURL(raw string) string {
 	}
 	return u.Scheme + "://" + u.Host + "/<redacted>"
 }
+
+// urlWithoutSecrets returns scheme://host/path, dropping userinfo, query and
+// fragment so errors keep enough to debug without exposing credentials.
+func urlWithoutSecrets(u *url.URL) string {
+	shown := url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path}
+	if u.RawQuery != "" {
+		return shown.String() + "?<redacted>"
+	}
+	return shown.String()
+}
