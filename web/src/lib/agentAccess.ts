@@ -320,7 +320,9 @@ export function formatJSONText(value: unknown): string {
   }
 }
 
-/** "in 12 min", "3 h ago", "just now"… for an ISO time relative to now. */
+const RELATIVE_LIMIT_MS = 45 * 86_400_000
+
+/** "in 12 min", "3 h ago", "just now"… for an ISO time relative to now; "on <date>" beyond 45 days. */
 export function formatRelative(iso: string | undefined, now: Date = new Date()): string {
   if (!iso) return ''
   const t = new Date(iso).getTime()
@@ -328,6 +330,7 @@ export function formatRelative(iso: string | undefined, now: Date = new Date()):
   const diff = t - now.getTime()
   const abs = Math.abs(diff)
   const future = diff > 0
+  if (abs >= RELATIVE_LIMIT_MS) return `on ${new Date(t).toLocaleDateString()}`
   if (abs < 60_000) return future ? 'in a few seconds' : 'just now'
   let text: string
   if (abs < 3_600_000) text = `${Math.round(abs / 60_000)} min`

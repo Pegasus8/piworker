@@ -158,6 +158,10 @@ test('relative times read naturally in both directions', () => {
   expect(formatRelative('2026-11-01T12:00:00Z', now)).toBe('7 days ago')
   expect(formatRelative('2026-11-08T11:59:30Z', now)).toBe('just now')
   expect(formatRelative('', now)).toBe('')
+  // Far-off times read better as dates.
+  expect(formatRelative('2026-12-20T12:00:00Z', now)).toBe('in 42 days')
+  expect(formatRelative('2099-01-01T00:00:00Z', now)).toBe('on ' + new Date('2099-01-01T00:00:00Z').toLocaleDateString())
+  expect(formatRelative('2026-08-01T00:00:00Z', now)).toBe('on ' + new Date('2026-08-01T00:00:00Z').toLocaleDateString())
 })
 
 test('audit filters become API parameters, empty ones are left out', () => {
