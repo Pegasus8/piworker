@@ -24,7 +24,7 @@ On PiWorker:
 3. Note the CA fingerprint under **Settings → Trust this device**
    (`SHA256:AB:CD:…`). It is also printed when PiWorker starts.
 
-The editor's new-token dialog shows the commands and configuration below,
+The editor's new-token dialog shows similar commands and configuration,
 already filled in for your PiWorker.
 
 ## 2. Install the bridge
@@ -39,26 +39,35 @@ below) and check it against `SHA256SUMS`:
 | Windows (x64) | `piworker-mcp-windows-amd64.exe` |
 | Linux x86-64 / ARM64 / ARMv7 | `piworker-mcp-linux-amd64` / `-linux-arm64` / `-linux-armv7` |
 
-**macOS / Linux**
+**macOS / Linux**: in the download folder, set `f` to the file you downloaded
+and run the whole block. Each step runs only if the previous one succeeded, so
+nothing is installed unless the checksum check prints `OK`. The binary is not
+notarized, so on macOS `xattr` removes the download quarantine (on Linux it
+does nothing). On Linux without `shasum`, use `sha256sum -c -`.
 
 ```bash
-f=piworker-mcp-darwin-arm64        # the file you downloaded
-grep "$f\$" SHA256SUMS | shasum -a 256 -c -   # Linux: sha256sum -c -
-# macOS only: the binary is not notarized, so remove the download quarantine.
-xattr -d com.apple.quarantine "$f" 2>/dev/null || true
-sudo mkdir -p /usr/local/bin
-sudo install -m 755 "$f" /usr/local/bin/piworker-mcp
-/usr/local/bin/piworker-mcp --version
+f=piworker-mcp-darwin-arm64
+awk -v f="./$f" '$2 == f' SHA256SUMS | shasum -a 256 -c - &&
+  { xattr -d com.apple.quarantine "$f" 2>/dev/null || true; } &&
+  sudo mkdir -p /usr/local/bin &&
+  sudo install -m 755 "$f" /usr/local/bin/piworker-mcp &&
+  /usr/local/bin/piworker-mcp --version
 ```
 
-**Windows (PowerShell)**
+**Windows (PowerShell)**: in the download folder, run the whole block. It stops
+with "checksum mismatch" before installing anything if the file does not match
+`SHA256SUMS`.
 
 ```powershell
-(Get-FileHash .\piworker-mcp-windows-amd64.exe -Algorithm SHA256).Hash   # compare with SHA256SUMS
-$dir = "$env:LOCALAPPDATA\Programs\piworker-mcp"
-New-Item -ItemType Directory -Force $dir | Out-Null
-Move-Item .\piworker-mcp-windows-amd64.exe "$dir\piworker-mcp.exe"
-& "$dir\piworker-mcp.exe" --version
+& {
+  $f = 'piworker-mcp-windows-amd64.exe'
+  $sum = (Select-String -Path SHA256SUMS -SimpleMatch "./$f").Line -split '\s+' | Select-Object -First 1
+  if (-not $sum -or (Get-FileHash $f -Algorithm SHA256).Hash -ne $sum) { throw "checksum mismatch: do not use $f" }
+  $dir = "$env:LOCALAPPDATA\Programs\piworker-mcp"
+  New-Item -ItemType Directory -Force $dir | Out-Null
+  Move-Item -Force $f "$dir\piworker-mcp.exe"
+  & "$dir\piworker-mcp.exe" --version
+}
 ```
 
 ## 3. Save the token in a private file
@@ -66,10 +75,12 @@ Move-Item .\piworker-mcp-windows-amd64.exe "$dir\piworker-mcp.exe"
 The token is never given on the command line (other users can read process
 arguments). It is read from a file that only you can read.
 
-**macOS / Linux** — the command the editor shows:
+**macOS / Linux**: run this, paste the token at the `Token:` prompt (it is not
+shown) and press Enter. The token is read by the shell, so it does not end up
+in your shell history, as it would if it were part of the command.
 
 ```bash
-(umask 077 && printf '%s\n' 'pwk_…' > ~/.piworker-token)
+(umask 077 && printf 'Token: ' && read -rs t && echo && printf '%s\n' "$t" > ~/.piworker-token)
 ```
 
 The bridge refuses a token file that group or others can access, and tells
@@ -80,10 +91,13 @@ access:
 
 ```powershell
 $token = "$env:USERPROFILE\.piworker-token"
-Set-Content -Path $token -Value 'pwk_…' -Encoding ascii
+Read-Host 'Token' | Set-Content -Path $token -Encoding ascii
 icacls $token /inheritance:r /grant:r "${env:USERNAME}:(R,W)"
 icacls $token   # should list only you
 ```
+
+Paste the token at the `Token` prompt: typed into `Read-Host`, it does not end
+up in PowerShell's command history.
 
 `/inheritance:r` drops the permissions inherited from your profile folder and
 `/grant:r` leaves read and write for you alone. The bridge refuses a token file
@@ -190,17 +204,21 @@ nothing is pinned. A pinned CA replaces the system CAs; it is never added to
 them.
 
 With `--ca-fingerprint` alone the bridge first needs the CA certificate itself.
-PiWorker presents only its server certificate, so before the first request the
-bridge looks for the CA in the certificate chain the server presents and, when
-it is not there, downloads PiWorker's public `/piworker-ca.crt` from the same
-host and port. Neither step sends the token or trusts the server: only a
-certificate whose SHA-256 fingerprint equals the pin is used. When the server
-presents a root certificate that is not the pinned CA, the bridge stops before
-sending any request. Then every request is verified normally against that CA.
+PiWorker (`tls.mode = "auto"`) presents its CA after its server certificate,
+so the bridge finds it in the TLS handshake before the first request; when the
+server presents a root certificate that is not the pinned CA, the bridge stops
+without sending any request. Only a server that presents no root at all (for
+example `tls.mode = "custom"` with a certificate file that holds only the
+server certificate) makes the bridge download the public `/piworker-ca.crt`
+from the same host and port, without the token. Only a certificate whose
+SHA-256 fingerprint equals the pin is ever used, and every request is then
+verified normally against it.
 
 So a device impersonating your Pi on the network (mDNS or ARP spoofing) gets
 neither the token nor your agent's requests, and cannot feed the agent tool
-descriptions or results.
+descriptions, results or error text: an error lists a certificate's names only
+when the certificate is signed by the trusted CA, and never quotes what an
+unverified server sent.
 
 ## Behaviour
 
@@ -246,8 +264,8 @@ for HTTP errors, `data.httpStatus`:
 | HTTP 429 | The token's rate limit was reached; `data.retryAfter` holds the seconds from `Retry-After`. |
 | HTTP 5xx | PiWorker failed to handle the request. |
 | Wrong fingerprint | PiWorker's CA does not match `--ca-fingerprint` (both fingerprints shown); the token was not sent. |
-| Wrong host name | The certificate is not valid for the `--url` host (the names it covers are listed); add the name to `tls.hosts`. |
-| Untrusted certificate | Pass `--ca-fingerprint` or `--ca-file`. |
+| Wrong host name | The certificate is not valid for the `--url` host; when it is signed by the trusted CA, the names it covers are listed: use one, or add the name to `tls.hosts`. A certificate with a wrong name that is not signed by the trusted CA is reported as untrusted, without its names. |
+| Untrusted certificate | Not signed by the trusted CA. With a pin: PiWorker's CA was regenerated, or another device is answering; the token was not sent. Without: pass `--ca-fingerprint` or `--ca-file`. |
 | Timeout / unreachable | PiWorker did not answer within `--timeout` / cannot be reached at host:port. |
 
 A JSON-RPC error PiWorker's MCP layer sends with another HTTP status (for

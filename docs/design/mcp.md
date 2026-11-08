@@ -469,15 +469,22 @@ windows amd64, attached to releases) with `--url`, `--token-file`, `--ca-file`
   anything else relay unchanged. No session id, no GET stream, no batches.
 - `--url` is https, or plain http to a loopback IP literal only; no
   credentials, query or fragment. The token comes only from `--token-file`
-  (starts with `pwk_`, trimmed, BOM skipped; on Unix refused when group/others
-  have any access); `~` is expanded. Neither is ever logged or echoed.
+  (starts with `pwk_`, trimmed, BOM skipped; refused when group/others have
+  any access on Unix, or when its DACL lets anyone but the user, SYSTEM and
+  Administrators read or change it on Windows); `~` is expanded. Neither is
+  ever logged or echoed, and a flag value that looks like a token is refused
+  without being echoed.
 - One trust anchor per connection, verified for the `--url` host: the pinned CA
   (file, filtered by the fingerprint when both are given) or the system roots.
-  Since `internal/tlsca` serves only the leaf, a CA pinned by fingerprint alone
-  is found before the first request in the presented chain, else via an
-  unauthenticated GET of `/piworker-ca.crt`; only a certificate with that SHA-256
-  is used, and a presented root that does not match stops the bridge before any
-  request. No HTTP proxy, no redirects.
+  `internal/tlsca` presents [server certificate, CA] in auto mode, so a CA
+  pinned by fingerprint alone is found in the handshake before the first
+  request, and a presented root that does not match stops the bridge before
+  any request; only a server presenting no root (e.g. custom mode with a
+  leaf-only file) gets an unauthenticated GET of `/piworker-ca.crt`. Only a
+  certificate with that SHA-256 is used. No HTTP proxy, no redirects. Errors
+  never quote an unverified server (Go checks the host name before the
+  signature): a certificate's names are listed only when its chain verifies
+  against the trust anchor.
 - Up to 8 HTTP requests at once, 64 queued, answered in completion order;
   `notifications/cancelled` aborts the matching POST (stateless servers cannot
   match a forwarded one) and drops its answer; nothing is retried. From
