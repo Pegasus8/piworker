@@ -162,6 +162,10 @@ func TestReadsNeedTheReadScope(t *testing.T) {
 		"GetFlow":   func(a Actor) error { _, err := e.reads.GetFlow(ctx, a, f.ID); return err },
 		"ListRuns":  func(a Actor) error { _, err := e.reads.ListRuns(ctx, a, f.ID, 10, ""); return err },
 		"GetRun":    func(a Actor) error { _, err := e.reads.GetRun(ctx, a, f.ID, "run-1"); return err },
+		"DiagnoseFlow": func(a Actor) error {
+			_, err := e.reads.DiagnoseFlow(ctx, a, f.ID)
+			return err
+		},
 		"SystemStatus": func(a Actor) error {
 			_, err := e.reads.SystemStatus(ctx, a)
 			return err
