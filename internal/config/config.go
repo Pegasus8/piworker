@@ -23,6 +23,9 @@ type Config struct {
 	CORSOrigins   []string `toml:"cors_origins"`
 	AdminUser     string   `toml:"admin_user"`
 	AdminPass     string   `toml:"admin_pass"`
+
+	// MCP is the [mcp] section: AI agents over the Model Context Protocol.
+	MCP MCPConfig `toml:"mcp"`
 }
 
 // DefaultConfigPath is the config file looked up when none is specified.
@@ -36,6 +39,7 @@ func Default() Config {
 		Debug:       false,
 		Auth:        true,
 		CORSOrigins: []string{"http://localhost:3000", "http://localhost:8080"},
+		MCP:         DefaultMCP(),
 	}
 }
 
@@ -107,6 +111,7 @@ func (c *Config) applyEnv() error {
 	if v, ok := os.LookupEnv("PIWORKER_ADMIN_PASS"); ok {
 		c.AdminPass = v
 	}
+	errs = append(errs, c.MCP.applyEnv())
 	return errors.Join(errs...)
 }
 

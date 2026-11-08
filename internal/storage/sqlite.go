@@ -149,7 +149,10 @@ CREATE TABLE IF NOT EXISTS vars (
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
 	}
-	return migrateHistory(s.db)
+	if err := migrateHistory(s.db); err != nil {
+		return err
+	}
+	return s.migrateAgent()
 }
 
 // GetSetting returns a stored setting value and whether it exists.

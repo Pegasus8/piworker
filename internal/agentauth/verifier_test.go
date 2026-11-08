@@ -1,0 +1,365 @@
+package agentauth
+
+import (
+	"errors"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/Pegasus8/piworker/internal/storage"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+var t0 = time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+
+// fakeClock is a manually advanced clock safe for concurrent use.
+type fakeClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	c.now = c.now.Add(d)
+	c.mu.Unlock()
+}
+
+// countingStore wraps a real store and counts the calls the verifier makes.
+type countingStore struct {
+	*storage.SQLiteStore
+	gets, epochs, touches atomic.Int32
+	onGet                 func(id string)
+	failGet, failEpoch    error
+}
+
+func (c *countingStore) GetAPIToken(id string) (*storage.APIToken, error) {
+	c.gets.Add(1)
+	if c.failGet != nil {
+		return nil, c.failGet
+	}
+	tok, err := c.SQLiteStore.GetAPIToken(id)
+	if c.onGet != nil {
+		c.onGet(id)
+	}
+	return tok, err
+}
+
+func (c *countingStore) TokensEpoch() (int64, error) {
+	c.epochs.Add(1)
+	if c.failEpoch != nil {
+		return 0, c.failEpoch
+	}
+	return c.SQLiteStore.TokensEpoch()
+}
+
+func (c *countingStore) TouchAPITokenLastUsed(id string, now time.Time) error {
+	c.touches.Add(1)
+	return c.SQLiteStore.TouchAPITokenLastUsed(id, now)
+}
+
+func newStore(t *testing.T) (*storage.SQLiteStore, string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "agent.db")
+	s, err := storage.NewSQLiteStore(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { s.Close() })
+	return s, path
+}
+
+func newVerifier(t *testing.T) (*TokenVerifier, *countingStore, *fakeClock) {
+	t.Helper()
+	s, _ := newStore(t)
+	cs := &countingStore{SQLiteStore: s}
+	clock := &fakeClock{now: t0}
+	return NewTokenVerifier(cs, WithClock(clock.Now)), cs, clock
+}
+
+func createToken(t *testing.T, s interface {
+	CreateAPIToken(storage.NewAPIToken, time.Time) (*storage.APIToken, string, error)
+}, req storage.NewAPIToken) (*storage.APIToken, string) {
+	t.Helper()
+	if req.Name == "" {
+		req.Name = "agent"
+	}
+	if req.Scopes == nil {
+		req.Scopes = []string{storage.ScopeCall}
+	}
+	tok, raw, err := s.CreateAPIToken(req, t0)
+	require.NoError(t, err)
+	return tok, raw
+}
+
+func TestVerifyReturnsTokenInfo(t *testing.T) {
+	v, cs, _ := newVerifier(t)
+	grants := []storage.TokenGrant{{FlowID: "f", TriggerNodeID: "n", Fingerprint: "fp"}}
+	tok, raw := createToken(t, cs.SQLiteStore, storage.NewAPIToken{
+		Name: "desk", Scopes: []string{storage.ScopeRead, storage.ScopeCall}, Privileged: true, Grants: grants, AllTools: true,
+	})
+	info, err := v.Verify(raw)
+	require.NoError(t, err)
+	assert.Equal(t, TokenInfo{
+		ID: tok.ID, Name: "desk", Scopes: []string{storage.ScopeCall, storage.ScopeRead}, Privileged: true,
+		Grants: grants, AllTools: true, ExpiresAt: tok.ExpiresAt,
+	}, info)
+	assert.True(t, info.HasScope(storage.ScopeRead))
+	assert.False(t, info.HasScope(storage.ScopeDeploy))
+}
+
+func TestVerifyRejectsBadTokens(t *testing.T) {
+	v, cs, _ := newVerifier(t)
+	_, raw := createToken(t, cs.SQLiteStore, storage.NewAPIToken{})
+	id, secret, _ := storage.ParseAPIToken(raw)
+
+	for _, bad := range []string{"", "Bearer " + raw, "pwk_short_x", raw + "a"} {
+		_, err := v.Verify(bad)
+		require.ErrorIs(t, err, ErrInvalidToken, bad)
+	}
+	assert.Equal(t, int32(0), cs.gets.Load(), "malformed tokens never reach the database")
+
+	wrong := strings.Repeat("a", len(secret))
+	if wrong == secret {
+		wrong = strings.Repeat("b", len(secret))
+	}
+	_, err := v.Verify("pwk_" + id + "_" + wrong)
+	require.ErrorIs(t, err, ErrInvalidToken, "wrong secret, cold cache")
+
+	_, err = v.Verify("pwk_" + strings.Repeat("q", 16) + "_" + secret)
+	require.ErrorIs(t, err, ErrInvalidToken, "unknown id")
+
+	_, err = v.Verify(raw)
+	require.NoError(t, err)
+	_, err = v.Verify("pwk_" + id + "_" + wrong)
+	require.ErrorIs(t, err, ErrInvalidToken, "wrong secret, warm cache")
+}
+
+func TestVerifyCachesVerifiedTokens(t *testing.T) {
+	v, cs, clock := newVerifier(t)
+	_, raw := createToken(t, cs.SQLiteStore, storage.NewAPIToken{})
+	for range 5 {
+		_, err := v.Verify(raw)
+		require.NoError(t, err)
+		clock.Advance(time.Second)
+	}
+	assert.Equal(t, int32(1), cs.gets.Load(), "verified tokens are served from memory")
+	assert.LessOrEqual(t, cs.epochs.Load(), int32(2), "the epoch is re-read at most every 5 s")
+}
+
+func TestReturnedInfoIsACopy(t *testing.T) {
+	v, cs, _ := newVerifier(t)
+	_, raw := createToken(t, cs.SQLiteStore, storage.NewAPIToken{Grants: []storage.TokenGrant{{FlowID: "f", TriggerNodeID: "n", Fingerprint: "fp"}}})
+	info, err := v.Verify(raw)
+	require.NoError(t, err)
+	info.Scopes[0] = storage.ScopeDeploy
+	info.Grants[0].Suspended = true
+	again, err := v.Verify(raw)
+	require.NoError(t, err)
+	assert.Equal(t, []string{storage.ScopeCall}, again.Scopes)
+	assert.False(t, again.Grants[0].Suspended)
+}
+
+func TestExpiredTokenRejected(t *testing.T) {
+	v, cs, clock := newVerifier(t)
+	_, raw := createToken(t, cs.SQLiteStore, storage.NewAPIToken{ExpiresAt: t0.Add(time.Hour)})
+	_, err := v.Verify(raw)
+	require.NoError(t, err)
+	clock.Advance(time.Hour)
+	_, err = v.Verify(raw)
+	require.ErrorIs(t, err, ErrInvalidToken, "a cached token stops working at its expiry")
+
+	// Cold cache: a token that is already expired is never accepted.
+	cold := NewTokenVerifier(cs, WithClock(clock.Now))
+	_, err = cold.Verify(raw)
+	require.ErrorIs(t, err, ErrInvalidToken)
+}
+
+func TestRevokeEvictsCache(t *testing.T) {
+	v, cs, _ := newVerifier(t)
+	tok, raw := createToken(t, cs.SQLiteStore, storage.NewAPIToken{})
+	other, otherRaw := createToken(t, cs.SQLiteStore, storage.NewAPIToken{})
+	_, err := v.Verify(raw)
+	require.NoError(t, err)
+	_, err = v.Verify(otherRaw)
+	require.NoError(t, err)
+
+	require.NoError(t, v.Revoke(tok.ID))
+	_, err = v.Verify(raw)
+	require.ErrorIs(t, err, ErrInvalidToken, "revocation applies immediately in this process")
+	stored, err := cs.GetAPIToken(tok.ID)
+	require.NoError(t, err)
+	require.NotNil(t, stored.RevokedAt)
+
+	_, err = v.Verify(otherRaw)
+	require.NoError(t, err, "other tokens keep working")
+	require.ErrorIs(t, v.Revoke("missing"), storage.ErrAPITokenNotFound)
+	_ = other
+}
+
+func TestEvictDropsCachedEntry(t *testing.T) {
+	v, cs, _ := newVerifier(t)
+	tok, raw := createToken(t, cs.SQLiteStore, storage.NewAPIToken{})
+	_, err := v.Verify(raw)
+	require.NoError(t, err)
+	// Changed behind the verifier's back (same process, without Revoke).
+	require.NoError(t, cs.SQLiteStore.SetAPITokenGrants(tok.ID, []storage.TokenGrant{{FlowID: "f", TriggerNodeID: "n", Fingerprint: "new"}}))
+	info, err := v.Verify(raw)
+	require.NoError(t, err)
+	assert.Empty(t, info.Grants, "still cached")
+	v.Evict(tok.ID)
+	info, err = v.Verify(raw)
+	require.NoError(t, err)
+	require.Len(t, info.Grants, 1)
+	assert.Equal(t, "new", info.Grants[0].Fingerprint)
+}
+
+func TestRevokeAllRevokesAndEvicts(t *testing.T) {
+	v, cs, _ := newVerifier(t)
+	_, a := createToken(t, cs.SQLiteStore, storage.NewAPIToken{})
+	_, b := createToken(t, cs.SQLiteStore, storage.NewAPIToken{})
+	for _, raw := range []string{a, b} {
+		_, err := v.Verify(raw)
+		require.NoError(t, err)
+	}
+	n, err := v.RevokeAll()
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+	for _, raw := range []string{a, b} {
+		_, err := v.Verify(raw)
+		require.ErrorIs(t, err, ErrInvalidToken)
+	}
+}
+
+func TestEpochChangeFromSecondHandleRevokesWithinInterval(t *testing.T) {
+	a, path := newStore(t)
+	b, err := storage.NewSQLiteStore(path) // e.g. another piworker process
+	require.NoError(t, err)
+	defer b.Close()
+	clock := &fakeClock{now: t0}
+	v := NewTokenVerifier(a, WithClock(clock.Now))
+
+	tok, raw := createToken(t, a, storage.NewAPIToken{})
+	_, other := createToken(t, a, storage.NewAPIToken{})
+	_, err = v.Verify(raw)
+	require.NoError(t, err)
+	_, err = v.Verify(other)
+	require.NoError(t, err)
+
+	require.NoError(t, b.RevokeAPIToken(tok.ID, t0))
+	clock.Advance(DefaultEpochInterval - time.Millisecond)
+	_, err = v.Verify(raw)
+	require.NoError(t, err, "within the interval the cache may still answer")
+	clock.Advance(time.Millisecond)
+	_, err = v.Verify(raw)
+	require.ErrorIs(t, err, ErrInvalidToken, "after the interval the epoch change evicts the cache")
+	_, err = v.Verify(other)
+	require.NoError(t, err)
+
+	_, err = b.RevokeAllAPITokens(t0)
+	require.NoError(t, err)
+	clock.Advance(DefaultEpochInterval)
+	_, err = v.Verify(other)
+	require.ErrorIs(t, err, ErrInvalidToken)
+}
+
+func TestRevokeDuringLoadDoesNotCacheStaleToken(t *testing.T) {
+	v, cs, _ := newVerifier(t)
+	tok, raw := createToken(t, cs.SQLiteStore, storage.NewAPIToken{})
+	var once sync.Once
+	cs.onGet = func(string) {
+		// The token was read as valid; the admin revokes it before the
+		// verifier stores the result.
+		once.Do(func() { require.NoError(t, v.Revoke(tok.ID)) })
+	}
+	_, _ = v.Verify(raw)
+	_, err := v.Verify(raw)
+	require.ErrorIs(t, err, ErrInvalidToken, "a stale read must not be cached after a revoke")
+}
+
+func TestLastUsedTouchThrottled(t *testing.T) {
+	v, cs, clock := newVerifier(t)
+	tok, raw := createToken(t, cs.SQLiteStore, storage.NewAPIToken{})
+	for range 10 {
+		_, err := v.Verify(raw)
+		require.NoError(t, err)
+		clock.Advance(5 * time.Second)
+	}
+	assert.Equal(t, int32(1), cs.touches.Load(), "at most one write per minute per token")
+	stored, err := cs.SQLiteStore.GetAPIToken(tok.ID)
+	require.NoError(t, err)
+	require.NotNil(t, stored.LastUsedAt)
+	assert.Equal(t, t0, *stored.LastUsedAt)
+
+	clock.Advance(DefaultTouchInterval)
+	_, err = v.Verify(raw)
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), cs.touches.Load())
+
+	// A fresh verifier honours the stored last_used_at instead of writing again.
+	fresh := NewTokenVerifier(cs, WithClock(clock.Now))
+	_, err = fresh.Verify(raw)
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), cs.touches.Load())
+}
+
+func TestStoreFailuresAreNotInvalidToken(t *testing.T) {
+	v, cs, _ := newVerifier(t)
+	_, raw := createToken(t, cs.SQLiteStore, storage.NewAPIToken{})
+	boom := errors.New("disk on fire")
+
+	cs.failEpoch = boom
+	_, err := v.Verify(raw)
+	require.ErrorIs(t, err, boom, "without the epoch the verifier fails closed")
+	require.NotErrorIs(t, err, ErrInvalidToken)
+
+	cs.failEpoch = nil
+	cs.failGet = boom
+	_, err = v.Verify(raw)
+	require.ErrorIs(t, err, boom)
+	require.NotErrorIs(t, err, ErrInvalidToken)
+}
+
+func TestConcurrentVerifyAndRevoke(t *testing.T) {
+	v, cs, clock := newVerifier(t)
+	var raws []string
+	var ids []string
+	for range 4 {
+		tok, raw := createToken(t, cs.SQLiteStore, storage.NewAPIToken{})
+		raws = append(raws, raw)
+		ids = append(ids, tok.ID)
+	}
+	var wg sync.WaitGroup
+	for i := range 16 {
+		wg.Go(func() {
+			for j := range 50 {
+				_, _ = v.Verify(raws[(i+j)%len(raws)])
+				if j%10 == 0 {
+					clock.Advance(time.Second)
+				}
+			}
+		})
+	}
+	wg.Go(func() {
+		for _, id := range ids[:2] {
+			_ = v.Revoke(id)
+		}
+		v.EvictAll()
+	})
+	wg.Wait()
+	for i, raw := range raws {
+		_, err := v.Verify(raw)
+		if i < 2 {
+			require.ErrorIs(t, err, ErrInvalidToken)
+		} else {
+			require.NoError(t, err)
+		}
+	}
+}
