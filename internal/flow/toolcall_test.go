@@ -488,21 +488,19 @@ func TestStopCancelsWaiters(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, rt.Start(context.Background()))
 
-	// Call A times out and keeps running, a Wait for it blocks; call B is
-	// still blocked in Call.
+	// Call A times out and keeps running; call B is still blocked in Call.
 	resA, err := rt.Call(context.Background(), CallRequest{TriggerNodeID: "toolA", Args: map[string]any{}, Timeout: 10 * time.Millisecond})
 	require.NoError(t, err)
 	require.Equal(t, CallStatusRunning, resA.Status)
+	// What a Wait blocked on A holds (taken here so the check below does not
+	// race with Stop).
+	waiterA := rt.calls.get(resA.RunID)
+	require.NotNil(t, waiterA)
 
 	type callOut struct {
 		res CallResult
 		err error
 	}
-	outA := make(chan callOut, 1)
-	go func() {
-		r, err := rt.Wait(context.Background(), resA.RunID)
-		outA <- callOut{r, err}
-	}()
 	outB := make(chan callOut, 1)
 	go func() {
 		r, err := rt.Call(context.Background(), CallRequest{TriggerNodeID: "toolB", Args: map[string]any{}, Timeout: 30 * time.Second})
@@ -525,15 +523,12 @@ func TestStopCancelsWaiters(t *testing.T) {
 		t.Fatal("Stop must release a blocked Call")
 	}
 
-	select {
-	case out := <-outA:
-		require.NoError(t, out.err)
-		assert.Equal(t, CallStatusError, out.res.Status)
-		require.NotNil(t, out.res.Error)
-		assert.Equal(t, "flow stopped", out.res.Error.Message)
-	case <-time.After(3 * time.Second):
-		t.Fatal("Stop must release a blocked Wait")
-	}
+	require.True(t, isClosed(waiterA.done), "Stop must release a blocked Wait")
+	stoppedA := rt.calls.snapshot(waiterA)
+	assert.Equal(t, CallStatusError, stoppedA.Status)
+	require.NotNil(t, stoppedA.Error)
+	assert.Equal(t, "flow stopped", stoppedA.Error.Message)
+	assert.True(t, isClosed(waiterA.runDone))
 	assert.True(t, isClosed(rt.RunDone(resA.RunID)))
 
 	// The stopped runtime keeps no waiter (nothing can reach it any more).
@@ -544,6 +539,44 @@ func TestStopCancelsWaiters(t *testing.T) {
 
 	_, err = rt.Call(context.Background(), CallRequest{TriggerNodeID: "toolA", Args: map[string]any{}, Timeout: time.Second})
 	assert.ErrorIs(t, err, ErrFlowNotRunning)
+}
+
+// TestStopReportsFlowStoppedNotNodeCancellation: a call pending at Stop always
+// reports "flow stopped", never the error of a node that saw the flow's ctx
+// cancelled and finished the run first. Stop must settle the calls before it
+// cancels the nodes; the race is narrow, hence the repetitions.
+func TestStopReportsFlowStoppedNotNodeCancellation(t *testing.T) {
+	for i := 0; i < 150; i++ {
+		entered := make(chan struct{})
+		reg := callRegistryFor(t, map[string]node.NodeFactory{
+			"block": funcFactory(func(ctx context.Context, msg *Message) ([]*Message, error) {
+				close(entered)
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}),
+		})
+		f := callGraph(map[string]string{"tool": "tool", "b": "block"}, [2]string{"tool", "b"})
+		rt, err := NewFlowRuntime(f, reg, WithLogger(zerolog.Nop()))
+		require.NoError(t, err)
+		require.NoError(t, rt.Start(context.Background()))
+
+		out := make(chan CallResult, 1)
+		go func() {
+			res, _ := rt.Call(context.Background(), CallRequest{TriggerNodeID: "tool", Args: map[string]any{}, Timeout: 30 * time.Second})
+			out <- res
+		}()
+		waitClosed(t, entered, "node did not start")
+		require.NoError(t, rt.Stop())
+
+		select {
+		case res := <-out:
+			require.Equal(t, CallStatusError, res.Status, "iteration %d", i)
+			require.NotNil(t, res.Error)
+			require.Equal(t, flowStoppedMessage, res.Error.Message, "iteration %d", i)
+		case <-time.After(3 * time.Second):
+			t.Fatal("Stop must release a blocked Call")
+		}
+	}
 }
 
 func TestCallExpires(t *testing.T) {

@@ -472,10 +472,12 @@ func (r *FlowRuntime) Stop() error {
 // shutdown cancels the runtime, stops the given triggers, closes the router and
 // waits (bounded) for every goroutine to exit before marking it stopped.
 func (r *FlowRuntime) shutdown(triggerIDs []string) {
-	// Cancel the context to signal all goroutines to stop, and release every
-	// caller still waiting for a called run.
-	r.cancel()
+	// Release every caller still waiting for a called run ("flow stopped"),
+	// then cancel the context to signal all goroutines to stop. In this order
+	// a node that returns ctx.Err() cannot end a pending call with its own
+	// error first.
 	r.calls.stop()
+	r.cancel()
 
 	for _, nodeID := range triggerIDs {
 		r.logger.Debug().
