@@ -274,3 +274,39 @@ func TestCompletionWaitsForEventPersistence(t *testing.T) {
 	require.Equal(t, "success", store.getRun("retry").Status)
 	require.Len(t, store.snapshotEvents(), 1, "retry preserves the pending event")
 }
+
+// TestRecorderDoesNotIdleFinalizeRunningRuns: a run with a node still executing
+// (e.g. a long process-delay) is quiet but not finished, so the idle sweep must
+// leave it alone.
+func TestRecorderDoesNotIdleFinalizeRunningRuns(t *testing.T) {
+	store := newFakeStore()
+	rec := NewRecorder(store, WithHub(NewHub()), WithIdleTimeout(5*time.Second))
+
+	base := time.Now()
+	rec.persist(successEvent("r1", "f1", "trigger", "x"), base)
+	rec.persist(runningEvent("r1", "f1", "delay", "process-delay"), base)
+
+	rec.finalizeIdle(base.Add(time.Minute))
+	assert.Equal(t, "running", store.getRun("r1").Status, "a run with a running node is not idle")
+
+	rec.persist(errorEvent("r1", "f1", "delay", "process-delay"), base.Add(2*time.Minute))
+	rec.finalizeIdle(base.Add(3 * time.Minute))
+	run := store.getRun("r1")
+	assert.Equal(t, "error", run.Status)
+	assert.Equal(t, 2, run.NodeCount)
+	assert.Equal(t, 1, run.ErrorCount)
+}
+
+// TestRecorderFinalizesStaleRunningRuns: if a terminal event was lost (queue
+// overflow), a run still eventually finalizes after the stale timeout.
+func TestRecorderFinalizesStaleRunningRuns(t *testing.T) {
+	store := newFakeStore()
+	rec := NewRecorder(store, WithHub(NewHub()), WithIdleTimeout(5*time.Second), WithStaleTimeout(time.Hour))
+
+	base := time.Now()
+	rec.persist(runningEvent("r1", "f1", "n1", "x"), base)
+	rec.finalizeIdle(base.Add(59 * time.Minute))
+	assert.Equal(t, "running", store.getRun("r1").Status)
+	rec.finalizeIdle(base.Add(61 * time.Minute))
+	assert.NotEqual(t, "running", store.getRun("r1").Status)
+}

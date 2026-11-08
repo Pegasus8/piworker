@@ -136,11 +136,12 @@ func (h *EventsHandler) ListRuns(w http.ResponseWriter, r *http.Request) {
 // ListRunEvents returns the node events for a single run.
 // GET /api/flows/{id}/runs/{runId}/events
 func (h *EventsHandler) ListRunEvents(w http.ResponseWriter, r *http.Request) {
-	runID := mux.Vars(r)["runId"]
+	vars := mux.Vars(r)
+	flowID, runID := vars["id"], vars["runId"]
 
-	evs, err := h.store.ListNodeEvents(runID)
+	evs, err := h.store.ListFlowRunEvents(flowID, runID)
 	if err != nil {
-		h.logger.Error().Err(err).Str("runID", runID).Msg("Failed to list run events")
+		h.logger.Error().Err(err).Str("flowID", flowID).Str("runID", runID).Msg("Failed to list run events")
 		writeError(w, http.StatusInternalServerError, "Failed to list run events")
 		return
 	}

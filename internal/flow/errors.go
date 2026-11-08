@@ -31,6 +31,11 @@ var (
 
 	// ErrRuntimeStopped indicates the runtime has been stopped.
 	ErrRuntimeStopped = errors.New("runtime has been stopped")
+
+	// ErrFlowStillStopping indicates a previous instance of the flow timed out
+	// while stopping and still has goroutines executing; deploying again now
+	// would run two instances side by side.
+	ErrFlowStillStopping = errors.New("previous instance of the flow is still stopping")
 )
 
 // ValidationError represents a flow validation error with details.

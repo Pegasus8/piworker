@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/google/uuid"
 )
@@ -210,26 +211,67 @@ func (f *Flow) GetTriggerNodes() []Node {
 	return triggers
 }
 
-// Validate checks if the flow configuration is valid.
+// Validate checks if the flow configuration is valid. Trigger-ness is taken
+// from each node's Category field; callers that can resolve node types should
+// prefer ValidateWithRegistry (or the runtime's instance-based check on
+// deploy), since Category is client-supplied and not authoritative.
 func (f *Flow) Validate() error {
+	return f.validate(func(n *Node) bool { return n.Category == NodeCategoryInput })
+}
+
+// ValidateWithRegistry validates the flow, deciding which nodes are triggers
+// from the registered node type's category instead of the client-supplied
+// Category field. Unregistered types are never treated as triggers.
+func (f *Flow) ValidateWithRegistry(reg *node.Registry) error {
+	return f.validate(func(n *Node) bool {
+		info, ok := reg.Get(n.Type)
+		return ok && info.Category == NodeCategoryInput
+	})
+}
+
+// validate runs the structural checks and requires at least one enabled node
+// for which isTrigger reports true.
+func (f *Flow) validate(isTrigger func(*Node) bool) error {
 	// An empty flow is valid (for initial creation)
 	if len(f.Nodes) == 0 {
 		return nil
 	}
 
+	nodeMap := make(map[string]*Node, len(f.Nodes))
+	for i := range f.Nodes {
+		n := &f.Nodes[i]
+		if n.ID == "" {
+			return NewValidationError("node at index %d (type %s) has an empty ID", i, n.Type)
+		}
+		if _, dup := nodeMap[n.ID]; dup {
+			return NewValidationError("duplicate node ID %s", n.ID)
+		}
+		nodeMap[n.ID] = n
+	}
+
 	// If there are nodes, there must be at least one trigger node
-	triggers := f.GetTriggerNodes()
-	if len(triggers) == 0 {
+	hasTrigger := false
+	for i := range f.Nodes {
+		if f.Nodes[i].Enabled && isTrigger(&f.Nodes[i]) {
+			hasTrigger = true
+			break
+		}
+	}
+	if !hasTrigger {
 		return ErrNoTriggerNodes
 	}
 
 	// Validate all connections reference existing nodes and ports
-	nodeMap := make(map[string]*Node)
-	for i := range f.Nodes {
-		nodeMap[f.Nodes[i].ID] = &f.Nodes[i]
-	}
-
+	connIDs := make(map[string]struct{}, len(f.Connections))
+	adjacency := make(map[string][]string)
 	for _, conn := range f.Connections {
+		if conn.ID != "" {
+			if _, dup := connIDs[conn.ID]; dup {
+				return NewValidationError("duplicate connection ID %s", conn.ID)
+			}
+			connIDs[conn.ID] = struct{}{}
+		}
+
 		sourceNode, ok := nodeMap[conn.SourceNode]
 		if !ok {
 			return NewValidationError("connection %s references non-existent source node %s", conn.ID, conn.SourceNode)
@@ -237,6 +279,9 @@ func (f *Flow) Validate() error {
 		targetNode, ok := nodeMap[conn.TargetNode]
 		if !ok {
 			return NewValidationError("connection %s references non-existent target node %s", conn.ID, conn.TargetNode)
+		}
+		if conn.SourceNode == conn.TargetNode {
+			return NewValidationError("connection %s connects node %s to itself", conn.ID, conn.SourceNode)
 		}
 
 		// Validate ports exist
@@ -246,9 +291,57 @@ func (f *Flow) Validate() error {
 		if !hasPort(targetNode.Inputs, conn.TargetPort) {
 			return NewValidationError("connection %s references non-existent target port %s", conn.ID, conn.TargetPort)
 		}
+		adjacency[conn.SourceNode] = append(adjacency[conn.SourceNode], conn.TargetNode)
+	}
+
+	if cycle := findCycle(f.Nodes, adjacency); cycle != "" {
+		return NewValidationError("flow contains a cycle through node %s", cycle)
 	}
 
 	return nil
+}
+
+// findCycle returns the ID of a node on a cycle, or "" if the graph is acyclic.
+// Iterative DFS with white/grey/black colouring, so a deep chain cannot blow
+// the goroutine stack.
+func findCycle(nodes []Node, adjacency map[string][]string) string {
+	const (
+		white = iota
+		grey
+		black
+	)
+	color := make(map[string]int, len(nodes))
+	type frame struct {
+		id   string
+		next int
+	}
+	for i := range nodes {
+		root := nodes[i].ID
+		if color[root] != white {
+			continue
+		}
+		stack := []frame{{id: root}}
+		color[root] = grey
+		for len(stack) > 0 {
+			top := &stack[len(stack)-1]
+			succ := adjacency[top.id]
+			if top.next >= len(succ) {
+				color[top.id] = black
+				stack = stack[:len(stack)-1]
+				continue
+			}
+			nxt := succ[top.next]
+			top.next++
+			switch color[nxt] {
+			case grey:
+				return nxt
+			case white:
+				color[nxt] = grey
+				stack = append(stack, frame{id: nxt})
+			}
+		}
+	}
+	return ""
 }
 
 // hasPort checks if a port with the given ID exists in the slice.
