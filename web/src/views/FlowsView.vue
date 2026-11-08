@@ -4,6 +4,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFlowsStore } from '@/stores/flows'
 import { useAuthStore } from '@/stores/auth'
+import { useAgentStore } from '@/stores/agent'
 import { useApi } from '@/composables/useApi'
 import { Button, Card, Input, Switch, Badge } from '@/components/ui'
 import SecretsDialog from '@/components/SecretsDialog.vue'
@@ -30,6 +31,7 @@ const { feedback, pending, run } = useFeedback()
 const router = useRouter()
 const flowsStore = useFlowsStore()
 const authStore = useAuthStore()
+const agentStore = useAgentStore()
 const api = useApi()
 
 const searchQuery = ref('')
@@ -150,6 +152,16 @@ async function logout() {
             New Flow
           </Button>
           <Button variant="ghost" @click="router.push('/trust')" title="HTTPS and trusting this device">HTTPS</Button>
+          <Button
+            v-if="authStore.authEnabled"
+            variant="ghost"
+            title="Agent access: tokens, approvals and audit"
+            :aria-label="agentStore.pendingCount ? `Agents: ${agentStore.pendingCount} request${agentStore.pendingCount === 1 ? '' : 's'} waiting for approval` : 'Agents'"
+            @click="router.push(agentStore.pendingCount ? '/agents/approvals' : '/agents')"
+          >
+            Agents
+            <span v-if="agentStore.pendingCount" class="ml-1.5 rounded-full bg-destructive px-1.5 text-xs font-semibold text-destructive-foreground">{{ agentStore.pendingCount }}</span>
+          </Button>
           <Button v-if="authStore.authEnabled" variant="ghost" @click="router.push('/account')">Account</Button>
           <Button v-if="authStore.authEnabled" variant="ghost" size="icon" @click="logout" title="Logout" aria-label="Logout">
             <LogOut class="h-4 w-4" />

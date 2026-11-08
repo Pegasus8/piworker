@@ -27,6 +27,10 @@ api.interceptors.response.use(
   }
 )
 
+// The configured client (CSRF header, 401 handling) for stores that keep
+// their own endpoints, such as stores/agent.ts.
+export const apiClient = api
+
 export function useApi() {
   // Flows
   async function getFlows(): Promise<FlowListItem[]> {
@@ -246,8 +250,9 @@ export function useApi() {
   async function recover(username: string, password: string, code: string): Promise<void> {
     await api.post('/auth/recover', { username, password, code })
   }
-  async function changePassword(currentPassword: string, password: string): Promise<void> {
-    await api.post('/auth/password', { currentPassword, password })
+  // The server revokes every agent token on a password change unless asked to keep them.
+  async function changePassword(currentPassword: string, password: string, keepAgentTokens = false): Promise<void> {
+    await api.post('/auth/password', { currentPassword, password, keepAgentTokens })
   }
   async function logout(): Promise<void> { await api.post('/auth/logout') }
   async function getSession(): Promise<{ username: string }> {
