@@ -506,7 +506,8 @@ func TestRedactionCanaries(t *testing.T) {
 	}
 
 	// A node error carrying the secret (and a credential-bearing URL).
-	msg := "request failed for " + canary + " via https://bob:" + url.QueryEscape("hunter2!") + "@api.example.com/x?key=" + url.QueryEscape(canary)
+	b64 := base64.StdEncoding.EncodeToString([]byte("user:" + canary))
+	msg := "request failed for " + canary + " (auth " + b64 + ") via https://bob:" + url.QueryEscape("hunter2!") + "@api.example.com/x?key=" + url.QueryEscape(canary)
 	failing := e.deploy(fan(toolConfig(nil), step{id: "fail", typ: failNodeType, config: map[string]any{"message": msg}}))
 	res, err := e.call(EditorActor(), failing, map[string]any{"door": "left"})
 	require.NoError(t, err)
@@ -515,6 +516,7 @@ func TestRedactionCanaries(t *testing.T) {
 	assert.NotContains(t, res.Error.Message, canary)
 	assert.NotContains(t, res.Error.Message, "hunter2")
 	assert.NotContains(t, res.Error.Message, url.QueryEscape(canary))
+	assert.NotContains(t, res.Error.Message, b64)
 	assert.Contains(t, res.Error.Message, "https://api.example.com/x?<redacted>")
 	assert.Equal(t, "fail", res.Error.NodeID)
 }
