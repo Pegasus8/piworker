@@ -90,6 +90,8 @@ export interface FlowRun {
   status: 'running' | 'success' | 'error'
   nodeCount: number
   errorCount: number
+  /** Who started it: "editor", "token:<name>", or absent when the trigger fired (see lib/runActor). */
+  actor?: string
 }
 
 // NodeEventRecord is one persisted node-execution event within a run.

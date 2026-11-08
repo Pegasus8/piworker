@@ -4,6 +4,7 @@ import { useObservabilityStore } from '@/stores/observability'
 import { useFlowsStore } from '@/stores/flows'
 import { Button, Badge, Dialog } from '@/components/ui'
 import { Activity, ChevronDown, ChevronUp, Trash2, RefreshCw } from 'lucide-vue-next'
+import { runActor } from '@/lib/runActor'
 
 const flows = useFlowsStore()
 const obs = useObservabilityStore()
@@ -12,6 +13,7 @@ const collapsed = ref(true)
 const tab = ref<'runs' | 'debug'>('runs')
 
 const statusColor = computed(() => (obs.connected ? 'bg-emerald-500' : 'bg-muted-foreground'))
+const selectedRun = computed(() => obs.runs.find(r => r.id === obs.selectedRunId))
 
 function fmtTime(ts: number | string): string {
   const d = typeof ts === 'number' ? new Date(ts) : new Date(ts)
@@ -94,6 +96,8 @@ function pretty(v: unknown): string {
             {{ run.status }}
           </Badge>
           <span class="font-mono text-muted-foreground">{{ run.id.slice(0, 8) }}</span>
+          <span :title="runActor(run.actor).title" data-testid="run-actor" class="max-w-[12rem] truncate"
+            :class="runActor(run.actor).kind === 'agent' ? 'font-medium text-primary' : 'text-muted-foreground'">{{ runActor(run.actor).label }}</span>
           <span>{{ run.nodeCount }} nodes</span>
           <span v-if="run.errorCount > 0" class="text-destructive">{{ run.errorCount }} err</span>
           <span class="ml-auto text-muted-foreground">{{ fmtTime(run.startedAt) }}</span>
@@ -118,6 +122,7 @@ function pretty(v: unknown): string {
     <Dialog :open="!!obs.selectedRunId" title="Run details" @update:open="!$event && obs.closeRun()">
       <h2 class="text-lg font-semibold">Run details</h2>
       <p class="mt-1 break-all font-mono text-xs text-muted-foreground">{{ obs.selectedRunId }}</p>
+      <p v-if="selectedRun" class="mt-1 text-sm">Started by: <span :title="runActor(selectedRun.actor).title">{{ runActor(selectedRun.actor).label }}</span></p>
       <p class="mt-2 text-sm text-muted-foreground">Recorded node events, durations and errors. Payloads are not stored in this history.</p>
       <p v-if="obs.eventsLoading" role="status" class="my-4 text-sm">Loading events…</p>
       <p v-else-if="obs.eventsError" role="alert" class="my-4 text-sm text-destructive">{{ obs.eventsError }} <Button size="sm" variant="outline" @click="obs.selectedRunId && obs.openRun(obs.selectedRunId)">Retry</Button></p>
