@@ -368,3 +368,100 @@ func TestAgentApprovalReportsTokenState(t *testing.T) {
 	assert.Nil(t, byID[orphan.ID].TokenExpiresAt, "no token row")
 	assert.False(t, byID[orphan.ID].TokenActive(testNow))
 }
+
+func TestCreateAgentApprovalCapsPendingPerTokenAndKind(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	busy, _ := newTestToken(t, s, NewAPIToken{Name: "busy"})
+	other, _ := newTestToken(t, s, NewAPIToken{Name: "other"})
+
+	var first *AgentApproval
+	for i := range MaxPendingApprovalsPerToken {
+		a, err := s.CreateAgentApproval(newToolCallApproval(busy.ID), testNow)
+		require.NoError(t, err, "approval %d", i)
+		if first == nil {
+			first = a
+		}
+	}
+	_, err := s.CreateAgentApproval(newToolCallApproval(busy.ID), testNow)
+	require.ErrorIs(t, err, ErrTooManyPendingApprovals, "one token cannot flood the queue")
+	_, err = s.CreateAgentApproval(newToolCallApproval(other.ID), testNow)
+	require.NoError(t, err, "other tokens are unaffected")
+	_, err = s.CreateAgentApproval(AgentApproval{Kind: ApprovalKindDraftDeploy, TokenID: busy.ID, Ref: "draft-1"}, testNow)
+	require.NoError(t, err, "long-lived draft deploys and tool calls are capped separately")
+
+	// A decision frees a slot, and so does expiry.
+	_, err = s.DecideAgentApproval(first.ID, false, "admin", testNow.Add(time.Second))
+	require.NoError(t, err)
+	_, err = s.CreateAgentApproval(newToolCallApproval(busy.ID), testNow.Add(time.Second))
+	require.NoError(t, err)
+	_, err = s.CreateAgentApproval(newToolCallApproval(busy.ID), testNow.Add(time.Second))
+	require.ErrorIs(t, err, ErrTooManyPendingApprovals)
+	_, err = s.CreateAgentApproval(newToolCallApproval(busy.ID), testNow.Add(ToolCallApprovalLifetime+time.Second))
+	require.NoError(t, err)
+}
+
+func TestCreateAgentApprovalExpiresAndPrunes(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	tok, _ := newTestToken(t, s, NewAPIToken{ExpiresAt: testNow.Add(MaxAPITokenLifetime)})
+	stale, err := s.CreateAgentApproval(newToolCallApproval(tok.ID), testNow)
+	require.NoError(t, err)
+	decided, err := s.CreateAgentApproval(newToolCallApproval(tok.ID), testNow)
+	require.NoError(t, err)
+	_, err = s.DecideAgentApproval(decided.ID, false, "admin", testNow.Add(time.Minute))
+	require.NoError(t, err)
+
+	// No one opens the queue; agent traffic alone keeps the table bounded.
+	_, err = s.CreateAgentApproval(newToolCallApproval(tok.ID), testNow.Add(ToolCallApprovalLifetime))
+	require.NoError(t, err)
+	got, err := s.GetAgentApproval(stale.ID)
+	require.NoError(t, err)
+	assert.Equal(t, ApprovalExpired, got.Status, "creating an approval runs the expiry pass")
+	assert.Nil(t, got.Args, "an expired tool call's arguments are dropped")
+
+	_, err = s.CreateAgentApproval(newToolCallApproval(tok.ID), testNow.Add(AgentApprovalRetention+time.Hour))
+	require.NoError(t, err)
+	_, err = s.GetAgentApproval(decided.ID)
+	require.ErrorIs(t, err, ErrAgentApprovalNotFound, "and prunes decided approvals past retention")
+	_, err = s.GetAgentApproval(stale.ID)
+	require.ErrorIs(t, err, ErrAgentApprovalNotFound)
+}
+
+func TestExpiringToolCallApprovalsDropsArguments(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	tok, _ := newTestToken(t, s, NewAPIToken{})
+	call, err := s.CreateAgentApproval(newToolCallApproval(tok.ID), testNow)
+	require.NoError(t, err)
+	deploy := AgentApproval{Kind: ApprovalKindDraftDeploy, TokenID: tok.ID, Ref: "draft-1", Args: json.RawMessage(`{"baseVersion":3}`), ExpiresAt: testNow.Add(time.Hour)}
+	deployed, err := s.CreateAgentApproval(deploy, testNow)
+	require.NoError(t, err)
+	rejected, err := s.CreateAgentApproval(newToolCallApproval(tok.ID), testNow)
+	require.NoError(t, err)
+	_, err = s.DecideAgentApproval(rejected.ID, false, "admin", testNow.Add(time.Minute))
+	require.NoError(t, err)
+	late, err := s.CreateAgentApproval(newToolCallApproval(tok.ID), testNow)
+	require.NoError(t, err)
+
+	_, err = s.DecideAgentApproval(late.ID, true, "admin", late.ExpiresAt)
+	require.ErrorIs(t, err, ErrAgentApprovalExpired)
+	n, err := s.ExpireAgentApprovals(testNow.Add(2 * time.Hour))
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+
+	got, err := s.GetAgentApproval(call.ID)
+	require.NoError(t, err)
+	assert.Equal(t, ApprovalExpired, got.Status)
+	assert.Nil(t, got.Args, "never-run tool call arguments are not kept for 30 days")
+	got, err = s.GetAgentApproval(late.ID)
+	require.NoError(t, err)
+	assert.Nil(t, got.Args, "also when expiry is noticed on a late decision")
+	got, err = s.GetAgentApproval(deployed.ID)
+	require.NoError(t, err)
+	assert.Equal(t, ApprovalExpired, got.Status)
+	assert.JSONEq(t, `{"baseVersion":3}`, string(got.Args), "draft deploys keep their reference data")
+	got, err = s.GetAgentApproval(rejected.ID)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"pin":17,"state":"on"}`, string(got.Args), "decided requests stay reviewable")
+}

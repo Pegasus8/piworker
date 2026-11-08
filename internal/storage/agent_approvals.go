@@ -46,6 +46,9 @@ const (
 	MaxApprovalArgsBytes = 64 << 10
 	// MaxApprovalSummaryLength bounds the summary (bytes).
 	MaxApprovalSummaryLength = 2048
+	// MaxPendingApprovalsPerToken bounds the approvals of one kind that one
+	// token may have waiting at a time.
+	MaxPendingApprovalsPerToken = 20
 	// DefaultApprovalListLimit and MaxApprovalListLimit bound listings.
 	DefaultApprovalListLimit = 100
 	MaxApprovalListLimit     = 500
@@ -57,6 +60,9 @@ var (
 	ErrAgentApprovalDecided  = errors.New("approval already decided")
 	ErrAgentApprovalExpired  = errors.New("approval expired")
 	ErrInvalidAgentApproval  = errors.New("invalid approval")
+	// ErrTooManyPendingApprovals refuses a new approval while the token
+	// already has MaxPendingApprovalsPerToken of that kind waiting.
+	ErrTooManyPendingApprovals = errors.New("too many requests are already waiting for the admin")
 	// ErrAgentApprovalTokenRevoked refuses to approve a request whose token
 	// is revoked, expired or unknown; the approval is closed as rejected.
 	ErrAgentApprovalTokenRevoked = errors.New("the token that requested this approval is revoked or expired")
@@ -112,7 +118,11 @@ func invalidApproval(format string, args ...any) error {
 }
 
 // CreateAgentApproval stores a new pending approval. An empty ID is generated
-// (callers may pass the run id); a zero ExpiresAt defaults per kind.
+// (callers may pass the run id); a zero ExpiresAt defaults per kind. A token
+// may have at most MaxPendingApprovalsPerToken approvals of each kind waiting
+// (ErrTooManyPendingApprovals). Each creation also runs the expiry and
+// retention pass of ExpireAgentApprovals, so agent traffic alone keeps the
+// table bounded even when nobody opens the queue.
 func (s *SQLiteStore) CreateAgentApproval(a AgentApproval, now time.Time) (*AgentApproval, error) {
 	if s.isClosed() {
 		return nil, ErrDatabaseClosed
@@ -158,7 +168,26 @@ func (s *SQLiteStore) CreateAgentApproval(a AgentApproval, now time.Time) (*Agen
 	} else {
 		a.Args = nil
 	}
-	_, err := s.db.Exec(`
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin approval creation: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	var pending int
+	err = tx.QueryRow(`
+		SELECT COUNT(*) FROM agent_approvals
+		WHERE status = ? AND expires_at > ? AND token_id = ? AND kind = ?
+	`, ApprovalPending, now.Unix(), a.TokenID, a.Kind).Scan(&pending)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count pending approvals: %w", err)
+	}
+	if pending >= MaxPendingApprovalsPerToken {
+		return nil, ErrTooManyPendingApprovals
+	}
+	if _, err := expireAgentApprovals(tx, now); err != nil {
+		return nil, err
+	}
+	_, err = tx.Exec(`
 		INSERT INTO agent_approvals (id, kind, token_id, flow_id, ref, args_json, summary, status, created_at, expires_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, a.ID, a.Kind, a.TokenID, a.FlowID, a.Ref, args, a.Summary, a.Status, a.CreatedAt.Unix(), a.ExpiresAt.Unix())
@@ -168,7 +197,35 @@ func (s *SQLiteStore) CreateAgentApproval(a AgentApproval, now time.Time) (*Agen
 		}
 		return nil, fmt.Errorf("failed to create approval: %w", err)
 	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit approval: %w", err)
+	}
 	return &a, nil
+}
+
+// expireApprovalSet marks an approval expired at its expiry instant. A tool
+// call that never ran loses its arguments (up to MaxApprovalArgsBytes each),
+// which are not worth keeping for the retention period; the audit log keeps
+// their hash and a preview. Bind ApprovalExpired and ApprovalKindToolCall.
+const expireApprovalSet = `status = ?, decided_at = expires_at, args_json = CASE WHEN kind = ? THEN NULL ELSE args_json END`
+
+// expireAgentApprovals marks pending approvals past their expiry as expired,
+// returns how many changed, and deletes decided approvals older than
+// AgentApprovalRetention.
+func expireAgentApprovals(tx *sql.Tx, now time.Time) (int64, error) {
+	res, err := tx.Exec(`UPDATE agent_approvals SET `+expireApprovalSet+` WHERE status = ? AND expires_at <= ?`,
+		ApprovalExpired, ApprovalKindToolCall, ApprovalPending, now.Unix())
+	if err != nil {
+		return 0, fmt.Errorf("failed to expire approvals: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`DELETE FROM agent_approvals WHERE status != ? AND decided_at < ?`, ApprovalPending, now.Add(-AgentApprovalRetention).Unix()); err != nil {
+		return 0, fmt.Errorf("failed to prune approvals: %w", err)
+	}
+	return n, nil
 }
 
 const agentApprovalSelect = `
@@ -312,7 +369,7 @@ func (s *SQLiteStore) DecideAgentApproval(id string, approve bool, decidedBy str
 		case err != nil:
 			return nil, fmt.Errorf("failed to read approval: %w", err)
 		case cur.Status == ApprovalPending && !now.Before(cur.ExpiresAt):
-			if _, err := tx.Exec(`UPDATE agent_approvals SET status = ?, decided_at = expires_at WHERE id = ?`, ApprovalExpired, id); err != nil {
+			if _, err := tx.Exec(`UPDATE agent_approvals SET `+expireApprovalSet+` WHERE id = ?`, ApprovalExpired, ApprovalKindToolCall, id); err != nil {
 				return nil, fmt.Errorf("failed to expire approval: %w", err)
 			}
 			decideErr = ErrAgentApprovalExpired
@@ -346,9 +403,10 @@ func (s *SQLiteStore) DecideAgentApproval(id string, approve bool, decidedBy str
 	return a, nil
 }
 
-// ExpireAgentApprovals marks pending approvals past their expiry as expired,
-// returns how many changed, and deletes decided approvals older than
-// AgentApprovalRetention.
+// ExpireAgentApprovals marks pending approvals past their expiry as expired
+// (dropping the arguments of tool calls, which never ran), returns how many
+// changed, and deletes decided approvals older than AgentApprovalRetention.
+// CreateAgentApproval runs the same pass.
 func (s *SQLiteStore) ExpireAgentApprovals(now time.Time) (int, error) {
 	if s.isClosed() {
 		return 0, ErrDatabaseClosed
@@ -358,16 +416,9 @@ func (s *SQLiteStore) ExpireAgentApprovals(now time.Time) (int, error) {
 		return 0, fmt.Errorf("failed to begin approval expiry: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
-	res, err := tx.Exec(`UPDATE agent_approvals SET status = ?, decided_at = expires_at WHERE status = ? AND expires_at <= ?`, ApprovalExpired, ApprovalPending, now.Unix())
-	if err != nil {
-		return 0, fmt.Errorf("failed to expire approvals: %w", err)
-	}
-	n, err := res.RowsAffected()
+	n, err := expireAgentApprovals(tx, now)
 	if err != nil {
 		return 0, err
-	}
-	if _, err := tx.Exec(`DELETE FROM agent_approvals WHERE status != ? AND decided_at < ?`, ApprovalPending, now.Add(-AgentApprovalRetention).Unix()); err != nil {
-		return 0, fmt.Errorf("failed to prune approvals: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("failed to commit approval expiry: %w", err)
@@ -392,4 +443,5 @@ const agentApprovalsSchema = `
 	);
 	CREATE INDEX IF NOT EXISTS idx_agent_approvals_status ON agent_approvals(status, expires_at);
 	CREATE INDEX IF NOT EXISTS idx_agent_approvals_created ON agent_approvals(created_at);
+	CREATE INDEX IF NOT EXISTS idx_agent_approvals_decided ON agent_approvals(decided_at);
 `
