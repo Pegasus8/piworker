@@ -166,8 +166,9 @@ type FlowRuntime struct {
 
 	// calls tracks runs started by Call (keyed by correlation ID). It lives on
 	// r.ctx so a reply node can find it (ReplyFromContext).
-	calls     *callRegistry
-	callGrace time.Duration
+	calls          *callRegistry
+	callGrace      time.Duration
+	maxCallWaiters int
 }
 
 // RuntimeOption is a functional option for configuring the FlowRuntime.
@@ -236,6 +237,18 @@ func WithCallExpiryGrace(d time.Duration) RuntimeOption {
 	}
 }
 
+// WithMaxCallWaiters caps how many called runs (see Call) the runtime tracks
+// at once: runs still executing plus results not collected yet. Past it, the
+// uncollected result closest to its expiry is evicted, or Call fails with
+// ErrTooManyCalls. Default DefaultMaxCallWaiters; values <= 0 are ignored.
+func WithMaxCallWaiters(n int) RuntimeOption {
+	return func(r *FlowRuntime) {
+		if n > 0 {
+			r.maxCallWaiters = n
+		}
+	}
+}
+
 // NewFlowRuntime creates a new FlowRuntime for the given flow.
 func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*FlowRuntime, error) {
 	logger := zerolog.Nop()
@@ -255,6 +268,7 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 		errors:         make(chan error, 100),
 		runInflight:    make(map[string]int),
 		callGrace:      DefaultCallExpiryGrace,
+		maxCallWaiters: DefaultMaxCallWaiters,
 	}
 
 	// Apply options
@@ -262,6 +276,7 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 		opt(rt)
 	}
 	rt.calls = newCallRegistry(rt.callGrace)
+	rt.calls.maxWaiters = rt.maxCallWaiters
 
 	// Instantiate all nodes from the registry
 	for i := range f.Nodes {

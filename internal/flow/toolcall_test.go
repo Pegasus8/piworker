@@ -861,6 +861,54 @@ func TestCompletedCallsReleaseTheirWaiters(t *testing.T) {
 		"every delivered result is freed once its run ended (left: %d)", rt.calls.count())
 }
 
+// TestCallWaiterLimit: a runtime tracks at most WithMaxCallWaiters calls;
+// past it a call whose run is over and whose result nobody collected is
+// evicted, or the new call is refused without starting a run.
+func TestCallWaiterLimit(t *testing.T) {
+	gate := make(chan struct{})
+	var started atomic.Int32
+	reg := callRegistryFor(t, map[string]node.NodeFactory{
+		"slow": funcFactory(func(ctx context.Context, msg *Message) ([]*Message, error) {
+			started.Add(1)
+			return gateFn(gate, replyFn(func(*Message) any { return "done" }, false))(ctx, msg)
+		}),
+	})
+	f := callGraph(map[string]string{"tool": "tool", "s": "slow"}, [2]string{"tool", "s"})
+	rt := startRuntime(t, f, reg, WithMaxCallWaiters(1))
+
+	first, err := rt.Call(context.Background(), CallRequest{TriggerNodeID: "tool", Args: map[string]any{}, Timeout: 10 * time.Millisecond})
+	require.NoError(t, err)
+	require.Equal(t, CallStatusRunning, first.Status)
+
+	_, err = rt.Call(context.Background(), CallRequest{TriggerNodeID: "tool", Args: map[string]any{}, Timeout: 5 * time.Second})
+	assert.ErrorIs(t, err, ErrTooManyCalls)
+	time.Sleep(20 * time.Millisecond)
+	assert.Equal(t, int32(1), started.Load(), "a refused call starts no run")
+
+	close(gate)
+	waitClosed(t, rt.RunDone(first.RunID), "the first run must finish")
+	second, err := rt.Call(context.Background(), CallRequest{TriggerNodeID: "tool", Args: map[string]any{}, Timeout: 3 * time.Second})
+	require.NoError(t, err)
+	assert.Equal(t, CallStatusCompleted, second.Status)
+
+	got, err := rt.Wait(context.Background(), first.RunID)
+	require.NoError(t, err)
+	assert.Equal(t, CallStatusExpired, got.Status, "the uncollected result made room for the new call")
+}
+
+func TestCallLimitDefaults(t *testing.T) {
+	reg := callRegistryFor(t, map[string]node.NodeFactory{"pass": funcFactory(passFn)})
+	f := callGraph(map[string]string{"tool": "tool", "p": "pass"}, [2]string{"tool", "p"})
+
+	rt, err := NewFlowRuntime(f, reg, WithMaxCallWaiters(0), WithMaxCallWaiters(-3))
+	require.NoError(t, err)
+	assert.Equal(t, DefaultMaxCallWaiters, rt.calls.maxWaiters, "values <= 0 are ignored")
+
+	rt, err = NewFlowRuntime(f, reg, WithMaxCallWaiters(7))
+	require.NoError(t, err)
+	assert.Equal(t, 7, rt.calls.maxWaiters)
+}
+
 func TestCallResultJSON(t *testing.T) {
 	data, err := json.Marshal(CallResult{
 		Status: CallStatusError, RunID: "r1", DurationMs: 3,

@@ -38,6 +38,9 @@ const (
 	// lifetime of its waiter: once it passes, an unfinished call reports
 	// "expired" and its result is forgotten.
 	DefaultCallExpiryGrace = 10 * time.Minute
+	// DefaultMaxCallWaiters caps how many called runs a runtime tracks at once
+	// (runs still executing plus results not collected yet).
+	DefaultMaxCallWaiters = 64
 )
 
 // Errors returned by Call before a run is started.
@@ -47,6 +50,9 @@ var (
 	// ErrNoActiveTargets: the trigger has no connection to an enabled node, so
 	// a run started from it could never do anything (or finish).
 	ErrNoActiveTargets = errors.New("trigger has no active downstream connection")
+	// ErrTooManyCalls: the runtime already tracks its maximum of called runs
+	// and none of them is a finished result that could make room.
+	ErrTooManyCalls = errors.New("too many calls in progress")
 )
 
 // flowStoppedMessage is the CallError message of calls cancelled by Stop.
@@ -250,6 +256,8 @@ var closedChan = func() chan struct{} {
 type callWaiter struct {
 	runID string
 	start time.Time
+	// deadline is the end of the waiter's hard lifetime (timeout + grace).
+	deadline time.Time
 	// done is closed once result is final (reply, run end, stop or expiry).
 	done chan struct{}
 	// runDone is closed once the run no longer executes for the caller: it
@@ -273,14 +281,17 @@ type callRegistry struct {
 	stopped bool
 	grace   time.Duration
 	now     func() time.Time
+	// maxWaiters caps len(waiters); <= 0 means no cap. Set before start.
+	maxWaiters int
 }
 
 func newCallRegistry(grace time.Duration) *callRegistry {
 	return &callRegistry{
-		waiters: make(map[string]*callWaiter),
-		stopped: true,
-		grace:   grace,
-		now:     time.Now,
+		waiters:    make(map[string]*callWaiter),
+		stopped:    true,
+		grace:      grace,
+		now:        time.Now,
+		maxWaiters: DefaultMaxCallWaiters,
 	}
 }
 
@@ -292,7 +303,9 @@ func (c *callRegistry) start() {
 }
 
 // register creates the waiter of a run before it is started. Its hard
-// lifetime is timeout + grace.
+// lifetime is timeout + grace. At maxWaiters, the uncollected result closest
+// to its expiry is evicted to make room; when every waiter belongs to a run
+// that still executes, register fails with ErrTooManyCalls.
 func (c *callRegistry) register(runID string, timeout time.Duration) (*callWaiter, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -302,11 +315,16 @@ func (c *callRegistry) register(runID string, timeout time.Duration) (*callWaite
 	if _, dup := c.waiters[runID]; dup {
 		return nil, fmt.Errorf("run %s is already registered", runID)
 	}
+	if c.maxWaiters > 0 && len(c.waiters) >= c.maxWaiters && !c.evictFinished() {
+		return nil, fmt.Errorf("%w: limit of %d reached", ErrTooManyCalls, c.maxWaiters)
+	}
+	now := c.now()
 	w := &callWaiter{
-		runID:   runID,
-		start:   c.now(),
-		done:    make(chan struct{}),
-		runDone: make(chan struct{}),
+		runID:    runID,
+		start:    now,
+		deadline: now.Add(timeout + c.grace),
+		done:     make(chan struct{}),
+		runDone:  make(chan struct{}),
 	}
 	w.expiry = time.AfterFunc(timeout+c.grace, func() { c.expire(w) })
 	c.waiters[runID] = w
@@ -488,6 +506,24 @@ func (c *callRegistry) count() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.waiters)
+}
+
+// evictFinished forgets the waiter whose run is over and whose deadline is the
+// nearest: a result nobody collected yet (results Call returned are already
+// gone). Waiters of runs that still execute are never evicted, so RunDone stays
+// accurate. It reports whether one was evicted. Callers hold c.mu.
+func (c *callRegistry) evictFinished() bool {
+	var victim *callWaiter
+	for _, w := range c.waiters {
+		if w.runFinished && (victim == nil || w.deadline.Before(victim.deadline)) {
+			victim = w
+		}
+	}
+	if victim == nil {
+		return false
+	}
+	c.forget(victim)
+	return true
 }
 
 // forget drops a waiter and stops its expiry timer. Callers hold c.mu.

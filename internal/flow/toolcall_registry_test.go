@@ -326,6 +326,66 @@ func TestCallRegistryFinalResultWinsOverInterruption(t *testing.T) {
 	assert.Nil(t, reg.get("run-1"), "the caller got the final result: nothing to keep")
 }
 
+// TestCallRegistryWaiterLimit: past maxWaiters, a new call first evicts a
+// result nobody collected (its run is over); when every waiter belongs to a
+// run that still executes, the call is refused.
+func TestCallRegistryWaiterLimit(t *testing.T) {
+	reg := newTestRegistry(t)
+	reg.maxWaiters = 2
+	_, err := reg.register("a", time.Second)
+	require.NoError(t, err)
+	b, err := reg.register("b", time.Second)
+	require.NoError(t, err)
+
+	_, err = reg.register("c", time.Second)
+	assert.ErrorIs(t, err, ErrTooManyCalls)
+	assert.Nil(t, reg.get("c"))
+
+	// b's result is final and was returned, but its run still executes:
+	// RunDone must keep tracking it, so it cannot make room.
+	require.True(t, reg.Reply("b", "ok", false))
+	_, err = reg.deliver(b, nil)
+	require.NoError(t, err)
+	_, err = reg.register("c", time.Second)
+	assert.ErrorIs(t, err, ErrTooManyCalls)
+
+	// a's run ended and nobody collected its result: it makes room.
+	reg.runFinished("a")
+	_, err = reg.register("c", time.Second)
+	require.NoError(t, err)
+	assert.Nil(t, reg.get("a"), "the uncollected result was evicted")
+	assert.NotNil(t, reg.get("b"))
+	assert.NotNil(t, reg.get("c"))
+	assert.Equal(t, 2, reg.count())
+}
+
+// TestCallRegistryLimitEvictsTheResultClosestToExpiry: the result evicted to
+// make room is the one that would have expired first.
+func TestCallRegistryLimitEvictsTheResultClosestToExpiry(t *testing.T) {
+	reg := newTestRegistry(t)
+	reg.maxWaiters = 3
+	now := time.Now()
+	reg.now = func() time.Time { return now }
+
+	long, err := reg.register("long", 30*time.Second)
+	require.NoError(t, err)
+	now = now.Add(time.Second)
+	short, err := reg.register("short", time.Second) // expires first
+	require.NoError(t, err)
+	now = now.Add(time.Second)
+	_, err = reg.register("live", time.Second)
+	require.NoError(t, err)
+	reg.runFinished("long")
+	reg.runFinished("short")
+
+	_, err = reg.register("new", time.Second)
+	require.NoError(t, err)
+	assert.Nil(t, reg.get("short"), "evicted: closest to its expiry")
+	assert.True(t, timerStopped(short.expiry))
+	assert.Same(t, long, reg.get("long"))
+	assert.NotNil(t, reg.get("live"))
+}
+
 func TestCallRegistryRemove(t *testing.T) {
 	reg := newTestRegistry(t)
 	w, err := reg.register("run-1", time.Second)
