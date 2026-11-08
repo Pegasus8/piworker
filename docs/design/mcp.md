@@ -370,7 +370,10 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   schema (`toolschema` `JSON()`), title, description, explicit annotations
   (all four hints), the output schema when set and
   `_meta["anthropic/requiresUserInteraction"]` when required. Arguments are
-  validated by `service.Tools.Call`, not by the SDK. Calls of names the
+  validated by `service.Tools.Call`, not by the SDK; arguments that are not a
+  JSON object (which the service cannot take) are refused by the endpoint as
+  `invalid_arguments` and counted in `mcp_rejections` like the service's own
+  refusals. Calls of names the
   server does not hold go to the service as well, so hidden and unknown tools
   get the same `not_found` result (and audit).
 - Built-in tools register as `StaticTool{Name (pw_…), Title, Description,

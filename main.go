@@ -444,7 +444,7 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 		opt(router)
 	}
 
-	mountMCP(router, cfg, services.tools, agentTokens, hostGuard)
+	mountMCP(router, cfg, services, agentTokens, hostGuard)
 
 	// Webhook endpoints: trigger-webhook nodes register their paths on the shared
 	// hub, and incoming requests are dispatched to them. Public (the node's
@@ -473,7 +473,7 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 // authentication, so agent tokens exist); otherwise /mcp answers a JSON 404.
 // OAuth discovery under /.well-known/ always answers a JSON 404, so clients
 // fall back to their configured Bearer token instead of an OAuth flow.
-func mountMCP(router *mux.Router, cfg config.Config, tools *service.Tools, tokens *agentauth.TokenVerifier, hosts *api.HostGuard) {
+func mountMCP(router *mux.Router, cfg config.Config, services appServices, tokens *agentauth.TokenVerifier, hosts *api.HostGuard) {
 	notFound := http.HandlerFunc(api.NotFoundHandler)
 	router.PathPrefix("/.well-known/").Handler(notFound)
 	if !cfg.MCP.Enabled || tokens == nil {
@@ -481,8 +481,9 @@ func mountMCP(router *mux.Router, cfg config.Config, tools *service.Tools, token
 		return
 	}
 	handler, err := mcpserver.New(mcpserver.Options{
-		Tools:          tools,
+		Tools:          services.tools,
 		Tokens:         tokens,
+		Rejections:     services.audit,
 		TLS:            cfg.TLSEnabled(),
 		LANAccess:      cfg.MCP.LANAccess,
 		HostAllowed:    hosts.Allowed,

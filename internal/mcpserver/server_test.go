@@ -176,15 +176,32 @@ func TestToolCallGoesThroughTheService(t *testing.T) {
 	assert.Equal(t, map[string]any{}, got.args)
 }
 
-// Arguments that are not a JSON object never reach the service.
+// fakeRejections records the rejections the endpoint counts.
+type fakeRejections struct {
+	mu   sync.Mutex
+	seen []string
+}
+
+func (f *fakeRejections) Reject(tokenID, reason string, at time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.seen = append(f.seen, tokenID+" "+reason+" "+at.Format(time.RFC3339))
+}
+
+// Arguments that are not a JSON object never reach the service (it takes
+// an object); they are counted like its invalid_arguments rejections.
 func TestToolCallArgumentsMustBeAnObject(t *testing.T) {
-	e := newTestEnv(t)
+	rejections := &fakeRejections{}
+	e := newTestEnv(t, func(o *Options) { o.Rejections = rejections })
 	e.tools.setTools(2, testTool(t, "garage"))
 	for _, args := range []string{`[1]`, `"left"`, `3`} {
 		res, structured := called(t, e, callToken, "garage", args)
 		assert.Equal(t, true, res["isError"], args)
 		assert.Equal(t, "invalid_arguments", errorCode(structured), args)
 	}
+	called(t, e, callToken, "unheld", `[]`)
+	want := "callcallcallcall invalid_arguments " + t0.Format(time.RFC3339)
+	assert.Equal(t, []string{want, want, want, want}, rejections.seen)
 	// Duplicate names make the request ambiguous: refused before the SDK
 	// reads it.
 	w := e.serve(withToken(rpc(callBody("garage", `{"door":"left","door":"right"}`)), callToken))

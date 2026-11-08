@@ -521,3 +521,19 @@ func TestMCPProtocolGolden(t *testing.T) {
 	assert.JSONEq(t, `{"jsonrpc":"2.0","id":null,"error":{"code":-32600,
 	  "message":"JSON-RPC batching is not supported: send one message per request"}}`, string(body))
 }
+
+// Arguments that are not a JSON object are refused by /mcp itself and
+// counted in mcp_rejections like the tool service's own refusals.
+func TestMCPNonObjectArgumentsAreCounted(t *testing.T) {
+	app := newMCPApp(t, true)
+	garage := app.deployTool(t, "garage", nil)
+	tok, raw := app.token(t, "laptop", []string{storage.ScopeCall}, garage)
+	resp, body := app.post(t, raw, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"garage","arguments":[1]}}`, at0618)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
+	assert.Contains(t, string(body), `"invalid_arguments"`)
+	assert.Eventually(t, func() bool {
+		rows, err := app.store.ListMCPRejections(storage.MCPAuditFilter{})
+		require.NoError(t, err)
+		return len(rows) == 1 && rows[0].TokenID == tok.ID && rows[0].Reason == "invalid_arguments"
+	}, 10*time.Second, 50*time.Millisecond)
+}

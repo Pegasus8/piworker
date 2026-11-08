@@ -203,9 +203,14 @@ func (h *Handler) addFlowTool(srv *mcp.Server, actor service.Actor, ti flow.Tool
 // callFlowTool calls a flow tool through the tool service, which checks the
 // permission, validates the arguments, applies the limits and audits.
 func (h *Handler) callFlowTool(ctx context.Context, actor service.Actor, name string, raw json.RawMessage, out *outputSchema) *mcp.CallToolResult {
-	args, err := decodeArgs(raw)
-	if err != nil {
-		return errorResult(err)
+	args, refusal := decodeArgs(raw)
+	if refusal != nil {
+		// The service takes an object, so it cannot refuse these itself:
+		// counted here as it counts its invalid_arguments refusals.
+		if h.rejections != nil {
+			h.rejections.Reject(actor.TokenID, refusal.Code(), h.now())
+		}
+		return errorResult(refusal)
 	}
 	res, err := h.tools.Call(ctx, actor, service.ToolByName(name), args)
 	h.logFailure(err, name, actor)
@@ -231,9 +236,9 @@ func (h *Handler) addStaticTool(srv *mcp.Server, actor service.Actor, st *static
 }
 
 func (h *Handler) callStaticTool(ctx context.Context, actor service.Actor, st *staticTool, raw json.RawMessage) *mcp.CallToolResult {
-	args, err := decodeArgs(raw)
-	if err != nil {
-		return errorResult(err)
+	args, refusal := decodeArgs(raw)
+	if refusal != nil {
+		return errorResult(refusal)
 	}
 	if issues := st.schema.Validate(args); len(issues) > 0 {
 		return errorResult(invalidArguments(issues))

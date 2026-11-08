@@ -133,7 +133,7 @@ func (h *Handler) getResultTool() StaticTool {
 // decodeArgs decodes a tool call's arguments: a JSON object (absent or null
 // means none). Duplicate names and invalid UTF-8 are refused, as on the
 // REST twin.
-func decodeArgs(raw json.RawMessage) (map[string]any, error) {
+func decodeArgs(raw json.RawMessage) (map[string]any, *service.ToolError) {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" || trimmed == "null" {
 		return map[string]any{}, nil

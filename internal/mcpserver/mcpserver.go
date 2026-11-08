@@ -82,12 +82,22 @@ type TokenVerifier interface {
 	Epoch() int64
 }
 
+// RejectionCounter counts refused calls per token, reason and minute
+// (*service.AuditWriter).
+type RejectionCounter interface {
+	Reject(tokenID, reason string, at time.Time)
+}
+
 // Options configures the endpoint.
 type Options struct {
 	// Tools serves the published flow tools (required).
 	Tools ToolService
 	// Tokens verifies Bearer tokens (required).
 	Tokens TokenVerifier
+	// Rejections counts the flow tool calls the endpoint refuses itself
+	// (arguments that are not a JSON object), like the tool service counts
+	// its own refusals; nil counts nothing.
+	Rejections RejectionCounter
 	// StaticTools and Prompts are the built-in tools and prompts besides
 	// pw_get_result, which is always present.
 	StaticTools []StaticTool
@@ -121,6 +131,7 @@ type Options struct {
 type Handler struct {
 	tools       ToolService
 	tokens      TokenVerifier
+	rejections  RejectionCounter
 	tls         bool
 	lanAccess   bool
 	hostAllowed func(string) bool
@@ -149,6 +160,7 @@ func New(opts Options) (*Handler, error) {
 	h := &Handler{
 		tools:       opts.Tools,
 		tokens:      opts.Tokens,
+		rejections:  opts.Rejections,
 		tls:         opts.TLS,
 		lanAccess:   opts.LANAccess,
 		hostAllowed: opts.HostAllowed,
