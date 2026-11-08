@@ -52,6 +52,7 @@ carries only MCP messages.
 `
 
 func main() {
+	ignoreSIGPIPE()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	code := run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
 	stop()
