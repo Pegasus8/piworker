@@ -77,20 +77,27 @@ getconf GNU_LIBC_VERSION
 sha256sum --check --ignore-missing SHA256SUMS &&
 tar -xzf piworker-linux-arm64.tar.gz
 ./piworker-linux-arm64 -version
-./piworker-linux-arm64 -addr :18080 -db ./validation.db
+./piworker-linux-arm64 -addr :18443 -http-addr :18080 -db ./validation.db
 ```
 
 Replace `arm64` with `arm` if needed. Require glibc 2.35+ and successful checksum
-verification before executing anything. Open `http://<pi-address>:18080`, use
+verification before executing anything. The binary serves HTTPS with a local CA
+created in `./tls/` and prints the address and CA fingerprint. Open
+`https://<pi-address>:18443` (`http://<pi-address>:18080` redirects there), use
 the printed setup code and create an account. Keep the terminal open while testing.
 
+- [ ] `http://<pi-address>:18080/` redirects to `https://<pi-address>:18443/`.
+- [ ] The **Trust this device** page downloads the CA; its fingerprint matches the
+  one printed in the terminal. After trusting it, the browser shows no warning.
 - [ ] The UI and initial account setup work from another LAN device.
 - [ ] Create, save, deploy and manually run a harmless flow; inspect its result.
 - [ ] Create global/flow variables and a test secret; check they survive a restart.
 - [ ] Stop with Ctrl+C, run the same command again, then verify account access,
   saved configuration and expected restoration of deployed flows.
 - [ ] Resize the editor on a phone and reopen node configuration; nodes remain reachable.
-- [ ] Confirm `curl -f http://127.0.0.1:18080/api/health` succeeds while running.
+- [ ] Confirm `curl -f --cacert ./tls/ca.crt https://127.0.0.1:18443/api/health`
+  and `curl -f http://127.0.0.1:18080/api/health` (served without redirect)
+  succeed while running.
 - [ ] Test the actual GPIO/I2C/1-Wire devices you intend to support with appropriate
   permissions. Record hardware models and OS/bus configuration separately.
 
@@ -109,7 +116,11 @@ piworker -version
 sudo journalctl -u piworker -n 50 --no-pager
 ```
 
-- [ ] Install on a clean system and complete setup at port 8080.
+- [ ] Install on a clean system; the installer prints the HTTPS address (port
+  8443) and the CA fingerprint. Trust the CA, compare the fingerprint and complete
+  setup over HTTPS (`http://<pi-address>:8080` redirects there).
+- [ ] Run `sudo piworkerctl tls off` (plain HTTP on 8443, health check passes) and
+  `sudo piworkerctl tls on` (HTTPS again, same CA).
 - [ ] Reboot the Pi; confirm automatic service startup and account/flow persistence.
 - [ ] Confirm the `piworker` service user can access each required hardware device.
 - [ ] Update explicitly to a compatible test version (reinstalling the same tag
