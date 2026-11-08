@@ -34,8 +34,12 @@ connect and retry in the background and never fail Start for reachability.
 
 Option C. Triggers start synchronously in a fixed order; on the first error
 the already started triggers are stopped and `Deploy` returns the error, so the
-flow is not registered or stored as running. HTTP status: 400 for invalid flows,
-409 when a previous instance is still stopping, 500 otherwise. MQTT and RSS
+flow is not registered or stored as running. HTTP status: **400** for an
+invalid flow (structural validation, unknown node type, invalid node config);
+**409** for conflicts (flow already running, previous instance still stopping,
+an exclusive resource already taken such as a webhook path or tool name);
+**503** during shutdown; **500** otherwise. Conflicting trigger start errors
+wrap a `flow.ErrResourceConflict` sentinel so the API can map them. MQTT and RSS
 triggers follow the reachability rule (MQTT: connect-retry, subscribe in the
 on-connect handler; RSS: seed the seen set on the first *successful* fetch).
 New triggers must follow the same rule (documented in `CLAUDE.md`).
@@ -45,3 +49,9 @@ New triggers must follow the same rule (documented in `CLAUDE.md`).
 - Easier: trusting the running state and restore-on-boot.
 - Harder: trigger authors must classify their start errors correctly.
 - Revisit when: a trigger needs "start degraded" reporting in the UI.
+
+## Action items
+
+1. [x] Synchronous trigger start, rollback on failure, MQTT/RSS reachability rule.
+2. [ ] Map unknown node types and invalid node config to 400 and exclusive
+   resource conflicts (`flow.ErrResourceConflict`) to 409; today they return 500.

@@ -37,11 +37,14 @@ API, token storage in the browser; rejected (sessions stay cookie-only).
 ## Decision
 
 `RequestGuardMiddleware` is always installed. Every unsafe method on `/api/`
-requires `X-PiWorker-Request: 1`, a same-origin or allowlisted `Origin`
-(`Sec-Fetch-Site` honoured), and a JSON body when a body is present (415
-otherwise). There are **no exceptions under `/api`** (webhooks moved out, see
-ADR-0003). Flow IDs are validated or server-generated. `/api` never accepts
-Bearer tokens; agent access uses `/mcp` (ADR-0010).
+requires `X-PiWorker-Request: 1`; if an `Origin` header is present it must be
+this server (scheme://Host) or allowlisted, and without `Origin` the request is
+refused when `Sec-Fetch-Site: cross-site`; a failed check is 403. A request
+with a body must be JSON (415 otherwise). The request guard has **no
+exceptions under `/api`** (webhooks moved out, see ADR-0003); session
+authentication separately exempts only login, setup, recover, status and
+health. Flow IDs are validated or server-generated. `/api` never accepts Bearer
+tokens; agent access is a separate `/mcp` endpoint (ADR-0010).
 
 ## Consequences
 

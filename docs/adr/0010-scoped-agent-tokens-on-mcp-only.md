@@ -7,10 +7,12 @@
 
 ## Context
 
-MCP clients cannot use the editor's cookie session and CSRF header. The MCP
-specification requires OAuth 2.1 for remote servers, but PiWorker is a LAN
-device: cloud clients (claude.ai, Claude Desktop connectors) cannot reach it
-without a tunnel, and local clients (Claude Code) support static headers.
+MCP clients cannot use the editor's cookie session and CSRF header. PiWorker
+is a LAN device: cloud clients (claude.ai, Claude Desktop connectors) cannot
+reach it without a tunnel, and local clients (Claude Code) support static
+headers.
+Authorization is optional in the MCP specification; HTTP servers that
+implement it SHOULD follow its OAuth 2.1 profile.
 Agent credentials end up in client config files, so they will leak sooner or
 later and must have bounded power.
 
@@ -21,8 +23,9 @@ later and must have bounded power.
 consent UI) for a single-admin LAN device; few local clients need it.
 
 ### Option B: Reuse sessions (cookie) for agents
-**Pros:** no new credential. **Cons:** full admin power; would break the
-cookie-only `/api` model (ADR-0002).
+**Pros:** no new credential. **Cons:** full admin power; agents would need the
+editor's CSRF header/Origin or an exception in the `/api` request guard
+(ADR-0002).
 
 ### Option C: Opaque, scoped, expiring tokens accepted only on `/mcp`
 | Dimension | Assessment |
@@ -36,7 +39,8 @@ cookie-only `/api` model (ADR-0002).
 
 Tokens `pwk_<id>_<secret>` stored as SHA-256 (constant-time compare), shown
 once, 90-day default expiry. Scopes: `call`, `read`, `author`, `deploy`
-(`deploy` only when agent deploy is enabled, ADR-0012). A per-token
+(`author` tools and scope only when `mcp.author_enabled = true`, default false;
+`deploy` only when agent deploy is enabled, ADR-0012). A per-token
 `privileged` flag (default off) is required to call privileged tools. Grants
 bind to `(flowID, triggerNodeID, fingerprint)`; a redeploy that raises risk or
 widens the schema suspends the grant until re-confirmed; `all_tools` never
@@ -53,3 +57,9 @@ use their own limiter (not the login limiter).
 - Harder: clients must store a secret; cloud clients need a bridge or tunnel.
 - Revisit when: MCP clients broadly require OAuth, or remote (non-LAN) access
   becomes a goal.
+
+## Action items
+
+1. [ ] `api_tokens` storage, verifier with cache and `tokens_epoch`, own limiter.
+2. [ ] Editor UI and REST with password step-up; grants with fingerprints.
+3. [ ] Revocation on recovery-code redemption and password change.

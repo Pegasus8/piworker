@@ -28,10 +28,12 @@ template in [`docs/adr/README.md`](docs/adr/README.md)). Rules:
   configuration parsing, runtime delivery/deploy semantics, flow validation, node
   lifecycle, or anything MCP/agent-related. Do not silently undo an accepted ADR.
 - **Write an ADR in the same change** (status Proposed → Accepted on merge) when
-  you add/replace a component, listener or package boundary; change a REST/MCP,
+  you add, remove or replace a component, process, listener or package boundary;
+  change a REST/MCP,
   flow-model, node-interface, storage or configuration contract; change the
   security model or what agents may do; change runtime semantics; add a
-  significant dependency or drop a platform; or reverse an earlier ADR.
+  significant dependency or drop a platform; or reverse an earlier ADR. The list
+  in `docs/adr/README.md` is canonical.
 - To change a decision, write a **new ADR that supersedes** the old one and mark
   the old one "Superseded by ADR-NNNN"; never rewrite an accepted decision.
 - Long designs go in `docs/design/` and are linked from the ADR. Reference the ADR
@@ -125,8 +127,10 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
   legacy settings. The user store **shares the same `*sql.DB` handle**
   (`NewSQLiteUserStoreWithDB(store.DB())`) — don't open a second pool on the file.
 - Auth: SQLite-backed opaque sessions with HttpOnly/SameSite=Strict cookies.
-  HTTP local mode is default; `session_secure` only marks cookies Secure and does
-  not configure TLS. There is no native HTTPS listener or certificate assistant.
+  Currently HTTP local mode is default; `session_secure` only marks cookies
+  Secure and does not configure TLS. Native HTTPS with a local CA is accepted in
+  ADR-0011 and being implemented (this paragraph and the dev commands change
+  when it lands).
   External HTTPS reverse proxies require explicit cookie configuration.
   Fresh installs print a one-use setup code; optional admin environment variables
   bootstrap unattended installs. Existing accounts remain unchanged. Local

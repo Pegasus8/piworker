@@ -36,12 +36,16 @@ only writes a global variable can steer another flow's `action-http` URL or
   layer (the SDK's low-level `AddTool` does not validate).
 - Strings reaching a privileged node need `enum` or an anchored `pattern`
   that rejects a probe corpus (`-x`, `--a=b`, `..`, `/`, whitespace, `$(`, `;`,
-  `|`, backtick) unless explicitly acknowledged; numbers need min and max.
+  `|`, backtick) unless acknowledged per property with `x-piworker-allow`
+  (stripped from the schema advertised to clients); numbers need min and max.
 - Risk per node type (`NodeTypeInfo.Risk`) escalated per instance (dynamic
   destinations, `allowPrivate`) and through shared state (`set-var` must be
   flow-scoped downstream of `trigger-tool`; reaching `action-mqtt`/`action-file`
-  is privileged). Stateful cross-run nodes downstream of `trigger-tool` are
-  deploy errors (`aggregate`; `join` unless keyed by correlation ID).
+  is privileged). Downstream of `trigger-tool`: `process-aggregate` is a deploy
+  error; `process-join` is an error unless keyed by `meta.correlationID`;
+  `process-delay` with `delayMs > timeoutMs` is a warning.
+- These checks run within the single validation path of ADR-0007
+  (`flow.Lint` collects all issues from the same checks) and map to HTTP 400.
 - Annotations are computed by the server, always explicit, never lowered by
   the admin; `idempotentHint` is the only admin flag.
 - `action-command` rejects placeholder values starting with `-` unless allowed.
@@ -52,3 +56,11 @@ only writes a global variable can steer another flow's `action-http` URL or
 - Harder: some schemas are rejected; new node types must declare `Risk` (a test
   enforces it) and dynamic-destination rules.
 - Revisit when: adding nodes with new side-effect classes.
+
+## Action items
+
+1. [ ] `internal/toolschema` with the closed subset, probe corpus and
+   `x-piworker-allow`.
+2. [ ] `Risk` on every node type (test-enforced), `internal/flow/risk.go` with
+   instance escalation and taint rules.
+3. [ ] `allowDashArgs` in `action-command`.

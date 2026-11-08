@@ -3,6 +3,8 @@
 **Status:** Proposed | Accepted | Superseded by ADR-NNNN | Deprecated
 **Date:** YYYY-MM-DD
 **Deciders:** maintainer
+**Supersedes:** ADR-NNNN (optional)
+**Design:** [docs/design/…](../design/…) (optional)
 
 ## Context
 

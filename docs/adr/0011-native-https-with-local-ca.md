@@ -41,14 +41,20 @@ re-trusting on every device.
 Option C, on by default (`tls.mode = auto`; `custom` and `off` available).
 The CA (10 years) and server certificate (397 days, SANs: localhost, hostname,
 `hostname.local`, interface IPs, `tls.hosts`) live under the data directory;
-the leaf is re-issued hot when near expiry or when SANs change; the CA rotates
-only on explicit request. HTTPS on `addr` (`:8443`); `http_addr` (`:8080`)
+the leaf is re-issued hot within 30 days of expiry or when a current name/IP is
+not covered (checked at start and every 10 minutes); the CA rotates only on
+explicit request. HTTPS on `addr` (`:8443`); `http_addr` (`:8080`)
 redirects to HTTPS except `/webhooks/` (devices often cannot trust a custom CA;
 `webhooks_http`) and `/piworker-ca.crt`. Cookies are Secure when TLS is on.
 The installer and logs print the CA fingerprint; the editor has a "Trust this
 device" page. Recovery: `-tls=off`, `piworkerctl tls off`. With TLS off,
 `/mcp` is loopback-only unless `mcp.lan_access = true`. Fresh installs start on
-HTTPS (pre-release, so no existing URL changes silently).
+HTTPS (pre-release, so no existing URL changes silently). Every install moves
+to `tls.mode = auto`: the installer, `piworker.example.toml` and compose files
+set `addr = ":8443"` and `http_addr = ":8080"`; `addr` and `http_addr`
+resolving to the same port is a startup error (ADR-0004); health checks use the
+plain listener (`/api/health` is served there without redirect) or HTTPS with
+the CA. Local development uses `-tls=off`.
 
 ## Consequences
 
@@ -57,3 +63,13 @@ HTTPS (pre-release, so no existing URL changes silently).
   then); Claude Code needs `NODE_EXTRA_CA_CERTS`.
 - Revisit when: ACME for local names becomes practical, or a reverse-proxy
   deployment becomes the norm.
+
+## Action items
+
+1. [ ] `internal/tlsca`, both listeners, redirect rules, `/piworker-ca.crt`,
+   `/api/tls`, Secure cookies.
+2. [ ] Installer, example config, compose files and health checks on the new
+   ports; `piworkerctl tls on|off`.
+3. [ ] "Trust this device" page linked from the HTTP warning.
+4. [ ] Update `CLAUDE.md` (auth paragraph, dev command with `-tls=off`, Vite
+   proxy) and close issue #287 criteria.

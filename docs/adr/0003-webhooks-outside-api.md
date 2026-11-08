@@ -22,7 +22,7 @@ third parties; guard keeps an exception.
 | Dimension | Assessment |
 |---|---|
 | Complexity | Low |
-| Security | Cookie never sent; no unauthenticated exceptions under `/api` |
+| Security | Cookie never sent; no request-guard exceptions under `/api` |
 | Maintenance | Breaking URL change (acceptable before release) |
 
 ## Decision
@@ -30,10 +30,12 @@ third parties; guard keeps an exception.
 Webhooks are served at `/webhooks/<path>`. In addition, `Cookie`,
 `Authorization`, `Proxy-Authorization`, `X-Webhook-Token`, `X-PiWorker-*` and the
 `token` query parameter are stripped from payloads; the token is compared in
-constant time; responses are 200/401/404/405/413/503 according to the outcome.
+constant time; responses are 200/400/401/404/405/413/503 according to the
+outcome (400 unreadable body, 413 body over 1 MiB, 503 flow stopping or queue
+full).
 
 ## Consequences
 
-- Easier: `/api` has a single, exception-free security policy.
+- Easier: `/api` has a single, exception-free request guard.
 - Harder: nothing material (pre-release).
 - Revisit when: never, unless webhooks need the editor session.

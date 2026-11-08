@@ -61,7 +61,12 @@ an MCP client node (`action-mcp-call`, deferred to its own design).
   (download CA, fingerprint, per-OS instructions, how to remove the trust).
   Whether a browser trusts the CA is not detectable from the page, so the page
   is always reachable from Settings as well.
+- `addr` and `http_addr` resolving to the same port is a startup error. The
+  installer, `piworker.example.toml` and compose files set `addr = ":8443"`,
+  `http_addr = ":8080"`. `/api/health` is also served on the plain listener
+  without redirect, so health checks need no CA.
 - Recovery: `-tls=off` flag / `PIWORKER_TLS_MODE=off`; `piworkerctl tls off`.
+  Local development (`go run`, Vite proxy) uses `-tls=off`.
 - Docker: the data volume holds `tls/`; compose publishes 8443 and 8080.
 
 ### Contract — `internal/tlsca`
@@ -165,6 +170,8 @@ Closed subset of JSON Schema 2020-12:
   `maxLength` (forced ≤ 256 when absent), `format` (ignored);
 - number keywords: `minimum`, `maximum`, `enum`;
 - `title`, `description`, `default`, `examples` allowed;
+- `x-piworker-allow` (array of probe strings, see below) allowed and stripped
+  from the schema advertised by `Schema.JSON()`;
 - everything else rejected (`$ref`, `$defs`, `anyOf`, `oneOf`, `allOf`, `not`,
   `if/then/else`, `patternProperties`, `dependent*`, `unevaluated*`, boolean
   schemas, untyped schemas, type arrays, `x-mcp-header`, …).
@@ -232,9 +239,10 @@ Table `api_tokens(id, name, prefix, secret_sha256, scopes, privileged,
 grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 - Format `pwk_<id>_<32 random bytes base32>`; lookup by id, constant-time hash
   compare. Shown once. Default expiry 90 days.
-- Scopes: `call`, `read`, `author`, `deploy`. `deploy` can only be granted
-  when agent deploy is enabled (§10). `privileged` flag (default false) is
-  needed to call privileged tools.
+- Scopes: `call`, `read`, `author`, `deploy`. `author` can only be granted, and
+  author tools are only exposed, when `mcp.author_enabled = true`; `deploy`
+  can only be granted when agent deploy is enabled (§10). The `privileged`
+  flag (default false) is needed to call privileged tools.
 - Grants bind to `(flowID, triggerNodeID, fingerprint)`. A redeploy that
   changes the fingerprint to a higher risk or a wider schema suspends the grant
   until the admin re-confirms. `all_tools` never includes privileged tools.

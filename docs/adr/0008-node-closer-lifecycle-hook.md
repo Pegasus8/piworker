@@ -27,9 +27,12 @@ made old and new clients kick each other off the broker.
 
 `internal/node/lifecycle.go` defines `type Closer interface { Close() error }`.
 The runtime calls `Close` on every node implementing it (triggers included)
-after executors drain on `Stop`, and when a start is aborted; errors are
-logged. If stopping times out, `Close` waits until leftover goroutines exit, and
-redeploy of the same flow is refused (`ErrFlowStillStopping`) until then.
+after executors drain on `Stop`, and when a trigger fails to start (the start
+is rolled back); errors are logged. `Close` is not called when deploy fails
+before triggers start (node creation, validation), so nodes must acquire
+resources lazily (on first use or in `Start`), never in their factory. If
+stopping times out, `Close` waits until leftover goroutines exit, and redeploy
+of the same flow is refused (`ErrFlowStillStopping`) until then.
 Resource-holding nodes add a compile-time assertion (`var _ node.Closer = …`).
 Shared resources use reference counting (database pools per DSN).
 

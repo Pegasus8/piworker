@@ -27,11 +27,16 @@ history become unreliable; no current node needs loops.
 
 ## Decision
 
-`Flow.Validate(reg *node.Registry)` is the single validation path. It rejects
-empty/duplicate node IDs, duplicate connection IDs, connections to missing
-nodes or ports, self-loops and cycles, and requires at least one enabled
-trigger, where trigger-ness comes from the registered node type, never from the
-client's `Category`. Deploy maps validation errors to HTTP 400.
+`Flow.validate` (`internal/flow/model.go`) is the single structural check;
+other deploy-time checks (config typing, tool risk rules, ADR-0013) are called
+from the same path so every flow problem is reported consistently. Deploy calls
+it with a server-side trigger predicate (the instance implements
+`node.TriggerNode` or the registered category is `input`); `Flow.Validate(reg)`
+is the registry-only wrapper. Neither uses the client's `Category`. It rejects
+empty/duplicate node IDs, duplicate non-empty connection IDs, connections to
+missing nodes or ports, self-loops and cycles, and requires at least one
+enabled trigger in any non-empty flow (an empty flow is accepted as a draft).
+Invalid flows map to HTTP 400 (ADR-0006).
 
 ## Consequences
 

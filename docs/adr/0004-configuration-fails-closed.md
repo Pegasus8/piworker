@@ -27,11 +27,16 @@ read; insecure fallbacks persist.
 ## Decision
 
 Startup fails, naming the problem, when: a boolean environment variable is
-empty or not one of true/false, 1/0, yes/no, on/off; an explicitly chosen config
-file (`-config`, `PIWORKER_CONFIG`) does not exist (only the implicit
-`piworker.toml` may be absent); the TOML file has unknown keys. Removed
-settings (`jwt_secret`) are therefore errors. New settings follow the same
-rules (strict parsing, explicit validation function, tests).
+empty or not one of true/false, t/f, 1/0, yes/no, on/off (case-insensitive,
+surrounding whitespace ignored); a config path other than the default
+`piworker.toml` (from `-config` or `PIWORKER_CONFIG`) does not exist (a missing
+`piworker.toml` is tolerated); the TOML file has unknown keys. Removed settings
+are therefore errors in the TOML file (`jwt_secret`) and as flags
+(`-jwt-secret`); unknown `PIWORKER_*` environment variables are not checked, so
+the former `PIWORKER_JWT_SECRET` is ignored. New settings must use strict
+parsing, be validated explicitly and have tests; a config validation function
+(cross-field checks such as conflicting listener ports or MCP without auth) is
+added with the MCP/HTTPS work.
 
 ## Consequences
 

@@ -36,12 +36,15 @@ Each node has its own bounded queue (`internal/flow/queue.go`, default 1000,
 message is dropped with a warning, counted (`DroppedMessages()` and a metric)
 and released from its run. The router sends in call order on a single channel
 (each source routes from one goroutine), so delivery is FIFO per
-(source, target); the worker pool was removed. Every drop path calls `runDone`
-so runs always finish.
+(source, target); the worker pool was removed. Every overflow or timeout drop
+path calls `runDone` (via `releaseDropped`), so overload never leaves a run
+open; runs still in flight when a flow is stopped are finalized by the event
+recorder's idle timeout.
 
 ## Consequences
 
 - Easier: reasoning about ordering in stateful nodes; isolating slow branches.
-- Harder: a sustained overload drops messages instead of applying backpressure
-  to triggers.
+- Harder: a node whose queue is full drops messages instead of applying
+  backpressure. Upstream, backpressure is only bounded: the trigger seeder
+  blocks on the router input, and router sends wait at most 5 s before dropping.
 - Revisit when: a node needs backpressure semantics (e.g. lossless queues).

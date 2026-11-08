@@ -25,15 +25,17 @@ node recipe, UI changes and documentation do **not** need an ADR.
 ## Process
 
 1. Copy [`template.md`](template.md) to `NNNN-short-title.md` with the next
-   number (four digits, never reused).
+   number (four digits, never reused) and add a row to the Index below
+   (number, title as in the heading, status). Keep the Index status in sync.
 2. Set **Status: Proposed**, fill in Context, Options, Decision, Consequences.
    Keep it short; link to longer design documents in `docs/design/` for detail.
 3. Merge it with the implementing change and set **Status: Accepted**. If the
    decision is accepted before implementation is complete, keep the Action
    Items list current.
-4. Never rewrite an accepted ADR's decision. To change it, write a new ADR and
-   set the old one to **Superseded by ADR-NNNN** (and the new one to
-   **Supersedes ADR-NNNN**). Typos and links may be fixed in place.
+4. Never rewrite an accepted ADR's decision. To change it, write a new ADR
+   (Accepted, with a `**Supersedes:** ADR-NNNN` line) and set the old one to
+   **Superseded by ADR-NNNN**. A decision withdrawn without replacement becomes
+   **Deprecated**. Corrections of facts, typos and links may be made in place.
 5. Reference the ADR number in the commit message or PR description.
 
 ## Index
@@ -53,3 +55,4 @@ node recipe, UI changes and documentation do **not** need an ADR.
 | [0011](0011-native-https-with-local-ca.md) | Native HTTPS by default with a local CA | Accepted |
 | [0012](0012-human-approval-and-opt-in-agent-deploy.md) | Human approval gates and opt-in agent deploy | Accepted |
 | [0013](0013-closed-tool-schemas-and-server-computed-risk.md) | Closed tool input schemas and server-computed risk | Accepted |
+| [0014](0014-host-allowlist-against-dns-rebinding.md) | Host allowlist against DNS rebinding | Accepted |

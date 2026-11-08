@@ -41,13 +41,15 @@ data + untrusted input + exfiltration) inside unattended flows; heavier on a Pi.
 ## Decision
 
 Build Option B first, then add observation (read scope), draft authoring with
-editor approval (author scope) and opt-in agent deploy (ADR-0012). Grafted from
-A: dry-run, lint and draft approval; from C: nothing now (MCP client node
-deferred to its own ADR). Transport: one embedded endpoint `/mcp` (outside
+editor approval (author scope, only when `mcp.author_enabled = true`, default
+false) and opt-in agent deploy (ADR-0012). Grafted from A: dry-run, lint and
+draft approval; from C: nothing now (MCP client node deferred to its own ADR). Transport: one embedded endpoint `/mcp` (outside
 `/api`), Streamable HTTP in stateless mode with JSON responses, using the
 official `github.com/modelcontextprotocol/go-sdk` pinned to an exact version;
-`listChanged: false`, no `subscriptions/listen`, private cache scope. Off by
-default (`mcp.enabled`), and a startup error when enabled with auth disabled.
+`listChanged: false`, no `subscriptions/listen`, private cache scope. The SDK's
+localhost DNS-rebinding protection is disabled and replaced by PiWorker's Host
+allowlist (ADR-0014) plus an `Origin` allowlist on `/mcp`. Off by default
+(`mcp.enabled`), and a startup error when enabled with auth disabled.
 Claude Desktop uses a pure-Go stdio bridge (`cmd/piworker-mcp`). Not built:
 OAuth/public exposure, Bearer on `/api`, a tool per node type, raw
 GPIO/shell/I2C tools, reading secrets or variables, legacy HTTP+SSE.
@@ -62,7 +64,8 @@ GPIO/shell/I2C tools, reading secrets or variables, legacy HTTP+SSE.
 
 ## Action items
 
-1. [ ] Runtime `Call`/`Wait`/`RunDone` and waiters.
+1. [ ] Runtime `Call`/`Wait`/`RunDone` and waiters; deploy rejects a
+   duplicate tool name with 409 (ADR-0006).
 2. [ ] `trigger-tool`, `action-reply`, `internal/toolschema`, risk analysis.
 3. [ ] `internal/service`, REST twin, `internal/mcpserver`.
 4. [ ] Read and author tools; stdio bridge; E2E with a real SDK client.

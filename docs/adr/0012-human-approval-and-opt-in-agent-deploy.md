@@ -30,12 +30,16 @@ able to deploy flows, as a risk each installation can choose to accept.
 
 ## Decision
 
-- Tools have `confirm`: `none`, `client` (UX only, sets
-  `requiresUserInteraction`), `admin` (server-side gate). `admin` returns
-  `approval_required`; the admin approves or rejects in the editor queue; the
-  result is retrieved with `pw_get_result`. Pending approvals expire (15 min).
-- Agent authoring produces drafts only; the admin approves deploys in the
-  editor (diff, risk, recipient/destination changes, agent text shown as text).
+- Tools have `confirm`: `none`, `client` (UX only), `admin` (server-side
+  gate). `_meta["anthropic/requiresUserInteraction"] = true` is set for
+  `client` and `admin` tools and for every destructive (privileged) tool
+  regardless of `confirm`. `admin` returns `approval_required`; the admin
+  approves or rejects in the editor queue; the result is retrieved with
+  `pw_get_result`. Pending approvals expire (15 min).
+- Agent authoring produces drafts only; with `agent_deploy = off` (default)
+  every deploy is approved by the admin in the editor (diff, risk,
+  recipient/destination changes, agent text shown as text). The levels below
+  relax this.
 - `agent_deploy` setting: `off` (default); `low` — agents may deploy/start/stop
   flows whose resulting risk is at most `external`, with no recipient or
   destination changes and no new secret references versus the last
@@ -51,3 +55,10 @@ able to deploy flows, as a risk each installation can choose to accept.
 - Easier: safe defaults with an explicit escape hatch for trusted setups.
 - Harder: maintaining the "low risk" policy and the approval UI.
 - Revisit when: incidents or usage show a level is too permissive or useless.
+
+## Action items
+
+1. [ ] `agent_approvals` storage, approval queue UI, execution of approved calls.
+2. [ ] Draft approval page with diff and alerts.
+3. [ ] `agent_deploy` setting with step-up, policy checks, "deployed by agent"
+   marker and one-click rollback.
