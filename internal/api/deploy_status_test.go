@@ -24,6 +24,8 @@ func TestDeployErrorStatus(t *testing.T) {
 		{"invalid connection", fmt.Errorf("%w: x", flow.ErrInvalidConnection), http.StatusBadRequest},
 		{"still stopping", fmt.Errorf("%w: flow a", flow.ErrFlowStillStopping), http.StatusConflict},
 		{"already running", flow.ErrFlowAlreadyRunning, http.StatusConflict},
+		{"invalid node config", flow.NewNodeExecutionError("n1", "action-http", fmt.Errorf("%w: url is required", flow.ErrInvalidNodeConfig)), http.StatusBadRequest},
+		{"resource conflict", flow.NewNodeExecutionError("t1", "trigger-webhook", fmt.Errorf("%w: webhook path \"/x\" is already registered", flow.ErrResourceConflict)), http.StatusConflict},
 		{"other", errors.New("broker exploded"), http.StatusInternalServerError},
 	}
 	for _, tc := range cases {

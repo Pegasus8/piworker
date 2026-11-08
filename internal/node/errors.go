@@ -55,3 +55,9 @@ func IsRetryable(err error) bool {
 	}
 	return false
 }
+
+// ErrResourceConflict marks a trigger Start error caused by an exclusive
+// resource that is already taken (a webhook path, a tool name, a GPIO line).
+// Deploy fails with it and the API answers 409 (ADR-0006). Wrap it with
+// fmt.Errorf("%w: ...", node.ErrResourceConflict, ...).
+var ErrResourceConflict = errors.New("resource already in use")

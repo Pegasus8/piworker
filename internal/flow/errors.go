@@ -4,6 +4,8 @@ package flow
 import (
 	"errors"
 	"fmt"
+
+	"github.com/Pegasus8/piworker/internal/node"
 )
 
 // Common errors for flow operations.
@@ -36,6 +38,14 @@ var (
 	// while stopping and still has goroutines executing; deploying again now
 	// would run two instances side by side.
 	ErrFlowStillStopping = errors.New("previous instance of the flow is still stopping")
+
+	// ErrInvalidNodeConfig marks a node whose factory or Validate rejected its
+	// configuration: the flow is invalid (HTTP 400, ADR-0006).
+	ErrInvalidNodeConfig = errors.New("invalid node configuration")
+
+	// ErrResourceConflict is node.ErrResourceConflict: a trigger could not
+	// start because an exclusive resource is taken (HTTP 409, ADR-0006).
+	ErrResourceConflict = node.ErrResourceConflict
 )
 
 // ValidationError represents a flow validation error with details.

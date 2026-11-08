@@ -686,10 +686,12 @@ func deployErrorStatus(err error) int {
 	case errors.As(err, &verr),
 		errors.Is(err, flow.ErrNoTriggerNodes),
 		errors.Is(err, flow.ErrInvalidNodeType),
+		errors.Is(err, flow.ErrInvalidNodeConfig),
 		errors.Is(err, flow.ErrInvalidConnection):
 		return http.StatusBadRequest
 	case errors.Is(err, flow.ErrFlowStillStopping),
-		errors.Is(err, flow.ErrFlowAlreadyRunning):
+		errors.Is(err, flow.ErrFlowAlreadyRunning),
+		errors.Is(err, flow.ErrResourceConflict):
 		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError
