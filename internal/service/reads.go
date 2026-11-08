@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/config"
@@ -221,6 +222,13 @@ func (r *Reads) ListFlows(ctx context.Context, actor Actor) (FlowList, error) {
 	if err != nil {
 		return FlowList{}, fmt.Errorf("list flows: %w", err)
 	}
+	// Newest first, as stored; ties in the creation time in ID order.
+	slices.SortStableFunc(flows, func(a, b *flow.Flow) int {
+		if c := b.CreatedAt.Compare(a.CreatedAt); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
 	red := r.redactor()
 	running := r.runningSet()
 	tools := r.toolsByFlow()
@@ -266,7 +274,7 @@ func (r *Reads) runningSet() map[string]bool {
 }
 
 // toolsByFlow groups the published tools by flow, each group sorted by tool
-// name (as RuntimeManager.Tools returns them).
+// name (then trigger node).
 func (r *Reads) toolsByFlow() map[string][]flow.ToolInfo {
 	_, tools := r.runtimes.Tools()
 	by := map[string][]flow.ToolInfo{}
@@ -275,13 +283,10 @@ func (r *Reads) toolsByFlow() map[string][]flow.ToolInfo {
 	}
 	for _, group := range by {
 		slices.SortStableFunc(group, func(a, b flow.ToolInfo) int {
-			if a.ToolName < b.ToolName {
-				return -1
+			if c := strings.Compare(a.ToolName, b.ToolName); c != 0 {
+				return c
 			}
-			if a.ToolName > b.ToolName {
-				return 1
-			}
-			return 0
+			return strings.Compare(a.TriggerNodeID, b.TriggerNodeID)
 		})
 	}
 	return by

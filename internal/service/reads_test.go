@@ -315,3 +315,55 @@ func TestReadsBoundTheToolsOfAFlow(t *testing.T) {
 	assert.Equal(t, "tool_000", view.Tools[0].Name)
 	assert.True(t, view.Truncated)
 }
+
+// tiedFlows is a FlowSource whose flows share a creation time and come back
+// in a different order on every call, as SQL leaves ties unordered.
+type tiedFlows struct {
+	flows []*flow.Flow
+	calls *int
+}
+
+func (s tiedFlows) GetFlow(id string) (*flow.Flow, error) {
+	for _, f := range s.flows {
+		if f.ID == id {
+			return f, nil
+		}
+	}
+	return nil, storage.ErrFlowNotFound
+}
+
+func (s tiedFlows) ListFlowsPaginated(offset, limit int) ([]*flow.Flow, int, error) {
+	*s.calls++
+	out := make([]*flow.Flow, len(s.flows))
+	for i := range s.flows {
+		out[i] = s.flows[(i+*s.calls)%len(s.flows)]
+	}
+	return out, len(out), nil
+}
+
+// Flows created at the same instant are listed in ID order, the same on
+// every call.
+func TestListFlowsOrderIsTotal(t *testing.T) {
+	at := time.Date(2026, 11, 8, 9, 0, 0, 0, time.UTC)
+	src := tiedFlows{calls: new(int)}
+	for _, id := range []string{"c", "a", "d", "b"} {
+		f := manualFlow(id)
+		f.ID, f.CreatedAt = id, at
+		src.flows = append(src.flows, f)
+	}
+	newer := manualFlow("newer")
+	newer.ID, newer.CreatedAt = "z", at.Add(time.Second)
+	src.flows = append(src.flows, newer)
+	e := newReadsEnv(t, func(o *ReadsOptions) { o.Flows = src })
+
+	var ids []string
+	for range 3 {
+		list, err := e.reads.ListFlows(context.Background(), EditorActor())
+		require.NoError(t, err)
+		ids = ids[:0]
+		for _, s := range list.Flows {
+			ids = append(ids, s.ID)
+		}
+		assert.Equal(t, []string{"z", "a", "b", "c", "d"}, ids)
+	}
+}
