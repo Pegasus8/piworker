@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
@@ -149,4 +150,67 @@ func TestGetFlowRedactionCanaries(t *testing.T) {
 		assert.Greater(t, hidden, 40)
 		assert.False(t, strings.Contains(out, `"zzUndeclared":"CNRY`), "undeclared properties are hidden")
 	}
+}
+
+// The secret canary (docs/design/mcp.md §13): a value in the secret store,
+// referenced by the flow and also leaked into the flow's name, a visible
+// setting, the token name of a run's actor, node errors and a payload
+// echoed in an error (the recorder stores no payloads), never appears in
+// any read view, literally, URL-encoded, base64-encoded or escaped.
+func TestReadsSecretCanary(t *testing.T) {
+	e := newReadsEnv(t)
+	const value = "Cn4ry-S3cret/Value+9&q"
+	require.NoError(t, e.secrets.Set("API_KEY", value))
+
+	f := manualFlow("canary " + value)
+	httpN := flow.NewNode("action-http", flow.NodeCategoryOutput)
+	httpN.ID = "http"
+	httpN.Config = map[string]any{
+		"method":  "POST",
+		"url":     "https://api.example.com/v1?key={{secret.API_KEY}}",
+		"headers": map[string]any{"Authorization": "Bearer {{secret.API_KEY}}"},
+	}
+	debug := flow.NewNode("process-debug", flow.NodeCategoryProcessing)
+	debug.ID = "debug"
+	debug.Config = map[string]any{"name": "uses {{secret.API_KEY}}, i.e. " + value}
+	f.AddNode(*httpN)
+	f.AddNode(*debug)
+	e.save(f)
+
+	var events []storage.NodeEventRecord
+	for name, leak := range secretLeaks(value) {
+		events = append(events, storage.NodeEventRecord{NodeID: "http", NodeType: "action-http", Phase: "error", Error: name + ": " + leak})
+	}
+	e.addRun(f.ID, "run-canary", "token:bot "+value, 0, time.Second, "error", events...)
+
+	ctx := context.Background()
+	actor := readsAgent(storage.ScopeRead)
+	flows, err := e.reads.ListFlows(ctx, actor)
+	require.NoError(t, err)
+	view, err := e.reads.GetFlow(ctx, actor, f.ID)
+	require.NoError(t, err)
+	runs, err := e.reads.ListRuns(ctx, actor, f.ID, 10, "")
+	require.NoError(t, err)
+	run, err := e.reads.GetRun(ctx, actor, f.ID, "run-canary")
+	require.NoError(t, err)
+	prompt, err := e.reads.DiagnoseFlow(ctx, actor, f.ID)
+	require.NoError(t, err)
+	require.Len(t, run.Events, len(events))
+
+	outputs := map[string]string{
+		"ListFlows":    leakText(t, flows),
+		"GetFlow":      leakText(t, view),
+		"ListRuns":     leakText(t, runs),
+		"GetRun":       leakText(t, run),
+		"DiagnoseFlow": prompt,
+	}
+	for name, out := range outputs {
+		for form, text := range secretForms(value) {
+			assert.NotContainsf(t, out, text, "%s leaked the secret as %s", name, form)
+		}
+	}
+	// References are names, not values: they stay where visible.
+	assert.Contains(t, outputs["GetFlow"], "uses {{secret.API_KEY}}, i.e. "+redactedMark)
+	assert.Equal(t, "POST", view.Nodes[2].Config["method"])
+	assert.Equal(t, redactedMark, view.Nodes[2].Config["headers"])
 }
