@@ -174,3 +174,43 @@ func TestCheckConfigIsSortedAndNilSafe(t *testing.T) {
 	assert.Equal(t, []string{"enabled", "interval", "timeout"}, []string{issues[0].Path, issues[1].Path, issues[2].Path})
 	assert.Equal(t, `enabled: expected boolean, got string "b"`, issues[0].String())
 }
+
+// A "json" property holds a JSON object (the editor's JSON field stores the
+// parsed object); a string containing a JSON object is accepted too.
+func TestCheckConfigJSONObjects(t *testing.T) {
+	schema := &ConfigSchema{Properties: map[string]ConfigProperty{
+		"schema": {Type: "json"},
+		"secret": {Type: "json", Sensitive: true},
+	}}
+	for _, v := range []any{
+		map[string]any{"type": "object"},
+		map[string]any{},
+		map[string]string{"a": "b"},
+		`{"type": "object"}`,
+		` {} `,
+		"",  // unset
+		nil, // unset
+	} {
+		assert.Emptyf(t, CheckConfig(schema, map[string]any{"schema": v}), "%#v", v)
+	}
+
+	cases := map[string]struct {
+		value any
+		want  string
+	}{
+		"array":       {[]any{}, `expected a JSON object, got array`},
+		"number":      {float64(3), `expected a JSON object, got number 3`},
+		"boolean":     {true, `expected a JSON object, got boolean true`},
+		"text":        {"type: object", `expected a JSON object, got string "type: object"`},
+		"json array":  {`[1]`, `expected a JSON object, got string "[1]"`},
+		"json string": {`"x"`, `expected a JSON object, got string "\"x\""`},
+		"trailing":    {`{} {}`, `expected a JSON object, got string "{} {}"`},
+	}
+	for name, c := range cases {
+		issues := issueMap(CheckConfig(schema, map[string]any{"schema": c.value}))
+		assert.Equalf(t, c.want, issues["schema"], name)
+	}
+
+	got := issueMap(CheckConfig(schema, map[string]any{"secret": "not json hunter2"}))
+	assert.Equal(t, `expected a JSON object, got string`, got["secret"])
+}

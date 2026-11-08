@@ -64,8 +64,12 @@ type ConfigSchema struct {
 
 // ConfigProperty describes a single configuration property. CheckConfig
 // enforces Type, Enum, Minimum and Maximum when a flow is deployed.
+//
+// Type "object" is a map of name/value pairs (the editor edits it as rows,
+// e.g. HTTP headers); "json" is a free-form JSON object the editor edits as
+// JSON text and stores parsed (e.g. a tool's input schema).
 type ConfigProperty struct {
-	Type        string      `json:"type"`                  // string, number, integer, boolean, array, object ("" = any)
+	Type        string      `json:"type"`                  // string, number, integer, boolean, array, object, json ("" = any)
 	Title       string      `json:"title"`                 // Human-readable title
 	Description string      `json:"description,omitempty"` // Help text; states the unit of numeric values
 	Default     interface{} `json:"default,omitempty"`     // Default value

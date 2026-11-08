@@ -3,6 +3,7 @@ package node
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"reflect"
 	"sort"
@@ -38,6 +39,7 @@ const maxShownValue = 32
 //     then use their default (the editor removes a cleared number field;
 //     older editors and hand-written definitions may store "");
 //   - "number" accepts any finite number, "integer" a whole number;
+//   - "json" accepts a JSON object: a map, or a string holding one object;
 //   - enum values match exactly, or in any case when the property is
 //     CaseInsensitive (the node normalises case itself);
 //   - Minimum/Maximum are inclusive;
@@ -99,6 +101,10 @@ func checkValue(p ConfigProperty, v any) string {
 	case "object":
 		if !isKind(v, reflect.Map) {
 			return mismatch()
+		}
+	case "json":
+		if !isJSONObject(v) {
+			return fmt.Sprintf("expected a JSON object%s, got %s", unit, describeValue(v, p.Sensitive))
 		}
 	case "array":
 		if !isKind(v, reflect.Slice, reflect.Array) {
@@ -208,6 +214,21 @@ func toFloat(v any) (float64, bool) {
 		return rv.Float(), true
 	}
 	return 0, false
+}
+
+// isJSONObject reports whether v is a map or a string holding exactly one
+// JSON object.
+func isJSONObject(v any) bool {
+	if s, ok := v.(string); ok {
+		dec := json.NewDecoder(strings.NewReader(s))
+		var obj map[string]any
+		if err := dec.Decode(&obj); err != nil || obj == nil {
+			return false
+		}
+		_, err := dec.Token()
+		return err == io.EOF
+	}
+	return isKind(v, reflect.Map)
 }
 
 func isKind(v any, kinds ...reflect.Kind) bool {
