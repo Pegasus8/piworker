@@ -496,22 +496,58 @@ func (r *FlowRuntime) nodeExecutor(nodeID string, q *nodeQueue) {
 		}
 
 		// Acquire a global concurrency slot, respecting cancellation.
-		select {
-		case r.sem <- struct{}{}:
-		case <-r.ctx.Done():
+		slot := &semSlot{sem: r.sem}
+		if !slot.acquire(r.ctx) {
 			return
 		}
 
 		func() {
-			defer func() { <-r.sem }()
-			r.executeNode(routedMsg)
+			defer slot.release()
+			r.executeNodeInSlot(routedMsg, slot)
 		}()
 	}
+}
+
+// semSlot tracks whether an executor currently holds a concurrency slot, so the
+// slot can be handed back during retry backoff and re-acquired afterwards
+// without ever being released twice.
+type semSlot struct {
+	sem  chan struct{}
+	held bool
+}
+
+// acquire takes a slot, or returns false if ctx ends first.
+func (s *semSlot) acquire(ctx context.Context) bool {
+	if s == nil || s.held {
+		return true
+	}
+	select {
+	case s.sem <- struct{}{}:
+		s.held = true
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// release gives the slot back if it is held.
+func (s *semSlot) release() {
+	if s == nil || !s.held {
+		return
+	}
+	<-s.sem
+	s.held = false
 }
 
 // executeNode processes a message through the target node and routes the output.
 // It uses exponential backoff retry for transient failures.
 func (r *FlowRuntime) executeNode(routedMsg RoutedMessage) {
+	r.executeNodeInSlot(routedMsg, nil)
+}
+
+// executeNodeInSlot is executeNode for a caller holding a concurrency slot; the
+// slot is released while waiting out retry backoff (nil = no slot to manage).
+func (r *FlowRuntime) executeNodeInSlot(routedMsg RoutedMessage, slot *semSlot) {
 	// Assign the run's correlation ID up front and decrement the run counter on
 	// every return path — this message has been consumed. The child increments
 	// happen below, before routing, so the counter never reaches zero while work
@@ -592,7 +628,7 @@ func (r *FlowRuntime) executeNode(routedMsg RoutedMessage) {
 
 	// Execute the node with retry logic
 	startTime := time.Now()
-	outputs, err := r.executeNodeWithRetry(nodeInstance, routedMsg, flowNode, logger)
+	outputs, err := r.executeNodeWithRetry(nodeInstance, routedMsg, flowNode, logger, slot)
 	duration := time.Since(startTime)
 
 	// Record metrics
@@ -673,7 +709,10 @@ func (r *FlowRuntime) executeNode(routedMsg RoutedMessage) {
 
 // executeNodeWithRetry executes a node with exponential backoff retry logic.
 // It returns the outputs on success or the last error after all retries are exhausted.
-func (r *FlowRuntime) executeNodeWithRetry(nodeInstance node.Node, routedMsg RoutedMessage, flowNode *Node, logger zerolog.Logger) ([]*types.Message, error) {
+// When slot is non-nil its concurrency slot is released for the duration of
+// each backoff sleep (so a retrying node doesn't starve the rest of the flow)
+// and re-acquired before the next attempt.
+func (r *FlowRuntime) executeNodeWithRetry(nodeInstance node.Node, routedMsg RoutedMessage, flowNode *Node, logger zerolog.Logger, slot *semSlot) ([]*types.Message, error) {
 	var lastErr error
 	wait := r.retryConfig.InitialWait
 	// A negative MaxRetries would skip the loop entirely and report success
@@ -722,16 +761,24 @@ func (r *FlowRuntime) executeNodeWithRetry(nodeInstance node.Node, routedMsg Rou
 			Dur("nextWait", wait).
 			Msg("Node execution failed, retrying")
 
-		// Wait before retrying (with context cancellation support)
+		// Wait before retrying without holding a concurrency slot, then take
+		// one again before the next attempt (both cancellation-aware).
+		slot.release()
+		timer := time.NewTimer(wait)
 		select {
-		case <-time.After(wait):
-			// Calculate next wait time with exponential backoff
-			wait = time.Duration(float64(wait) * r.retryConfig.Multiplier)
-			if wait > r.retryConfig.MaxWait {
-				wait = r.retryConfig.MaxWait
-			}
+		case <-timer.C:
 		case <-r.ctx.Done():
+			timer.Stop()
 			return nil, r.ctx.Err()
+		}
+		if !slot.acquire(r.ctx) {
+			return nil, r.ctx.Err()
+		}
+
+		// Calculate next wait time with exponential backoff
+		wait = time.Duration(float64(wait) * r.retryConfig.Multiplier)
+		if wait > r.retryConfig.MaxWait {
+			wait = r.retryConfig.MaxWait
 		}
 	}
 

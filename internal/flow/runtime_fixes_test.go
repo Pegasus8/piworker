@@ -34,7 +34,7 @@ func TestNegativeMaxRetriesReturnsError(t *testing.T) {
 	rt.retryConfig.MaxRetries = -5
 
 	def := rt.nodeDefs[findNodeIDByType(t, rt, "counting")]
-	_, err := rt.executeNodeWithRetry(cn, RoutedMessage{Message: NewMessage("x", DataTypeString), TargetNode: def.ID}, def, zerolog.Nop())
+	_, err := rt.executeNodeWithRetry(cn, RoutedMessage{Message: NewMessage("x", DataTypeString), TargetNode: def.ID}, def, zerolog.Nop(), nil)
 	assert.EqualError(t, err, "boom")
 	assert.Equal(t, int32(1), atomic.LoadInt32(&cn.calls))
 }
