@@ -178,6 +178,31 @@ func TestValidateShortensLongEnums(t *testing.T) {
 	assert.Contains(t, got["/e"], "more)")
 }
 
+// One compiled schema serves every call of a tool at once.
+func TestSchemaIsSafeForConcurrentUse(t *testing.T) {
+	s := mustCompile(t, validateSchema)
+	done := make(chan struct{})
+	for i := 0; i < 16; i++ {
+		go func(i int) {
+			defer func() { done <- struct{}{} }()
+			for j := 0; j < 50; j++ {
+				valid := map[string]any{"name": "abc", "count": float64(1 + (i+j)%10), "tags": []any{"a"}}
+				if issues := s.Validate(valid); len(issues) != 0 {
+					t.Errorf("unexpected issues: %v", issues)
+				}
+				if issues := s.Validate(map[string]any{"name": "ABC", "count": float64(99)}); len(issues) != 2 {
+					t.Errorf("want 2 issues, got %v", issues)
+				}
+				_ = s.RequireStrictFor(nil)
+				_ = s.JSON()
+			}
+		}(i)
+	}
+	for i := 0; i < 16; i++ {
+		<-done
+	}
+}
+
 // Unknown property names come from the caller: their pointers are shortened
 // like values.
 func TestValidateShortensUnknownPropertyPointers(t *testing.T) {
