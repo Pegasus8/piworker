@@ -930,7 +930,9 @@ func (m *RuntimeManager) StopAll() {
 					Err(err).
 					Str("flowID", id).
 					Msg("Error stopping flow")
+				continue
 			}
+			metrics.DecrementFlowsRunning()
 		}
 	}
 

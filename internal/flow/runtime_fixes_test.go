@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Pegasus8/piworker/internal/metrics"
 	"github.com/Pegasus8/piworker/internal/node"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -118,4 +120,26 @@ func TestOutputsInheritCorrelationID(t *testing.T) {
 	assert.Equal(t, 2, countPhase(events, NodePhaseSuccess))
 	assert.Len(t, corr, 1, "all node executions in a cascade share the run's correlation ID")
 	assert.Equal(t, 1, countPhase(events, NodePhaseRunFinished), "exactly one run, finished once")
+}
+
+// TestStopAllDecrementsRunningGauge checks StopAll keeps the flows_running
+// gauge consistent with Deploy/Undeploy.
+func TestStopAllDecrementsRunningGauge(t *testing.T) {
+	reg := createTestRegistry()
+	m := NewRuntimeManager(reg, zerolog.Nop())
+	before := gaugeValue(t)
+
+	require.NoError(t, m.Deploy(context.Background(), createSimpleFlow()))
+	require.NoError(t, m.Deploy(context.Background(), createSimpleFlow()))
+	assert.Equal(t, before+2, gaugeValue(t))
+
+	m.StopAll()
+	assert.Equal(t, before, gaugeValue(t))
+}
+
+func gaugeValue(t *testing.T) float64 {
+	t.Helper()
+	var m dto.Metric
+	require.NoError(t, metrics.FlowsRunning.Write(&m))
+	return m.GetGauge().GetValue()
 }
