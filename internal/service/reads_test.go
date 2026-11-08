@@ -128,6 +128,7 @@ func TestReadsNeedTheReadScope(t *testing.T) {
 
 	calls := map[string]func(Actor) error{
 		"ListFlows": func(a Actor) error { _, err := e.reads.ListFlows(ctx, a); return err },
+		"GetFlow":   func(a Actor) error { _, err := e.reads.GetFlow(ctx, a, f.ID); return err },
 	}
 	refused := map[string]Actor{
 		"no scopes":         readsAgent(),
