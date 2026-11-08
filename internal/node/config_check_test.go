@@ -66,8 +66,8 @@ func TestCheckConfigAcceptsTypedGoValues(t *testing.T) {
 }
 
 func TestCheckConfigTreatsNullAndEmptyStringAsUnset(t *testing.T) {
-	// The editor form stores "" for a cleared field; nodes fall back to their
-	// default for both, so neither is a type error.
+	// Older editors and hand-written definitions store "" for a cleared field;
+	// nodes fall back to their default for both, so neither is a type error.
 	cfg := map[string]any{
 		"interval": nil,
 		"timeout":  "",

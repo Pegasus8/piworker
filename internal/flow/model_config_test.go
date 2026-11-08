@@ -122,3 +122,54 @@ func TestDeployAcceptsWellTypedConfig(t *testing.T) {
 	require.NoError(t, m.Deploy(context.Background(), f))
 	assert.Equal(t, int32(2), created.Load())
 }
+
+// A flow that ran before an upgrade made config checking stricter must keep
+// running after the restart: Restore reports the issues and lets the nodes
+// clamp or default those values as they always did, while an explicit Deploy
+// of the same flow still refuses them.
+func TestRestoreDeploysDespiteConfigIssues(t *testing.T) {
+	var created atomic.Int32
+	reg := configCheckRegistry(t, &created)
+	m := NewRuntimeManager(reg, zerolog.Nop())
+	t.Cleanup(m.StopAll)
+	f := typedFlow(map[string]interface{}{"interval": 50}, map[string]interface{}{"level": "loud"})
+
+	require.Error(t, m.Deploy(context.Background(), f))
+
+	issues, err := m.Restore(context.Background(), f)
+	require.NoError(t, err)
+	require.Len(t, issues, 2)
+	assert.Equal(t, "nodes[0].config.interval", issues[0].Path)
+	assert.Equal(t, "nodes[1].config.level", issues[1].Path)
+	rt, ok := m.GetRuntime(f.ID)
+	require.True(t, ok)
+	assert.True(t, rt.IsRunning())
+}
+
+func TestRestoreOfACleanFlowReportsNoIssues(t *testing.T) {
+	var created atomic.Int32
+	reg := configCheckRegistry(t, &created)
+	m := NewRuntimeManager(reg, zerolog.Nop())
+	t.Cleanup(m.StopAll)
+
+	issues, err := m.Restore(context.Background(), typedFlow(map[string]interface{}{"interval": 500}, nil))
+	require.NoError(t, err)
+	assert.Empty(t, issues)
+}
+
+// Only schema mismatches are tolerated: a node that cannot be created still
+// fails the restore.
+func TestRestoreStillFailsWhenANodeCannotBeCreated(t *testing.T) {
+	var created atomic.Int32
+	reg := configCheckRegistry(t, &created)
+	m := NewRuntimeManager(reg, zerolog.Nop())
+	t.Cleanup(m.StopAll)
+	f := typedFlow(map[string]interface{}{"interval": 50}, nil)
+	f.AddNode(*NewNode("no-such-type", NodeCategoryProcessing))
+
+	issues, err := m.Restore(context.Background(), f)
+	require.Error(t, err)
+	assert.Len(t, issues, 1, "the issues are still reported")
+	_, ok := m.GetRuntime(f.ID)
+	assert.False(t, ok)
+}

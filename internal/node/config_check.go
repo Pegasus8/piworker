@@ -34,8 +34,9 @@ const maxShownValue = 32
 // Rules:
 //   - keys the schema does not declare, and properties without a Type, are
 //     not checked;
-//   - null, and "" for any non-string type or enum, mean "unset" (the editor
-//     stores "" for cleared fields and nodes then use their default);
+//   - null, and "" for any non-string type or enum, mean "unset": nodes
+//     then use their default (the editor removes a cleared number field;
+//     older editors and hand-written definitions may store "");
 //   - "number" accepts any finite number, "integer" a whole number;
 //   - enum values match exactly, or in any case when the property is
 //     CaseInsensitive (the node normalises case itself);
@@ -43,6 +44,10 @@ const maxShownValue = 32
 //   - Required is left to the node, which knows its defaults.
 //
 // Values of Sensitive properties are never quoted in messages.
+//
+// flow.RuntimeManager.Deploy refuses a flow with issues; Restore, used for
+// flows that were running before a restart, only reports them, so values
+// saved before this check existed do not stop an automation on upgrade.
 func CheckConfig(schema *ConfigSchema, cfg map[string]any) []ConfigIssue {
 	if schema == nil || len(cfg) == 0 {
 		return nil

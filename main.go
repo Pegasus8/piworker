@@ -441,7 +441,10 @@ func applyFlagOverrides(cfg *config.Config) {
 	})
 }
 
-// restoreRunningFlows attempts to restart flows that were running before the server stopped.
+// restoreRunningFlows attempts to restart flows that were running before the
+// server stopped. Settings that no longer pass the deploy-time schema check
+// (values saved before it existed) are logged, not fatal: the flow keeps
+// running as it did, and the next explicit deploy asks for a fix.
 func restoreRunningFlows(store *storage.SQLiteStore, manager *flow.RuntimeManager) {
 	runningFlows, err := store.GetRunningFlows()
 	if err != nil {
@@ -461,7 +464,16 @@ func restoreRunningFlows(store *storage.SQLiteStore, manager *flow.RuntimeManage
 	failed := 0
 
 	for _, f := range runningFlows {
-		if err := manager.Deploy(ctx, f); err != nil {
+		issues, err := manager.Restore(ctx, f)
+		for _, issue := range issues {
+			log.Warn().
+				Str("flowID", f.ID).
+				Str("flowName", f.Name).
+				Str("path", issue.Path).
+				Str("problem", issue.Message).
+				Msg("Restored flow has a setting that the next deploy will refuse; the node clamps or defaults it as before")
+		}
+		if err != nil {
 			log.Error().
 				Err(err).
 				Str("flowID", f.ID).

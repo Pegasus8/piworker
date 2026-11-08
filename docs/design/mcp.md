@@ -82,7 +82,9 @@ func RegenerateCA(dir string) error
 - `Node.Enabled` defaults to `true` when absent in JSON.
 - Config type errors are deploy errors with a path, e.g.
   `nodes[3].config.interval: expected number (milliseconds), got string "5s"`.
-  `ConfigSchema` descriptions state units.
+  `ConfigSchema` descriptions state units. Enums match exactly unless
+  `CaseInsensitive`. `RuntimeManager.Restore` (startup) logs these issues and
+  deploys anyway, so values saved before the check never stop a running flow.
 - **Host allowlist** for `/api`, `/mcp` and the webui: top-level `allowed_hosts`
   (TOML, `PIWORKER_ALLOWED_HOSTS`, `-allowed-hosts`), added to: `localhost`,
   hostname, `hostname.local`, current interface IPs (re-read lazily), and any
