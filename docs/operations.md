@@ -81,7 +81,10 @@ created on first start in `/var/lib/piworker/tls/` (`ca.crt`, `ca.key`,
   `sudo piworkerctl tls off`; back on with `sudo piworkerctl tls on`. With TLS off
   the service serves plain HTTP on the `addr` port (8443 by default).
 - Handshake errors from browsers that do not trust the CA yet, scanners and
-  probes are logged only at debug level (`-debug`), at most 10 per minute.
+  probes (including connections that negotiate HTTP/2 and then send something
+  else) are logged only at debug level (`-debug`), at most 10 per minute. Other
+  HTTP server errors are warnings, at most 30 per minute; the number of lines
+  left out is logged when the next minute starts.
 
 ## Backups and recovery after a failed update
 

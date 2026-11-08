@@ -279,8 +279,8 @@ func runOfflineCommand(cfg config.Config) {
 // newHTTPServer builds the HTTP server. Every request context derives from a
 // base context that is cancelled as soon as Shutdown begins, so long-lived
 // requests that honour r.Context() (the SSE event stream) end promptly instead
-// of holding Shutdown until its timeout. Server errors go to zerolog, with TLS
-// handshake errors at debug level and rate limited (serverErrorWriter).
+// of holding Shutdown until its timeout. Server errors go to zerolog, rate
+// limited, with handshake noise at debug level (serverErrorWriter).
 func newHTTPServer(addr string, handler http.Handler) *http.Server {
 	baseCtx, cancelBase := context.WithCancel(context.Background())
 	srv := &http.Server{

@@ -286,62 +286,97 @@ func refreshTLS(m *tlsca.Manager, warner *caWarner) {
 	warner.check(st)
 }
 
-// Rate limit for TLS handshake errors in the server error log.
+// Rate limits of the server error log: per serverLogWindow, at most
+// handshakeLogBurst handshake-noise lines and serverErrorLogBurst other lines.
 const (
-	handshakeLogBurst  = 10
-	handshakeLogWindow = time.Minute
+	handshakeLogBurst   = 10
+	serverErrorLogBurst = 30
+	serverLogWindow     = time.Minute
 )
 
 // serverErrorWriter receives net/http's server error log (http.Server.ErrorLog)
-// and forwards it to zerolog. "TLS handshake error" lines are routine on a LAN
-// device (browsers that do not trust the CA yet, scanners, probes), so they
-// are logged at debug level and at most handshakeLogBurst per
-// handshakeLogWindow, with the number dropped reported in the next window.
-// Every other line is a warning.
+// and forwards it to zerolog, rate limited per serverLogWindow so that peers
+// able to trigger a line on every connection cannot flood the log (an SD card
+// on a Pi):
+//   - handshake noise (isHandshakeNoise: failed TLS handshakes, bad HTTP/2
+//     prefaces) is routine on a LAN device (browsers that do not trust the CA
+//     yet, scanners, probes), so it is logged at debug level, at most
+//     handshakeLogBurst lines per window;
+//   - every other line is a warning, at most serverErrorLogBurst per window.
+//
+// Each class has its own budget; the lines a class dropped are counted and
+// reported at its level when its next window starts.
 type serverErrorWriter struct {
 	log zerolog.Logger
 	now func() time.Time
 
-	mu          sync.Mutex
-	windowStart time.Time
-	inWindow    int
-	suppressed  int
+	mu        sync.Mutex
+	handshake logBucket
+	other     logBucket
 }
 
 func newServerErrorWriter(logger zerolog.Logger, now func() time.Time) *serverErrorWriter {
-	return &serverErrorWriter{log: logger, now: now}
+	return &serverErrorWriter{
+		log:       logger,
+		now:       now,
+		handshake: logBucket{burst: handshakeLogBurst},
+		other:     logBucket{burst: serverErrorLogBurst},
+	}
 }
 
 // logger returns a standard logger for http.Server.ErrorLog.
 func (w *serverErrorWriter) logger() *stdlog.Logger { return stdlog.New(w, "", 0) }
 
+// isHandshakeNoise reports whether a server error line is connection-setup
+// noise from a peer: a failed TLS handshake, or a connection that negotiated
+// HTTP/2 and then did not send its preface (scanners that skip certificate
+// verification and speak HTTP/1 or another protocol).
+func isHandshakeNoise(line string) bool {
+	return strings.Contains(line, "TLS handshake error") ||
+		strings.Contains(line, "http2: server: error reading preface")
+}
+
 func (w *serverErrorWriter) Write(p []byte) (int, error) {
 	line := strings.TrimRight(string(p), "\r\n")
-	if !strings.Contains(line, "TLS handshake error") {
-		w.log.Warn().Str("component", "http").Msg(line)
-		return len(p), nil
+	bucket, level, what := &w.other, zerolog.WarnLevel, "server errors"
+	if isHandshakeNoise(line) {
+		bucket, level, what = &w.handshake, zerolog.DebugLevel, "TLS handshake errors"
 	}
 	w.mu.Lock()
-	now := w.now()
-	reported := 0
-	if now.Sub(w.windowStart) >= handshakeLogWindow {
-		reported = w.suppressed
-		w.windowStart, w.inWindow, w.suppressed = now, 0, 0
-	}
-	allowed := w.inWindow < handshakeLogBurst
-	if allowed {
-		w.inWindow++
-	} else {
-		w.suppressed++
-	}
+	allowed, reported := bucket.take(w.now())
 	w.mu.Unlock()
 	if reported > 0 {
-		w.log.Debug().Str("component", "http").Int("suppressed", reported).Msg("More TLS handshake errors were not logged")
+		w.log.WithLevel(level).Str("component", "http").Int("suppressed", reported).Msg("More " + what + " were not logged")
 	}
 	if allowed {
-		w.log.Debug().Str("component", "http").Msg(line)
+		w.log.WithLevel(level).Str("component", "http").Msg(line)
 	}
 	return len(p), nil
+}
+
+// logBucket is a fixed-window rate limit: at most burst lines per
+// serverLogWindow. Callers hold serverErrorWriter.mu.
+type logBucket struct {
+	burst       int
+	windowStart time.Time
+	inWindow    int
+	suppressed  int
+}
+
+// take counts one line at now. allowed says whether to log it; reported is
+// the number of lines dropped in the previous window, returned (once) when a
+// new window starts.
+func (b *logBucket) take(now time.Time) (allowed bool, reported int) {
+	if now.Sub(b.windowStart) >= serverLogWindow {
+		reported = b.suppressed
+		b.windowStart, b.inWindow, b.suppressed = now, 0, 0
+	}
+	if b.inWindow < b.burst {
+		b.inWindow++
+		return true, reported
+	}
+	b.suppressed++
+	return false, reported
 }
 
 // caWarner logs the local CA's expiry warning (tlsca.Status.Warning) when it
