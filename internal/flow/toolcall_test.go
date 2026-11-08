@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -221,10 +222,11 @@ func TestCallReplyCompletes(t *testing.T) {
 	assert.Equal(t, "test_tool", meta["toolName"], "the emitter adds its own meta")
 
 	waitClosed(t, rt.RunDone(res.RunID), "RunDone must close once the run finished")
+	// Call handed the result over: once the run is over nothing is kept.
+	require.Eventually(t, func() bool { return rt.calls.count() == 0 }, 2*time.Second, 5*time.Millisecond)
 	again, err := rt.Wait(context.Background(), res.RunID)
 	require.NoError(t, err)
-	assert.Equal(t, res.Status, again.Status)
-	assert.JSONEq(t, string(res.Result), string(again.Result))
+	assert.Equal(t, CallStatusExpired, again.Status, "a delivered result is not kept for Wait")
 }
 
 func TestCallArgsAreCopied(t *testing.T) {
@@ -353,11 +355,6 @@ func TestCallReplyIsDeepCopied(t *testing.T) {
 	waitClosed(t, rt.RunDone(res.RunID), "run must finish")
 	assert.JSONEq(t, `{"list":["a"],"n":1}`, string(res.Result))
 
-	res.Result[0] = 'X' // the caller's copy is its own
-	again, err := rt.Wait(context.Background(), res.RunID)
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"list":["a"],"n":1}`, string(again.Result))
-
 	// A late reply for a finished run is refused.
 	assert.False(t, ReplyFromContext(<-ctxCh).Reply(res.RunID, "late", false))
 }
@@ -424,6 +421,12 @@ func TestCallTimeoutReturnsRunningThenWaitCompletes(t *testing.T) {
 		t.Fatal("Wait did not return after the run completed")
 	}
 	waitClosed(t, rt.RunDone(res.RunID), "RunDone must close once the run finished")
+
+	// A result Call could not deliver stays retrievable (until it expires).
+	again, err := rt.Wait(context.Background(), res.RunID)
+	require.NoError(t, err)
+	assert.Equal(t, CallStatusCompleted, again.Status)
+	assert.JSONEq(t, `"done"`, string(again.Result))
 }
 
 func TestWaitHonoursContext(t *testing.T) {
@@ -775,6 +778,70 @@ func TestDeployRejectsCallableTriggerWithoutTargets(t *testing.T) {
 
 	connected := callGraph(map[string]string{"tool": "tool", "p": "pass"}, [2]string{"tool", "p"})
 	require.NoError(t, m.Deploy(context.Background(), connected))
+}
+
+// TestCompletedCallsReleaseTheirWaiters: a call whose result was returned by
+// Call leaves nothing in the registry once its run is over, however many calls
+// ran, sequentially or concurrently, and whatever their outcome.
+func TestCompletedCallsReleaseTheirWaiters(t *testing.T) {
+	big := strings.Repeat("x", 16<<10)
+	reg := callRegistryFor(t, map[string]node.NodeFactory{
+		"reply": funcFactory(func(ctx context.Context, msg *Message) ([]*Message, error) {
+			args, _ := msg.Payload.(map[string]any)
+			switch args["mode"] {
+			case "reply":
+				ReplyFromContext(ctx).Reply(corrOf(msg), big, false)
+			case "fail":
+				return nil, errors.New("boom")
+			}
+			return nil, nil // "none": completed_no_reply
+		}),
+	})
+	rt := startRuntime(t, callGraph(map[string]string{"tool": "tool", "r": "reply"}, [2]string{"tool", "r"}), reg)
+
+	modes := []string{"reply", "fail", "none"}
+	want := map[string]CallStatus{"reply": CallStatusCompleted, "fail": CallStatusError, "none": CallStatusCompletedNoReply}
+	call := func(i int) error {
+		mode := modes[i%len(modes)]
+		res, err := rt.Call(context.Background(), CallRequest{
+			TriggerNodeID: "tool", Args: map[string]any{"mode": mode}, Timeout: 10 * time.Second,
+		})
+		if err != nil {
+			return err
+		}
+		if res.Status != want[mode] {
+			return fmt.Errorf("call %d (%s): status %s", i, mode, res.Status)
+		}
+		return nil
+	}
+
+	const sequential = 300
+	for i := 0; i < sequential; i++ {
+		require.NoError(t, call(i))
+	}
+
+	const workers, perWorker = 8, 40
+	var wg sync.WaitGroup
+	errs := make(chan error, workers*perWorker)
+	for g := 0; g < workers; g++ {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < perWorker; i++ {
+				if err := call(g*perWorker + i); err != nil {
+					errs <- err
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	require.Eventually(t, func() bool { return rt.calls.count() == 0 }, 3*time.Second, 5*time.Millisecond,
+		"every delivered result is freed once its run ended (left: %d)", rt.calls.count())
 }
 
 func TestCallResultJSON(t *testing.T) {

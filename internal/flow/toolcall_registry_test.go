@@ -232,6 +232,93 @@ func TestCallRegistryFinishedWaiterIsForgottenAtExpiry(t *testing.T) {
 	assert.Equal(t, CallStatusCompleted, reg.snapshot(w).Status, "holders of the waiter keep the final result")
 }
 
+// timerStopped reports whether t was already stopped (or fired): Stop only
+// returns true for a timer that was still pending.
+func timerStopped(t *time.Timer) bool { return !t.Stop() }
+
+// TestCallRegistryDeliveredResultIsForgottenAtRunEnd: once Call handed the
+// final result to its caller, the registry keeps the waiter only while the run
+// is still going (RunDone must keep working), then frees it at once.
+func TestCallRegistryDeliveredResultIsForgottenAtRunEnd(t *testing.T) {
+	reg := newTestRegistry(t)
+	w, err := reg.register("run-1", time.Second)
+	require.NoError(t, err)
+	require.True(t, reg.Reply("run-1", "ok", false))
+
+	res, err := reg.deliver(w, nil)
+	require.NoError(t, err)
+	assert.Equal(t, CallStatusCompleted, res.Status)
+	assert.JSONEq(t, `"ok"`, string(res.Result))
+	require.Same(t, w, reg.get("run-1"), "the run still executes: RunDone must track it")
+	assert.False(t, isClosed(reg.runDoneChan("run-1")))
+
+	reg.runFinished("run-1")
+	assert.Nil(t, reg.get("run-1"), "a delivered result is forgotten when its run ends")
+	assert.Equal(t, 0, reg.count())
+	assert.True(t, isClosed(w.runDone))
+	assert.True(t, timerStopped(w.expiry), "the expiry timer of a forgotten waiter is stopped")
+	assert.True(t, isClosed(reg.runDoneChan("run-1")))
+}
+
+// TestCallRegistryDeliveryAfterRunEndForgetsAtOnce: a run that is already over
+// when Call returns leaves nothing behind.
+func TestCallRegistryDeliveryAfterRunEndForgetsAtOnce(t *testing.T) {
+	reg := newTestRegistry(t)
+	w, err := reg.register("run-1", time.Second)
+	require.NoError(t, err)
+	reg.runFinished("run-1")
+	require.Same(t, w, reg.get("run-1"), "not delivered yet: kept for Call")
+
+	res, err := reg.deliver(w, nil)
+	require.NoError(t, err)
+	assert.Equal(t, CallStatusCompletedNoReply, res.Status)
+	assert.Nil(t, reg.get("run-1"))
+	assert.Equal(t, 0, reg.count())
+	assert.True(t, timerStopped(w.expiry))
+}
+
+// TestCallRegistryUndeliveredResultsStayForWait: a call that returned
+// "running" (timeout or cancelled ctx) keeps its waiter after the run ends, so
+// Wait can still collect the result until the waiter expires.
+func TestCallRegistryUndeliveredResultsStayForWait(t *testing.T) {
+	reg := newTestRegistry(t)
+
+	timedOut, err := reg.register("timed-out", time.Second)
+	require.NoError(t, err)
+	res, err := reg.deliver(timedOut, nil)
+	require.NoError(t, err)
+	assert.Equal(t, CallStatusRunning, res.Status)
+
+	cancelled, err := reg.register("cancelled", time.Second)
+	require.NoError(t, err)
+	res, err = reg.deliver(cancelled, context.Canceled)
+	assert.ErrorIs(t, err, context.Canceled, "an interrupted wait reports why")
+	assert.Equal(t, CallStatusRunning, res.Status)
+
+	require.True(t, reg.Reply("timed-out", "late", false))
+	reg.runFinished("timed-out")
+	reg.runFinished("cancelled")
+	assert.Same(t, timedOut, reg.get("timed-out"), "Wait can still collect it")
+	assert.Same(t, cancelled, reg.get("cancelled"), "Wait can still collect it")
+	assert.Equal(t, 2, reg.count())
+	assert.Equal(t, CallStatusCompleted, reg.snapshot(timedOut).Status)
+}
+
+// TestCallRegistryFinalResultWinsOverInterruption: a result that is already
+// final when the caller's ctx ends is returned (and so delivered) without the
+// ctx error.
+func TestCallRegistryFinalResultWinsOverInterruption(t *testing.T) {
+	reg := newTestRegistry(t)
+	w, err := reg.register("run-1", time.Second)
+	require.NoError(t, err)
+	reg.runFinished("run-1")
+
+	res, err := reg.deliver(w, context.Canceled)
+	require.NoError(t, err)
+	assert.Equal(t, CallStatusCompletedNoReply, res.Status)
+	assert.Nil(t, reg.get("run-1"), "the caller got the final result: nothing to keep")
+}
+
 func TestCallRegistryRemove(t *testing.T) {
 	reg := newTestRegistry(t)
 	w, err := reg.register("run-1", time.Second)

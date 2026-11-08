@@ -93,6 +93,11 @@ type Replier interface {
 // the run continues and Wait can be used later. On ctx cancellation it returns
 // the same "running" result together with ctx.Err().
 //
+// A final result returned by Call is handed over to the caller: the runtime
+// forgets it as soon as the run is over (RunDone closed), so a later Wait for
+// that run reports "expired". Only results Call could not return (status
+// "running") stay retrievable with Wait, until the waiter's hard lifetime ends.
+//
 // The run ID is a server-generated UUID set as the run's correlationID, with
 // req.Actor as its "actor" meta. The payload is a deep copy of req.Args (an
 // empty object when nil). An error without a run ID means no run was started.
@@ -139,18 +144,20 @@ func (r *FlowRuntime) Call(ctx context.Context, req CallRequest) (CallResult, er
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
+	var interrupted error
 	select {
 	case <-w.done:
 	case <-timer.C:
 	case <-ctx.Done():
-		return r.calls.snapshotOrErr(w, ctx.Err())
+		interrupted = ctx.Err()
 	}
-	return r.calls.snapshot(w), nil
+	return r.calls.deliver(w, interrupted)
 }
 
 // Wait returns the final result of a run started by Call, blocking until it is
-// final or ctx ends (then: the "running" result and ctx.Err()). A run that is
-// unknown or whose waiter outlived its hard lifetime reports "expired".
+// final or ctx ends (then: the "running" result and ctx.Err()). It can be
+// repeated until the waiter's hard lifetime ends. A run that is unknown, whose
+// waiter expired, or whose result Call already returned reports "expired".
 func (r *FlowRuntime) Wait(ctx context.Context, runID string) (CallResult, error) {
 	w := r.calls.get(runID)
 	if w == nil {
@@ -251,9 +258,12 @@ type callWaiter struct {
 
 	final       bool
 	runFinished bool
-	result      CallResult
-	nodeErr     *CallError
-	expiry      *time.Timer
+	// delivered: Call returned the final result to its caller, so nothing
+	// needs it once the run is over.
+	delivered bool
+	result    CallResult
+	nodeErr   *CallError
+	expiry    *time.Timer
 }
 
 // callRegistry is the per-runtime set of waiters keyed by correlation ID.
@@ -372,7 +382,8 @@ func (c *callRegistry) nodeError(correlationID, nodeID, nodeType string, err err
 }
 
 // runFinished is called once a run's in-flight work drained. A call still
-// waiting completes without reply (or with its first node error).
+// waiting completes without reply (or with its first node error). A result
+// Call already returned is forgotten.
 func (c *callRegistry) runFinished(correlationID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -388,6 +399,9 @@ func (c *callRegistry) runFinished(correlationID string) {
 		}
 	}
 	c.closeRun(w)
+	if w.delivered {
+		c.forget(w)
+	}
 }
 
 // stop cancels every waiting call ("flow stopped") and refuses new ones.
@@ -441,14 +455,47 @@ func (c *callRegistry) snapshot(w *callWaiter) CallResult {
 	return res
 }
 
-// snapshotOrErr is snapshot for a wait interrupted by err: a result that is
-// already final wins over the interruption.
+// snapshotOrErr is snapshot for a wait interrupted by err (nil when it was
+// not): a result that is already final wins over the interruption.
 func (c *callRegistry) snapshotOrErr(w *callWaiter, err error) (CallResult, error) {
 	res := c.snapshot(w)
 	if res.Status == CallStatusRunning {
 		return res, err
 	}
 	return res, nil
+}
+
+// deliver is snapshotOrErr for Call, which hands a final result over to its
+// caller: the waiter is then only kept while its run still executes (for
+// RunDone), and forgotten at once when the run is already over. A "running"
+// result is not delivered; the waiter stays for Wait.
+func (c *callRegistry) deliver(w *callWaiter, interrupted error) (CallResult, error) {
+	res, err := c.snapshotOrErr(w, interrupted)
+	if res.Status == CallStatusRunning {
+		return res, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	w.delivered = true
+	if w.runFinished {
+		c.forget(w)
+	}
+	return res, err
+}
+
+// count returns how many waiters the registry holds.
+func (c *callRegistry) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.waiters)
+}
+
+// forget drops a waiter and stops its expiry timer. Callers hold c.mu.
+func (c *callRegistry) forget(w *callWaiter) {
+	w.expiry.Stop()
+	if c.waiters[w.runID] == w {
+		delete(c.waiters, w.runID)
+	}
 }
 
 // finalize sets the final result. Callers hold c.mu and check !w.final.
