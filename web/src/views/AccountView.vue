@@ -47,6 +47,11 @@ async function save() {
      <Button type="submit" class="w-full" :disabled="busy || !valid">{{ busy ? 'Saving…' : 'Change password' }}</Button>
     </form>
    </Card>
+   <Card class="p-6">
+    <h2 class="text-lg font-semibold mb-2">HTTPS and this device</h2>
+    <p class="text-sm text-muted-foreground mb-4">Download PiWorker's certificate authority, check its fingerprint and trust it on your computers and phones.</p>
+    <Button variant="outline" @click="router.push('/trust')">Trust this device</Button>
+   </Card>
   </div>
  </main>
 </template>

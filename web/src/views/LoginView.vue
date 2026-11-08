@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { useRouter, useRoute, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useApi } from '@/composables/useApi'
 import { Button, Card, Input, Label } from '@/components/ui'
@@ -108,6 +108,9 @@ function toggleRecovery() {
           {{ recovering ? 'Back to sign in' : 'Forgot password?' }}
         </button>
       </Card>
+      <p class="text-center text-xs text-muted-foreground">
+        Certificate warning in your browser? <RouterLink to="/trust" class="text-primary hover:underline">Trust this device</RouterLink>
+      </p>
       <p class="text-center text-xs text-muted-foreground">Automation made simple</p>
     </div>
   </div>

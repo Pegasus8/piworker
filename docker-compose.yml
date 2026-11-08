@@ -24,6 +24,9 @@ services:
       - PIWORKER_ADMIN_USER=${PIWORKER_ADMIN_USER:-}
       - PIWORKER_ADMIN_PASS=${PIWORKER_ADMIN_PASS:-}
       - PIWORKER_ADDR=:8080
+      # Plain HTTP for the Vite dev proxy below. The production image and
+      # docker-compose.prod.yml serve HTTPS on 8443.
+      - PIWORKER_TLS_MODE=off
       - PIWORKER_DB=/app/data/piworker.db
       - PIWORKER_DEBUG=true
       # Host names accepted besides localhost, the hostname and IPs: the Vite

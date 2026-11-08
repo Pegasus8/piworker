@@ -11,6 +11,7 @@ A **visual flow-based automation system** for Raspberry Pi and other devices. Cr
 - **Local execution** - Flows and storage run on your device; external-service nodes send data to the services you configure
 - **Extensible** - Easy to add new node types
 - **Lightweight** - Single binary with embedded frontend, optimized for Raspberry Pi
+- **HTTPS by default** - Local certificate authority generated on first start, with automatic certificate renewal
 - **Fast** - Go backend with concurrent message processing
 
 ## Quick Start
@@ -43,7 +44,10 @@ sudo piworkerctl update
 sudo piworkerctl uninstall
 ```
 
-Open `http://<device-address>:8080`. Get the first administrator setup code with
+The installer prints the HTTPS address (for example `https://raspberrypi.local:8443`)
+and the fingerprint of PiWorker's local certificate authority. Trust that CA once
+on each device you use (see [HTTPS](#https)); `http://<device-address>:8080`
+redirects to HTTPS. Get the first administrator setup code with
 `sudo journalctl -u piworker -n 50 --no-pager`, then complete setup in the browser.
 The service also starts after a reboot. Re-running `install` updates a managed
 installation; reinstalling after `uninstall` reuses the retained data.
@@ -58,13 +62,14 @@ with `make test-installer`; running the installer still requires published asset
 |------|--------------------|
 | Configuration | `/etc/piworker/piworker.toml` |
 | Accounts, flows, secrets and variables | `/var/lib/piworker/piworker.db` |
-| Update backups (private, retained until you remove them) | `/var/backups/piworker/` |
+| Local CA and server certificate | `/var/lib/piworker/tls/` |
+| Update backups (private, include the CA key; retained until you remove them) | `/var/backups/piworker/` |
 | Logs / status | `sudo journalctl -u piworker` / `systemctl status piworker` |
 | Restart after changing configuration | `sudo systemctl restart piworker` |
 
 Updates download and validate before stopping the service. They back up its
 entire data directory and configuration, replace the executable, and check the
-HTTP health endpoint. A failed update restores the previous binary and data;
+health endpoint (over HTTPS, verified against the local CA). A failed update restores the previous binary and data;
 updates briefly interrupt running flows. Backups cannot undo actions already
 sent to external devices or services. Ensure there is enough disk space for a
 full data copy. If automatic recovery cannot stop/start the service, the command
@@ -72,8 +77,9 @@ reports the backup location for manual recovery.
 
 The managed service runs as the dedicated `piworker` user and always uses the
 database path above. Grant that user the device-group permissions needed for
-GPIO/I2C hardware. If you change the HTTP address, provide the corresponding
-local health URL when installing/updating, for example
+GPIO/I2C hardware. The health check follows `addr` and `[tls] mode` in the
+configuration; to override it, provide a local health URL when installing or
+updating, for example
 `sudo PIWORKER_HEALTH_URL=http://127.0.0.1:9090/api/health piworkerctl update`.
 Manual installations are not overwritten or migrated automatically.
 Uninstall retains the service user as well as data/configuration/backups; it
@@ -112,14 +118,20 @@ binaries/images may still contain the previous implementation; check their relea
 docker run -d \
   --name piworker \
   --restart unless-stopped \
-  -p 8080:8080 \
+  -p 8443:8443 -p 8080:8080 \
   -v piworker-data:/app/data \
+  -e PIWORKER_TLS_HOSTS=raspberrypi.local,192.168.1.50 \
   -e PIWORKER_ADMIN_USER -e PIWORKER_ADMIN_PASS \
   -e PIWORKER_ALLOWED_HOSTS="$(hostname),$(hostname).local" \
   ghcr.io/pegasus8/piworker:latest
 
-# Open http://localhost:8080 (or http://<hostname>.local:8080 on the LAN)
+# Open https://localhost:8443 (http://localhost:8080 redirects there)
 ```
+
+A container cannot see the host's name or LAN address, so list the names and
+addresses browsers use in `PIWORKER_TLS_HOSTS`. Publish both ports unchanged.
+The CA and certificate live in the data volume (`tls/`); the CA fingerprint is in
+`docker logs piworker`.
 
 ### Option 2: Pre-built Binary (published releases)
 
@@ -131,7 +143,7 @@ Download the archive for your CPU and `SHA256SUMS` from the same compatible
 awk '$2 == "./piworker-linux-arm64.tar.gz" || $2 == "piworker-linux-arm64.tar.gz"' SHA256SUMS | sha256sum -c - &&
 tar -xzf piworker-linux-arm64.tar.gz &&
 ./piworker-linux-arm64
-# Open http://localhost:8080
+# Open https://localhost:8443 (the terminal shows the CA fingerprint)
 ```
 
 Run from a dedicated directory: manual installations store `piworker.db` in the
@@ -206,8 +218,8 @@ restart the Go command after backend changes:
 
 **Terminal 1 - Backend:**
 ```bash
-go run . -addr 127.0.0.1:8080 -debug -auth=false
-# API running at http://localhost:8080
+go run . -tls=off -addr 127.0.0.1:8080 -debug -auth=false
+# API running at http://localhost:8080 (plain HTTP for the Vite proxy)
 ```
 
 **Terminal 2 - Frontend:**
@@ -235,7 +247,7 @@ make docker-dev-logs
 make docker-dev-down
 ```
 
-- **Backend**: http://localhost:8080 (Go with air hot-reload)
+- **Backend**: http://localhost:8080 (Go with air hot-reload; TLS off for the Vite proxy)
 - **Frontend**: http://localhost:3000 (Vite HMR)
 
 ---
@@ -254,8 +266,9 @@ make docker-prod
 # Or run directly
 docker run -d \
   --name piworker \
-  -p 8080:8080 \
+  -p 8443:8443 -p 8080:8080 \
   -v piworker-data:/app/data \
+  -e PIWORKER_TLS_HOSTS=raspberrypi.local \
   -e PIWORKER_ADMIN_USER -e PIWORKER_ADMIN_PASS \
   -e PIWORKER_ALLOWED_HOSTS="$(hostname),$(hostname).local" \
   --restart unless-stopped \
@@ -313,7 +326,7 @@ After=network.target
 Type=simple
 User=pi
 WorkingDirectory=/home/pi
-ExecStart=/home/pi/piworker -addr :8080 -db /home/pi/piworker.db
+ExecStart=/home/pi/piworker -db /home/pi/piworker.db
 Restart=always
 RestartSec=5
 
@@ -440,12 +453,20 @@ PiWorker loads `piworker.toml` from the working directory if present (or pass
 `-config <path>`). See [`piworker.example.toml`](piworker.example.toml):
 
 ```toml
-addr = ":8080"
+addr = ":8443"          # HTTPS (plain HTTP when [tls] mode = "off")
+http_addr = ":8080"     # redirects to HTTPS; "" disables it
+webhooks_http = true    # serve /webhooks/ over plain HTTP on http_addr
 db = "piworker.db"
 auth = true
-session_secure = false # Secure cookies only; does not enable an HTTPS listener
+session_secure = false  # only for tls.mode = "off" behind an HTTPS proxy
 cors_origins = ["http://localhost:3000", "http://localhost:8080"]
-allowed_hosts = [] # extra Host names, see "Host names" below
+allowed_hosts = []      # extra Host names, see "Host names" below
+
+[tls]
+mode = "auto"           # auto | custom | off
+hosts = []              # extra certificate names or addresses
+cert_file = ""          # custom mode
+key_file = ""           # custom mode
 ```
 
 ### Command Line Flags
@@ -456,11 +477,14 @@ allowed_hosts = [] # extra Host names, see "Host names" below
 Flags:
   -version              Print the build version and exit (also accepts --version)
   -config string        Path to TOML config file (default: piworker.toml if present)
-  -addr string          HTTP server address (default ":8080")
+  -addr string          Listen address: HTTPS, or HTTP with -tls=off (default ":8443")
+  -http-addr string     HTTP listener that redirects to HTTPS; "" disables (default ":8080")
+  -tls string           TLS mode: auto, custom or off (default "auto")
+  -tls-regenerate-ca    Replace the local CA, then exit (devices must trust the new one)
   -db string            SQLite database path (default "piworker.db")
   -debug                Enable debug logging
   -auth                 Enable session authentication (default true)
-  -session-secure        Require HTTPS for session cookies (default false)
+  -session-secure        Mark session cookies Secure behind an HTTPS proxy (default false)
   -setup-code           Generate a new setup code and exit (only before setup)
   -recover-account name Generate a password recovery code and exit
   -cors-origins string  Comma-separated allowed CORS origins
@@ -587,11 +611,17 @@ Debug; use the separate secret store for credentials.
 ### Environment Variables
 
 ```bash
-export PIWORKER_ADDR=:8080
+export PIWORKER_ADDR=:8443
+export PIWORKER_HTTP_ADDR=:8080      # empty disables the redirect listener
+export PIWORKER_WEBHOOKS_HTTP=true
+export PIWORKER_TLS_MODE=auto        # auto | custom | off
+export PIWORKER_TLS_HOSTS=raspberrypi.local,192.168.1.50
+export PIWORKER_TLS_CERT_FILE=/etc/piworker/cert.pem  # custom mode
+export PIWORKER_TLS_KEY_FILE=/etc/piworker/key.pem    # custom mode
 export PIWORKER_DB=/var/lib/piworker/data.db
 export PIWORKER_DEBUG=true
 export PIWORKER_AUTH=true
-export PIWORKER_SESSION_SECURE=false # true when the browser connects via HTTPS
+export PIWORKER_SESSION_SECURE=false # true only with TLS off behind an HTTPS proxy
 export PIWORKER_CORS_ORIGINS=http://localhost:3000,http://localhost:8080
 export PIWORKER_ALLOWED_HOSTS=piworker.example.com,backend
 export PIWORKER_ADMIN_USER=admin
@@ -641,24 +671,94 @@ limited to 20 per account. Signing out revokes the current session. Changing the
 password from **Account** or recovering it invalidates every session for that
 account, including live event streams (on the next event or heartbeat).
 
-### HTTP and future HTTPS support
+### HTTPS
 
-PiWorker currently starts an **HTTP server**. The UI displays a persistent warning
-on HTTP pages, including setup, login and the editor. Passwords and sessions can
-be intercepted even on a local network. Use a trusted network; this warning does
-not encrypt the connection. It is hidden when the browser page uses HTTPS.
+PiWorker serves **HTTPS by default** (`[tls] mode = "auto"`). On first start it
+creates a **local certificate authority (CA)** and a server certificate signed
+by it, both in the `tls` directory next to the database (`ca.crt`, `ca.key`,
+`server.crt`, `server.key`; keys are readable only by the PiWorker user). The
+CA is valid for 10 years; the server certificate for 397 days.
 
-PiWorker does **not** currently provide a TLS listener, certificate generation,
-automatic HTTP-to-HTTPS redirects, or a certificate installation assistant.
-HTTPS requires an externally configured reverse proxy today. Set
-`session_secure = true` (or `PIWORKER_SESSION_SECURE=true`) when the browser uses
-that HTTPS endpoint. This setting only marks cookies `Secure`; it does not
-configure TLS. Enabling it on a LAN HTTP endpoint prevents normal session use.
-Forwarded headers do not automatically enable or downgrade cookie security.
+| Address | Serves |
+|---------|--------|
+| `https://<device>:8443` (`addr`) | The editor, `/api`, webhooks |
+| `http://<device>:8080` (`http_addr`) | 308 redirect to HTTPS, plus `/piworker-ca.crt` and, with `webhooks_http`, `/webhooks/` |
 
-A tested HTTPS deployment guide and assisted certificate setup are future work:
-[Plan assisted HTTPS setup for local installations](https://github.com/Pegasus8/piworker/issues/287).
-See [TODO.md](TODO.md) for the remaining scope.
+**Encryption versus trust.** The connection is encrypted from the first visit.
+Until a device trusts PiWorker's CA, its browser cannot tell PiWorker from an
+impostor on the same network and shows a certificate warning. Trust the CA once
+per device: open **Trust this device** (`/trust`, linked from the sign-in page,
+the flow list and Account). It offers the CA download (`/piworker-ca.crt`) and
+step-by-step instructions to install and remove the trust on macOS, Windows,
+Linux, iPhone/iPad, Android and Firefox (which keeps its own store). After that,
+a certificate warning means something is wrong.
+
+**Verify the fingerprint** of the CA you download against one obtained on the
+device itself, not only against a page loaded over the network:
+
+```bash
+sudo piworkerctl install                                    # prints it (native service)
+sudo journalctl -u piworker | grep "CA fingerprint"         # startup log
+docker logs piworker 2>&1 | grep "CA fingerprint"           # Docker
+openssl x509 -in /var/lib/piworker/tls/ca.crt -noout -fingerprint -sha256
+```
+
+Signed-in users also see it on the trust page and at `GET /api/tls` (mode, CA
+fingerprint, certificate names and expiry).
+
+**Renewal and address changes.** The server certificate renews itself 30 days
+before it expires, and within 10 minutes (or on `SIGHUP`) when the device gets a
+new address or host name; the running server switches without a restart and
+devices that trust the CA notice nothing. The certificate covers `localhost`,
+`127.0.0.1`, `::1`, the host name, `<hostname>.local` and every current interface
+address. Add other names (for example a DNS name from your router, or the host's
+address when running in Docker) to `[tls] hosts` or `PIWORKER_TLS_HOSTS`. The CA
+itself is never replaced automatically.
+
+**Command-line clients and Claude Code.** Tools such as curl and Node.js may not
+use the system trust. Save the CA (for example
+`curl -o ~/piworker-ca.crt http://raspberrypi.local:8080/piworker-ca.crt`), check
+its fingerprint, then use `curl --cacert ~/piworker-ca.crt …` or, for Claude Code,
+`export NODE_EXTRA_CA_CERTS=~/piworker-ca.crt` before starting it.
+
+**What trusting the CA means.** A trusted CA can vouch for any website on that
+device. PiWorker stores the CA key only in its data directory (`tls/ca.key`), but
+flows run as the PiWorker user: anyone who can create command flows in PiWorker,
+or read its data directory or update backups, can copy the key and use it to
+impersonate any website to devices that trust the CA. Protect PiWorker accounts,
+the device and its backups accordingly, and remove the trust when you stop using
+PiWorker. If the key may have been exposed, replace the CA and trust the new one:
+
+```bash
+sudo systemctl stop piworker
+sudo -u piworker /usr/local/bin/piworker -config /etc/piworker/piworker.toml -db /var/lib/piworker/piworker.db -tls-regenerate-ca
+sudo systemctl start piworker
+```
+
+Run it as the service user so the new files stay readable by the service.
+
+**Webhooks over HTTP.** Many devices (sensors, microcontrollers) cannot trust a
+custom CA, so `webhooks_http = true` (the default) also serves `/webhooks/` on
+the plain HTTP port. Their tokens then travel unencrypted; set
+`webhooks_http = false` (or `PIWORKER_WEBHOOKS_HTTP=false`) when every caller can
+use HTTPS.
+
+**Your own certificate.** Set `mode = "custom"` with `cert_file` and `key_file`
+(PEM). PiWorker reloads them on `SIGHUP` (`sudo systemctl kill -s HUP piworker`).
+There is no PiWorker CA to download in this mode.
+
+**Behind a reverse proxy.** Set `mode = "off"`: `addr` then serves plain HTTP and
+`http_addr` is unused. Set `session_secure = true` when browsers reach the proxy
+over HTTPS. Forwarded headers do not change cookie security. With TLS on,
+session cookies are always `Secure`.
+
+**Recovery.** If HTTPS does not start or you cannot reach it, run
+`sudo piworkerctl tls off` (managed service), start the binary with `-tls=off`,
+or set `PIWORKER_TLS_MODE=off` (Docker). PiWorker then serves plain HTTP on
+`addr` (port 8443 by default) and the editor shows its unencrypted-connection
+warning. `sudo piworkerctl tls on` restores HTTPS with the local CA. A missing
+or mismatched `ca.key` stops startup instead of silently creating a new CA;
+restore it from a backup or regenerate the CA as shown above.
 
 ### Recovering access
 
@@ -691,7 +791,8 @@ accepted (no Bearer tokens).
 ### Webhooks
 
 Deploy a flow with a **Webhook** trigger and external services can start it by
-calling `http://<host>/webhooks/<path>` (or HTTPS through a configured proxy).
+calling `https://<host>:8443/webhooks/<path>`, or `http://<host>:8080/webhooks/<path>`
+for devices that cannot trust the local CA (see `webhooks_http` in [HTTPS](#https)).
 These endpoints live outside `/api`, so the administrator's session cookie is
 never sent to them, and they use their own optional token authentication. Set a token on the node to
 require `?token=...` or an `X-Webhook-Token` header; prefer storing it as a
@@ -773,6 +874,13 @@ preserved during migration.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/health` | HTTP 200 when healthy; HTTP 503 when storage is closed |
+
+### HTTPS
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/piworker-ca.crt` | The local CA certificate (PEM); public, also on the HTTP port; 404 without a local CA |
+| GET | `/api/tls` | TLS mode, CA fingerprint, certificate names and expiry (authenticated) |
 
 ---
 

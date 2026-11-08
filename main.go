@@ -4,12 +4,15 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -21,6 +24,7 @@ import (
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/secrets"
 	"github.com/Pegasus8/piworker/internal/storage"
+	"github.com/Pegasus8/piworker/internal/tlsca"
 	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/Pegasus8/piworker/internal/vars"
 	"github.com/Pegasus8/piworker/internal/webhook"
@@ -44,7 +48,10 @@ var (
 	recoveryUser   = flag.String("recover-account", "", "Generate a one-use password recovery code for this username, then exit")
 	setupCode      = flag.Bool("setup-code", false, "Generate a new first-installation setup code, then exit")
 	configPath     = flag.String("config", "", "Path to TOML config file (default: piworker.toml if present)")
-	listenAddr     = flag.String("addr", ":8080", "HTTP server listen address")
+	listenAddr     = flag.String("addr", ":8443", "Listen address: HTTPS, or plain HTTP with -tls=off (env: PIWORKER_ADDR)")
+	httpAddr       = flag.String("http-addr", ":8080", "Plain HTTP listener that redirects to HTTPS; empty disables it (env: PIWORKER_HTTP_ADDR)")
+	tlsMode        = flag.String("tls", "auto", "TLS mode: auto (local CA), custom or off (env: PIWORKER_TLS_MODE)")
+	tlsRegenerate  = flag.Bool("tls-regenerate-ca", false, "Replace the local CA (every device must trust the new one), then exit")
 	dbPath         = flag.String("db", "piworker.db", "SQLite database path")
 	debug          = flag.Bool("debug", false, "Enable debug logging")
 	authEnabled    = flag.Bool("auth", true, "Enable session authentication (env: PIWORKER_AUTH)")
@@ -75,9 +82,19 @@ func main() {
 	// Configure logging
 	setupLogging(cfg.Debug)
 
+	if *tlsRegenerate {
+		fingerprint, err := regenerateCA(cfg)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Cannot regenerate the local CA")
+		}
+		fmt.Printf("New local CA in %s\nCA fingerprint: %s\nRestart PiWorker, then trust the new CA on every device; the old one no longer works.\n", cfg.TLSDir(), fingerprint)
+		return
+	}
+
 	log.Info().
 		Str("version", version).
 		Str("addr", cfg.Addr).
+		Str("tls", cfg.TLS.Mode).
 		Str("db", cfg.DBPath).
 		Msg("Starting PiWorker")
 
@@ -153,9 +170,6 @@ func main() {
 	// is observed.
 	runtimeManager := flow.NewRuntimeManager(registry, log.Logger, flow.WithManagerObserver(recorder.Observe))
 
-	// Restore previously running flows
-	restoreRunningFlows(store, runtimeManager)
-
 	var userStore *storage.SQLiteUserStore
 	if cfg.Auth {
 		// Share the flow store's database handle to avoid a second connection
@@ -185,24 +199,35 @@ func main() {
 		}
 	}
 
-	router, flowsHandler := buildRouter(cfg, store, runtimeManager, registry, userStore)
+	// HTTPS certificates: the local CA (auto) or the configured files (custom).
+	tlsSrc, err := newTLSSource(cfg)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Cannot set up HTTPS; to start without it use -tls=off or PIWORKER_TLS_MODE=off")
+	}
+	var tlsConf *tls.Config
+	if tlsSrc != nil {
+		tlsConf = tlsSrc.TLSConfig()
+	}
+
+	router, flowsHandler := buildRouter(cfg, store, runtimeManager, registry, userStore, tlsRoutes(cfg.TLS.Mode, tlsSrc))
+
+	// Bind before restoring flows, so a busy port fails before anything runs.
+	servers, err := listen(cfg, router, tlsConf)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Cannot listen")
+	}
+
+	// Restore previously running flows
+	restoreRunningFlows(store, runtimeManager)
 
 	// Setup signal handling
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	srv := newHTTPServer(cfg.Addr, router)
-
-	// Start the server in a goroutine
-	errCh := make(chan error, 1)
-	go func() {
-		log.Info().
-			Str("addr", cfg.Addr).
-			Msg("HTTP server started")
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errCh <- err
-		}
-	}()
+	errCh := make(chan error, 2)
+	servers.serve(errCh)
+	announceListeners(servers, tlsSrc)
+	watchTLS(appCtx, tlsSrc, tlsca.RefreshInterval)
 
 	// Wait for shutdown signal or error
 	select {
@@ -215,7 +240,7 @@ func main() {
 	}
 
 	log.Info().Msg("Shutting down...")
-	if err := gracefulShutdown(srv, flowsHandler, runtimeManager, 10*time.Second); err != nil {
+	if err := gracefulShutdown(servers.all(), flowsHandler, runtimeManager, 10*time.Second); err != nil {
 		log.Error().Err(err).Msg("Error during server shutdown")
 	}
 
@@ -250,21 +275,29 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 }
 
 // gracefulShutdown stops the process in dependency order: refuse new deploys,
-// drain HTTP (which cancels streams via the base context), and only then stop
-// the flows, so in-flight API calls never observe a half-stopped runtime and
-// nothing can be deployed after StopAll.
-func gracefulShutdown(srv *http.Server, flows *api.FlowsHandler, manager *flow.RuntimeManager, timeout time.Duration) error {
+// drain every HTTP server (which cancels streams via the base context), and
+// only then stop the flows, so in-flight API calls never observe a
+// half-stopped runtime and nothing can be deployed after StopAll.
+func gracefulShutdown(srvs []*http.Server, flows *api.FlowsHandler, manager *flow.RuntimeManager, timeout time.Duration) error {
 	flows.BeginShutdown()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	err := srv.Shutdown(ctx)
+	errs := make([]error, len(srvs))
+	var wg sync.WaitGroup
+	for i, srv := range srvs {
+		wg.Go(func() { errs[i] = srv.Shutdown(ctx) })
+	}
+	wg.Wait()
 	manager.StopAll()
-	return err
+	return errors.Join(errs...)
 }
+
+// routerOption registers additional routes before the frontend catch-all.
+type routerOption func(*mux.Router)
 
 // buildRouter wires middleware and every HTTP route. users is nil when
 // authentication is disabled.
-func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flow.RuntimeManager, registry *node.Registry, users *storage.SQLiteUserStore) (*mux.Router, *api.FlowsHandler) {
+func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flow.RuntimeManager, registry *node.Registry, users *storage.SQLiteUserStore, opts ...routerOption) (*mux.Router, *api.FlowsHandler) {
 	router := mux.NewRouter()
 
 	// CORS allowed origins (from config).
@@ -290,7 +323,8 @@ func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *
 	router.Use(api.RequestGuardMiddleware(cfg.SessionSecure, cfg.CORSOrigins))
 
 	if users != nil {
-		authHandler := api.NewAuthHandler(users, cfg.SessionSecure, cfg.CORSOrigins)
+		// With native HTTPS the session cookie is always Secure.
+		authHandler := api.NewAuthHandler(users, cfg.SessionSecure, cfg.CORSOrigins, api.WithSecureCookies(cfg.TLSEnabled()))
 		authHandler.RegisterRoutes(router)
 		router.Use(api.AuthMiddleware(authHandler))
 		log.Info().Msg("Session authentication enabled")
@@ -334,6 +368,10 @@ func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *
 	// session cookie, which is scoped to /api).
 	router.Handle("/api/metrics", promhttp.Handler()).Methods(http.MethodGet)
 	log.Info().Msg("Prometheus metrics endpoint available at /api/metrics")
+
+	for _, opt := range opts {
+		opt(router)
+	}
 
 	// Webhook endpoints: trigger-webhook nodes register their paths on the shared
 	// hub, and incoming requests are dispatched to them. Public (the node's
@@ -435,6 +473,14 @@ func applyFlagOverrides(cfg *config.Config) {
 		switch f.Name {
 		case "addr":
 			cfg.Addr = *listenAddr
+		case "http-addr":
+			cfg.HTTPAddr = *httpAddr
+		case "tls":
+			// An invalid value is kept as given and reported by Validate.
+			cfg.TLS.Mode = *tlsMode
+			if mode, err := config.ParseTLSMode(*tlsMode); err == nil {
+				cfg.TLS.Mode = mode
+			}
 		case "db":
 			cfg.DBPath = *dbPath
 		case "debug":

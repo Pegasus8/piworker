@@ -55,6 +55,9 @@ docker-compose*.yml
 *.sqlite
 *.sqlite3
 
+# Local CA and server certificate created next to a development database
+**/tls/
+
 # Serena/Claude
 .serena/
 .claude/

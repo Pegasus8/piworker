@@ -16,10 +16,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// CACertPath is where the local CA certificate is published; like webhooks it
-// is reachable under any Host name.
-const CACertPath = "/piworker-ca.crt"
-
 // DefaultHostCacheTTL is how long the hostname and interface addresses are
 // cached before being read again.
 const DefaultHostCacheTTL = 30 * time.Second

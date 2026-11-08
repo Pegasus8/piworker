@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Flow, FlowListItem, FlowEvent, FlowRun, NodeEventRecord, NodeTestResult } from '@/types'
+import type { Flow, FlowListItem, FlowEvent, FlowRun, NodeEventRecord, NodeTestResult, TLSInfo } from '@/types'
 
 const api = axios.create({
   baseURL: '/api',
@@ -251,6 +251,11 @@ export function useApi() {
     const { data } = await api.get('/auth/status')
     return data.data
   }
+  // HTTPS: mode, CA fingerprint and certificate details (signed-in only).
+  async function getTLSInfo(): Promise<TLSInfo> {
+    const { data } = await api.get('/tls')
+    return data.data
+  }
 
   return {
     getFlows,
@@ -284,6 +289,7 @@ export function useApi() {
     changePassword,
     logout,
     getSession,
-    getAuthStatus
+    getAuthStatus,
+    getTLSInfo
   }
 }

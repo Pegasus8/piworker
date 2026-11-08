@@ -4,8 +4,20 @@
 # Effective precedence (highest wins):
 #   command-line flags  >  environment variables  >  this file  >  built-in defaults
 
-# HTTP server listen address.
-addr = ":8080"
+# Main listen address. Serves HTTPS unless [tls] mode = "off", in which case
+# it serves plain HTTP (for example behind your own reverse proxy).
+addr = ":8443"
+
+# Plain HTTP listener that redirects browsers to HTTPS (308). It also serves
+# /piworker-ca.crt (so a new device can download the CA) and, when
+# webhooks_http is true, /webhooks/ directly. Set to "" to disable it.
+# Unused when [tls] mode = "off".
+http_addr = ":8080"
+
+# Serve webhooks over plain HTTP on http_addr. Many devices (sensors,
+# microcontrollers) cannot trust a local CA; webhook tokens are then sent
+# unencrypted, so use this only on a network you trust.
+webhooks_http = true
 
 # SQLite database path.
 db = "piworker.db"
@@ -17,10 +29,9 @@ debug = false
 # existing users keep their password. Sessions are persisted in SQLite.
 auth = true
 
-# HTTP local mode is the default. Set true if the browser connects through HTTPS,
-# using an externally configured HTTPS reverse proxy. This ONLY marks cookies
-# Secure; it does not enable TLS or generate certificates. Keep false for LAN HTTP.
-# Forwarded headers are not trusted implicitly.
+# Session cookies are always Secure when PiWorker serves HTTPS itself. Set true
+# only with [tls] mode = "off" behind an HTTPS reverse proxy. This ONLY marks
+# cookies Secure; it does not enable TLS. Forwarded headers are not trusted.
 session_secure = false
 
 # Allowed CORS origins (credentials are only sent for specific allowlisted origins).
@@ -39,3 +50,20 @@ allowed_hosts = []
 # committing them to a file.
 admin_user = ""
 admin_pass = ""
+
+[tls]
+# auto:   generate a local CA on first start (in the "tls" directory next to the
+#         database) and a server certificate signed by it, renewed automatically.
+#         Trust the CA once per device: open https://<device>:8443/trust.
+# custom: use your own certificate (cert_file and key_file; reloaded on SIGHUP).
+# off:    plain HTTP on addr. Recovery: -tls=off or PIWORKER_TLS_MODE=off.
+mode = "auto"
+
+# Extra names or IP addresses for the auto certificate, besides localhost, the
+# host name, <hostname>.local and the current interface addresses (for example
+# a DNS name on your router, or the host's address when running in Docker).
+hosts = []
+
+# PEM files for mode = "custom".
+cert_file = ""
+key_file = ""

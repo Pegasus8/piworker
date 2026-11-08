@@ -149,6 +149,7 @@ async function logout() {
             <Plus class="mr-2 h-4 w-4" />
             New Flow
           </Button>
+          <Button variant="ghost" @click="router.push('/trust')" title="HTTPS and trusting this device">HTTPS</Button>
           <Button v-if="authStore.authEnabled" variant="ghost" @click="router.push('/account')">Account</Button>
           <Button v-if="authStore.authEnabled" variant="ghost" size="icon" @click="logout" title="Logout" aria-label="Logout">
             <LogOut class="h-4 w-4" />

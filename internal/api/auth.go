@@ -51,6 +51,9 @@ type AuthHandler struct {
 	password *loginLimiter
 	// agentTokens, when set, is revoked on recovery and password change.
 	agentTokens AgentTokenRevoker
+	// secureCookies marks session cookies Secure on every response, set when
+	// PiWorker serves HTTPS itself.
+	secureCookies bool
 }
 
 // SetAgentTokenRevoker makes account recovery, and password changes that do
@@ -71,10 +74,22 @@ func (h *AuthHandler) revokeAgentTokens(w http.ResponseWriter, done string) bool
 	return true
 }
 
-func NewAuthHandler(store *storage.SQLiteUserStore, secure bool, origins []string) *AuthHandler {
+// AuthOption configures an AuthHandler.
+type AuthOption func(*AuthHandler)
+
+// WithSecureCookies marks session cookies Secure regardless of how a request
+// arrived. PiWorker enables it whenever it serves HTTPS itself.
+func WithSecureCookies(on bool) AuthOption {
+	return func(h *AuthHandler) { h.secureCookies = on }
+}
+
+func NewAuthHandler(store *storage.SQLiteUserStore, secure bool, origins []string, opts ...AuthOption) *AuthHandler {
 	h := &AuthHandler{store: store, secure: secure, origins: make(map[string]bool), login: newLoginLimiter(), password: newLoginLimiter()}
 	for _, origin := range origins {
 		h.origins[origin] = true
+	}
+	for _, opt := range opts {
+		opt(h)
 	}
 	return h
 }
@@ -171,7 +186,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, 200, map[string]string{"username": user.Username}, "")
 }
 func (h *AuthHandler) setCookie(w http.ResponseWriter, r *http.Request, value string, maxAge int) {
-	cookie := &http.Cookie{Name: sessionCookie, Value: value, Path: "/api", HttpOnly: true, Secure: h.secure || r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: maxAge}
+	cookie := &http.Cookie{Name: sessionCookie, Value: value, Path: "/api", HttpOnly: true, Secure: h.secure || h.secureCookies || r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: maxAge}
 	if maxAge < 0 {
 		cookie.Expires = time.Unix(1, 0)
 	} else {

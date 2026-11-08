@@ -181,7 +181,7 @@ docker-build: ## Build production Docker image
 	docker build --build-arg VERSION="$(VERSION)" --build-arg BUILDPLATFORM="$$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')" -t piworker:latest .
 
 docker-run: docker-build ## Build and run production container
-	docker run -d --name piworker -p 8080:8080 -v piworker-data:/app/data -e PIWORKER_ADMIN_USER -e PIWORKER_ADMIN_PASS piworker:latest
+	docker run -d --name piworker -p 8443:8443 -p 8080:8080 -v piworker-data:/app/data -e PIWORKER_ADMIN_USER -e PIWORKER_ADMIN_PASS -e PIWORKER_TLS_HOSTS piworker:latest
 
 docker-dev: ## Start development environment with Docker Compose
 	$(COMPOSE) up -d
@@ -197,7 +197,7 @@ docker-dev-logs: ## Show development logs
 
 docker-prod: ## Start production environment with Docker Compose
 	$(COMPOSE) -f docker-compose.prod.yml up -d
-	@echo "Production environment started: http://localhost:8080"
+	@echo "Production environment started: https://localhost:8443 (trust the CA: https://localhost:8443/trust)"
 
 docker-prod-down: ## Stop production environment
 	$(COMPOSE) -f docker-compose.prod.yml down

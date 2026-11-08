@@ -84,7 +84,7 @@ class Runner:
         config = work / "piworker.toml"
         config.write_text("auth = true\n")
         self.args = [str(binary), "-config", str(config), "-db", str(work / "test.db"),
-                     "-addr", f"127.0.0.1:{self.port}", "-auth=true", "-session-secure=false",
+                     "-tls=off", "-addr", f"127.0.0.1:{self.port}", "-auth=true", "-session-secure=false",
                      "-admin-user", "", "-admin-pass", ""]
         if systemd:
             import pwd

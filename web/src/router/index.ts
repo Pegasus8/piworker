@@ -7,6 +7,8 @@ const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     { path: '/account', name: 'account', component: () => import('@/views/AccountView.vue'), meta: { requiresAuth: true } },
+    // Public: reachable from the login page and the HTTP warning.
+    { path: '/trust', name: 'trust', component: () => import('@/views/TrustView.vue'), meta: { requiresAuth: false } },
     {
       path: '/',
       name: 'flows',

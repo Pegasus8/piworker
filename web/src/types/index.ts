@@ -124,3 +124,12 @@ export interface NodeTestDraft {
   topic: string
   metadata: string
 }
+
+/** GET /api/tls: how PiWorker serves HTTPS and what a device must trust. */
+export interface TLSInfo {
+  mode: 'auto' | 'custom' | 'off'
+  caFingerprint: string
+  sans: string[]
+  notAfter: string | null
+  caCertUrl: string
+}
