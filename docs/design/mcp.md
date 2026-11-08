@@ -360,7 +360,8 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   may use now: the flow tools `service.Tools.List(actor)` returns (exactly
   Call's permission rules, without suspending changed grants), plus the
   built-in tools and prompts of its scopes. Each tool is built inside
-  `recover()` so one bad tool is skipped and logged. Servers are cached by
+  `recover()` so one bad tool is skipped and logged; a skipped tool is not
+  listed and its calls are answered `not_found` without running it. Servers are cached by
   (token id, tools snapshot version, tokens epoch, hash of the token's scopes,
   flags and grants), one per token, at most 32 (least recently used dropped
   first), so a redeploy, a grant change or an `agent_deploy` change shows on

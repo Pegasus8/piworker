@@ -377,6 +377,15 @@ func TestABadToolIsSkipped(t *testing.T) {
 	assert.NotContains(t, tools, "bad_output")
 	assert.Contains(t, e.logs.String(), "broken")
 	assert.Contains(t, e.logs.String(), "bad_output")
+
+	// A skipped tool is not callable either: it is answered as unknown
+	// without reaching the service.
+	for _, name := range []string{"broken", "bad_output"} {
+		res, structured := called(t, e, callToken, name, `{"door":"left"}`)
+		assert.Equal(t, true, res["isError"], name)
+		assert.Equal(t, "not_found", errorCode(structured), name)
+	}
+	assert.Zero(t, e.tools.calls.Load())
 }
 
 // Servers are cached per token and rebuilt when what the token may see

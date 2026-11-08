@@ -116,20 +116,27 @@ func (h *Handler) buildServer(actor service.Actor, tools []flow.ToolInfo) *mcp.S
 		},
 		SupportedProtocolVersions: ProtocolVersions,
 	})
-	held := map[string]bool{}
+	// held: the tools the server serves; skipped: those it could not build,
+	// answered as unknown rather than called unchecked.
+	held, skipped := map[string]bool{}, map[string]bool{}
+	add := func(name string, build func()) {
+		if h.addTool(srv, name, build) {
+			held[name] = true
+		} else {
+			skipped[name] = true
+		}
+	}
 	for _, st := range h.static {
-		if actor.HasScope(st.Scope) && h.addTool(srv, st.Name, func() { h.addStaticTool(srv, actor, st) }) {
-			held[st.Name] = true
+		if actor.HasScope(st.Scope) {
+			add(st.Name, func() { h.addStaticTool(srv, actor, st) })
 		}
 	}
 	for _, ti := range tools {
-		if h.staticTool(ti.ToolName) != nil || held[ti.ToolName] {
+		if h.staticTool(ti.ToolName) != nil || held[ti.ToolName] || skipped[ti.ToolName] {
 			h.log.Error().Str("tool", ti.ToolName).Str("flowId", ti.FlowID).Msg("Skipped a tool whose name is taken")
 			continue
 		}
-		if h.addTool(srv, ti.ToolName, func() { h.addFlowTool(srv, actor, ti) }) {
-			held[ti.ToolName] = true
-		}
+		add(ti.ToolName, func() { h.addFlowTool(srv, actor, ti) })
 	}
 	for _, p := range h.prompts {
 		if actor.HasScope(p.Scope) {
@@ -139,7 +146,7 @@ func (h *Handler) buildServer(actor service.Actor, tools []flow.ToolInfo) *mcp.S
 		}
 	}
 	// Outermost: recover from a panic of any handler below.
-	srv.AddReceivingMiddleware(h.recoverPanics(actor), h.routeUnheldTools(actor, held))
+	srv.AddReceivingMiddleware(h.recoverPanics(actor), h.routeUnheldTools(actor, held, skipped))
 	return srv
 }
 
@@ -254,8 +261,9 @@ const maxToolNameLength = 128
 // tool service too, so hidden and unknown tools get the service's answer
 // (not_found, audited), never a JSON-RPC error that would tell them apart,
 // and a call racing with a redeploy is decided on the current tools. Names
-// no tool can have are answered as unknown without the service.
-func (h *Handler) routeUnheldTools(actor service.Actor, held map[string]bool) mcp.Middleware {
+// no tool can have, and the tools the server could not build (skipped),
+// are answered as unknown without the service.
+func (h *Handler) routeUnheldTools(actor service.Actor, held, skipped map[string]bool) mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			if method != "tools/call" {
@@ -269,6 +277,11 @@ func (h *Handler) routeUnheldTools(actor service.Actor, held map[string]bool) mc
 				// No tool has such a name: answered as unknown here, so an
 				// agent cannot have a name of any length audited.
 				return unknownTool(shorten(call.Params.Name, maxToolNameLength)), nil
+			}
+			if skipped[call.Params.Name] {
+				// Not advertised, so not callable: the SDK would not check
+				// its output schema, and the agent was never shown it.
+				return unknownTool(call.Params.Name), nil
 			}
 			if st := h.staticTool(call.Params.Name); st != nil {
 				return errorResult(&service.ToolError{Kind: service.ErrPermissionDenied,
