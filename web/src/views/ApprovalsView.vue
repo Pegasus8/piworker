@@ -31,8 +31,12 @@ const filters = [
   { value: 'all', label: 'All' }
 ]
 
+// Loads can overlap (filter, refresh, new requests); the store shows only the
+// latest list, and the page stays loading until none is in flight.
+let loads = 0
 async function load() {
   if (!auth.authEnabled) return
+  loads++
   loading.value = true
   loadError.value = ''
   try {
@@ -40,7 +44,7 @@ async function load() {
   } catch (e) {
     loadError.value = apiErrorMessage(e, 'Could not load the approvals.')
   } finally {
-    loading.value = false
+    loading.value = --loads > 0
   }
 }
 

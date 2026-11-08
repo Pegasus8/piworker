@@ -149,11 +149,23 @@ export const useAgentStore = defineStore('agent', () => {
     settings.value = data.data
   }
 
-  // Approvals.
-  async function fetchApprovals(filter: ApprovalFilter = 'pending') {
-    const { data } = await apiClient.get('/agent/approvals', { params: { status: filter } })
-    approvals.value = data.data?.approvals ?? []
-    pendingCount.value = data.data?.pending ?? 0
+  // Approvals. Lists can be requested while others are in flight (filter
+  // changes, refreshes, new requests); only the latest one is shown, and a
+  // decision supersedes lists requested before it. Returns false, without
+  // throwing, when the response was superseded.
+  let approvalsSeq = 0
+  async function fetchApprovals(filter: ApprovalFilter = 'pending'): Promise<boolean> {
+    const seq = ++approvalsSeq
+    try {
+      const { data } = await apiClient.get('/agent/approvals', { params: { status: filter } })
+      if (seq !== approvalsSeq) return false
+      approvals.value = data.data?.approvals ?? []
+      pendingCount.value = data.data?.pending ?? 0
+      return true
+    } catch (e) {
+      if (seq !== approvalsSeq) return false
+      throw e
+    }
   }
 
   async function refreshPendingCount() {
@@ -176,6 +188,7 @@ export const useAgentStore = defineStore('agent', () => {
   async function decide(id: string, approve: boolean): Promise<ApprovalDecision> {
     const { data } = await apiClient.post(`/agent/approvals/${path(id)}/${approve ? 'approve' : 'reject'}`)
     const decision = data.data as ApprovalDecision
+    approvalsSeq++
     const i = approvals.value.findIndex(a => a.id === id)
     if (i >= 0) approvals.value[i] = decision.approval
     recentDecisions.value = [decision, ...recentDecisions.value.filter(d => d.approval.id !== id)].slice(0, MAX_RECENT_DECISIONS)

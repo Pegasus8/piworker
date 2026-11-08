@@ -161,6 +161,72 @@ test('approvals are listed by status and keep the pending count for the badge', 
   expect(calls[1].params).toEqual({ status: 'pending', limit: 1 })
 })
 
+test('a slower, older approvals response never replaces a newer one', async () => {
+  // The pending list arrives after the "all" list asked for later.
+  const gates: Record<string, () => void> = {}
+  routes['GET /agent/approvals'] = (c) => ({ status: (c.params as { status: string }).status })
+  const realGet = apiClient.get
+  apiClient.get = async (url: string, config?: { params?: unknown }) => {
+    const status = (config?.params as { status: string }).status
+    await new Promise<void>(resolve => { gates[status] = resolve })
+    const res = await realGet(url, config)
+    const data = res.data.data as { status: string }
+    return { data: { success: true, data: { approvals: [approval(data.status, { status: data.status === 'all' ? 'approved' : 'pending' })], pending: data.status === 'all' ? 1 : 5 } } }
+  }
+  try {
+    const store = useAgentStore()
+    const older = store.fetchApprovals('pending')
+    const newer = store.fetchApprovals('all')
+    await new Promise(r => setTimeout(r, 0))
+    gates.all()
+    await newer
+    gates.pending()
+    expect(await older).toBe(false)
+    expect(store.approvals.map(a => a.id)).toEqual(['all'])
+    expect(store.pendingCount).toBe(1)
+
+    // A superseded request that fails is not reported either.
+    routes['GET /agent/approvals'] = (c) => {
+      if ((c.params as { status: string }).status === 'expired') throw httpError(500, 'Cannot read approvals')
+      return { status: (c.params as { status: string }).status }
+    }
+    const failing = store.fetchApprovals('expired')
+    const current = store.fetchApprovals('all')
+    await new Promise(r => setTimeout(r, 0))
+    gates.all()
+    expect(await current).toBe(true)
+    gates.expired()
+    expect(await failing).toBe(false)
+  } finally {
+    apiClient.get = realGet
+  }
+})
+
+test('a decision is not undone by a list requested before it', async () => {
+  let release = () => {}
+  routes['GET /agent/approvals'] = () => ({ approvals: [approval('x')], pending: 1 })
+  routes['POST /agent/approvals/x/approve'] = () => ({ approval: approval('x', { status: 'approved' }), executed: true })
+  const store = useAgentStore()
+  await store.fetchApprovals('pending')
+  const realGet = apiClient.get
+  apiClient.get = async (url: string, config?: { params?: unknown }) => {
+    await new Promise<void>(resolve => { release = resolve })
+    return realGet(url, config)
+  }
+  try {
+    const inFlight = store.fetchApprovals('pending')
+    await new Promise(r => setTimeout(r, 0))
+    const releaseList = release
+    await store.decide('x', true)
+    releaseList()
+    expect(await inFlight).toBe(false)
+    expect(store.approvals.find(a => a.id === 'x')?.status).toBe('approved')
+  } finally {
+    release()
+    apiClient.get = realGet
+  }
+})
+
 test('a server without the agent API stops the badge from polling', async () => {
   const store = useAgentStore()
   await store.refreshPendingCount()
