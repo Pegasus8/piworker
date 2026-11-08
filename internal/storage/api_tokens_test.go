@@ -3,10 +3,12 @@ package storage
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -292,6 +294,72 @@ func TestSetAPITokenGrants(t *testing.T) {
 	require.ErrorIs(t, s.SetAPITokenGrants("missing", next), ErrAPITokenNotFound)
 	require.NoError(t, s.RevokeAPIToken(tok.ID, testNow))
 	require.ErrorIs(t, s.SetAPITokenGrants(tok.ID, next), ErrAPITokenNotFound, "revoked tokens cannot regain grants")
+}
+
+func TestUpdateAPITokenGrants(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	tok, _ := newTestToken(t, s, NewAPIToken{Grants: []TokenGrant{{FlowID: "f", TriggerNodeID: "t", Fingerprint: "v1", Suspended: true}}})
+	before, err := s.TokensEpoch()
+	require.NoError(t, err)
+
+	updated, err := s.UpdateAPITokenGrants(tok.ID, func(grants []TokenGrant) ([]TokenGrant, error) {
+		assert.Equal(t, []TokenGrant{{FlowID: "f", TriggerNodeID: "t", Fingerprint: "v1", Suspended: true}}, grants, "fn sees the stored grants")
+		grants[0].Suspended = false
+		return append(grants, TokenGrant{FlowID: "g", TriggerNodeID: "u", Fingerprint: "w1"}), nil
+	})
+	require.NoError(t, err)
+	want := []TokenGrant{{FlowID: "f", TriggerNodeID: "t", Fingerprint: "v1"}, {FlowID: "g", TriggerNodeID: "u", Fingerprint: "w1"}}
+	assert.Equal(t, want, updated.Grants)
+	assert.Equal(t, tok.ID, updated.ID)
+	got, err := s.GetAPIToken(tok.ID)
+	require.NoError(t, err)
+	assert.Equal(t, want, got.Grants)
+	after, err := s.TokensEpoch()
+	require.NoError(t, err)
+	assert.Equal(t, before+1, after)
+
+	// An error from fn aborts: nothing changes and the epoch stays.
+	refused := errors.New("grant not found")
+	_, err = s.UpdateAPITokenGrants(tok.ID, func([]TokenGrant) ([]TokenGrant, error) { return nil, refused })
+	require.ErrorIs(t, err, refused)
+	_, err = s.UpdateAPITokenGrants(tok.ID, func([]TokenGrant) ([]TokenGrant, error) { return []TokenGrant{{FlowID: "f"}}, nil })
+	require.ErrorIs(t, err, ErrInvalidAPITokenRequest)
+	got, err = s.GetAPIToken(tok.ID)
+	require.NoError(t, err)
+	assert.Equal(t, want, got.Grants)
+	epoch, err := s.TokensEpoch()
+	require.NoError(t, err)
+	assert.Equal(t, after, epoch)
+
+	called := false
+	noop := func(g []TokenGrant) ([]TokenGrant, error) { called = true; return g, nil }
+	_, err = s.UpdateAPITokenGrants("missing", noop)
+	require.ErrorIs(t, err, ErrAPITokenNotFound)
+	require.NoError(t, s.RevokeAPIToken(tok.ID, testNow))
+	_, err = s.UpdateAPITokenGrants(tok.ID, noop)
+	require.ErrorIs(t, err, ErrAPITokenNotFound, "revoked tokens cannot regain grants")
+	assert.False(t, called, "fn only runs for live tokens")
+}
+
+func TestUpdateAPITokenGrantsSerializesWriters(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	tok, _ := newTestToken(t, s, NewAPIToken{})
+	const n = 16
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() {
+			_, err := s.UpdateAPITokenGrants(tok.ID, func(g []TokenGrant) ([]TokenGrant, error) {
+				return append(g, TokenGrant{FlowID: fmt.Sprintf("f%d", i), TriggerNodeID: "t", Fingerprint: "v1"}), nil
+			})
+			assert.NoError(t, err)
+		})
+	}
+	wg.Wait()
+	got, err := s.GetAPIToken(tok.ID)
+	require.NoError(t, err)
+	assert.Len(t, got.Grants, n, "no concurrent update is lost")
 }
 
 func TestTokensEpochVisibleAcrossHandles(t *testing.T) {

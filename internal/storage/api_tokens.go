@@ -441,27 +441,62 @@ func voidPendingApprovals(tx *sql.Tx, cond string, condArgs []any, now time.Time
 }
 
 // SetAPITokenGrants replaces the grants of a non-revoked token and bumps the
-// tokens epoch so cached verifications pick up the change.
+// tokens epoch so cached verifications pick up the change. It overwrites
+// whatever is stored: to change grants based on their current state, use
+// UpdateAPITokenGrants.
 func (s *SQLiteStore) SetAPITokenGrants(id string, grants []TokenGrant) error {
 	if err := ValidateGrants(grants); err != nil {
 		return err
 	}
-	grantsJSON, err := marshalGrants(grants)
-	if err != nil {
-		return err
-	}
-	return s.inTokenTx(func(tx *sql.Tx) error {
-		res, err := tx.Exec(`UPDATE api_tokens SET grants_json = ? WHERE id = ? AND revoked_at IS NULL`, grantsJSON, id)
-		if err != nil {
-			return fmt.Errorf("failed to update api token grants: %w", err)
-		}
-		if n, err := res.RowsAffected(); err != nil {
-			return err
-		} else if n == 0 {
+	_, err := s.UpdateAPITokenGrants(id, func([]TokenGrant) ([]TokenGrant, error) {
+		return slices.Clone(grants), nil
+	})
+	return err
+}
+
+// UpdateAPITokenGrants changes the grants of a non-revoked token by applying
+// fn to the stored grants inside one write transaction, so concurrent changes
+// (two editor tabs, a redeploy suspending a grant) never overwrite each other.
+// fn gets a copy it may modify and must not use the store, whose only
+// connection the transaction holds. An error from fn aborts the update and is
+// returned unchanged. The result is validated and stored, and the tokens epoch
+// bumped, in the same transaction. It returns the updated token, or
+// ErrAPITokenNotFound (without calling fn) for unknown or revoked tokens.
+func (s *SQLiteStore) UpdateAPITokenGrants(id string, fn func([]TokenGrant) ([]TokenGrant, error)) (*APIToken, error) {
+	var tok *APIToken
+	err := s.inTokenTx(func(tx *sql.Tx) error {
+		cur, err := scanAPIToken(tx.QueryRow(`SELECT `+apiTokenColumns+` FROM api_tokens WHERE id = ? AND revoked_at IS NULL`, id))
+		if errors.Is(err, sql.ErrNoRows) {
 			return ErrAPITokenNotFound
 		}
+		if err != nil {
+			return fmt.Errorf("failed to read api token: %w", err)
+		}
+		grants, err := fn(slices.Clone(cur.Grants))
+		if err != nil {
+			return err
+		}
+		if grants == nil {
+			grants = []TokenGrant{}
+		}
+		if err := ValidateGrants(grants); err != nil {
+			return err
+		}
+		grantsJSON, err := marshalGrants(grants)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE api_tokens SET grants_json = ? WHERE id = ?`, grantsJSON, id); err != nil {
+			return fmt.Errorf("failed to update api token grants: %w", err)
+		}
+		cur.Grants = slices.Clone(grants)
+		tok = cur
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	return tok, nil
 }
 
 // TouchAPITokenLastUsed records use of a token; the timestamp never moves
