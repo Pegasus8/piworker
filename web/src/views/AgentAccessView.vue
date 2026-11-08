@@ -259,7 +259,7 @@ function cancelLevel() {
           </p>
         </div>
         <p v-if="settingsError" role="alert" class="text-sm text-destructive">
-          {{ settingsError }} The current level is unknown.
+          The current level is unknown ({{ settingsError }}).
           <Button variant="link" class="h-auto p-0" :disabled="pending" @click="loadSettings">Retry</Button>
         </p>
         <div role="radiogroup" aria-label="Agent deploy level" class="space-y-2">
