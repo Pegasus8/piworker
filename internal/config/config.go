@@ -4,8 +4,10 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -39,9 +41,11 @@ func Default() Config {
 }
 
 // Load builds a configuration by layering, in order of increasing precedence:
-// built-in defaults, the TOML file at path (if it exists), and environment
-// variables. A missing config file is not an error. Flags are applied by the
-// caller afterwards via Apply* helpers so explicitly-set flags win.
+// built-in defaults, the TOML file at path, and environment variables. Only the
+// implicit DefaultConfigPath may be absent; an explicitly chosen file (via
+// -config or PIWORKER_CONFIG) that does not exist is an error, so a typo never
+// silently falls back to defaults. An empty path skips the file entirely.
+// Flags are applied by the caller afterwards so explicitly-set flags win.
 func Load(path string) (Config, error) {
 	cfg := Default()
 
@@ -50,31 +54,42 @@ func Load(path string) (Config, error) {
 			if _, err := toml.DecodeFile(path, &cfg); err != nil {
 				return cfg, fmt.Errorf("failed to parse config file %q: %w", path, err)
 			}
-		} else if !os.IsNotExist(err) {
+		} else if !os.IsNotExist(err) || path != DefaultConfigPath {
 			return cfg, fmt.Errorf("failed to access config file %q: %w", path, err)
 		}
 	}
 
-	cfg.applyEnv()
+	if err := cfg.applyEnv(); err != nil {
+		return cfg, err
+	}
 	return cfg, nil
 }
 
-// applyEnv overlays environment variables onto the config.
-func (c *Config) applyEnv() {
-	if v, ok := os.LookupEnv("PIWORKER_SESSION_SECURE"); ok {
-		c.SessionSecure = isTruthy(v)
+// applyEnv overlays environment variables onto the config. Boolean variables
+// are parsed strictly: an empty or unrecognised value is an error rather than
+// "false", so e.g. PIWORKER_AUTH= can never silently disable authentication.
+func (c *Config) applyEnv() error {
+	var errs []error
+	boolEnv := func(name string, dst *bool) {
+		v, ok := os.LookupEnv(name)
+		if !ok {
+			return
+		}
+		b, err := ParseBool(v)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("invalid %s=%q: expected true/false, 1/0, yes/no or on/off", name, v))
+			return
+		}
+		*dst = b
 	}
+	boolEnv("PIWORKER_SESSION_SECURE", &c.SessionSecure)
+	boolEnv("PIWORKER_DEBUG", &c.Debug)
+	boolEnv("PIWORKER_AUTH", &c.Auth)
 	if v, ok := os.LookupEnv("PIWORKER_ADDR"); ok {
 		c.Addr = v
 	}
 	if v, ok := os.LookupEnv("PIWORKER_DB"); ok {
 		c.DBPath = v
-	}
-	if v, ok := os.LookupEnv("PIWORKER_DEBUG"); ok {
-		c.Debug = isTruthy(v)
-	}
-	if v, ok := os.LookupEnv("PIWORKER_AUTH"); ok {
-		c.Auth = isTruthy(v)
 	}
 	if v, ok := os.LookupEnv("PIWORKER_JWT_SECRET"); ok {
 		c.JWTSecret = v
@@ -88,6 +103,7 @@ func (c *Config) applyEnv() {
 	if v, ok := os.LookupEnv("PIWORKER_ADMIN_PASS"); ok {
 		c.AdminPass = v
 	}
+	return errors.Join(errs...)
 }
 
 // ResolveConfigPath returns the config file path from the -config flag, then the
@@ -117,12 +133,15 @@ func SplitOrigins(s string) []string {
 	return result
 }
 
-// isTruthy interprets common boolean-ish string values as true/false.
-func isTruthy(v string) bool {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
+// ParseBool accepts strconv.ParseBool spellings plus yes/no and on/off (case
+// and surrounding whitespace ignored). Anything else, including "", is an error.
+func ParseBool(v string) (bool, error) {
+	s := strings.ToLower(strings.TrimSpace(v))
+	switch s {
+	case "yes", "on":
+		return true, nil
+	case "no", "off":
+		return false, nil
 	}
+	return strconv.ParseBool(s)
 }
