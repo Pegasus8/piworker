@@ -469,7 +469,10 @@ claude mcp add --transport http --scope user piworker https://raspberrypi.local:
 ```
 Claude Desktop: stdio bridge `piworker-mcp` (pure Go, `CGO_ENABLED=0`,
 darwin/windows/linux builds) with `--url`, `--token-file`, `--ca-file` /
-`--ca-fingerprint` pinning; it relays tools and prompts.
+`--ca-fingerprint` pinning; it relays tools and prompts. The editor's new-token
+dialog gives the token-file command for macOS/Linux (`umask 077`) and for
+Windows (PowerShell, `icacls` restricted to the current user), with the
+matching `claude_desktop_config.json` paths.
 
 ## 13. Testing
 

@@ -245,10 +245,14 @@ export interface ClientSnippets {
   url: string
   /** Shell commands for Claude Code. */
   claudeCode: string
-  /** Shell command that saves the token to a private file (Claude Desktop). */
+  /** Shell command that saves the token to a private file (Claude Desktop, macOS/Linux). */
   tokenFile: string
   /** claude_desktop_config.json fragment for the piworker-mcp stdio bridge. */
   claudeDesktop: string
+  /** PowerShell commands that save the token to a file only the current user can read (Windows). */
+  tokenFileWindows: string
+  /** claudeDesktop with a Windows path to the token file. */
+  claudeDesktopWindows: string
   /** Whether clients must trust PiWorker's local CA. */
   needsCA: boolean
 }
@@ -257,9 +261,22 @@ export interface ClientSnippets {
 export const DEFAULT_HTTPS_PORT = '8443'
 export const TOKEN_FILE = '~/.piworker-token'
 export const TOKEN_FILE_PLACEHOLDER = '/path/to/piworker-token'
+/** Where the Windows commands save the token, and how the config names it. */
+export const TOKEN_FILE_WINDOWS = '%USERPROFILE%\\piworker-token'
+export const TOKEN_FILE_PLACEHOLDER_WINDOWS = 'C:\\Users\\YOU\\piworker-token'
+/** Where Claude Desktop keeps claude_desktop_config.json. */
+export const DESKTOP_CONFIG_PATHS = {
+  macos: '~/Library/Application Support/Claude/claude_desktop_config.json',
+  windows: '%APPDATA%\\Claude\\claude_desktop_config.json'
+} as const
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+/** A PowerShell single-quoted string (no expansion; a quote is doubled). */
+function psQuote(value: string): string {
+  return `'${value.replace(/'/g, `''`)}'`
 }
 
 /**
@@ -287,10 +304,28 @@ export function clientSnippets(opts: { token: string; location: SnippetLocation;
     `  --header ${header}`
   ].join('\n')
   const tokenFile = `(umask 077 && printf '%s\\n' ${shellQuote(token)} > ${TOKEN_FILE})`
-  const args = ['--url', url, '--token-file', TOKEN_FILE_PLACEHOLDER]
-  if (tls?.mode === 'auto' && tls.caFingerprint) args.push('--ca-fingerprint', tls.caFingerprint)
-  const claudeDesktop = JSON.stringify({ mcpServers: { piworker: { command: 'piworker-mcp', args } } }, null, 2)
-  return { url, claudeCode, tokenFile, claudeDesktop, needsCA }
+  // Windows: create the file empty, keep only the current user's access
+  // (no inherited entries), then write the token into it.
+  const tokenFileWindows = [
+    `$f = Join-Path $env:USERPROFILE 'piworker-token'`,
+    `New-Item -ItemType File -Force -Path $f | Out-Null`,
+    `icacls $f /inheritance:r /grant:r "$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name):(F)" | Out-Null`,
+    `Set-Content -Path $f -Value ${psQuote(token)} -NoNewline -Encoding ascii`
+  ].join('\n')
+  const desktopConfig = (tokenPath: string) => {
+    const args = ['--url', url, '--token-file', tokenPath]
+    if (tls?.mode === 'auto' && tls.caFingerprint) args.push('--ca-fingerprint', tls.caFingerprint)
+    return JSON.stringify({ mcpServers: { piworker: { command: 'piworker-mcp', args } } }, null, 2)
+  }
+  return {
+    url,
+    claudeCode,
+    tokenFile,
+    claudeDesktop: desktopConfig(TOKEN_FILE_PLACEHOLDER),
+    tokenFileWindows,
+    claudeDesktopWindows: desktopConfig(TOKEN_FILE_PLACEHOLDER_WINDOWS),
+    needsCA
+  }
 }
 
 export interface MCPStatus {

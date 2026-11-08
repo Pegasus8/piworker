@@ -180,6 +180,17 @@ test('a new token is shown once, with client snippets for this host', async ({ p
   await expect(secret.getByLabel('Claude Desktop configuration')).toContainText('"--ca-fingerprint"')
   await expect(secret.getByLabel('Claude Desktop configuration')).toContainText(FP)
   await page.screenshot({ path: 'test-results/agent-token-created.png', fullPage: true })
+  // Windows: PowerShell keeps the token file private, and the config names a Windows path.
+  await secret.getByRole('group', { name: 'Operating system' }).getByRole('button', { name: 'Windows' }).click()
+  const ps = secret.getByLabel('Save the token to a file (PowerShell)')
+  await expect(ps).toContainText('icacls $f /inheritance:r /grant:r')
+  await expect(ps).toContainText(`Set-Content -Path $f -Value '${TOKEN}'`)
+  const windowsConfig = secret.getByLabel('Claude Desktop configuration (Windows)')
+  await expect(windowsConfig).toContainText('"--token-file",')
+  await expect(windowsConfig).toContainText('"C:\\\\Users\\\\YOU\\\\piworker-token"')
+  await expect(windowsConfig).toContainText(FP)
+  await expect(secret).toContainText('%APPDATA%\\Claude\\claude_desktop_config.json')
+  await expect(secret.getByLabel('Save the token to a file', { exact: true })).toHaveCount(0)
   // Clicking outside or pressing Escape must not lose the token.
   await page.keyboard.press('Escape')
   await expect(secret).toBeVisible()

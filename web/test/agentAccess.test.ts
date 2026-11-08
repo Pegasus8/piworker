@@ -18,6 +18,7 @@ import {
   toolKey,
   EXPIRY_OPTIONS,
   DEPLOY_LEVELS,
+  DESKTOP_CONFIG_PATHS,
   type AgentTool
 } from '../src/lib/agentAccess'
 
@@ -105,6 +106,28 @@ test('Claude Code snippet trusts the local CA and targets the HTTPS listener', (
   expect(s.claudeDesktop).not.toContain(TOKEN)
   expect(s.tokenFile).toContain(TOKEN)
   expect(s.tokenFile).toContain('umask 077')
+})
+
+test('Claude Desktop on Windows gets a PowerShell command that keeps the token file private', () => {
+  const s = clientSnippets({ token: TOKEN, location: { protocol: 'https:', hostname: 'raspberrypi.local', port: '8443' }, tls: { mode: 'auto', caFingerprint: FP } })
+  const ps = s.tokenFileWindows
+  // Created empty, restricted to the current user, then filled.
+  expect(ps).toContain(`$f = Join-Path $env:USERPROFILE 'piworker-token'`)
+  expect(ps).toContain('icacls $f /inheritance:r /grant:r')
+  expect(ps).toContain('[System.Security.Principal.WindowsIdentity]::GetCurrent().Name')
+  expect(ps.indexOf('icacls')).toBeLessThan(ps.indexOf(TOKEN))
+  expect(ps).toContain(`Set-Content -Path $f -Value '${TOKEN}' -NoNewline -Encoding ascii`)
+  expect(ps).not.toContain('umask')
+  // The same bridge flags, with a Windows path in the config.
+  const desktop = JSON.parse(s.claudeDesktopWindows)
+  expect(desktop.mcpServers.piworker.args).toEqual(['--url', 'https://raspberrypi.local:8443/mcp', '--token-file', 'C:\\Users\\YOU\\piworker-token', '--ca-fingerprint', FP])
+  expect(s.claudeDesktopWindows).toContain('C:\\\\Users\\\\YOU\\\\piworker-token')
+  expect(s.claudeDesktopWindows).not.toContain(TOKEN)
+  expect(DESKTOP_CONFIG_PATHS.windows).toBe('%APPDATA%\\Claude\\claude_desktop_config.json')
+  expect(DESKTOP_CONFIG_PATHS.macos).toBe('~/Library/Application Support/Claude/claude_desktop_config.json')
+  // A quote in an unexpected token cannot end the PowerShell string.
+  const odd = clientSnippets({ token: "pwk_it's", location: { protocol: 'https:', hostname: 'pi', port: '8443' }, tls: null })
+  expect(odd.tokenFileWindows).toContain(`-Value 'pwk_it''s'`)
 })
 
 test('snippets use the HTTPS port even when the editor is opened over HTTP', () => {
