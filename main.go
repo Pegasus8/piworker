@@ -21,6 +21,7 @@ import (
 	"github.com/Pegasus8/piworker/internal/config"
 	"github.com/Pegasus8/piworker/internal/events"
 	"github.com/Pegasus8/piworker/internal/flow"
+	"github.com/Pegasus8/piworker/internal/mcpserver"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/secrets"
 	"github.com/Pegasus8/piworker/internal/service"
@@ -194,6 +195,8 @@ func main() {
 
 	tlsHandler := newTLSHandler(cfg.TLS.Mode, tlsSrc)
 	router, flowsHandler, services := buildApp(cfg, store, runtimeManager, registry, userStore, tlsRoutes(tlsHandler))
+	// MCP audit retention (30 days, row cap): at start, then hourly.
+	go mcpserver.RunAuditRetention(appCtx, store, mcpserver.RetentionOptions{Logger: log.Logger})
 
 	// Bind before restoring flows, so a busy port fails before anything runs.
 	servers, err := listen(cfg, router, tlsConf)
@@ -441,6 +444,8 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 		opt(router)
 	}
 
+	mountMCP(router, cfg, services.tools, agentTokens, hostGuard)
+
 	// Webhook endpoints: trigger-webhook nodes register their paths on the shared
 	// hub, and incoming requests are dispatched to them. Public (the node's
 	// optional token provides authentication); mounted before the frontend
@@ -461,6 +466,35 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 	router.NotFoundHandler = http.HandlerFunc(api.NotFoundHandler)
 	router.MethodNotAllowedHandler = http.HandlerFunc(api.MethodNotAllowedHandler)
 	return router, flowsHandler, services
+}
+
+// mountMCP mounts the MCP endpoint (docs/design/mcp.md §8) at /mcp for every
+// method, before the web UI catch-all, when mcp.enabled (which requires
+// authentication, so agent tokens exist); otherwise /mcp answers a JSON 404.
+// OAuth discovery under /.well-known/ always answers a JSON 404, so clients
+// fall back to their configured Bearer token instead of an OAuth flow.
+func mountMCP(router *mux.Router, cfg config.Config, tools *service.Tools, tokens *agentauth.TokenVerifier, hosts *api.HostGuard) {
+	notFound := http.HandlerFunc(api.NotFoundHandler)
+	router.PathPrefix("/.well-known/").Handler(notFound)
+	if !cfg.MCP.Enabled || tokens == nil {
+		router.Handle(mcpserver.Path, notFound)
+		return
+	}
+	handler, err := mcpserver.New(mcpserver.Options{
+		Tools:          tools,
+		Tokens:         tokens,
+		TLS:            cfg.TLSEnabled(),
+		LANAccess:      cfg.MCP.LANAccess,
+		HostAllowed:    hosts.Allowed,
+		AllowedOrigins: cfg.CORSOrigins,
+		Version:        version,
+		Logger:         log.Logger,
+	})
+	if err != nil {
+		log.Fatal().Err(err).Msg("Cannot set up the MCP endpoint")
+	}
+	router.Handle(mcpserver.Path, handler)
+	log.Info().Str("path", mcpserver.Path).Bool("tls", cfg.TLSEnabled()).Bool("lanAccess", cfg.MCP.LANAccess).Msg("MCP endpoint mounted")
 }
 
 // setupLogging configures the global logger.
