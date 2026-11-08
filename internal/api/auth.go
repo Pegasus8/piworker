@@ -269,7 +269,7 @@ func (h *AuthHandler) csrfAllowed(r *http.Request) bool {
 func AuthMiddleware(h *AuthHandler) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !isGuardedAPIPath(r.URL.Path) && r.URL.Path != "/metrics" {
+			if !isGuardedAPIPath(r.URL.Path) {
 				next.ServeHTTP(w, r)
 				return
 			}

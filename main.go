@@ -310,12 +310,10 @@ func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *
 	healthHandler := api.NewHealthHandler(store)
 	router.HandleFunc("/api/health", healthHandler.Health).Methods(http.MethodGet)
 
-	// Prometheus metrics. With auth enabled both paths require a session; the
-	// session cookie is scoped to /api, so authenticated scrapes and browsers
-	// use /api/metrics. /metrics stays for auth-disabled setups.
+	// Prometheus metrics live under /api so they share the API's auth (and the
+	// session cookie, which is scoped to /api).
 	router.Handle("/api/metrics", promhttp.Handler()).Methods(http.MethodGet)
-	router.Handle("/metrics", promhttp.Handler()).Methods(http.MethodGet)
-	log.Info().Msg("Prometheus metrics endpoint available at /api/metrics (and /metrics)")
+	log.Info().Msg("Prometheus metrics endpoint available at /api/metrics")
 
 	// Webhook endpoints: trigger-webhook nodes register their paths on the shared
 	// hub, and incoming requests are dispatched to them. Public (the node's

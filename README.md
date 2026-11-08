@@ -97,8 +97,8 @@ export PIWORKER_ADMIN_PASS='replace-with-a-unique-password'
 
 These variables never overwrite an existing account. Docker Compose reads them
 from the shell or a local, git-ignored `.env` file. Shell exports do not
-configure the native systemd service: use its TOML file or an explicitly configured systemd environment. Browser setup needs no bootstrap
-credentials. Compatibility with databases from the legacy 2020 release has not
+configure the native systemd service: use its TOML file or an explicitly
+configured systemd environment. Browser setup needs no bootstrap credentials. Compatibility with databases from the legacy 2020 release has not
 been validated; keep a full backup and test migration on a copy first.
 
 This README describes the revival branch, including changes not yet released.
@@ -538,8 +538,8 @@ authentication). A config file named with `-config` or `PIWORKER_CONFIG` must
 exist; only the implicit `piworker.toml` may be absent. Unknown keys in the TOML
 file (typos such as `atuh`) are rejected at startup.
 
-Prometheus metrics are served at `/api/metrics` (and `/metrics`). When
-authentication is enabled both require a signed-in session.
+Prometheus metrics are served at `/api/metrics`. When authentication is enabled
+they require a signed-in session.
 
 Write requests to `/api/` must come from the editor
 even when authentication is disabled: they need the `X-PiWorker-Request: 1`

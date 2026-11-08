@@ -84,7 +84,6 @@ func TestAuthDisabledStillRejectsCrossSiteWrites(t *testing.T) {
 
 func TestMetricsRequireAuthWhenEnabled(t *testing.T) {
 	app := newTestApp(t, true)
-	require.Equal(t, http.StatusUnauthorized, app.do("GET", "/metrics", "", "", nil).Code)
 	require.Equal(t, http.StatusUnauthorized, app.do("GET", "/api/metrics", "", "", nil).Code)
 
 	token, err := app.users.CreateSession("admin", mustHash(t, app.users), time.Now())
@@ -99,7 +98,18 @@ func TestMetricsRequireAuthWhenEnabled(t *testing.T) {
 
 func TestMetricsOpenWhenAuthDisabled(t *testing.T) {
 	app := newTestApp(t, false)
-	require.Equal(t, http.StatusOK, app.do("GET", "/metrics", "", "", nil).Code)
+	w := app.do("GET", "/api/metrics", "", "", nil)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Contains(t, w.Body.String(), "go_goroutines")
+}
+
+// Metrics have a single home under /api, behind the same auth as the API.
+func TestMetricsOnlyUnderAPI(t *testing.T) {
+	for _, auth := range []bool{false, true} {
+		app := newTestApp(t, auth)
+		w := app.do("GET", "/metrics", "", "", nil)
+		require.NotContains(t, w.Body.String(), "go_goroutines", "auth=%v", auth)
+	}
 }
 
 func mustHash(t *testing.T, users *storage.SQLiteUserStore) string {
