@@ -12,16 +12,16 @@ import (
 
 func TestHubRegisterDuplicate(t *testing.T) {
 	hub := NewHub()
-	require.NoError(t, hub.Register("a", func(Request) {}))
-	require.Error(t, hub.Register("a", func(Request) {}), "duplicate path must error")
+	require.NoError(t, hub.Register("a", func(Request) Result { return Accepted }))
+	require.Error(t, hub.Register("a", func(Request) Result { return Accepted }), "duplicate path must error")
 	hub.Unregister("a")
-	require.NoError(t, hub.Register("a", func(Request) {}), "path is reusable after unregister")
+	require.NoError(t, hub.Register("a", func(Request) Result { return Accepted }), "path is reusable after unregister")
 }
 
 func TestHubHandlerFuncDelivers(t *testing.T) {
 	hub := NewHub()
 	received := make(chan Request, 1)
-	require.NoError(t, hub.Register("myhook", func(r Request) { received <- r }))
+	require.NoError(t, hub.Register("myhook", func(r Request) Result { received <- r; return Accepted }))
 
 	req := httptest.NewRequest("POST", PathPrefix+"myhook?a=b", strings.NewReader(`{"x":1}`))
 	w := httptest.NewRecorder()
