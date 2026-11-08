@@ -468,9 +468,13 @@ Agents supply data only, never configuration:
   limit how often a tool runs.
 
 Arguments that reach command, file, database, GPIO or I2C nodes must be strict:
-strings need an `enum` or a pattern rejecting option flags, paths, whitespace
-and shell syntax, and numbers need `minimum` and `maximum`. The editor edits
-schemas as JSON and shows each node's documentation.
+strings need an `enum` or a pattern that accepts no value starting with `-`,
+with a `..` path segment, or containing `/`, whitespace, a line break, `$`, `;`,
+`|` or a backtick anywhere (each can be acknowledged per property with
+`x-piworker-allow`), and numbers need `minimum` and `maximum`. Patterns use the
+syntax Go and JavaScript share (no `(?i)`, `\z`, `[[:alpha:]]`…), since MCP
+clients read them as JavaScript. The editor edits schemas as JSON and shows each
+node's documentation.
 
 ---
 

@@ -59,7 +59,7 @@ only writes a global variable can steer another flow's `action-http` URL or
 
 ## Action items
 
-1. [ ] `internal/toolschema` with the closed subset, probe corpus and
+1. [x] `internal/toolschema` with the closed subset, probe corpus and
    `x-piworker-allow`.
 2. [x] `Risk` on every node type (test-enforced).
 3. [ ] `internal/flow/risk.go` with instance escalation and taint rules.

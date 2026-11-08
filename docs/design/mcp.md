@@ -174,6 +174,17 @@ when it is taken; `Stop` releases it), `title`, `description` (≥ 20 chars),
 Implements `TriggerNode`; `Emit(ctx, msg) error` is a blocking, ctx-bounded send
 (payload = validated args; meta `correlationID`, `toolName`, `actor`).
 
+The two schemas are stored as config properties of the type `"json"` (a
+node-config contract addition the editor renders as a JSON editor): a parsed
+object, or text holding exactly one JSON object; absent, `null` or `""` means
+unset. The parsed config is `node.ToolSpec`, read from the instance through
+`node.ToolProvider`. Its `MaxConcurrent` is 0 when unset, so the read-only
+default can be applied once the flow's risk is known
+(`ToolSpec.EffectiveMaxConcurrent(readOnly)`). `Emit` refuses arguments outside
+the schema with `*node.ToolArgumentsError` (the `[]toolschema.Issue`; matches
+`node.ErrInvalidToolArguments`), and returns an error matching
+`flow.ErrFlowNotRunning` when the trigger stopped after `Call`'s running check.
+
 ### `action-reply` (output)
 `mode`: `result` | `error`. No-op when the run was not started by `Call`.
 
@@ -184,7 +195,10 @@ Closed subset of JSON Schema 2020-12:
 - property: single primitive `type` (`string`, `integer`, `number`,
   `boolean`), or `array` of primitives with `maxItems`, or `object` with the
   same rules recursively (max depth 3);
-- string keywords: `enum`, `pattern` (must be anchored `^…$`), `minLength`,
+- string keywords: `enum`, `pattern` (must be anchored `^…$` and use only the
+  syntax Go RE2 and ECMA-262 with the `u` flag share, since clients read it as
+  ECMA-262: no inline flags, named groups, `\A`, `\z`, `\Q…\E`, POSIX classes,
+  `\pL` without braces or other Go-only escapes), `minLength`,
   `maxLength` (forced ≤ 256 when absent), `format` (ignored);
 - number keywords: `minimum`, `maximum`, `enum`;
 - `title`, `description`, `default`, `examples` allowed;
@@ -201,8 +215,14 @@ func (s *Schema) RequireStrictFor(paths []string) []Issue       // enum/anchored
 func (s *Schema) JSON() json.RawMessage                         // normalized schema advertised to clients
 ```
 Probe corpus for strict strings: `-x`, `--a=b`, `..`, `/`, ` `, `\n`, `$(`, `;`,
-`|`, `` ` ``. A pattern matching any probe is rejected unless the property sets
+`|`, `` ` ``. A pattern accepting any probe is rejected unless the property sets
 `"x-piworker-allow": ["…"]` listing the accepted probes (admin acknowledgement).
+A probe stands for every value of its class, not just itself (`^[a-z].*$`
+rejects `/` but accepts `a/b`): `-x` and `--a=b` are values starting with `-`
+or `--`; `..` a `..` path segment; ` ` any non-line-break whitespace and `\n`
+any line break (`\n`, `\r`, U+0085, U+2028, U+2029) anywhere; `/`, `$(` (`$`),
+`;`, `|` and backtick that character anywhere. The check is a reachability
+search over the pattern's compiled program, so it covers every accepted value.
 
 ### Risk analysis (`internal/flow/risk.go`)
 - Per type from `NodeTypeInfo.Risk`; per instance escalation to `privileged`
