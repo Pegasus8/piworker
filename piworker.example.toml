@@ -67,3 +67,29 @@ hosts = []
 # PEM files for mode = "custom".
 cert_file = ""
 key_file = ""
+
+[mcp]
+# The MCP endpoint (/mcp) that lets AI agents (Claude Code, Claude Desktop
+# through piworker-mcp, other MCP clients) call the flows you publish as tools.
+# Agents connect with tokens you create under Agents in the editor; each token
+# only gets the tools you grant. Requires auth = true. Restart to apply.
+# Env: PIWORKER_MCP_ENABLED.
+enabled = false
+
+# With [tls] mode = "off", /mcp only answers clients on this machine
+# (loopback), because tokens would cross the network unencrypted. Set true to
+# accept clients on your network anyway. Ignored while TLS is on.
+# Env: PIWORKER_MCP_LAN_ACCESS.
+lan_access = false
+
+# Agent tool calls running at once across all tokens (1-64; each token is also
+# limited to 2). Env: PIWORKER_MCP_MAX_INFLIGHT.
+max_inflight = 4
+
+# Largest result returned to an agent, in bytes (1024-1048576); longer
+# results are truncated. Env: PIWORKER_MCP_MAX_RESULT_BYTES.
+max_result_bytes = 16384
+
+# Let tokens get the author scope, which drafts flows for you to review and
+# deploy. Env: PIWORKER_MCP_AUTHOR_ENABLED.
+author_enabled = false
