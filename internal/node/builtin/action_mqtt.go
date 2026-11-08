@@ -111,28 +111,33 @@ func NewMqttAction(config map[string]interface{}) (node.Node, error) {
 	}, nil
 }
 
-func (a *MqttAction) ensureClient() (mqtt.Client, error) {
+// waitMqttToken waits for tok to complete, giving up when ctx is done or
+// after timeout, whichever comes first.
+func waitMqttToken(ctx context.Context, tok mqtt.Token, timeout time.Duration) error {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-tok.Done():
+		return tok.Error()
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return fmt.Errorf("timed out after %s", timeout)
+	}
+}
+
+func (a *MqttAction) ensureClient(ctx context.Context) (mqtt.Client, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.client == nil {
-		opts := mqtt.NewClientOptions().
-			AddBroker(a.broker).
-			SetClientID(a.clientID).
-			SetConnectTimeout(mqttConnectTimeout)
-		if a.username != "" {
-			opts.SetUsername(a.username)
-		}
-		if a.password != "" {
-			opts.SetPassword(a.password)
-		}
-		a.client = mqtt.NewClient(opts)
+		a.client = mqtt.NewClient(newMqttClientOptions(a.broker, a.clientID, a.username, a.password))
 	}
 	if !a.client.IsConnected() {
-		tok := a.client.Connect()
-		if !tok.WaitTimeout(mqttConnectTimeout) {
-			return nil, fmt.Errorf("mqtt connect timed out")
-		}
-		if err := tok.Error(); err != nil {
+		if err := waitMqttToken(ctx, a.client.Connect(), mqttConnectTimeout); err != nil {
+			// Drop the half-open client so a later message starts afresh
+			// instead of racing an abandoned connect attempt.
+			a.client.Disconnect(0)
+			a.client = nil
 			return nil, err
 		}
 	}
@@ -141,7 +146,7 @@ func (a *MqttAction) ensureClient() (mqtt.Client, error) {
 
 // Process renders the topic/payload and publishes the message.
 func (a *MqttAction) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
-	client, err := a.ensureClient()
+	client, err := a.ensureClient(ctx)
 	if err != nil {
 		return nil, node.Transient(fmt.Errorf("mqtt connect failed: %w", err))
 	}
@@ -149,11 +154,7 @@ func (a *MqttAction) Process(ctx context.Context, msg *types.Message) ([]*types.
 	topic := renderTemplate(a.topic, msg, ctx)
 	payload := renderTemplate(a.payload, msg, ctx)
 
-	tok := client.Publish(topic, a.qos, a.retained, payload)
-	if !tok.WaitTimeout(mqttConnectTimeout) {
-		return nil, node.Transient(fmt.Errorf("mqtt publish timed out"))
-	}
-	if err := tok.Error(); err != nil {
+	if err := waitMqttToken(ctx, client.Publish(topic, a.qos, a.retained, payload), mqttConnectTimeout); err != nil {
 		return nil, node.Transient(fmt.Errorf("mqtt publish failed: %w", err))
 	}
 
@@ -161,6 +162,18 @@ func (a *MqttAction) Process(ctx context.Context, msg *types.Message) ([]*types.
 	out.SourcePort = "output"
 	out.SetMeta("mqttTopic", topic)
 	return []*types.Message{out}, nil
+}
+
+// Close disconnects the publish client. The runtime calls it when the flow
+// stops; without it every redeploy leaked a connection to the broker.
+func (a *MqttAction) Close() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.client != nil {
+		a.client.Disconnect(250)
+		a.client = nil
+	}
+	return nil
 }
 
 // Ports returns the port definitions.
