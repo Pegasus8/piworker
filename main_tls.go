@@ -201,15 +201,20 @@ func announceListeners(s *serverSet, src tlsSource) {
 
 // watchTLS keeps the certificate current until ctx ends: auto mode re-checks
 // names, addresses and expiry every interval; SIGHUP refreshes immediately
-// (auto) or reloads the certificate files (custom).
-func watchTLS(ctx context.Context, src tlsSource, interval time.Duration) {
+// (auto) or reloads the certificate files (custom). SIGHUP is captured before
+// watchTLS returns and released once the returned channel is closed. Without a
+// certificate source nothing is watched and the channel is already closed.
+func watchTLS(ctx context.Context, src tlsSource, interval time.Duration) <-chan struct{} {
+	done := make(chan struct{})
 	if src == nil {
-		return
+		close(done)
+		return done
 	}
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 	ticker := time.NewTicker(interval)
 	go func() {
+		defer close(done)
 		defer signal.Stop(hup)
 		defer ticker.Stop()
 		for {
@@ -234,6 +239,7 @@ func watchTLS(ctx context.Context, src tlsSource, interval time.Duration) {
 			}
 		}
 	}()
+	return done
 }
 
 func refreshTLS(m *tlsca.Manager) {
