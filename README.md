@@ -418,10 +418,13 @@ may be marked `sensitive` (credentials, never echoed) and `agentVisible`
 (harmless values that agents may read); numeric properties state their `unit`.
 
 **Command** refuses a placeholder value that starts with `-` (for example
-`-rf` or `--output=/etc/passwd` arriving in a payload), because the program
-would read it as an option. If a command really expects such values, end its
-options with `--` before the placeholders and turn on **allowDashArgs**, a
-deliberate opt-in to that risk.
+`-rf` or `--output=/etc/passwd` arriving in a payload) when the placeholder
+begins its argument, because the program would read it as an option. Behind
+literal text in the same argument (`"temp={{payload}}"`, `--value={{payload}}`,
+`/tmp/{{payload}}`) such values, negative numbers included, are allowed. If a
+command really expects them as whole arguments, end its options with `--`
+before the placeholders and turn on **allowDashArgs**, a deliberate opt-in to
+that risk.
 
 ---
 

@@ -15,8 +15,10 @@ var commandPlaceholder = regexp.MustCompile(`\{\{(payload|topic|timestamp|meta\.
 // bindCommand never inserts message data into shell source. Only references to
 // positional arguments are inserted, using the shell parser to determine the
 // surrounding quotation context. Unsupported contexts fail before execution.
-// Unless allowDash is set, a value starting with '-' is refused: bound to an
-// argument, most programs would read it as an option ("-rf", "--output=…").
+// Unless allowDash is set, a value starting with '-' is refused when it can
+// begin its shell word: bound to an argument, most programs would read it as
+// an option ("-rf", "--output=…"). Behind literal text in the same word
+// ("temp={{payload}}", "--x={{payload}}", "/tmp/{{payload}}") it is allowed.
 func bindCommand(command string, msg *types.Message, allowDash bool) (string, []string, error) {
 	matches := commandPlaceholder.FindAllStringSubmatchIndex(command, -1)
 	if len(matches) == 0 {
@@ -91,7 +93,7 @@ func bindCommand(command string, msg *types.Message, allowDash bool) (string, []
 			if strings.ContainsRune(value, 0) {
 				bindErr = fmt.Errorf("command placeholder values cannot contain NUL bytes")
 			}
-			if !allowDash && strings.HasPrefix(value, "-") {
+			if !allowDash && strings.HasPrefix(value, "-") && mayBeginWord(command, stack, uint(m[0])) {
 				bindErr = fmt.Errorf("the value of %s starts with \"-\" and could be read as a command option; "+
 					"set allowDashArgs: true if the command expects such values (e.g. after \"--\")", command[m[0]:m[1]])
 			}
@@ -123,6 +125,60 @@ func bindCommand(command string, msg *types.Message, allowDash bool) (string, []
 	}
 	result.WriteString(command[offset:])
 	return result.String(), args, nil
+}
+
+// mayBeginWord reports whether the placeholder at offset off can begin the
+// shell word that contains it (the innermost *syntax.Word on the walk stack):
+// whether everything before it in that word may expand to "". Quotes, other
+// placeholders (their values may be empty) and expansions count as possibly
+// empty; so do the unquoted brace and glob characters, which can be expanded
+// away ("{,}{{payload}}"). Without an enclosing word it answers true.
+func mayBeginWord(command string, stack []syntax.Node, off uint) bool {
+	for i := len(stack) - 1; i >= 0; i-- {
+		if w, ok := stack[i].(*syntax.Word); ok {
+			return emptyBefore(command, w.Parts, off)
+		}
+	}
+	return true
+}
+
+// emptyBefore reports whether the word parts before offset off may expand to "".
+func emptyBefore(command string, parts []syntax.WordPart, off uint) bool {
+	for _, part := range parts {
+		start, end := part.Pos().Offset(), part.End().Offset()
+		if start >= off {
+			break
+		}
+		switch p := part.(type) {
+		case *syntax.Lit:
+			if hasLiteralText(command[start:min(end, off)], "{},*?[]") {
+				return false
+			}
+		case *syntax.SglQuoted:
+			inner := start + 1 // after the opening quote
+			if p.Dollar {
+				inner++
+			}
+			if stop := min(end-1, off); inner < stop && hasLiteralText(command[inner:stop], "") {
+				return false
+			}
+		case *syntax.DblQuoted:
+			if !emptyBefore(command, p.Parts, off) {
+				return false
+			}
+		default:
+			// Parameter, command and arithmetic expansions may be empty.
+		}
+	}
+	return true
+}
+
+// hasLiteralText reports whether s, with command placeholders removed, has a
+// character that is not in ignore.
+func hasLiteralText(s, ignore string) bool {
+	return strings.IndexFunc(commandPlaceholder.ReplaceAllString(s, ""), func(r rune) bool {
+		return !strings.ContainsRune(ignore, r)
+	}) >= 0
 }
 
 func commandValue(key string, msg *types.Message) (string, bool) {

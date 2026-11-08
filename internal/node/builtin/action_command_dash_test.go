@@ -75,3 +75,54 @@ func TestCommandAllowDashArgsSchema(t *testing.T) {
 	assert.Equal(t, false, p.Default)
 	assert.Contains(t, info.Documentation, "allowDashArgs")
 }
+
+// A placeholder glued to literal text in the same shell word cannot start an
+// option, so negative numbers can still be logged or forwarded that way.
+func TestCommandAllowsDashValuesAfterALiteralPrefix(t *testing.T) {
+	for _, tc := range []struct{ command, want string }{
+		{`printf '%s' "temp={{payload}}"`, "temp=-3.5"},
+		{`printf '%s' --x={{payload}}`, "--x=-3.5"},
+		{`printf '%s' /tmp/{{payload}}`, "/tmp/-3.5"},
+		{`printf '%s' 'v:{{payload}}'`, "v:-3.5"},
+		{`printf '%s' a"{{payload}}"`, "a-3.5"},
+		{`printf '%s' "{{topic}}x{{payload}}"`, "x-3.5"},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			action, err := NewCommandAction(map[string]interface{}{"command": tc.command})
+			require.NoError(t, err)
+			out, err := action.Process(context.Background(), types.NewMessage(float64(-3.5), types.DataTypeNumber))
+			require.NoError(t, err)
+			result := out[0].Payload.(map[string]interface{})
+			assert.Equal(t, true, result["success"])
+			assert.Equal(t, tc.want, result["stdout"])
+		})
+	}
+}
+
+// Whatever precedes the placeholder in its word may expand to nothing (empty
+// quotes, an empty earlier placeholder, a variable, brace or glob syntax), so
+// the value can still begin the argument and is refused.
+func TestCommandRejectsDashValuesThatCanBeginTheWord(t *testing.T) {
+	for _, command := range []string{
+		`printf '%s' {{payload}}`,
+		`printf '%s' "{{payload}}"`,
+		`printf '%s' '{{payload}}'`,
+		`printf '%s' ""{{payload}}`,
+		`printf '%s' ''"{{payload}}"`,
+		`printf '%s' {{topic}}{{payload}}`,
+		`printf '%s' "{{topic}}{{payload}}"`,
+		`printf '%s' $EMPTY{{payload}}`,
+		`printf '%s' "${EMPTY}{{payload}}"`,
+		`printf '%s' {,}{{payload}}`,
+		`printf '%s' *{{payload}}`,
+		`printf '%s' x {{payload}}`,
+	} {
+		t.Run(command, func(t *testing.T) {
+			action, err := NewCommandAction(map[string]interface{}{"command": command})
+			require.NoError(t, err)
+			_, err = action.Process(context.Background(), types.NewMessage(float64(-3.5), types.DataTypeNumber))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "allowDashArgs")
+		})
+	}
+}

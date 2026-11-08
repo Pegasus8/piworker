@@ -206,7 +206,7 @@ func (a *CommandAction) GetConfigSchema() node.ConfigSchema {
 			"allowDashArgs": {
 				Type:         "boolean",
 				Title:        "Allow values starting with '-'",
-				Description:  "Risky: let placeholder values start with '-', which most programs read as options (e.g. -rf). Only enable it when the command ends its options with -- before the placeholders.",
+				Description:  "Risky: let a placeholder that begins an argument take a value starting with '-', which most programs read as an option (e.g. -rf). Only enable it when the command ends its options with -- before the placeholders. Not needed behind literal text such as temp={{payload}}.",
 				Default:      false,
 				AgentVisible: true,
 			},
@@ -259,10 +259,13 @@ here-documents, here-strings, or other unsupported shell constructs are rejected
 before any command executes. Do not backslash-escape placeholders. Pass the value
 to an ordinary command argument instead.
 
-A placeholder value that starts with ` + "`-`" + ` is refused by default, because the
-program would read it as an option (` + "`-rf`" + `, ` + "`--output=/etc/passwd`" + `). If the command
-really expects such values, end its options with ` + "`--`" + ` before the
-placeholders (` + "`grep -- {{payload}} file`" + `) and set **allowDashArgs** to true.
+A placeholder value that starts with ` + "`-`" + ` is refused by default when the
+placeholder begins its argument, because the program would read it as an
+option (` + "`-rf`" + `, ` + "`--output=/etc/passwd`" + `). Behind literal text in the same
+argument it is allowed, so ` + "`echo \"temp={{payload}}\"`" + `, ` + "`--value={{payload}}`" + ` and
+` + "`/tmp/{{payload}}`" + ` accept negative numbers. If the command really expects such
+values as whole arguments, end its options with ` + "`--`" + ` before the placeholders
+(` + "`grep -- {{payload}} file`" + `) and set **allowDashArgs** to true.
 
 The configured command is trusted shell code: do not explicitly reinterpret
 external input using eval, sh -c, or another interpreter. Positional arguments are
