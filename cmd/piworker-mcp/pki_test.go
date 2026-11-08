@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -8,7 +9,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -100,6 +103,9 @@ type seenRequest struct {
 	MCPMethod, MCPName string
 	Accept             string
 	ContentType        string
+	UserAgent          string
+	Body               string
+	BodyMethod         string // the JSON-RPC method in the body, if any
 }
 
 // recorder wraps a handler and records every request that reaches it.
@@ -110,6 +116,12 @@ type recorder struct {
 
 func (rec *recorder) wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		var msg struct {
+			Method string `json:"method"`
+		}
+		_ = json.Unmarshal(body, &msg)
 		rec.mu.Lock()
 		rec.seen = append(rec.seen, seenRequest{
 			Method:          r.Method,
@@ -120,10 +132,31 @@ func (rec *recorder) wrap(next http.Handler) http.Handler {
 			MCPName:         r.Header.Get("Mcp-Name"),
 			Accept:          r.Header.Get("Accept"),
 			ContentType:     r.Header.Get("Content-Type"),
+			UserAgent:       r.Header.Get("User-Agent"),
+			Body:            string(body),
+			BodyMethod:      msg.Method,
 		})
 		rec.mu.Unlock()
 		next.ServeHTTP(w, r)
 	})
+}
+
+// syncBuffer is a bytes.Buffer safe for concurrent use (the bridge's stderr).
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 func (rec *recorder) requests() []seenRequest {
