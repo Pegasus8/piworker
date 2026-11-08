@@ -114,6 +114,21 @@ func TestHTTPQueryResolvesSecretsEscaped(t *testing.T) {
 	assert.Contains(t, shown, "{{secret.api_key}}")
 }
 
+// Re-serialising the URL after placing a secret keeps payload escaping intact.
+func TestHTTPQuerySecretKeepsEscapedPath(t *testing.T) {
+	setSecret(t, "api_key", "k")
+	var rawPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rawPath = r.URL.EscapedPath()
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := runHTTP(t, map[string]interface{}{"url": srv.URL + "/items/{{payload.id}}?key={{secret.api_key}}&q={{payload.q}}"},
+		map[string]interface{}{"id": "a/b c", "q": "x&y"})
+	require.NoError(t, err)
+	assert.Equal(t, "/items/a%2Fb%20c", rawPath)
+}
+
 func TestHTTPUserinfoResolvesSecrets(t *testing.T) {
 	setSecret(t, "svc_user", "bot")
 	setSecret(t, "svc_pass", "p@ss:w/rd")
