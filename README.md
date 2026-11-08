@@ -534,6 +534,18 @@ export PIWORKER_ADMIN_USER=admin
 export PIWORKER_ADMIN_PASS=...
 ```
 
+Boolean variables accept `true/false`, `1/0`, `yes/no` or `on/off`; an empty or
+unrecognised value stops startup with an error (it never silently disables
+authentication). A config file named with `-config` or `PIWORKER_CONFIG` must
+exist; only the implicit `piworker.toml` may be absent.
+
+Prometheus metrics are served at `/api/metrics` (and `/metrics`). When
+authentication is enabled both require a signed-in session.
+
+Write requests to `/api/` (except `/api/webhooks/`) must come from the editor
+even when authentication is disabled: they need the `X-PiWorker-Request: 1`
+header, a same-origin or `cors_origins` Origin, and a JSON body.
+
 ### Sessions and account recovery
 
 The browser uses an HttpOnly, SameSite=Strict cookie; session secrets are never
