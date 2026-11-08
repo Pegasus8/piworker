@@ -116,7 +116,7 @@ export const useAgentStore = defineStore('agent', () => {
 
   /**
    * Revokes every token in one server transaction (their pending approvals
-   * are rejected too) and returns how many were still unrevoked.
+   * are rejected too) and returns how many of them were active.
    */
   async function revokeAllTokens(): Promise<number> {
     const { data } = await apiClient.post('/agent/tokens/revoke-all')

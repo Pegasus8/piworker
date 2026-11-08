@@ -1042,7 +1042,7 @@ preserved during migration.
 |--------|----------|-------------|
 | GET, POST | `/api/agent/tokens` | List tokens; create one (password step-up, plaintext shown once) |
 | DELETE | `/api/agent/tokens/{id}` | Revoke a token |
-| POST | `/api/agent/tokens/revoke-all` | Revoke every token at once; returns the count |
+| POST | `/api/agent/tokens/revoke-all` | Revoke every token at once; returns how many were active |
 | POST | `/api/agent/tokens/{id}/grants` | Add, re-confirm (password), suspend or remove a grant |
 | GET | `/api/agent/tools` | Published tools, for grant pickers |
 | GET | `/api/agent/approvals` | Approval queue (`status`, `limit`) |

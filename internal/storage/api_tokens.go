@@ -408,9 +408,10 @@ func (s *SQLiteStore) RevokeAPIToken(id string, now time.Time) error {
 	})
 }
 
-// RevokeAllAPITokens revokes every token not yet revoked, rejects every
-// pending approval (no token can act any more), bumps the tokens epoch (even
-// when nothing changed) and returns how many tokens were revoked.
+// RevokeAllAPITokens revokes every token not yet revoked (expired ones
+// included), rejects every pending approval (no token can act any more),
+// bumps the tokens epoch (even when nothing changed) and returns how many of
+// the revoked tokens were active at now, i.e. not expired.
 func (s *SQLiteStore) RevokeAllAPITokens(now time.Time) (int, error) {
 	var n int
 	err := s.inTokenTx(func(tx *sql.Tx) error {
@@ -437,18 +438,17 @@ func RevokeAllAPITokensTx(tx *sql.Tx, now time.Time) (int, error) {
 }
 
 func revokeAllAPITokens(tx *sql.Tx, now time.Time) (int, error) {
-	res, err := tx.Exec(`UPDATE api_tokens SET revoked_at = ? WHERE revoked_at IS NULL`, now.Unix())
-	if err != nil {
-		return 0, fmt.Errorf("failed to revoke api tokens: %w", err)
+	var active int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM api_tokens WHERE revoked_at IS NULL AND expires_at > ?`, now.Unix()).Scan(&active); err != nil {
+		return 0, fmt.Errorf("failed to count active api tokens: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return 0, err
+	if _, err := tx.Exec(`UPDATE api_tokens SET revoked_at = ? WHERE revoked_at IS NULL`, now.Unix()); err != nil {
+		return 0, fmt.Errorf("failed to revoke api tokens: %w", err)
 	}
 	if err := voidPendingApprovals(tx, `NOT `+approvalTokenActive, []any{now.Unix()}, now); err != nil {
 		return 0, err
 	}
-	return int(n), nil
+	return active, nil
 }
 
 // voidPendingApprovals closes, as rejected because the token was revoked,

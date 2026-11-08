@@ -26,6 +26,9 @@ func TestRevokeAllTokens(t *testing.T) {
 	b := env.createToken(t, map[string]any{"name": "desktop", "scopes": []string{"read"}})
 	already := env.createToken(t, map[string]any{"name": "old", "scopes": []string{"read"}})
 	require.Equal(t, http.StatusOK, env.do("DELETE", "/api/agent/tokens/"+already.Info.ID, nil).Code)
+	// Expired but never revoked: revoked too, but it was not active.
+	stale, _, err := env.store.CreateAPIToken(storage.NewAPIToken{Name: "stale", Scopes: []string{storage.ScopeCall}, ExpiresAt: time.Now().Add(-time.Hour)}, time.Now().Add(-2*time.Hour))
+	require.NoError(t, err)
 	for _, tok := range []createdToken{a, b} {
 		_, err := env.verifier.Verify(tok.Token)
 		require.NoError(t, err)
@@ -36,7 +39,10 @@ func TestRevokeAllTokens(t *testing.T) {
 
 	w := env.do("POST", "/api/agent/tokens/revoke-all", nil)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	assert.Equal(t, 2, data[revokedTokens](t, w).Revoked, "the token revoked before is not counted again")
+	assert.Equal(t, 2, data[revokedTokens](t, w).Revoked, "only the tokens active now: not the one revoked before, nor the expired one")
+	storedStale, err := env.store.GetAPIToken(stale.ID)
+	require.NoError(t, err)
+	assert.NotNil(t, storedStale.RevokedAt, "an expired token is revoked as well")
 
 	for _, tok := range []createdToken{a, b} {
 		_, err := env.verifier.Verify(tok.Token)

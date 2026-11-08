@@ -206,7 +206,7 @@ func (h *AgentHandler) RevokeToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // RevokedTokens is the POST /api/agent/tokens/revoke-all payload: how many
-// tokens were not revoked yet (expired ones included).
+// active tokens were revoked (expired ones are revoked too, uncounted).
 type RevokedTokens struct {
 	Revoked int `json:"revoked"`
 }
