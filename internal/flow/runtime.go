@@ -163,6 +163,10 @@ type FlowRuntime struct {
 	// may still be executing nodes even though it reports not running.
 	stopTimeout time.Duration
 	drained     chan struct{}
+
+	// calls tracks runs started by Call (keyed by correlation ID). It lives on
+	// r.ctx so a reply node can find it (ReplyFromContext).
+	calls *callRegistry
 }
 
 // RuntimeOption is a functional option for configuring the FlowRuntime.
@@ -220,6 +224,40 @@ func WithStopTimeout(d time.Duration) RuntimeOption {
 	}
 }
 
+// WithCallExpiryGrace sets how long a called run's waiter outlives the call's
+// timeout before it expires (default DefaultCallExpiryGrace). Values <= 0 are
+// ignored.
+func WithCallExpiryGrace(d time.Duration) RuntimeOption {
+	return func(r *FlowRuntime) {
+		if d > 0 {
+			r.calls.grace = d
+		}
+	}
+}
+
+// WithMaxCallWaiters caps how many called runs (see Call) the runtime tracks
+// at once: runs still executing plus results not collected yet. Past it, the
+// uncollected result closest to its expiry is evicted, or Call fails with
+// ErrTooManyCalls. Default DefaultMaxCallWaiters; values <= 0 are ignored.
+func WithMaxCallWaiters(n int) RuntimeOption {
+	return func(r *FlowRuntime) {
+		if n > 0 {
+			r.calls.maxWaiters = n
+		}
+	}
+}
+
+// WithMaxCallResultBytes caps the serialized payload of a called run's reply:
+// a bigger reply is not stored and the call ends as an error. Default
+// DefaultMaxCallResultBytes; values <= 0 are ignored.
+func WithMaxCallResultBytes(n int) RuntimeOption {
+	return func(r *FlowRuntime) {
+		if n > 0 {
+			r.calls.maxResultBytes = n
+		}
+	}
+}
+
 // NewFlowRuntime creates a new FlowRuntime for the given flow.
 func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*FlowRuntime, error) {
 	logger := zerolog.Nop()
@@ -238,6 +276,7 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 		stopTimeout:    DefaultStopTimeout,
 		errors:         make(chan error, 100),
 		runInflight:    make(map[string]int),
+		calls:          newCallRegistry(DefaultCallExpiryGrace),
 	}
 
 	// Apply options
@@ -310,7 +349,8 @@ func (r *FlowRuntime) Start(ctx context.Context) error {
 		r.mu.Unlock()
 		return fmt.Errorf("load flow variables: %w", err)
 	}
-	r.ctx, r.cancel = context.WithCancel(flowvars.WithFlowStore(context.Background(), local))
+	r.ctx, r.cancel = context.WithCancel(withCallRegistry(flowvars.WithFlowStore(context.Background(), local), r.calls))
+	r.calls.start()
 	r.drained = make(chan struct{})
 	r.running = true
 	r.state = FlowStateRunning
@@ -390,7 +430,12 @@ func (r *FlowRuntime) startSeeder(nodeID string) chan *types.Message {
 					return
 				}
 				corrID := r.ensureCorrelationID(msg)
-				r.runAdd(corrID, r.targetCount(nodeID, msg.SourcePort))
+				if n := r.targetCount(nodeID, msg.SourcePort); n > 0 {
+					r.runAdd(corrID, n)
+				} else {
+					// Nothing will execute for this run: it is already over.
+					r.calls.runFinished(corrID)
+				}
 				select {
 				case <-r.ctx.Done():
 					return
@@ -427,7 +472,11 @@ func (r *FlowRuntime) Stop() error {
 // shutdown cancels the runtime, stops the given triggers, closes the router and
 // waits (bounded) for every goroutine to exit before marking it stopped.
 func (r *FlowRuntime) shutdown(triggerIDs []string) {
-	// Cancel the context to signal all goroutines to stop
+	// Release every caller still waiting for a called run ("flow stopped"),
+	// then cancel the context to signal all goroutines to stop. In this order
+	// a node that returns ctx.Err() cannot end a pending call with its own
+	// error first.
+	r.calls.stop()
 	r.cancel()
 
 	for _, nodeID := range triggerIDs {
@@ -675,12 +724,14 @@ func (r *FlowRuntime) executeNodeInSlot(routedMsg RoutedMessage, slot *semSlot) 
 				Bytes("stack", debug.Stack()).
 				Msg("Recovered from panic during node execution")
 			metrics.RecordNodeError(flowNode.Type)
+			panicErr := fmt.Errorf("panic: %v", rec)
 			if r.observer != nil {
 				ev := baseEvent
 				ev.Phase = NodePhaseError
-				ev.Err = fmt.Errorf("panic: %v", rec)
+				ev.Err = panicErr
 				r.observer(ev)
 			}
+			r.calls.nodeError(correlationID, routedMsg.TargetNode, flowNode.Type, panicErr)
 		}
 	}()
 
@@ -730,6 +781,7 @@ func (r *FlowRuntime) executeNodeInSlot(routedMsg RoutedMessage, slot *semSlot) 
 
 	if err != nil {
 		metrics.RecordNodeError(flowNode.Type)
+		r.calls.nodeError(correlationID, routedMsg.TargetNode, flowNode.Type, err)
 		logger.Error().
 			Err(err).
 			Dur("duration", duration).
@@ -920,13 +972,17 @@ func (r *FlowRuntime) runDone(correlationID string) {
 	}
 	r.runMu.Unlock()
 
-	if finished && r.observer != nil {
+	if !finished {
+		return
+	}
+	if r.observer != nil {
 		r.observer(NodeEvent{
 			FlowID: r.flow.ID,
 			CorrID: correlationID,
 			Phase:  NodePhaseRunFinished,
 		})
 	}
+	r.calls.runFinished(correlationID)
 }
 
 // Drained reports whether every goroutine of the last started instance has
@@ -1057,6 +1113,10 @@ func (m *RuntimeManager) Deploy(ctx context.Context, f *Flow) error {
 		info, ok := m.registry.Get(n.Type)
 		return ok && info.Category == NodeCategoryInput
 	}); err != nil {
+		metrics.RecordFlowDeployment(false)
+		return err
+	}
+	if err := rt.ValidateCallTriggers(); err != nil {
 		metrics.RecordFlowDeployment(false)
 		return err
 	}
