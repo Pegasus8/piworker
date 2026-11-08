@@ -118,6 +118,31 @@ func TestMqttTriggerDefaultClientIDsAreUnique(t *testing.T) {
 	assert.Equal(t, "", mqttTriggerConfigSchema().Properties["clientId"].Default)
 }
 
+// The runtime starts triggers synchronously and fails the deploy (and boot
+// restore) on a Start error, so an unreachable broker must neither fail nor
+// noticeably delay Start, and Stop must still exit cleanly.
+func TestMqttTriggerUnreachableBrokerStartReturnsNilQuickly(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := ln.Addr().String()
+	require.NoError(t, ln.Close())
+
+	tr := newMqttTrigger(t, map[string]interface{}{"broker": "tcp://" + addr, "topic": "t"})
+	out := make(chan *types.Message, 1)
+	start := time.Now()
+	require.NoError(t, tr.Start(context.Background(), out))
+	assert.Less(t, time.Since(start), 3*time.Second, "Start must not block the deploy waiting for the broker")
+
+	done := make(chan error, 1)
+	go func() { done <- tr.Stop() }()
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop hung while the client was retrying")
+	}
+}
+
 // A Pi often boots before Wi-Fi is up: Start must not fail the deploy because
 // the broker is unreachable; it keeps retrying and subscribes once connected.
 func TestMqttTriggerStartsBeforeBrokerIsReachable(t *testing.T) {

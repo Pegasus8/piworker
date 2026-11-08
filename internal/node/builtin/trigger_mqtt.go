@@ -60,7 +60,7 @@ func NewMqttTrigger(config map[string]interface{}) (node.Node, error) {
 		topic:    topic,
 		qos:      qos,
 
-		initialConnectWait:   mqttConnectTimeout,
+		initialConnectWait:   mqttInitialConnectWait,
 		connectRetryInterval: mqttConnectRetryInterval,
 	}, nil
 }
@@ -80,6 +80,10 @@ func mqttMessagePayload(topic string, payload []byte) map[string]interface{} {
 	}
 	return map[string]interface{}{"topic": topic, "payload": body}
 }
+
+// mqttInitialConnectWait is how long Start waits for the first connection
+// before returning and leaving the client to retry in the background.
+const mqttInitialConnectWait = 2 * time.Second
 
 // Start connects to the broker and subscribes to the topic.
 //
@@ -129,11 +133,13 @@ func (t *MqttTrigger) Start(ctx context.Context, out chan<- *types.Message) erro
 
 	client := mqtt.NewClient(opts)
 	tok := client.Connect()
+	// Wait only briefly: the runtime starts triggers synchronously, and an
+	// unreachable broker is not a configuration error. Only invalid config
+	// (checked in the constructor) makes Start fail.
 	if !tok.WaitTimeout(t.initialConnectWait) {
 		log.Warn().Str("broker", t.broker).Msg("mqtt broker not reachable yet; retrying in background")
 	} else if err := tok.Error(); err != nil {
-		client.Disconnect(0)
-		return fmt.Errorf("mqtt connect failed: %w", err)
+		log.Warn().Err(err).Str("broker", t.broker).Msg("mqtt connect failed; retrying in background")
 	}
 
 	t.client = client
