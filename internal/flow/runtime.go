@@ -31,6 +31,8 @@ const (
 	DefaultMaxConcurrency = 16
 	// DefaultExecBuffer is the buffer size of the trigger seed channels.
 	DefaultExecBuffer = 256
+	// DefaultStopTimeout bounds how long Stop waits for the flow's goroutines.
+	DefaultStopTimeout = 5 * time.Second
 	// DefaultNodeQueueLimit caps how many messages may wait for one node. A
 	// node whose backlog is full has further messages dropped (with a warning
 	// and a dropped-message metric) instead of stalling the rest of the flow.
@@ -155,6 +157,12 @@ type FlowRuntime struct {
 
 	// Wait group for goroutine synchronization
 	wg sync.WaitGroup
+
+	// stopTimeout bounds how long Stop waits for wg. drained is closed once
+	// every goroutine of the current run has exited; until then the runtime
+	// may still be executing nodes even though it reports not running.
+	stopTimeout time.Duration
+	drained     chan struct{}
 }
 
 // RuntimeOption is a functional option for configuring the FlowRuntime.
@@ -202,6 +210,16 @@ func WithNodeQueueLimit(n int) RuntimeOption {
 	}
 }
 
+// WithStopTimeout sets how long Stop waits for the flow's goroutines to exit.
+// Values <= 0 are ignored.
+func WithStopTimeout(d time.Duration) RuntimeOption {
+	return func(r *FlowRuntime) {
+		if d > 0 {
+			r.stopTimeout = d
+		}
+	}
+}
+
 // NewFlowRuntime creates a new FlowRuntime for the given flow.
 func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*FlowRuntime, error) {
 	logger := zerolog.Nop()
@@ -217,6 +235,7 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 		retryConfig:    DefaultRetryConfig(),
 		maxConcurrency: DefaultMaxConcurrency,
 		queueLimit:     DefaultNodeQueueLimit,
+		stopTimeout:    DefaultStopTimeout,
 		errors:         make(chan error, 100),
 		runInflight:    make(map[string]int),
 	}
@@ -292,6 +311,7 @@ func (r *FlowRuntime) Start(ctx context.Context) error {
 		return fmt.Errorf("load flow variables: %w", err)
 	}
 	r.ctx, r.cancel = context.WithCancel(flowvars.WithFlowStore(context.Background(), local))
+	r.drained = make(chan struct{})
 	r.running = true
 	r.state = FlowStateRunning
 	r.mu.Unlock()
@@ -426,24 +446,31 @@ func (r *FlowRuntime) shutdown(triggerIDs []string) {
 	// Close the router to stop message processing
 	r.router.Close()
 
-	// Wait for all goroutines to finish with a timeout
-	done := make(chan struct{})
+	// Wait for all goroutines to finish with a timeout. Close nodes only
+	// after they have, so a node is never closed while still processing;
+	// drained is closed last, once the instance is completely gone.
+	r.mu.RLock()
+	drained := r.drained
+	r.mu.RUnlock()
 	go func() {
 		r.wg.Wait()
-		close(done)
+		r.closeNodes()
+		close(drained)
 	}()
 
 	select {
-	case <-done:
+	case <-drained:
 		r.logger.Debug().Msg("All goroutines stopped gracefully")
-		r.closeNodes()
-	case <-time.After(5 * time.Second):
-		r.logger.Warn().Msg("Timeout waiting for goroutines to stop")
-		// Never close a node while an executor may still be inside it:
-		// release resources once the stragglers finally exit.
+	case <-time.After(r.stopTimeout):
+		r.logger.Warn().
+			Str("flowID", r.flow.ID).
+			Dur("timeout", r.stopTimeout).
+			Msg("Timeout waiting for flow goroutines to stop; the instance keeps draining in the background and the flow cannot be redeployed until it does")
 		go func() {
-			<-done
-			r.closeNodes()
+			<-drained
+			r.logger.Info().
+				Str("flowID", r.flow.ID).
+				Msg("Stopped flow instance finished draining")
 		}()
 	}
 
@@ -902,6 +929,24 @@ func (r *FlowRuntime) runDone(correlationID string) {
 	}
 }
 
+// Drained reports whether every goroutine of the last started instance has
+// exited (true for a runtime that was never started). After a Stop that timed
+// out it stays false until the stragglers return.
+func (r *FlowRuntime) Drained() bool {
+	r.mu.RLock()
+	ch := r.drained
+	r.mu.RUnlock()
+	if ch == nil {
+		return true
+	}
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
 // State returns the current state of the flow runtime.
 func (r *FlowRuntime) State() FlowState {
 	r.mu.RLock()
@@ -929,10 +974,14 @@ func (r *FlowRuntime) Flow() *Flow {
 // RuntimeManager manages multiple flow runtimes.
 type RuntimeManager struct {
 	runtimes map[string]*FlowRuntime
-	registry *node.Registry
-	logger   zerolog.Logger
-	observer NodeEventHook
-	mu       sync.RWMutex
+	// stopping holds undeployed runtimes whose Stop timed out and that are
+	// still draining; their flow ID cannot be deployed again until they finish.
+	stopping    map[string]*FlowRuntime
+	registry    *node.Registry
+	logger      zerolog.Logger
+	observer    NodeEventHook
+	runtimeOpts []RuntimeOption
+	mu          sync.RWMutex
 }
 
 // ManagerOption configures a RuntimeManager.
@@ -946,10 +995,19 @@ func WithManagerObserver(hook NodeEventHook) ManagerOption {
 	}
 }
 
+// WithRuntimeOptions applies extra RuntimeOptions to every flow this manager
+// deploys.
+func WithRuntimeOptions(opts ...RuntimeOption) ManagerOption {
+	return func(m *RuntimeManager) {
+		m.runtimeOpts = append(m.runtimeOpts, opts...)
+	}
+}
+
 // NewRuntimeManager creates a new RuntimeManager.
 func NewRuntimeManager(registry *node.Registry, logger zerolog.Logger, opts ...ManagerOption) *RuntimeManager {
 	m := &RuntimeManager{
 		runtimes: make(map[string]*FlowRuntime),
+		stopping: make(map[string]*FlowRuntime),
 		registry: registry,
 		logger:   logger,
 	}
@@ -969,8 +1027,15 @@ func (m *RuntimeManager) Deploy(ctx context.Context, f *Flow) error {
 		return ErrFlowAlreadyRunning
 	}
 
+	// Refuse to start a second instance while a previous one is still
+	// executing after a Stop that timed out.
+	if err := m.checkDrained(f.ID); err != nil {
+		return err
+	}
+
 	// Create the runtime, forwarding the process-wide observer if one is set.
 	rtOpts := []RuntimeOption{WithLogger(m.logger)}
+	rtOpts = append(rtOpts, m.runtimeOpts...)
 	if m.observer != nil {
 		rtOpts = append(rtOpts, WithObserver(m.observer))
 	}
@@ -1036,11 +1101,30 @@ func (m *RuntimeManager) Undeploy(flowID string) error {
 	}
 
 	delete(m.runtimes, flowID)
+	if !rt.Drained() {
+		m.stopping[flowID] = rt
+	}
 
 	m.logger.Info().
 		Str("flowID", flowID).
 		Msg("Flow undeployed successfully")
 
+	return nil
+}
+
+// checkDrained returns ErrFlowStillStopping if a stopped instance of flowID is
+// still draining. Callers must hold m.mu.
+func (m *RuntimeManager) checkDrained(flowID string) error {
+	for _, rt := range []*FlowRuntime{m.stopping[flowID], m.runtimes[flowID]} {
+		if rt == nil || rt.Drained() {
+			continue
+		}
+		m.logger.Warn().
+			Str("flowID", flowID).
+			Msg("Refusing to deploy flow: previous instance is still stopping")
+		return fmt.Errorf("%w: flow %s", ErrFlowStillStopping, flowID)
+	}
+	delete(m.stopping, flowID)
 	return nil
 }
 
