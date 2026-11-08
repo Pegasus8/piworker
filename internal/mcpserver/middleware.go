@@ -21,6 +21,7 @@ import (
 	"github.com/Pegasus8/piworker/internal/agentauth"
 	"github.com/Pegasus8/piworker/internal/service"
 	"github.com/Pegasus8/piworker/internal/storage"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -248,14 +249,20 @@ func (h *Handler) limitRate(next http.Handler) http.Handler {
 // checkScope refuses tokens without a scope the endpoint serves, and tool
 // calls naming a tool whose scope the token lacks: a built-in tool's own
 // scope, call for any other name (so hidden and unknown flow tools are
-// alike). subscriptions/listen is refused (lists never change while a client
-// is connected). It then resolves the token's server for the SDK.
+// alike). It also refuses what the SDK would serve outside the protocol
+// versions /mcp negotiates: JSON-RPC batches (removed in 2025-06-18; they
+// would also let one request carry many calls past the per-token rate
+// limit), and requests other than initialize without an
+// Mcp-Protocol-Version header (the SDK would serve them as 2025-03-26).
+// subscriptions/listen is refused (lists never change while a client is
+// connected). It then resolves the token's server for the SDK.
 //
-// The per-token server enforces the same rules (it holds no tool of a scope
-// the token lacks, and the tool service checks every call), so this check
-// only answers early with a clear HTTP status. The body is parsed strictly
-// (case-sensitive names, no duplicates) like the SDK reads it, and a body it
-// cannot parse is refused, so the two never read different requests.
+// The per-token server enforces the same scope rules (it holds no tool of a
+// scope the token lacks, and the tool service checks every call), so the
+// scope check only answers early with a clear HTTP status. The body is
+// parsed strictly (case-sensitive names, no duplicates) like the SDK reads
+// it, and a body it cannot parse is refused, so the two never read
+// different requests.
 func (h *Handler) checkScope(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		v, _ := verifiedFrom(r.Context())
@@ -263,45 +270,61 @@ func (h *Handler) checkScope(next http.Handler) http.Handler {
 			writeJSONError(w, http.StatusForbidden, "This token has no scope that /mcp serves (call or read)")
 			return
 		}
-		if r.Method == http.MethodPost && r.Body != nil {
-			body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, h.maxBody))
-			r.Body.Close()
-			var tooLarge *http.MaxBytesError
-			if errors.As(err, &tooLarge) {
-				writeJSONError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("The request body exceeds %d bytes", h.maxBody))
-				return
-			}
-			if err != nil {
-				writeJSONError(w, http.StatusBadRequest, "Cannot read the request body")
-				return
-			}
-			r.Body = io.NopCloser(bytes.NewReader(body))
-			msgs, batch, err := peekMessages(body)
-			if err != nil {
-				writeRPCError(w, http.StatusBadRequest, nil, -32700, "Parse error: "+shorten(err.Error(), 200))
-				return
-			}
-			for _, m := range msgs {
-				switch m.Method {
-				case "subscriptions/listen":
-					status, id := http.StatusOK, m.ID
-					if batch {
-						status, id = http.StatusBadRequest, nil
-					}
-					writeRPCError(w, status, id, -32601, "subscriptions/listen is not supported: PiWorker's lists do not change while a client is connected (listChanged is false)")
-					return
-				case "tools/call":
-					if scope := h.scopeOfTool(m.Params.Name); !v.actor.HasScope(scope) {
-						writeJSONError(w, http.StatusForbidden, fmt.Sprintf("This token does not have the %s scope needed to call %q", scope, shorten(m.Params.Name, 128)))
-						return
-					}
-				}
-			}
+		if r.Method == http.MethodPost && r.Body != nil && !h.checkMessage(w, r, v.actor) {
+			return
 		}
 		srv := h.serverFor(v)
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), serverCtxKey, srv)))
 	})
 }
+
+// checkMessage reads and checks the JSON-RPC message of a POST, answering
+// the refusal itself; the body is put back for the SDK.
+func (h *Handler) checkMessage(w http.ResponseWriter, r *http.Request, actor service.Actor) bool {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, h.maxBody))
+	r.Body.Close()
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		writeJSONError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("The request body exceeds %d bytes", h.maxBody))
+		return false
+	}
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Cannot read the request body")
+		return false
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	if isBatch(body) {
+		writeRPCError(w, http.StatusBadRequest, nil, jsonrpc.CodeInvalidRequest,
+			"JSON-RPC batching is not supported: send one message per request")
+		return false
+	}
+	var m rpcMessage
+	if err := jsonv2.Unmarshal(body, &m); err != nil {
+		writeRPCError(w, http.StatusBadRequest, nil, jsonrpc.CodeParseError, "Parse error: "+shorten(err.Error(), 200))
+		return false
+	}
+	isCall := len(m.ID) > 0
+	switch {
+	case isCall && m.Method != "initialize" && r.Header.Get(protocolVersionHeader) == "":
+		writeRPCError(w, http.StatusBadRequest, m.ID, jsonrpc.CodeInvalidRequest, fmt.Sprintf(
+			"The %s header is required on every request but initialize (supported versions: %s)",
+			protocolVersionHeader, strings.Join(ProtocolVersions, ", ")))
+		return false
+	case m.Method == "subscriptions/listen":
+		writeRPCError(w, http.StatusOK, m.ID, jsonrpc.CodeMethodNotFound,
+			"subscriptions/listen is not supported: PiWorker's lists do not change while a client is connected (listChanged is false)")
+		return false
+	case m.Method == "tools/call":
+		if scope := h.scopeOfTool(m.Params.Name); !actor.HasScope(scope) {
+			writeJSONError(w, http.StatusForbidden, fmt.Sprintf("This token does not have the %s scope needed to call %q", scope, shorten(m.Params.Name, 128)))
+			return false
+		}
+	}
+	return true
+}
+
+// protocolVersionHeader names the request's MCP protocol version.
+const protocolVersionHeader = "Mcp-Protocol-Version"
 
 // rpcMessage is what checkScope reads of a JSON-RPC message.
 type rpcMessage struct {
@@ -312,38 +335,22 @@ type rpcMessage struct {
 	} `json:"params"`
 }
 
-// peekMessages reads the messages of a JSON-RPC body (one message or a
-// batch), strictly: names are case-sensitive and duplicate names, invalid
-// UTF-8 and unexpected types are errors.
-func peekMessages(body []byte) (msgs []rpcMessage, batch bool, err error) {
+// isBatch reports a JSON array body: a JSON-RPC batch.
+func isBatch(body []byte) bool {
 	trimmed := bytes.TrimSpace(body)
-	if len(trimmed) > 0 && trimmed[0] == '[' {
-		err = jsonv2.Unmarshal(trimmed, &msgs)
-		return msgs, true, err
-	}
-	var m rpcMessage
-	if err := jsonv2.Unmarshal(trimmed, &m); err != nil {
-		return nil, false, err
-	}
-	return []rpcMessage{m}, false, nil
+	return len(trimmed) > 0 && trimmed[0] == '['
 }
 
 // writeRPCError answers a JSON-RPC error without involving the SDK.
-func writeRPCError(w http.ResponseWriter, status int, id jsontext.Value, code int, msg string) {
+func writeRPCError(w http.ResponseWriter, status int, id jsontext.Value, code int64, msg string) {
 	if len(id) == 0 {
 		id = jsontext.Value("null")
 	}
 	data, _ := json.Marshal(struct {
 		JSONRPC string          `json:"jsonrpc"`
 		ID      json.RawMessage `json:"id"`
-		Error   struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}{JSONRPC: "2.0", ID: json.RawMessage(id), Error: struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-	}{code, msg}})
+		Error   jsonrpc.Error   `json:"error"`
+	}{JSONRPC: "2.0", ID: json.RawMessage(id), Error: jsonrpc.Error{Code: code, Message: msg}})
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)

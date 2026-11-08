@@ -346,7 +346,12 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   is too much for a Pi under a flood of bodies).
 - Protocol versions: 2026-07-28 (sessionless, `server/discover`),
   2025-11-25 and 2025-06-18 (`initialize`); others are refused. The legacy
-  handshake asked for 2026-07-28 settles on 2025-11-25 (SDK behaviour).
+  handshake asked for 2026-07-28 settles on 2025-11-25 (SDK behaviour). Every
+  request but `initialize` must carry `Mcp-Protocol-Version` (the SDK would
+  serve a request without it as 2025-03-26) and JSON-RPC batches are refused
+  (none of these versions allows them; a batch would also carry many calls
+  past the per-token rate limit): both 400, JSON-RPC `-32600`, before the
+  SDK sees the request.
 - Capabilities: tools and prompts with `listChanged: false` (always
   advertised, even when empty); `subscriptions/listen` is answered with
   JSON-RPC `-32601` before the SDK sees it; list and discover results carry

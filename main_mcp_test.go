@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -142,6 +143,10 @@ func errCode(m map[string]any) string {
 	code, _ := e["code"].(string)
 	return code
 }
+
+// at0618 is the protocol version header of a request after a 2025-06-18
+// handshake.
+var at0618 = map[string]string{"Mcp-Protocol-Version": "2025-06-18"}
 
 // post sends a raw JSON-RPC request to /mcp over TLS.
 func (a mcpApp) post(t *testing.T, raw, body string, headers map[string]string) (*http.Response, []byte) {
@@ -300,7 +305,7 @@ func TestMCPAuthentication(t *testing.T) {
 	_, err := app.connect(t, "", "")
 	assert.Error(t, err)
 	for _, raw := range []string{"", "pwk_nottherightshape", "pwk_aaaaaaaaaaaaaaaa_" + strings.Repeat("b", 52)} {
-		resp, body := app.post(t, raw, listBody, nil)
+		resp, body := app.post(t, raw, listBody, at0618)
 		require.Equal(t, http.StatusUnauthorized, resp.StatusCode, string(body))
 		assert.True(t, strings.HasPrefix(resp.Header.Get("WWW-Authenticate"), `Bearer realm="piworker"`))
 		assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
@@ -315,9 +320,9 @@ func TestMCPAuthentication(t *testing.T) {
 
 	// The read scope is served, but calling a tool needs the call scope.
 	_, readRaw := app.token(t, "reader", []string{storage.ScopeRead}, garage)
-	resp, body := app.post(t, readRaw, listBody, nil)
+	resp, body := app.post(t, readRaw, listBody, at0618)
 	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
-	resp, body = app.post(t, readRaw, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"garage","arguments":{"door":"left"}}}`, nil)
+	resp, body = app.post(t, readRaw, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"garage","arguments":{"door":"left"}}}`, at0618)
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode, string(body))
 	assert.Contains(t, string(body), "call scope")
 	reader, err := app.connect(t, readRaw, "")
@@ -327,12 +332,12 @@ func TestMCPAuthentication(t *testing.T) {
 
 	// Revoking the token in the editor cuts it off at once.
 	tok, raw := app.token(t, "laptop", []string{storage.ScopeCall}, garage)
-	resp, _ = app.post(t, raw, listBody, nil)
+	resp, _ = app.post(t, raw, listBody, at0618)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	headers := app.login(t)
 	w := app.do("DELETE", "/api/agent/tokens/"+tok.ID, "", "", headers)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	resp, _ = app.post(t, raw, listBody, nil)
+	resp, _ = app.post(t, raw, listBody, at0618)
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
@@ -368,7 +373,8 @@ func TestBearerTokensAreRejectedOnTheAPI(t *testing.T) {
 func TestMCPIsNotBehindTheAPIRequestGuard(t *testing.T) {
 	app := newMCPApp(t, true)
 	_, raw := app.token(t, "laptop", []string{storage.ScopeCall})
-	resp, body := app.post(t, raw, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, map[string]string{"Sec-Fetch-Site": "cross-site"})
+	resp, body := app.post(t, raw, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`,
+		map[string]string{"Sec-Fetch-Site": "cross-site", "Mcp-Protocol-Version": "2025-06-18"})
 	assert.Equal(t, http.StatusOK, resp.StatusCode, string(body))
 
 	// A preflight never allows the Authorization header.
@@ -383,7 +389,8 @@ func TestMCPIsNotBehindTheAPIRequestGuard(t *testing.T) {
 	assert.NotContains(t, strings.ToLower(pre.Header.Get("Access-Control-Allow-Headers")), "authorization")
 
 	// A browser page of another origin is refused outright.
-	resp, _ = app.post(t, raw, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, map[string]string{"Origin": "https://evil.example"})
+	resp, _ = app.post(t, raw, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`,
+		map[string]string{"Origin": "https://evil.example", "Mcp-Protocol-Version": "2025-06-18"})
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 }
 
@@ -498,7 +505,19 @@ func TestMCPProtocolGolden(t *testing.T) {
 		  "_meta":{"io.modelcontextprotocol/serverInfo":`+serverInfo+`},"ttlMs":5000,"cacheScope":"private","tools":`+tools+`}}`)
 	})
 
-	// Versions /mcp does not negotiate are refused on the transport.
+	// Versions /mcp does not negotiate are refused on the transport, and so
+	// are requests without a version (which the SDK would serve as
+	// 2025-03-26) and batches (which no negotiated version allows).
 	resp, body := app.post(t, raw, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`, map[string]string{"Mcp-Protocol-Version": "2025-03-26"})
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, string(body))
+	resp, body = app.post(t, raw, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`, nil)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, string(body))
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":2,"error":{"code":-32600,
+	  "message":"The Mcp-Protocol-Version header is required on every request but initialize (supported versions: 2026-07-28, 2025-11-25, 2025-06-18)"}}`, string(body))
+	call := `{"jsonrpc":"2.0","id":%d,"method":"tools/call","params":{"name":"garage","arguments":{"door":"left"}}}`
+	batch := "[" + fmt.Sprintf(call, 1) + "," + fmt.Sprintf(call, 2) + "]"
+	resp, body = app.post(t, raw, batch, nil)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, string(body))
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":null,"error":{"code":-32600,
+	  "message":"JSON-RPC batching is not supported: send one message per request"}}`, string(body))
 }

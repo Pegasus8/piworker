@@ -273,9 +273,6 @@ func TestScopeCheck(t *testing.T) {
 		msg := requireJSONError(t, w, http.StatusForbidden)
 		assert.Contains(t, msg, "call scope", name)
 	}
-	// A batch is checked request by request.
-	batch := `[` + listToolsBody + `,` + callBody("garage", `{"door":"left"}`) + `]`
-	requireJSONError(t, e.serve(withToken(rpc(batch), readToken)), http.StatusForbidden)
 	assert.Zero(t, e.tools.calls.Load())
 
 	res, rpcErr := rpcResult(t, e.serve(withToken(rpc(callBody("garage", `{"door":"left"}`)), callToken)))
@@ -289,4 +286,64 @@ func TestRequestBodyLimit(t *testing.T) {
 	big := callBody("garage", `{"door":"`+strings.Repeat("x", 2048)+`"}`)
 	w := e.serve(withToken(rpc(big), callToken))
 	requireJSONError(t, w, http.StatusRequestEntityTooLarge)
+}
+
+// Batches are refused before the SDK sees them: no protocol version /mcp
+// negotiates allows them, and one request carrying many calls would get
+// around the per-token rate limit (and hold every answer in memory).
+func TestBatchesAreRefused(t *testing.T) {
+	e := newTestEnv(t)
+	e.tools.setTools(2, testTool(t, "garage"))
+	calls := `[` + callBody("garage", `{"door":"left"}`) + `,` + callBody("garage", `{"door":"right"}`) + `]`
+	for name, tc := range map[string]struct{ body, version string }{
+		"calls without a version header": {calls, ""},
+		"calls at 2025-06-18":            {calls, "2025-06-18"},
+		"one list":                       {`[` + listToolsBody + `]`, ""},
+		"empty":                          {` [ ] `, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := withToken(rpc(tc.body), otherToken)
+			r.Header.Del("Mcp-Protocol-Version")
+			if tc.version != "" {
+				r.Header.Set("Mcp-Protocol-Version", tc.version)
+			}
+			id, code, msg := rpcRefusal(t, e.serve(r), http.StatusBadRequest)
+			assert.Nil(t, id)
+			assert.EqualValues(t, -32600, code)
+			assert.Contains(t, msg, "batch")
+		})
+	}
+	assert.Zero(t, e.tools.calls.Load(), "no call of a batch ran")
+}
+
+// Every request but initialize names its protocol version in the
+// Mcp-Protocol-Version header, as the versions /mcp negotiates require:
+// without it the SDK would serve the request as 2025-03-26, which /mcp does
+// not negotiate.
+func TestProtocolVersionHeaderIsRequired(t *testing.T) {
+	e := newTestEnv(t)
+	e.tools.setTools(2, testTool(t, "garage"))
+	r := withToken(rpc(callBody("garage", `{"door":"left"}`)), callToken)
+	r.Header.Del("Mcp-Protocol-Version")
+	id, code, msg := rpcRefusal(t, e.serve(r), http.StatusBadRequest)
+	assert.EqualValues(t, 3, id)
+	assert.EqualValues(t, -32600, code)
+	assert.Contains(t, msg, "Mcp-Protocol-Version")
+	assert.Zero(t, e.tools.calls.Load())
+
+	// initialize carries its version in its parameters.
+	r = withToken(rpc(initializeBody), callToken)
+	r.Header.Del("Mcp-Protocol-Version")
+	_, rpcErr := rpcResult(t, e.serve(r))
+	assert.Nil(t, rpcErr)
+
+	// Notifications get no answer either way.
+	r = withToken(rpc(`{"jsonrpc":"2.0","method":"notifications/initialized"}`), callToken)
+	r.Header.Del("Mcp-Protocol-Version")
+	assert.Equal(t, http.StatusAccepted, e.serve(r).Code)
+
+	// Versions /mcp does not negotiate are refused by the SDK.
+	r = withToken(rpc(listToolsBody), callToken)
+	r.Header.Set("Mcp-Protocol-Version", "2025-03-26")
+	assert.Equal(t, http.StatusBadRequest, e.serve(r).Code)
 }

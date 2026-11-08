@@ -19,6 +19,7 @@ import (
 	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/Pegasus8/piworker/internal/toolschema"
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -202,12 +203,14 @@ func newTestEnv(t *testing.T, customize ...func(*Options)) *testEnv {
 	return e
 }
 
-// rpc builds a JSON-RPC POST to /mcp from a LAN client over TLS.
+// rpc builds a JSON-RPC POST to /mcp from a LAN client over TLS, at
+// protocol version 2025-06-18.
 func rpc(body string) *http.Request {
 	r := httptest.NewRequest(http.MethodPost, "https://piworker.local:8443/mcp", strings.NewReader(body))
 	r.RemoteAddr = "192.168.1.20:50000"
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Accept", "application/json, text/event-stream")
+	r.Header.Set("Mcp-Protocol-Version", "2025-06-18")
 	return r
 }
 
@@ -229,6 +232,22 @@ func (e *testEnv) serve(r *http.Request) *httptest.ResponseRecorder {
 	w := httptest.NewRecorder()
 	e.h.ServeHTTP(w, r)
 	return w
+}
+
+// rpcRefusal decodes a JSON-RPC error answered with HTTP status.
+func rpcRefusal(t *testing.T, w *httptest.ResponseRecorder, status int) (id any, code float64, msg string) {
+	t.Helper()
+	require.Equal(t, status, w.Code, w.Body.String())
+	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+	var resp struct {
+		ID    any `json:"id"`
+		Error struct {
+			Code    float64 `json:"code"`
+			Message string  `json:"message"`
+		} `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp), w.Body.String())
+	return resp.ID, resp.Error.Code, resp.Error.Message
 }
 
 // rpcResult decodes a JSON-RPC response body.
