@@ -10,7 +10,8 @@ import (
 // buckets is a set of token buckets keyed by a string (a token id, a client
 // address): each refills at perMinute tokens per minute up to burst. It
 // serves both the per-token request rate (take) and the per-client limit of
-// failed authentications (blocked + spend). At most maxKeys buckets are
+// failed authentications (take before a lookup, refund unless it failed).
+// At most maxKeys buckets are
 // tracked; full buckets are forgotten first, since a full bucket is what a
 // new key gets anyway.
 type buckets struct {
@@ -50,28 +51,18 @@ func (b *buckets) take(key string) (ok bool, retryAfter time.Duration) {
 	return false, b.waitLocked(bk)
 }
 
-// blocked reports whether key's bucket is empty, and if so how long until it
-// holds a token again. It spends nothing.
-func (b *buckets) blocked(key string) (bool, time.Duration) {
+// refund gives back one token of key's bucket, taken for something that
+// did not happen, never past the burst. An unknown key is left alone: its
+// bucket would be full.
+func (b *buckets) refund(key string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	bk, ok := b.m[key]
 	if !ok {
-		return false, 0
+		return
 	}
 	b.refillLocked(bk)
-	if bk.tokens >= 1 {
-		return false, 0
-	}
-	return true, b.waitLocked(bk)
-}
-
-// spend removes one token from key's bucket (never below zero).
-func (b *buckets) spend(key string) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	bk := b.getLocked(key)
-	bk.tokens = max(bk.tokens-1, 0)
+	bk.tokens = min(b.burst, bk.tokens+1)
 }
 
 func (b *buckets) len() int {

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -216,6 +218,65 @@ func TestAuthFailureLimiter(t *testing.T) {
 	}
 	_, rpcErr = rpcResult(t, e2.serve(withToken(rpc(listToolsBody), callToken)))
 	assert.Nil(t, rpcErr)
+}
+
+// A client past the failure limit cannot lock out agents sharing its key
+// (a whole IPv6 /64, every loopback client): tokens the verifier already
+// holds in its cache are served without a store lookup, so only lookups are
+// refused while the client is limited.
+func TestAuthFailureLimiterKeepsServingKnownTokens(t *testing.T) {
+	e := newTestEnv(t)
+	from := func(r *http.Request, addr string) *http.Request { r.RemoteAddr = addr; return r }
+	const agent, attacker = "[2001:db8:1:2:aaaa:bbbb:cccc:dddd]:4000", "[2001:db8:1:2::bad]:5000"
+	_, rpcErr := rpcResult(t, e.serve(from(withToken(rpc(listToolsBody), callToken), agent)))
+	require.Nil(t, rpcErr)
+
+	for range 10 {
+		requireJSONError(t, e.serve(from(withToken(rpc(listToolsBody), badToken), attacker)), http.StatusUnauthorized)
+	}
+	requireJSONError(t, e.serve(from(withToken(rpc(listToolsBody), badToken), attacker)), http.StatusTooManyRequests)
+
+	_, rpcErr = rpcResult(t, e.serve(from(withToken(rpc(listToolsBody), callToken), agent)))
+	assert.Nil(t, rpcErr, "a known token is served while its /64 is limited")
+	calls := e.verifier.calls.Load()
+	requireJSONError(t, e.serve(from(withToken(rpc(listToolsBody), otherToken), agent)), http.StatusTooManyRequests)
+	assert.Equal(t, calls, e.verifier.calls.Load(), "an unknown one needs a lookup, which is refused")
+}
+
+// The failure budget is reserved before a lookup, so concurrent lookups
+// from one client cannot all pass the check before any of them fails.
+func TestAuthFailureLimiterHoldsUnderConcurrency(t *testing.T) {
+	e := newTestEnv(t)
+	e.verifier.delay = 20 * time.Millisecond // a SQLite read
+	var wg sync.WaitGroup
+	var unauthorized, limited atomic.Int32
+	for range 100 {
+		wg.Go(func() {
+			switch e.serve(withToken(rpc(listToolsBody), badToken)).Code {
+			case http.StatusUnauthorized:
+				unauthorized.Add(1)
+			case http.StatusTooManyRequests:
+				limited.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+	assert.EqualValues(t, DefaultAuthFailuresPerMinute, e.verifier.calls.Load(), "lookups")
+	assert.EqualValues(t, DefaultAuthFailuresPerMinute, unauthorized.Load())
+	assert.EqualValues(t, 100-DefaultAuthFailuresPerMinute, limited.Load())
+}
+
+// Lookups that succeed, or fail on the store, give their reservation back:
+// only bad tokens count.
+func TestAuthFailureLimiterCountsOnlyBadTokens(t *testing.T) {
+	e := newTestEnv(t)
+	for i := range 15 {
+		raw := e.verifier.add(fmt.Sprintf("agent%011d", i))
+		_, rpcErr := rpcResult(t, e.serve(withToken(rpc(listToolsBody), raw)))
+		require.Nil(t, rpcErr, i)
+		requireJSONError(t, e.serve(withToken(rpc(listToolsBody), brokenToken)), http.StatusServiceUnavailable)
+	}
+	requireJSONError(t, e.serve(withToken(rpc(listToolsBody), badToken)), http.StatusUnauthorized)
 }
 
 // Tokens never reach the log, whatever happens to the request.

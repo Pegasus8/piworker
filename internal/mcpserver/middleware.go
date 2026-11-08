@@ -166,34 +166,27 @@ func extendWriteDeadline(d time.Duration, next http.Handler) http.Handler {
 }
 
 // authenticate accepts only Bearer agent tokens (cookies and query
-// parameters are ignored). Failed verifications count against the client's
-// address; a client past the limit gets 429 before its token is looked at.
-// Tokens are never logged.
+// parameters are ignored). Token lookups in the store are limited per client
+// address: each takes one unit of the client's failure budget before it
+// starts (so concurrent lookups cannot all pass a check before any fails)
+// and gives it back unless the token was bad. A client out of budget gets
+// 429 before its token is looked up, but tokens the verifier holds in its
+// cache are served without a lookup, so a client sharing the address (an
+// IPv6 /64, every loopback client) cannot lock out known agents. Tokens are
+// never logged.
 func (h *Handler) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		client := clientKey(r.RemoteAddr)
-		if blocked, retry := h.failures.blocked(client); blocked {
-			setRetryAfter(w, retry)
-			writeJSONError(w, http.StatusTooManyRequests, "Too many failed authentications from this address; retry later")
-			return
-		}
 		raw, ok := bearerToken(r)
 		if !ok {
 			challenge(w, "")
 			writeJSONError(w, http.StatusUnauthorized, "An agent token is required: send Authorization: Bearer pwk_…")
 			return
 		}
-		info, err := h.tokens.Verify(raw)
-		if errors.Is(err, agentauth.ErrInvalidToken) {
-			h.failures.spend(client)
-			ev := h.log.Warn().Str("client", client)
-			if id, _, parsed := storage.ParseAPIToken(raw); parsed {
-				ev = ev.Str("tokenId", id) // the id is not secret; the rest is never logged
+		info, ok, err := h.tokens.VerifyCached(raw)
+		if err == nil && !ok {
+			if info, ok, err = h.lookUp(w, r, raw); err == nil && !ok {
+				return // refused
 			}
-			ev.Msg("Rejected an invalid, expired or revoked agent token")
-			challenge(w, "invalid_token")
-			writeJSONError(w, http.StatusUnauthorized, "The agent token is invalid, expired or revoked")
-			return
 		}
 		if err != nil {
 			h.log.Error().Err(err).Msg("Cannot verify agent tokens")
@@ -203,6 +196,31 @@ func (h *Handler) authenticate(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), actorKey, verified{info: info, actor: service.AgentActor(info)})))
 	})
+}
+
+// lookUp verifies a token the verifier does not hold in its cache, within
+// the client's failure budget. ok is false when it answered a refusal
+// itself (429, 401); an error is a store failure.
+func (h *Handler) lookUp(w http.ResponseWriter, r *http.Request, raw string) (info agentauth.TokenInfo, ok bool, err error) {
+	client := clientKey(r.RemoteAddr)
+	if reserved, retry := h.failures.take(client); !reserved {
+		setRetryAfter(w, retry)
+		writeJSONError(w, http.StatusTooManyRequests, "Too many failed authentications from this address; retry later")
+		return agentauth.TokenInfo{}, false, nil
+	}
+	info, err = h.tokens.Verify(raw)
+	if errors.Is(err, agentauth.ErrInvalidToken) {
+		ev := h.log.Warn().Str("client", client)
+		if id, _, parsed := storage.ParseAPIToken(raw); parsed {
+			ev = ev.Str("tokenId", id) // the id is not secret; the rest is never logged
+		}
+		ev.Msg("Rejected an invalid, expired or revoked agent token")
+		challenge(w, "invalid_token")
+		writeJSONError(w, http.StatusUnauthorized, "The agent token is invalid, expired or revoked")
+		return agentauth.TokenInfo{}, false, nil
+	}
+	h.failures.refund(client) // not a bad token
+	return info, err == nil, err
 }
 
 // verified is the authenticated caller of a request.

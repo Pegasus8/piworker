@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Pegasus8/piworker/internal/agentauth"
 	"github.com/Pegasus8/piworker/internal/flow"
@@ -34,15 +35,20 @@ const (
 	brokenToken = "pwk_brokenbrokenbrok_" + "ffffffffffffffffffffffffffffffffffffffffffffffffffff"
 )
 
+// fakeVerifier verifies the raw tokens of its map. Like the real one it
+// caches the tokens it verified: VerifyCached knows only those. calls
+// counts Verify (the store lookups of the real one).
 type fakeVerifier struct {
 	mu     sync.Mutex
 	tokens map[string]agentauth.TokenInfo
+	cached map[string]bool
 	epoch  int64
+	delay  time.Duration
 	calls  atomic.Int32
 }
 
 func newFakeVerifier() *fakeVerifier {
-	return &fakeVerifier{tokens: map[string]agentauth.TokenInfo{
+	return &fakeVerifier{cached: map[string]bool{}, tokens: map[string]agentauth.TokenInfo{
 		callToken:   {ID: "callcallcallcall", Name: "laptop", Scopes: []string{storage.ScopeCall}, AllTools: true},
 		readToken:   {ID: "readreadreadread", Name: "reader", Scopes: []string{storage.ScopeRead}},
 		authorToken: {ID: "authorauthorauth", Name: "author", Scopes: []string{storage.ScopeAuthor}},
@@ -52,6 +58,10 @@ func newFakeVerifier() *fakeVerifier {
 
 func (v *fakeVerifier) Verify(raw string) (agentauth.TokenInfo, error) {
 	v.calls.Add(1)
+	v.mu.Lock()
+	delay := v.delay
+	v.mu.Unlock()
+	time.Sleep(delay)
 	if raw == brokenToken {
 		return agentauth.TokenInfo{}, errStoreDown
 	}
@@ -61,7 +71,18 @@ func (v *fakeVerifier) Verify(raw string) (agentauth.TokenInfo, error) {
 	if !ok {
 		return agentauth.TokenInfo{}, agentauth.ErrInvalidToken
 	}
+	v.cached[raw] = true
 	return info, nil
+}
+
+func (v *fakeVerifier) VerifyCached(raw string) (agentauth.TokenInfo, bool, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	info, ok := v.tokens[raw]
+	if !ok || !v.cached[raw] {
+		return agentauth.TokenInfo{}, false, nil
+	}
+	return info, true, nil
 }
 
 func (v *fakeVerifier) Epoch() int64 {
@@ -82,6 +103,16 @@ func (v *fakeVerifier) revoke(raw string) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	delete(v.tokens, raw)
+	delete(v.cached, raw)
+}
+
+// add registers another call-scope token and returns it.
+func (v *fakeVerifier) add(id string) string {
+	raw := "pwk_" + id + "_" + strings.Repeat("a", 52)
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.tokens[raw] = agentauth.TokenInfo{ID: id, Name: id, Scopes: []string{storage.ScopeCall}}
+	return raw
 }
 
 func (v *fakeVerifier) bumpEpoch() {

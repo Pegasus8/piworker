@@ -65,25 +65,6 @@ func TestBucketsAllowABurstThenTheRate(t *testing.T) {
 	assert.False(t, ok, "never more than the burst")
 }
 
-func TestBucketsBlockedAndSpend(t *testing.T) {
-	clock := newClock()
-	b := newBuckets(10, 10, clock.Now, 16) // 10 failures/min
-	blocked, _ := b.blocked("ip")
-	assert.False(t, blocked)
-	for range 10 {
-		b.spend("ip")
-	}
-	blocked, retry := b.blocked("ip")
-	require.True(t, blocked)
-	assert.Equal(t, 6*time.Second, retry)
-	b.spend("ip") // stays empty, never negative
-	clock.Advance(6 * time.Second)
-	blocked, _ = b.blocked("ip")
-	assert.False(t, blocked)
-	other, _ := b.blocked("other")
-	assert.False(t, other)
-}
-
 // The number of tracked keys is bounded: full (idle) buckets are dropped
 // first, since forgetting them changes nothing.
 func TestBucketsAreBounded(t *testing.T) {
@@ -93,8 +74,8 @@ func TestBucketsAreBounded(t *testing.T) {
 		b.take(fmt.Sprint(i))
 	}
 	clock.Advance(time.Minute) // every bucket refilled
-	b.spend("busy")
-	b.spend("busy")
+	b.take("busy")
+	b.take("busy")
 	assert.LessOrEqual(t, b.len(), 4)
 	for i := range 100 {
 		b.take(fmt.Sprint("k", i))
@@ -116,4 +97,33 @@ func TestClientKey(t *testing.T) {
 	} {
 		assert.Equal(t, want, clientKey(addr), addr)
 	}
+}
+
+// refund gives back a token taken for something that did not happen (a
+// reserved authentication failure that turned out a success), never past
+// the burst.
+func TestBucketsRefund(t *testing.T) {
+	clock := newClock()
+	b := newBuckets(10, 2, clock.Now, 16)
+	for range 2 {
+		ok, _ := b.take("a")
+		require.True(t, ok)
+	}
+	ok, _ := b.take("a")
+	require.False(t, ok)
+	b.refund("a")
+	ok, _ = b.take("a")
+	assert.True(t, ok)
+
+	b.refund("b") // unknown: a new bucket is full anyway
+	b.refund("a")
+	b.refund("a")
+	b.refund("a")
+	for range 2 {
+		ok, _ := b.take("a")
+		require.True(t, ok)
+	}
+	ok, _ = b.take("a")
+	assert.False(t, ok, "never more than the burst")
+	assert.Equal(t, 1, b.len())
 }

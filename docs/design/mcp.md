@@ -384,7 +384,12 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   401 + `WWW-Authenticate: Bearer realm="piworker"` and a JSON body; 503 when
   the token store cannot be read; tokens never logged) with its own
   per-client failure limiter (10 failures a minute per IP, IPv6 per /64, then
-  429 + `Retry-After`); per-token token bucket (30/min, burst 10 → 429 +
+  429 + `Retry-After`): every token lookup in the store reserves a unit of the
+  client's budget first and gives it back unless the token was bad, so
+  concurrent guesses cannot all pass; tokens the verifier already holds in its
+  cache (`VerifyCached`, no lookup) are served even while their client is
+  limited, so a client sharing the address cannot lock out known agents;
+  per-token token bucket (30/min, burst 10 → 429 +
   `Retry-After`); scope check (call or read, or the scope of a registered
   built-in tool or prompt; a `tools/call` needs the tool's scope — call for
   any flow tool name → 403). The scope check parses the body strictly, like

@@ -76,6 +76,9 @@ type ToolService interface {
 // TokenVerifier verifies agent tokens (*agentauth.TokenVerifier).
 type TokenVerifier interface {
 	Verify(raw string) (agentauth.TokenInfo, error)
+	// VerifyCached accepts a token from the verifier's cache alone, never
+	// looking one up in the store (ok false: not decided).
+	VerifyCached(raw string) (info agentauth.TokenInfo, ok bool, err error)
 	Epoch() int64
 }
 
