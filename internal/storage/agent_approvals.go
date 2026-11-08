@@ -44,6 +44,9 @@ const (
 	AgentApprovalRetention = 30 * 24 * time.Hour
 	// MaxApprovalArgsBytes bounds the stored arguments.
 	MaxApprovalArgsBytes = 64 << 10
+	// MaxApprovalResultBytes bounds the stored CallResult of an approved
+	// tool call (the service already caps results far below it).
+	MaxApprovalResultBytes = 2 << 20
 	// MaxApprovalSummaryLength bounds the summary (bytes).
 	MaxApprovalSummaryLength = 2048
 	// MaxPendingApprovalsPerToken bounds the approvals of one kind that one
@@ -84,6 +87,9 @@ type AgentApproval struct {
 	DecidedAt *time.Time      `json:"decidedAt,omitempty"`
 	DecidedBy string          `json:"decidedBy,omitempty"`
 	ExpiresAt time.Time       `json:"expiresAt"`
+	// Result is the JSON CallResult of an approved tool call once it ran
+	// (SetAgentApprovalResult); nil before.
+	Result json.RawMessage `json:"result,omitempty"`
 
 	// TokenRevokedAt and TokenExpiresAt describe the requesting token as read
 	// with the approval (TokenExpiresAt is nil when no such token exists).
@@ -159,6 +165,7 @@ func (s *SQLiteStore) CreateAgentApproval(a AgentApproval, now time.Time) (*Agen
 	}
 	a.Status = ApprovalPending
 	a.TokenName = ""
+	a.Result = nil
 	a.DecidedAt, a.DecidedBy = nil, ""
 	a.CreatedAt = time.Unix(now.Unix(), 0).UTC()
 	a.ExpiresAt = time.Unix(a.ExpiresAt.Unix(), 0).UTC()
@@ -230,7 +237,7 @@ func expireAgentApprovals(tx *sql.Tx, now time.Time) (int64, error) {
 
 const agentApprovalSelect = `
 	SELECT a.id, a.kind, a.token_id, COALESCE(t.name, ''), a.flow_id, a.ref, a.args_json, a.summary,
-	       a.status, a.created_at, a.decided_at, a.decided_by, a.expires_at, t.revoked_at, t.expires_at
+	       a.status, a.created_at, a.decided_at, a.decided_by, a.expires_at, t.revoked_at, t.expires_at, a.result_json
 	FROM agent_approvals a LEFT JOIN api_tokens t ON t.id = a.token_id`
 
 // approvalTokenActive matches approvals (aliased a) whose token exists, is
@@ -241,16 +248,19 @@ const approvalTokenActive = `EXISTS (
 func scanAgentApproval(row rowScanner) (*AgentApproval, error) {
 	var (
 		a                          AgentApproval
-		args                       sql.NullString
+		args, result               sql.NullString
 		created, expires           int64
 		decided                    sql.NullInt64
 		tokenRevoked, tokenExpires sql.NullInt64
 	)
-	if err := row.Scan(&a.ID, &a.Kind, &a.TokenID, &a.TokenName, &a.FlowID, &a.Ref, &args, &a.Summary, &a.Status, &created, &decided, &a.DecidedBy, &expires, &tokenRevoked, &tokenExpires); err != nil {
+	if err := row.Scan(&a.ID, &a.Kind, &a.TokenID, &a.TokenName, &a.FlowID, &a.Ref, &args, &a.Summary, &a.Status, &created, &decided, &a.DecidedBy, &expires, &tokenRevoked, &tokenExpires, &result); err != nil {
 		return nil, err
 	}
 	if args.Valid {
 		a.Args = json.RawMessage(args.String)
+	}
+	if result.Valid {
+		a.Result = json.RawMessage(result.String)
 	}
 	a.CreatedAt = time.Unix(created, 0).UTC()
 	a.ExpiresAt = time.Unix(expires, 0).UTC()
@@ -439,9 +449,54 @@ const agentApprovalsSchema = `
 		created_at INTEGER NOT NULL,
 		decided_at INTEGER,
 		decided_by TEXT NOT NULL DEFAULT '',
-		expires_at INTEGER NOT NULL
+		expires_at INTEGER NOT NULL,
+		result_json TEXT
 	);
 	CREATE INDEX IF NOT EXISTS idx_agent_approvals_status ON agent_approvals(status, expires_at);
 	CREATE INDEX IF NOT EXISTS idx_agent_approvals_created ON agent_approvals(created_at);
 	CREATE INDEX IF NOT EXISTS idx_agent_approvals_decided ON agent_approvals(decided_at);
 `
+
+// SetAgentApprovalResult stores the JSON CallResult of an approved tool call
+// that ran (replacing an earlier one, e.g. "running" by the final result),
+// so the agent can fetch it later. Only approved tool calls hold a result.
+func (s *SQLiteStore) SetAgentApprovalResult(id string, result json.RawMessage) error {
+	if s.isClosed() {
+		return ErrDatabaseClosed
+	}
+	if len(result) == 0 || !json.Valid(result) {
+		return invalidApproval("the result is not valid JSON")
+	}
+	if len(result) > MaxApprovalResultBytes {
+		return invalidApproval("the result exceeds %d bytes", MaxApprovalResultBytes)
+	}
+	res, err := s.db.Exec(`UPDATE agent_approvals SET result_json = ? WHERE id = ? AND kind = ? AND status = ?`,
+		string(result), id, ApprovalKindToolCall, ApprovalApproved)
+	if err != nil {
+		return fmt.Errorf("failed to store approval result: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n > 0 {
+		return nil
+	}
+	if _, err := s.GetAgentApproval(id); err != nil {
+		return err
+	}
+	return invalidApproval("only an approved tool call holds a result")
+}
+
+// migrateAgentApprovals adds the columns newer versions need to an existing
+// agent_approvals table. It is idempotent.
+func migrateAgentApprovals(db *sql.DB) error {
+	has, err := historyHasColumn(db, "agent_approvals", "result_json")
+	if err != nil {
+		return err
+	}
+	if !has {
+		if _, err := db.Exec(`ALTER TABLE agent_approvals ADD COLUMN result_json TEXT`); err != nil {
+			return fmt.Errorf("failed to add agent_approvals.result_json: %w", err)
+		}
+	}
+	return nil
+}
