@@ -19,6 +19,26 @@ const maxShownRunes = 64
 // maxShownEnum caps how many enum values a message lists.
 const maxShownEnum = 10
 
+// Validate checks tool arguments against the schema and returns every
+// problem (nil when the arguments are valid). A nil map is an empty object.
+// Pointers locate the argument (e.g. "/tags/2"); messages never quote more
+// than the first 64 characters of a value.
+func (s *Schema) Validate(args map[string]any) []Issue {
+	var root any = args
+	if args == nil {
+		root = map[string]any{}
+	}
+	issues := validateValue(s.root, root, "", false)
+	if len(issues) == 0 && s.resolved != nil {
+		// Second opinion from jsonschema-go on the normalized schema. Its
+		// messages quote whole values, so only the verdict is kept.
+		if err := s.resolved.Validate(normalize(root)); err != nil {
+			issues = append(issues, Issue{Message: "arguments do not satisfy the schema"})
+		}
+	}
+	return issues
+}
+
 // validateValue checks v against n; skipEnum leaves out n's own enum (used
 // to check enum values against the rest of their schema).
 func validateValue(n *node, v any, ptr string, skipEnum bool) []Issue {
@@ -77,7 +97,7 @@ func (vr *validator) object(n *node, v any, ptr string) {
 	sort.Strings(keys)
 	for _, k := range keys {
 		if n.props[k] == nil {
-			vr.add(ptr+"/"+escapePointer(k), "unknown property")
+			vr.add(ptr+"/"+escapePointer(shorten(k)), "unknown property")
 		}
 	}
 	for _, name := range n.required {
@@ -211,8 +231,16 @@ func quoteShort(s string) string {
 	if utf8.RuneCountInString(s) <= maxShownRunes {
 		return strconv.Quote(s)
 	}
-	runes := []rune(s)
-	return strconv.Quote(string(runes[:maxShownRunes])) + "…"
+	return strconv.Quote(string([]rune(s)[:maxShownRunes])) + "…"
+}
+
+// shorten truncates a caller-supplied name to maxShownRunes runes, marking
+// the cut with "…".
+func shorten(s string) string {
+	if utf8.RuneCountInString(s) <= maxShownRunes {
+		return s
+	}
+	return string([]rune(s)[:maxShownRunes]) + "…"
 }
 
 func formatNumber(f float64) string {
