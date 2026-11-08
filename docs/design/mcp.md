@@ -375,9 +375,17 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   validated by `service.Tools.Call`, not by the SDK; arguments that are not a
   JSON object (which the service cannot take) are refused by the endpoint as
   `invalid_arguments` and counted in `mcp_rejections` like the service's own
-  refusals. Calls of names the
-  server does not hold go to the service as well, so hidden and unknown tools
-  get the same `not_found` result (and audit).
+  refusals. Calls of names the server does not hold go to the service as
+  well, so a tool the token has no grant for (including a privileged tool
+  covered only by `all_tools`) gets exactly the `not_found` result (and
+  audit) of an unknown name. A hidden tool the token does hold a grant for
+  gets Call's answer instead: `reconfirm_required` while its fingerprint
+  differs from the grant's or the grant is suspended, `forbidden` when it is
+  privileged and the token lacks the `privileged` flag (the admin granted it
+  to that token, so its existence is no secret and the answer says what to
+  do). Names outside the tool-name syntax (1 to 128 of `[A-Za-z0-9_.-]`)
+  and tools the server could not build are answered `not_found` by the
+  endpoint itself (not audited), shortened.
 - Built-in tools register as `StaticTool{Name (pw_…), Title, Description,
   InputSchema (closed toolschema subset), OutputSchema, Annotations, Scope,
   Handler(ctx, service.Actor, args)}`; prompts as `StaticPrompt{Prompt, Scope,
@@ -424,7 +432,11 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   nodeType?}`); `_meta` carries `piworker/status` and `piworker/runId`.
   Tool errors are `isError: true` results (service refusals, flow errors,
   rejected, expired, `approval_required`); protocol errors only for protocol
-  problems. Validation errors list `{pointer, message}`. With an output
+  problems. `pw_get_result` follows the same rule for a decided call, but
+  answers a call still pending (`running`, `approval_required`) as a
+  non-error result: fetching worked, and the agent is to ask again later.
+  A handler that panics is recovered: a tool call gets a `failed` result, any
+  other method JSON-RPC `-32603`. Validation errors list `{pointer, message}`. With an output
   schema, outcomes that cannot match it are `isError` too, and a reply that
   does not match it is reported as `output_schema_mismatch`.
 
