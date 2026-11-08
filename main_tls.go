@@ -5,12 +5,14 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	stdlog "log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/Pegasus8/piworker/internal/tlsca"
 	"github.com/Pegasus8/piworker/internal/webhook"
 	"github.com/gorilla/mux"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -49,16 +52,20 @@ func newTLSSource(cfg config.Config) (tlsSource, error) {
 	return nil, nil
 }
 
-// tlsRoutes registers the CA download and GET /api/tls.
-func tlsRoutes(mode string, src tlsSource) routerOption {
-	return func(r *mux.Router) {
-		var status func() tlsca.Status
-		var caPEM []byte
-		if src != nil {
-			status, caPEM = src.Status, src.CACertPEM()
-		}
-		api.NewTLSHandler(mode, status, caPEM).RegisterRoutes(r)
+// newTLSHandler builds the handler for the CA download and GET /api/tls.
+// Once the listeners are bound, SetPorts(serverSet.ports()) completes it.
+func newTLSHandler(mode string, src tlsSource) *api.TLSHandler {
+	var status func() tlsca.Status
+	var caPEM []byte
+	if src != nil {
+		status, caPEM = src.Status, src.CACertPEM()
 	}
+	return api.NewTLSHandler(mode, status, caPEM)
+}
+
+// tlsRoutes registers h's routes (the CA download and GET /api/tls).
+func tlsRoutes(h *api.TLSHandler) routerOption {
+	return func(r *mux.Router) { h.RegisterRoutes(r) }
 }
 
 // regenerateCA replaces the local CA (piworker -tls-regenerate-ca), issues a
@@ -125,6 +132,24 @@ func (s *serverSet) serve(errCh chan<- error) {
 	if s.redirect != nil {
 		go run(func() error { return s.redirect.Serve(s.redirectLn) })
 	}
+}
+
+// ports returns the bound HTTPS port and plain HTTP port (the redirect
+// listener, or the main listener when TLS is off); 0 when not served.
+func (s *serverSet) ports() (httpsPort, httpPort int) {
+	port := func(ln net.Listener) int {
+		if ln == nil {
+			return 0
+		}
+		if a, ok := ln.Addr().(*net.TCPAddr); ok {
+			return a.Port
+		}
+		return 0
+	}
+	if !s.tls {
+		return 0, port(s.mainLn)
+	}
+	return port(s.mainLn), port(s.redirectLn)
 }
 
 func (s *serverSet) all() []*http.Server {
@@ -218,6 +243,8 @@ func watchTLS(ctx context.Context, src tlsSource, interval time.Duration) <-chan
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 	ticker := time.NewTicker(interval)
+	warner := caWarner{log: log.Logger}
+	warner.check(src.Status())
 	go func() {
 		defer close(done)
 		defer signal.Stop(hup)
@@ -228,12 +255,12 @@ func watchTLS(ctx context.Context, src tlsSource, interval time.Duration) <-chan
 				return
 			case <-ticker.C:
 				if m, ok := src.(*tlsca.Manager); ok {
-					refreshTLS(m)
+					refreshTLS(m, &warner)
 				}
 			case <-hup:
 				switch s := src.(type) {
 				case *tlsca.Manager:
-					refreshTLS(s)
+					refreshTLS(s, &warner)
 				case *tlsca.FileCertificate:
 					if err := s.Reload(); err != nil {
 						log.Error().Err(err).Msg("Cannot reload the TLS certificate; still serving the previous one")
@@ -247,12 +274,122 @@ func watchTLS(ctx context.Context, src tlsSource, interval time.Duration) <-chan
 	return done
 }
 
-func refreshTLS(m *tlsca.Manager) {
+func refreshTLS(m *tlsca.Manager, warner *caWarner) {
 	before := m.Status().NotAfter
 	if err := m.Refresh(); err != nil {
 		log.Error().Err(err).Msg("Cannot refresh the TLS certificate")
 	}
-	if st := m.Status(); !st.NotAfter.Equal(before) {
+	st := m.Status()
+	if !st.NotAfter.Equal(before) {
 		log.Info().Strs("names", st.SANs).Time("certificateExpires", st.NotAfter).Msg("TLS certificate re-issued")
 	}
+	warner.check(st)
+}
+
+// Rate limits of the server error log: per serverLogWindow, at most
+// handshakeLogBurst handshake-noise lines and serverErrorLogBurst other lines.
+const (
+	handshakeLogBurst   = 10
+	serverErrorLogBurst = 30
+	serverLogWindow     = time.Minute
+)
+
+// serverErrorWriter receives net/http's server error log (http.Server.ErrorLog)
+// and forwards it to zerolog, rate limited per serverLogWindow so that peers
+// able to trigger a line on every connection cannot flood the log (an SD card
+// on a Pi):
+//   - handshake noise (isHandshakeNoise: failed TLS handshakes, bad HTTP/2
+//     prefaces) is routine on a LAN device (browsers that do not trust the CA
+//     yet, scanners, probes), so it is logged at debug level, at most
+//     handshakeLogBurst lines per window;
+//   - every other line is a warning, at most serverErrorLogBurst per window.
+//
+// Each class has its own budget; the lines a class dropped are counted and
+// reported at its level when its next window starts.
+type serverErrorWriter struct {
+	log zerolog.Logger
+	now func() time.Time
+
+	mu        sync.Mutex
+	handshake logBucket
+	other     logBucket
+}
+
+func newServerErrorWriter(logger zerolog.Logger, now func() time.Time) *serverErrorWriter {
+	return &serverErrorWriter{
+		log:       logger,
+		now:       now,
+		handshake: logBucket{burst: handshakeLogBurst},
+		other:     logBucket{burst: serverErrorLogBurst},
+	}
+}
+
+// logger returns a standard logger for http.Server.ErrorLog.
+func (w *serverErrorWriter) logger() *stdlog.Logger { return stdlog.New(w, "", 0) }
+
+// isHandshakeNoise reports whether a server error line is connection-setup
+// noise from a peer: a failed TLS handshake, or a connection that negotiated
+// HTTP/2 and then did not send its preface (scanners that skip certificate
+// verification and speak HTTP/1 or another protocol).
+func isHandshakeNoise(line string) bool {
+	return strings.Contains(line, "TLS handshake error") ||
+		strings.Contains(line, "http2: server: error reading preface")
+}
+
+func (w *serverErrorWriter) Write(p []byte) (int, error) {
+	line := strings.TrimRight(string(p), "\r\n")
+	bucket, level, what := &w.other, zerolog.WarnLevel, "server errors"
+	if isHandshakeNoise(line) {
+		bucket, level, what = &w.handshake, zerolog.DebugLevel, "TLS handshake errors"
+	}
+	w.mu.Lock()
+	allowed, reported := bucket.take(w.now())
+	w.mu.Unlock()
+	if reported > 0 {
+		w.log.WithLevel(level).Str("component", "http").Int("suppressed", reported).Msg("More " + what + " were not logged")
+	}
+	if allowed {
+		w.log.WithLevel(level).Str("component", "http").Msg(line)
+	}
+	return len(p), nil
+}
+
+// logBucket is a fixed-window rate limit: at most burst lines per
+// serverLogWindow. Callers hold serverErrorWriter.mu.
+type logBucket struct {
+	burst       int
+	windowStart time.Time
+	inWindow    int
+	suppressed  int
+}
+
+// take counts one line at now. allowed says whether to log it; reported is
+// the number of lines dropped in the previous window, returned (once) when a
+// new window starts.
+func (b *logBucket) take(now time.Time) (allowed bool, reported int) {
+	if now.Sub(b.windowStart) >= serverLogWindow {
+		reported = b.suppressed
+		b.windowStart, b.inWindow, b.suppressed = now, 0, 0
+	}
+	if b.inWindow < b.burst {
+		b.inWindow++
+		return true, reported
+	}
+	b.suppressed++
+	return false, reported
+}
+
+// caWarner logs the local CA's expiry warning (tlsca.Status.Warning) when it
+// appears or its text changes. The text counts the days left, so a CA close
+// to expiry is reported about once a day, not on every refresh.
+type caWarner struct {
+	log  zerolog.Logger
+	last string
+}
+
+func (w *caWarner) check(st tlsca.Status) {
+	if st.Warning != "" && st.Warning != w.last {
+		w.log.Warn().Time("caExpires", st.CANotAfter).Msg(st.Warning)
+	}
+	w.last = st.Warning
 }

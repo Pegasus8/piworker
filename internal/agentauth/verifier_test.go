@@ -327,6 +327,64 @@ func TestStoreFailuresAreNotInvalidToken(t *testing.T) {
 	require.NotErrorIs(t, err, ErrInvalidToken)
 }
 
+// RevokeAllInTx revokes inside the caller's transaction (a password reset);
+// nothing changes until it commits, and EvictAll then drops the cache.
+func TestRevokeAllInTxCommitsWithTheCaller(t *testing.T) {
+	v, cs, _ := newVerifier(t)
+	tok, raw := createToken(t, cs.SQLiteStore, storage.NewAPIToken{})
+	_, err := v.Verify(raw)
+	require.NoError(t, err)
+
+	tx, err := cs.DB().Begin()
+	require.NoError(t, err)
+	require.NoError(t, v.RevokeAllInTx(tx))
+	require.NoError(t, tx.Rollback())
+	stored, err := cs.GetAPIToken(tok.ID)
+	require.NoError(t, err)
+	require.Nil(t, stored.RevokedAt, "rolled back with the caller")
+
+	tx, err = cs.DB().Begin()
+	require.NoError(t, err)
+	require.NoError(t, v.RevokeAllInTx(tx))
+	require.NoError(t, tx.Commit())
+	v.EvictAll()
+	_, err = v.Verify(raw)
+	require.ErrorIs(t, err, ErrInvalidToken)
+}
+
+// While one request is re-reading the epoch, the others keep using the cache
+// instead of queueing on the database. If that read keeps failing (or hangs),
+// the cache must not stay trusted forever: once the last successful epoch
+// check is older than 3 intervals, cached tokens are refused (fail closed)
+// until a read succeeds again.
+func TestCachedTokensRejectedWhenEpochChecksKeepFailing(t *testing.T) {
+	v, cs, clock := newVerifier(t)
+	_, raw := createToken(t, cs.SQLiteStore, storage.NewAPIToken{})
+	_, err := v.Verify(raw)
+	require.NoError(t, err)
+
+	boom := errors.New("database is locked")
+	cs.failEpoch = boom
+	// Another request is stuck reading the epoch.
+	v.refreshMu.Lock()
+	clock.Advance(DefaultEpochInterval)
+	_, err = v.Verify(raw)
+	require.NoError(t, err, "a slightly stale cache is still served while the epoch is being read")
+
+	clock.Advance(2*DefaultEpochInterval + time.Millisecond)
+	_, err = v.Verify(raw)
+	require.Error(t, err, "more than 3 intervals without a successful check: fail closed")
+	require.NotErrorIs(t, err, ErrInvalidToken, "a store problem, not a bad token (503, not 401)")
+	v.refreshMu.Unlock()
+
+	_, err = v.Verify(raw)
+	require.ErrorIs(t, err, boom)
+
+	cs.failEpoch = nil
+	_, err = v.Verify(raw)
+	require.NoError(t, err, "a successful epoch read restores the cache")
+}
+
 func TestConcurrentVerifyAndRevoke(t *testing.T) {
 	v, cs, clock := newVerifier(t)
 	var raws []string

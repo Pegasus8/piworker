@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useApi } from '@/composables/useApi'
 import { Button, Card, Badge } from '@/components/ui'
 import { ArrowLeft, Download, ExternalLink, Lock, ShieldAlert, ShieldCheck, Terminal } from 'lucide-vue-next'
-import { PLATFORMS, TRUST_GUIDES, caFileName, detectPlatform, fingerprintRows, type PlatformId } from '@/lib/trust'
+import { PLATFORMS, TRUST_GUIDES, caFileName, detectPlatform, fingerprintRows, trustUrls, type PlatformId } from '@/lib/trust'
 import type { TLSInfo } from '@/types'
 
 const router = useRouter()
@@ -14,7 +14,6 @@ const api = useApi()
 
 const caUrl = '/piworker-ca.crt'
 const secure = window.location.protocol === 'https:'
-const host = window.location.hostname
 const caAvailable = ref<boolean | null>(null)
 const info = ref<TLSInfo | null>(null)
 const infoError = ref('')
@@ -26,10 +25,11 @@ const expires = computed(() => info.value?.notAfter ? new Date(info.value.notAft
 // off; on an HTTPS page, another certificate (custom, or a proxy) is in use.
 const httpsOff = computed(() => info.value ? info.value.mode === 'off' : caAvailable.value === false && !secure)
 const customCert = computed(() => info.value ? info.value.mode === 'custom' : caAvailable.value === false && secure)
-const bracketed = host.includes(':') ? `[${host}]` : host
-const httpsBase = secure ? window.location.origin : `https://${bracketed}:8443`
-// The plain HTTP listener (8080 by default) serves the CA without a certificate warning.
-const cliDownload = `curl -o ~/${caFileName()} http://${bracketed}:8080${caUrl}`
+// Links for command-line tools use the ports PiWorker reports (signed in), or
+// this page's own address and the default ports.
+const urls = computed(() => trustUrls(window.location, info.value))
+const httpsBase = computed(() => urls.value.httpsBase)
+const cliDownload = computed(() => urls.value.caDownload)
 
 onMounted(async () => {
   try {
@@ -111,6 +111,10 @@ function back() {
               This page arrived over HTTP, so someone on the network could have changed it. Also compare with the
               fingerprint shown on the device (below).
             </p>
+            <p v-else class="text-sm text-amber-600 dark:text-amber-400">
+              Until this device trusts the CA, an impostor on the network could serve this page over HTTPS too. Verify
+              the fingerprint against the one printed in the PiWorker console or journal, or by piworkerctl (below).
+            </p>
           </div>
           <p v-else-if="infoError" role="alert" class="text-sm text-destructive">{{ infoError }}</p>
           <p v-else-if="!auth.isAuthenticated" class="text-sm text-muted-foreground">
@@ -167,6 +171,7 @@ docker logs piworker 2>&amp;1 | grep "CA fingerprint"</code></pre>
 
       <Card v-if="info && info.mode !== 'off'" class="space-y-2 p-4 sm:p-6">
         <h2 class="text-lg font-semibold"><ShieldCheck class="mr-1 inline h-5 w-5" />Server certificate</h2>
+        <p v-if="info.warning" role="alert" class="text-sm text-amber-600 dark:text-amber-400">{{ info.warning }}</p>
         <p class="text-sm text-muted-foreground">Valid until {{ expires }} for these names and addresses:</p>
         <ul class="flex flex-wrap gap-2">
           <li v-for="name in info.sans" :key="name"><Badge variant="outline">{{ name }}</Badge></li>

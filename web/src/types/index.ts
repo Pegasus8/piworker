@@ -140,4 +140,10 @@ export interface TLSInfo {
   sans: string[]
   notAfter: string | null
   caCertUrl: string
+  /** Port HTTPS is served on; null when TLS is off or unknown. */
+  httpsPort: number | null
+  /** Plain HTTP port (redirect listener, or the only one with TLS off); null when none. */
+  httpPort: number | null
+  /** Set when the local CA is close to (or past) its expiry. */
+  warning?: string
 }

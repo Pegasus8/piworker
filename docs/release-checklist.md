@@ -43,6 +43,11 @@ environment limits and generated packages, and the
   configure the native systemd service.
 - [x] Prepare [release notes](../CHANGELOG.md), including HTTP, secret storage and
   legacy migration limitations.
+- [ ] Update the release notes for native HTTPS (ADR-0011): HTTPS on 8443 with a
+  local CA trusted once per device, 8080 redirecting (health, CA download and
+  webhooks served directly), `piworkerctl tls on|off`, and configurations with a
+  lone `addr = ":8080"` refused at start (move to `addr = ":8443"`,
+  `http_addr = ":8080"`). The HTTP-only limitation no longer applies.
 - [ ] Choose the version and stable versus prerelease status; replace `Unreleased`
   only when publishing. `v*` tags currently prepare drafts without automatically
   classifying prereleases. Review the draft's prerelease flag explicitly.
@@ -51,10 +56,13 @@ environment limits and generated packages, and the
 - [ ] After the first compatible stable release is public, update the README's
   prepublication notices and verify its download commands from a fresh machine.
 
-HTTPS assistance, encrypted-at-rest secrets and additional secret-reference
-features are tracked in [TODO](../TODO.md). They are deferred capabilities, not
-implemented features to advertise in this release. Review whether the stated
-limits fit the intended audience before choosing stable status.
+Native HTTPS is implemented: a local CA generated on first start, automatic
+server-certificate renewal, the "Trust this device" page and `piworkerctl tls`
+([ADR-0011](adr/0011-native-https-with-local-ca.md), [operations](operations.md#https-and-the-local-ca)).
+Encrypted-at-rest secrets and the remaining secret features tracked in
+[TODO](../TODO.md) are deferred capabilities, not implemented features to
+advertise in this release. Review whether the stated limits fit the intended
+audience before choosing stable status.
 
 ## Candidate validation
 
@@ -71,6 +79,8 @@ limits fit the intended audience before choosing stable status.
 - [ ] Complete browser setup/editing and hardware checks on the Pi. Secret
   persistence across the real installer lifecycle is not asserted by this kit;
   the earlier isolated runner covered secret-name persistence across restart.
+- [ ] Run `scripts/smoke_container.py` against the candidate image: HTTPS on 8443
+  verified with the CA from the data volume, plain-HTTP health and CA download on 8080.
 - [ ] Test anonymous container pull, first setup and persistent data after recreation.
   Published-image checks happen after publication; do not announce image availability
   until the image workflow succeeds.

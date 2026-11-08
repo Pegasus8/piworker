@@ -47,6 +47,8 @@ const (
 	// ServerValidity keeps server certificates under the 398-day limit that
 	// browsers enforce.
 	ServerValidity = 397 * 24 * time.Hour
+	// CAWarnBefore is how long before the local CA expires Status warns.
+	CAWarnBefore = 90 * 24 * time.Hour
 
 	caValidityYears = 10
 	// backdate tolerates small clock differences between server and clients.
@@ -76,6 +78,31 @@ type Status struct {
 	SANs          []string  `json:"sans"`
 	NotAfter      time.Time `json:"notAfter"`
 	CANotAfter    time.Time `json:"caNotAfter"`
+	// Warning is set when the local CA is within CAWarnBefore of its expiry
+	// (or expired): see CAExpiryWarning.
+	Warning string `json:"warning,omitempty"`
+}
+
+// CAExpiryWarning tells the administrator to replace a CA that expires at
+// notAfter, when now is within CAWarnBefore of it or past it; "" otherwise.
+// The CA is never rotated automatically (every device has to trust the new
+// one), so this is the only notice before the server stops being trusted.
+func CAExpiryWarning(notAfter, now time.Time) string {
+	left := notAfter.Sub(now)
+	date := notAfter.UTC().Format(time.DateOnly)
+	switch {
+	case left <= 0:
+		return fmt.Sprintf("The local CA expired on %s: browsers and agents no longer trust this server. Run piworker -tls-regenerate-ca and trust the new CA on every device.", date)
+	case left > CAWarnBefore:
+		return ""
+	}
+	in := "in less than a day"
+	if days := int(left / (24 * time.Hour)); days == 1 {
+		in = "in 1 day"
+	} else if days > 1 {
+		in = fmt.Sprintf("in %d days", days)
+	}
+	return fmt.Sprintf("The local CA expires on %s (%s). Run piworker -tls-regenerate-ca and trust the new CA on every device before then.", date, in)
 }
 
 // Manager owns the local CA and the server certificate it signs.
@@ -189,7 +216,13 @@ func (m *Manager) CAFingerprint() string { return m.fingerprint }
 // Status describes the certificate being served.
 func (m *Manager) Status() Status {
 	leaf := m.current().Leaf
-	return Status{CAFingerprint: m.fingerprint, SANs: leafSANs(leaf), NotAfter: leaf.NotAfter, CANotAfter: m.ca.NotAfter}
+	return Status{
+		CAFingerprint: m.fingerprint,
+		SANs:          leafSANs(leaf),
+		NotAfter:      leaf.NotAfter,
+		CANotAfter:    m.ca.NotAfter,
+		Warning:       CAExpiryWarning(m.ca.NotAfter, m.opts.Now()),
+	}
 }
 
 // Refresh re-computes the names and addresses of this device and re-issues the
@@ -239,7 +272,20 @@ func (m *Manager) current() *tls.Certificate {
 
 func (m *Manager) path(name string) string { return filepath.Join(m.opts.Dir, name) }
 
+// expiring reports whether leaf must be replaced because of its validity
+// period. A chain is only valid while its CA is, so a leaf that outlives the
+// CA (issued before certificates were capped) is replaced by a capped one,
+// and a leaf already ending with the CA is kept: a new one could not last
+// longer, so renewing it would only repeat on every handshake (Status warns
+// about the CA instead).
 func (m *Manager) expiring(leaf *x509.Certificate) bool {
+	caEnd := m.ca.NotAfter
+	if leaf.NotAfter.After(caEnd) {
+		return true
+	}
+	if !leaf.NotAfter.Before(caEnd) {
+		return false
+	}
 	return !m.opts.Now().Before(leaf.NotAfter.Add(-RenewBefore))
 }
 
@@ -412,6 +458,14 @@ func (m *Manager) replace(sans sanSet) error {
 
 func (m *Manager) issue(sans sanSet) (*tls.Certificate, []byte, error) {
 	now := m.opts.Now()
+	if !now.Before(m.ca.NotAfter) {
+		return nil, nil, fmt.Errorf("tlsca: the local CA expired on %s, so it cannot issue a server certificate; run piworker -tls-regenerate-ca (every device must trust the new CA)", m.ca.NotAfter.UTC().Format(time.DateOnly))
+	}
+	// The certificate never outlives the CA that signs it.
+	notAfter := now.Add(ServerValidity)
+	if notAfter.After(m.ca.NotAfter) {
+		notAfter = m.ca.NotAfter
+	}
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, fmt.Errorf("tlsca: generate server key: %w", err)
@@ -428,7 +482,7 @@ func (m *Manager) issue(sans sanSet) (*tls.Certificate, []byte, error) {
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: cn, Organization: []string{"PiWorker"}},
 		NotBefore:             now.Add(-backdate),
-		NotAfter:              now.Add(ServerValidity),
+		NotAfter:              notAfter,
 		KeyUsage:              x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,

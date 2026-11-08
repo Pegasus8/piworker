@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -76,7 +77,8 @@ func startTLSEnv(t *testing.T, mutate func(*config.Config), beforeServe ...func(
 
 	src, err := newTLSSource(cfg)
 	require.NoError(t, err)
-	router, flows := buildRouter(cfg, store, manager, node.DefaultRegistry, users, tlsRoutes(cfg.TLS.Mode, src))
+	tlsHandler := newTLSHandler(cfg.TLS.Mode, src)
+	router, flows := buildRouter(cfg, store, manager, node.DefaultRegistry, users, tlsRoutes(tlsHandler))
 
 	var tlsConf *tls.Config
 	if src != nil {
@@ -84,6 +86,7 @@ func startTLSEnv(t *testing.T, mutate func(*config.Config), beforeServe ...func(
 	}
 	servers, err := listen(cfg, router, tlsConf)
 	require.NoError(t, err)
+	tlsHandler.SetPorts(servers.ports())
 	for _, f := range beforeServe {
 		f(servers)
 	}
@@ -223,6 +226,11 @@ func TestHTTPSSetupRecoveryLoginAndLiveEvents(t *testing.T) {
 	assert.Equal(t, env.src.Status().CAFingerprint, tlsBody.Data.CAFingerprint)
 	assert.Contains(t, tlsBody.Data.SANs, "127.0.0.1")
 	require.NotNil(t, tlsBody.Data.NotAfter)
+	// The real (here: randomly assigned) ports, for the trust page's links.
+	require.NotNil(t, tlsBody.Data.HTTPSPort)
+	require.NotNil(t, tlsBody.Data.HTTPPort)
+	assert.Equal(t, env.port(env.httpsBase), strconv.Itoa(*tlsBody.Data.HTTPSPort))
+	assert.Equal(t, env.port(env.httpBase), strconv.Itoa(*tlsBody.Data.HTTPPort))
 
 	// Live events (SSE) stream over HTTPS.
 	streamResp := get(t, c, env.httpsBase+"/api/flows/tls-sse-flow/events")
@@ -366,6 +374,30 @@ func TestTLSOffServesPlainHTTPOnAddr(t *testing.T) {
 	require.True(t, strings.HasPrefix(env.httpsBase, "http://"))
 	assert.Equal(t, http.StatusOK, get(t, c, env.httpsBase+"/api/auth/status").StatusCode)
 	assert.Equal(t, http.StatusNotFound, get(t, c, env.httpsBase+api.CACertPath).StatusCode)
+}
+
+// ports reports what GET /api/tls advertises: the HTTPS port and the plain
+// HTTP port (the redirect listener, or the main one when TLS is off).
+func TestListenerPorts(t *testing.T) {
+	atoi := func(base string, e *tlsEnv) int {
+		n, err := strconv.Atoi(e.port(base))
+		require.NoError(t, err)
+		return n
+	}
+	env := startTLSEnv(t, nil)
+	https, plain := env.servers.ports()
+	assert.Equal(t, atoi(env.httpsBase, env), https)
+	assert.Equal(t, atoi(env.httpBase, env), plain)
+
+	env = startTLSEnv(t, func(cfg *config.Config) { cfg.HTTPAddr = "" })
+	https, plain = env.servers.ports()
+	assert.Equal(t, atoi(env.httpsBase, env), https)
+	assert.Zero(t, plain)
+
+	env = startTLSEnv(t, func(cfg *config.Config) { cfg.TLS.Mode = config.TLSModeOff })
+	https, plain = env.servers.ports()
+	assert.Zero(t, https)
+	assert.Equal(t, atoi(env.httpsBase, env), plain, "with TLS off addr serves plain HTTP")
 }
 
 func TestEmptyHTTPAddrDisablesRedirectListener(t *testing.T) {

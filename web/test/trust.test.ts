@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { detectPlatform, fingerprintRows, TRUST_GUIDES, PLATFORMS, caFileName } from '../src/lib/trust'
+import { detectPlatform, fingerprintRows, TRUST_GUIDES, PLATFORMS, caFileName, trustUrls } from '../src/lib/trust'
 
 const UA = {
   mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
@@ -48,4 +48,71 @@ test('fingerprints are split into readable rows without losing bytes', () => {
 
 test('the downloaded file keeps the server name', () => {
   expect(caFileName()).toBe('piworker-ca.crt')
+})
+
+const httpPage = { protocol: 'http:', hostname: 'raspberrypi.local', host: 'raspberrypi.local:8080', origin: 'http://raspberrypi.local:8080' }
+const httpsPage = { protocol: 'https:', hostname: '192.168.1.10', host: '192.168.1.10:9443', origin: 'https://192.168.1.10:9443' }
+// IPv6 pages as browsers report them: hostname keeps its brackets and host
+// leaves out a default port.
+const v6HttpPage = { protocol: 'http:', hostname: '[fd00::10]', host: '[fd00::10]', origin: 'http://[fd00::10]' }
+const v6HttpsPage = { protocol: 'https:', hostname: '[fd00::10]', host: '[fd00::10]:8443', origin: 'https://[fd00::10]:8443' }
+
+test('command-line links use the ports PiWorker reports', () => {
+  const urls = trustUrls(httpPage, { httpsPort: 9443, httpPort: 9080 })
+  expect(urls.httpsBase).toBe('https://raspberrypi.local:9443')
+  expect(urls.caDownload).toBe('curl -o ~/piworker-ca.crt http://raspberrypi.local:9080/piworker-ca.crt')
+
+  // An HTTPS page keeps the address the browser used.
+  expect(trustUrls(httpsPage, { httpsPort: 8443, httpPort: 8080 }).httpsBase).toBe('https://192.168.1.10:9443')
+  // Default ports are left out.
+  const def = trustUrls(v6HttpPage, { httpsPort: 443, httpPort: 80 })
+  expect(def.httpsBase).toBe('https://[fd00::10]')
+  expect(def.caDownload).toBe('curl -o ~/piworker-ca.crt http://[fd00::10]/piworker-ca.crt')
+})
+
+test('IPv6 hosts are bracketed exactly once', () => {
+  expect(new URL('http://[fd00::10]:8080/').hostname).toBe('[fd00::10]')
+  const urls = trustUrls(v6HttpsPage, { httpsPort: 8443, httpPort: 8080 })
+  expect(urls.caDownload).toBe('curl -o ~/piworker-ca.crt http://[fd00::10]:8080/piworker-ca.crt')
+  expect(trustUrls(v6HttpPage, { httpsPort: 8443, httpPort: 80 }).httpsBase).toBe('https://[fd00::10]:8443')
+  // A bare IPv6 hostname (not what browsers report) is bracketed too.
+  expect(trustUrls({ ...v6HttpPage, hostname: 'fd00::10' }, { httpsPort: 8443, httpPort: 80 }).httpsBase).toBe('https://[fd00::10]:8443')
+  expect(trustUrls(v6HttpsPage, null).caDownload).toBe('curl -o ~/piworker-ca.crt http://[fd00::10]:8080/piworker-ca.crt')
+})
+
+test('without known ports the links use the page address or the default ports', () => {
+  for (const ports of [null, { httpsPort: null, httpPort: null }]) {
+    const urls = trustUrls(httpsPage, ports)
+    expect(urls.httpsBase).toBe('https://192.168.1.10:9443')
+    // The default plain listener serves the CA without TLS; the fingerprint
+    // check that follows is what makes the download trustworthy.
+    expect(urls.caDownload).toBe('curl -o ~/piworker-ca.crt http://192.168.1.10:8080/piworker-ca.crt')
+
+    const plain = trustUrls(httpPage, ports)
+    // Never the plain HTTP port with the https scheme: the default HTTPS port.
+    expect(plain.httpsBase).toBe('https://raspberrypi.local:8443')
+    expect(plain.caDownload).toBe('curl -o ~/piworker-ca.crt http://raspberrypi.local:8080/piworker-ca.crt')
+  }
+  // HTTPS disabled on the plain listener: no HTTPS port, CA over the reported HTTP port.
+  expect(trustUrls(httpPage, { httpsPort: null, httpPort: 8080 }).caDownload).toBe('curl -o ~/piworker-ca.crt http://raspberrypi.local:8080/piworker-ca.crt')
+})
+
+test('without a plain listener the CA is saved from the browser, never with --insecure', () => {
+  const urls = trustUrls(httpsPage, { httpsPort: 9443, httpPort: null })
+  expect(urls.httpsBase).toBe('https://192.168.1.10:9443')
+  expect(urls.caDownload).toBe('# Save piworker-ca.crt with “Download CA certificate” above, as ~/piworker-ca.crt')
+})
+
+test('the CA download never disables TLS validation', () => {
+  const pages = [httpPage, httpsPage, v6HttpPage, v6HttpsPage]
+  const portSets = [null, { httpsPort: null, httpPort: null }, { httpsPort: 8443, httpPort: 8080 }, { httpsPort: 8443, httpPort: null }, { httpsPort: null, httpPort: 8080 }]
+  for (const page of pages) {
+    for (const ports of portSets) {
+      const { caDownload, httpsBase } = trustUrls(page, ports)
+      expect(caDownload).not.toMatch(/--insecure|(^|\s)-k(\s|$)/)
+      expect(caDownload).not.toContain('[[')
+      expect(httpsBase).not.toContain('[[')
+      expect(httpsBase.startsWith('https://')).toBe(true)
+    }
+  }
 })

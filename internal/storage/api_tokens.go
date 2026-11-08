@@ -412,18 +412,43 @@ func (s *SQLiteStore) RevokeAPIToken(id string, now time.Time) error {
 // pending approval (no token can act any more), bumps the tokens epoch (even
 // when nothing changed) and returns how many tokens were revoked.
 func (s *SQLiteStore) RevokeAllAPITokens(now time.Time) (int, error) {
-	var n int64
+	var n int
 	err := s.inTokenTx(func(tx *sql.Tx) error {
-		res, err := tx.Exec(`UPDATE api_tokens SET revoked_at = ? WHERE revoked_at IS NULL`, now.Unix())
-		if err != nil {
-			return fmt.Errorf("failed to revoke api tokens: %w", err)
-		}
-		if n, err = res.RowsAffected(); err != nil {
-			return err
-		}
-		return voidPendingApprovals(tx, `NOT `+approvalTokenActive, []any{now.Unix()}, now)
+		var err error
+		n, err = revokeAllAPITokens(tx, now)
+		return err
 	})
-	return int(n), err
+	return n, err
+}
+
+// RevokeAllAPITokensTx is RevokeAllAPITokens inside the caller's transaction,
+// which must be on the database holding api_tokens (the user store shares it,
+// see NewSQLiteUserStoreWithDB). A password reset passes it as a TxHook so the
+// new password and the revocation commit together or not at all.
+func RevokeAllAPITokensTx(tx *sql.Tx, now time.Time) (int, error) {
+	n, err := revokeAllAPITokens(tx, now)
+	if err != nil {
+		return 0, err
+	}
+	if err := bumpTokensEpoch(tx); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+func revokeAllAPITokens(tx *sql.Tx, now time.Time) (int, error) {
+	res, err := tx.Exec(`UPDATE api_tokens SET revoked_at = ? WHERE revoked_at IS NULL`, now.Unix())
+	if err != nil {
+		return 0, fmt.Errorf("failed to revoke api tokens: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if err := voidPendingApprovals(tx, `NOT `+approvalTokenActive, []any{now.Unix()}, now); err != nil {
+		return 0, err
+	}
+	return int(n), nil
 }
 
 // voidPendingApprovals closes, as rejected because the token was revoked,

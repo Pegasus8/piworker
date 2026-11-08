@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Opt-in real systemd installation test on a clean Raspberry Pi. Python 3.9+."""
 import argparse
+import base64
 import hashlib
 import http.cookiejar
 import json
@@ -12,6 +13,7 @@ import re
 import secrets
 import shutil
 import socket
+import ssl
 import subprocess
 import sys
 import tarfile
@@ -25,7 +27,13 @@ DATA = Path('/var/lib/piworker')
 BINARY = Path('/usr/local/bin/piworker')
 MANAGER = Path('/usr/local/bin/piworkerctl')
 UNIT = Path('/etc/systemd/system/piworker.service')
-REPORT = {'checks': [], 'not_tested': ['GitHub release download', 'GPIO/I2C physical operation',
+# piworkerctl installs HTTPS on 8443 with a local CA; 8080 redirects to it but
+# answers /api/health and /piworker-ca.crt directly.
+HTTPS_BASE = 'https://127.0.0.1:8443'
+HTTP_BASE = 'http://127.0.0.1:8080'
+CA_FILE = DATA / 'tls' / 'ca.crt'
+PORTS = (8443, 8080)
+REPORT ={'checks': [], 'not_tested': ['GitHub release download', 'GPIO/I2C physical operation',
                                       'interactive browser workflow', 'power-loss recovery']}
 OWN_STATE = False
 ENV = {k: v for k, v in os.environ.items() if not k.startswith('PIWORKER_')}
@@ -115,6 +123,54 @@ def healthy(client):
     wait_for(lambda: client.api('/api/health') == {'status': 'healthy'})
 
 
+def https_client():
+    """A client for the installed service that trusts only its local CA."""
+    return Client(HTTPS_BASE, cafile=CA_FILE)
+
+
+def http_listener():
+    """The plain listener answers health and the CA directly (no redirect, no CA needed)."""
+    plain = Client(HTTP_BASE)
+    healthy(plain)
+    require(plain.request('/piworker-ca.crt') == CA_FILE.read_bytes(), 'El CA servido por HTTP no coincide con el instalado')
+
+
+def _der_element(data, pos):
+    """Returns (tag, content start, end) of the DER element at pos."""
+    tag, length = data[pos], data[pos + 1]
+    pos += 2
+    if length & 0x80:
+        count = length & 0x7F
+        length = int.from_bytes(data[pos:pos + count], 'big')
+        pos += count
+    return tag, pos, pos + length
+
+
+def spki_pin(cert_der):
+    """Base64 SHA-256 of a certificate's SubjectPublicKeyInfo, as Chromium's
+    --ignore-certificate-errors-spki-list expects."""
+    _, start, _ = _der_element(cert_der, 0)       # Certificate
+    _, pos, end = _der_element(cert_der, start)   # TBSCertificate
+    fields = []
+    while pos < end:
+        tag, _, following = _der_element(cert_der, pos)
+        fields.append((tag, pos, following))
+        pos = following
+    if fields[0][0] == 0xA0:  # explicit version
+        fields = fields[1:]
+    # serialNumber, signature, issuer, validity, subject, subjectPublicKeyInfo
+    _, first, last = fields[5]
+    return base64.b64encode(hashlib.sha256(cert_der[first:last]).digest()).decode()
+
+
+def served_spki_pin(host, port, cafile):
+    """Pin of the certificate the server presents, once verified against cafile."""
+    context = ssl.create_default_context(cafile=str(cafile))
+    with socket.create_connection((host, port), timeout=5) as sock:
+        with context.wrap_socket(sock, server_hostname=host) as tls:
+            return spki_pin(tls.getpeercert(binary_form=True))
+
+
 def snapshot():
     return {str(p): digest(p) for p in (BINARY, MANAGER, UNIT, CONFIG / 'piworker.toml', CONFIG / 'installed-version')}
 
@@ -176,12 +232,16 @@ def optional_checks(args):
         require(executable, 'Instalá chromium para usar --browser')
         def browser():
             account = pwd.getpwnam('piworker')
+            # Chromium does not read a CA file: accept only the certificate the
+            # service presents, after checking here that it chains to the local CA.
+            pin = served_spki_pin('127.0.0.1', PORTS[0], CA_FILE)
             with tempfile.TemporaryDirectory(prefix='piworker-browser-') as temp:
                 os.chown(temp, account.pw_uid, account.pw_gid)
                 shot = Path(temp) / 'login.png'
                 result = as_service([executable, '--headless', '--disable-gpu', '--no-first-run',
                                      '--user-data-dir=' + temp, '--virtual-time-budget=10000',
-                                     '--screenshot=' + str(shot), '--dump-dom', 'http://127.0.0.1:8080/'], cwd=temp)
+                                     '--ignore-certificate-errors-spki-list=' + pin,
+                                     '--screenshot=' + str(shot), '--dump-dom', HTTPS_BASE + '/'], cwd=temp)
                 require('Sign in to continue' in result.stdout and shot.is_file(), 'No se renderizó el login')
                 shutil.copyfile(shot, ROOT / 'login.png')
         check('chromium_login_render', browser)
@@ -200,8 +260,9 @@ def prepare(args):
                     Path(str(UNIT) + '.d'), Path('/var/backups/piworker')])
     require(run(['systemctl', 'show', 'piworker.service', '-p', 'LoadState', '--value'], ok=False).stdout.strip() == 'not-found',
             'Existe una unidad piworker.service')
-    with socket.socket() as probe:
-        probe.bind(('0.0.0.0', 8080))
+    for port in PORTS:
+        with socket.socket() as probe:
+            probe.bind(('0.0.0.0', port))
     ROOT.mkdir(mode=0o700)
     OWN_STATE = True
     boot, machine = identity()
@@ -212,8 +273,9 @@ def prepare(args):
     require(old['hash'] != new['hash'], 'La prueba requiere dos binarios distintos')
     (ROOT / 'piworkerctl').write_bytes(manager)
     check('real_install', lambda: ctl('install', old))
-    client = Client('http://127.0.0.1:8080')
+    client = https_client()
     check('service_health', lambda: healthy(client))
+    check('http_listener_health_and_ca', http_listener)
     password = secrets.token_urlsafe(24)
     output = as_service([BINARY, '-config', CONFIG / 'piworker.toml', '-db', DATA / 'piworker.db', '-setup-code']).stdout
     match = re.search(r'setup code .*: ([A-Za-z0-9_-]{43})', output)
@@ -276,7 +338,7 @@ def resume():
     check('installation_unchanged', lambda: verify_snapshot(state))
     check('boot_started_service', lambda: run(['systemctl', 'is-active', '--quiet', 'piworker.service']))
     check('boot_service_enabled', lambda: run(['systemctl', 'is-enabled', '--quiet', 'piworker.service']))
-    client = Client('http://127.0.0.1:8080')
+    client = https_client()
     private_file(ROOT / 'cookies')
     jar = http.cookiejar.LWPCookieJar(str(ROOT / 'cookies'))
     jar.load(ignore_discard=True, ignore_expires=True)

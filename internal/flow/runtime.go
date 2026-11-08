@@ -84,6 +84,10 @@ type NodeEvent struct {
 	NodeID   string
 	NodeType string
 	CorrID   string
+	// Actor is the run's "actor" meta (who started it, e.g. "token:bot"),
+	// copied by the executor before the node runs so observers never read
+	// Input's meta while the node may still change it. "" when unknown.
+	Actor    string
 	Phase    string // NodePhaseRunning | NodePhaseSuccess | NodePhaseError
 	Input    *types.Message
 	Outputs  []*types.Message
@@ -351,7 +355,9 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 			active = append(active, c)
 		}
 	}
-	rt.router = NewMessageRouter(active, rt.logger, WithDropHandler(rt.releaseDropped))
+	rt.router = NewMessageRouter(active, rt.logger, WithDropHandler(func(m RoutedMessage) {
+		rt.releaseDropped(m, "routing timed out (the flow is overloaded)")
+	}))
 
 	return rt, nil
 }
@@ -604,7 +610,7 @@ func (r *FlowRuntime) dispatch() {
 					Str("nodeID", routedMsg.TargetNode).
 					Msg("Target node not found or disabled; dropping message")
 				metrics.IncrementMessagesDropped()
-				r.releaseDropped(routedMsg)
+				r.releaseDropped(routedMsg, "the node is not running (not found or disabled)")
 				continue
 			}
 
@@ -616,19 +622,37 @@ func (r *FlowRuntime) dispatch() {
 					Int("queueLimit", r.queueLimit).
 					Msg("Node queue full; dropping message")
 				metrics.IncrementMessagesDropped()
-				r.releaseDropped(routedMsg)
+				r.releaseDropped(routedMsg, fmt.Sprintf("its queue is full (limit %d)", r.queueLimit))
 			}
 		}
 	}
 }
 
+// actorOf returns msg's "actor" meta (set by Call on a run's first message
+// and inherited by its clones), or "" when it is missing or not a string.
+func actorOf(msg *types.Message) string {
+	if msg == nil {
+		return ""
+	}
+	v, _ := msg.GetMeta("actor")
+	actor, _ := v.(string)
+	return actor
+}
+
 // releaseDropped accounts for a routed message that will never execute: it
-// counts the drop and releases the message's slot in its run, so the run still
-// finishes. Every drop path (queue overflow, unknown target, router send
-// timeout) must call it exactly once per dropped message.
-func (r *FlowRuntime) releaseDropped(routedMsg RoutedMessage) {
+// counts the drop, records it as the error of a called run (reason says why),
+// and releases the message's slot in its run, so the run still finishes.
+// Every drop path (queue overflow, unknown target, router send timeout) must
+// call it exactly once per dropped message.
+func (r *FlowRuntime) releaseDropped(routedMsg RoutedMessage, reason string) {
 	r.droppedMessages.Add(1)
-	r.runDone(r.ensureCorrelationID(routedMsg.Message))
+	corrID := r.ensureCorrelationID(routedMsg.Message)
+	nodeType := ""
+	if def := r.nodeDefs[routedMsg.TargetNode]; def != nil {
+		nodeType = def.Type
+	}
+	r.calls.dropped(corrID, routedMsg.TargetNode, nodeType, reason)
+	r.runDone(corrID)
 }
 
 // DroppedMessages reports how many messages this runtime discarded.
@@ -734,6 +758,7 @@ func (r *FlowRuntime) executeNodeInSlot(routedMsg RoutedMessage, slot *semSlot) 
 		NodeID:   routedMsg.TargetNode,
 		NodeType: flowNode.Type,
 		CorrID:   correlationID,
+		Actor:    actorOf(routedMsg.Message),
 		Input:    routedMsg.Message,
 	}
 

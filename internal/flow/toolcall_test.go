@@ -915,6 +915,7 @@ func TestCallWaiterLimit(t *testing.T) {
 
 	_, err = rt.Call(context.Background(), CallRequest{TriggerNodeID: "tool", Args: map[string]any{}, Timeout: 5 * time.Second})
 	assert.ErrorIs(t, err, ErrTooManyCalls)
+	assert.ErrorIs(t, err, ErrBusy, "callers map every busy refusal with one errors.Is")
 	time.Sleep(20 * time.Millisecond)
 	assert.Equal(t, int32(1), started.Load(), "a refused call starts no run")
 

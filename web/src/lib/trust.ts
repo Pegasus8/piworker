@@ -51,6 +51,57 @@ export function fingerprintRows(fingerprint: string): string[] {
   return rows
 }
 
+/** The parts of window.location the trust page builds links from. */
+export interface PageLocation {
+  protocol: string
+  hostname: string
+  host: string
+  origin: string
+}
+
+/** Listener ports reported by GET /api/tls (null or missing when unknown). */
+export interface ListenerPorts {
+  httpsPort?: number | null
+  httpPort?: number | null
+}
+
+// ADR-0011 default listeners, used while PiWorker has not reported its ports
+// (GET /api/tls needs a session, so always before signing in).
+const DEFAULT_HTTPS_PORT = 8443
+const DEFAULT_HTTP_PORT = 8080
+
+/**
+ * Builds the HTTPS address and the CA download command shown for
+ * command-line tools. Ports come from the server; without them an HTTPS page
+ * keeps its own address, an HTTP page serves the CA itself, and the other
+ * listener is assumed on its default port. The CA is downloaded over plain
+ * HTTP (the fingerprint check that follows makes it trustworthy), never by
+ * disabling TLS validation: without a plain listener the browser saves it.
+ */
+export function trustUrls(page: PageLocation, ports: ListenerPorts | null): { httpsBase: string; caDownload: string } {
+  // Browsers keep the brackets of an IPv6 hostname; add them only if missing.
+  const host = page.hostname.startsWith('[') || !page.hostname.includes(':') ? page.hostname : `[${page.hostname}]`
+  const withPort = (scheme: string, port: number, defaultPort: number) =>
+    `${scheme}://${host}${port === defaultPort ? '' : ':' + port}`
+  // GET /api/tls reports both ports once the listeners are up: until then
+  // (or signed out) neither is known, and a missing httpPort means nothing.
+  const known = Boolean(ports?.httpsPort || ports?.httpPort)
+
+  const httpsBase = page.protocol === 'https:'
+    ? page.origin
+    : withPort('https', ports?.httpsPort || DEFAULT_HTTPS_PORT, 443)
+
+  let base: string | null
+  if (ports?.httpPort) base = withPort('http', ports.httpPort, 80)
+  else if (page.protocol === 'http:') base = page.origin
+  else if (!known) base = withPort('http', DEFAULT_HTTP_PORT, 80)
+  else base = null // PiWorker reported no plain listener
+  const caDownload = base
+    ? `curl -o ~/${CA_FILE} ${base}/${CA_FILE}`
+    : `# Save ${CA_FILE} with “Download CA certificate” above, as ~/${CA_FILE}`
+  return { httpsBase, caDownload }
+}
+
 const opensslVerify: TrustStep = {
   text: 'Compare the SHA-256 fingerprint of the downloaded file with the one printed on the PiWorker device:',
   code: `openssl x509 -in ${CA_FILE} -noout -fingerprint -sha256`

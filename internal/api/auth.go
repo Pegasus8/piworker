@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json/v2"
 	"errors"
 	"net/http"
@@ -31,10 +32,14 @@ type LoginRequest struct {
 	KeepAgentTokens bool `json:"keepAgentTokens"`
 }
 
-// AgentTokenRevoker revokes every agent API token and drops cached
-// verifications (agentauth.TokenVerifier).
+// AgentTokenRevoker revokes every agent API token as part of a credential
+// reset (agentauth.TokenVerifier).
 type AgentTokenRevoker interface {
-	RevokeAll() (int, error)
+	// RevokeAllInTx revokes every token inside tx, the transaction that
+	// changes the password, so both commit together or neither does.
+	RevokeAllInTx(tx *sql.Tx) error
+	// EvictAll drops cached verifications once that transaction committed.
+	EvictAll()
 }
 type AuthStatusResponse struct {
 	Enabled       bool `json:"enabled"`
@@ -60,18 +65,20 @@ type AuthHandler struct {
 // not ask to keep them, revoke every agent token in this process.
 func (h *AuthHandler) SetAgentTokenRevoker(r AgentTokenRevoker) { h.agentTokens = r }
 
-// revokeAgentTokens revokes all agent tokens after a credential reset. On
-// failure it answers 500 and returns false: the credential change already
-// happened, so the admin must revoke the tokens by hand.
-func (h *AuthHandler) revokeAgentTokens(w http.ResponseWriter, done string) bool {
-	if h.agentTokens == nil {
-		return true
+// tokenRevocation prepares revoking every agent token in a credential
+// change's transaction. It returns the hooks to pass to the store (none when
+// revoke is false or no revoker is set), a function reporting whether the
+// revocation itself failed, and one to call after the change committed.
+func (h *AuthHandler) tokenRevocation(revoke bool) (hooks []storage.TxHook, failed func() bool, committed func()) {
+	if !revoke || h.agentTokens == nil {
+		return nil, func() bool { return false }, func() {}
 	}
-	if _, err := h.agentTokens.RevokeAll(); err != nil {
-		writeError(w, http.StatusInternalServerError, done+", but agent tokens could not be revoked. Sign in and revoke them under Settings.")
-		return false
+	var revokeErr error
+	hook := func(tx *sql.Tx) error {
+		revokeErr = h.agentTokens.RevokeAllInTx(tx)
+		return revokeErr
 	}
-	return true
+	return []storage.TxHook{hook}, func() bool { return revokeErr != nil }, h.agentTokens.EvictAll
 }
 
 // AuthOption configures an AuthHandler.
@@ -245,21 +252,26 @@ func (h *AuthHandler) redeem(w http.ResponseWriter, r *http.Request, purpose str
 		writeError(w, 500, "Cannot set password")
 		return
 	}
-	err = h.store.RedeemAuthCode(purpose, req.Code, req.Username, hash, time.Now())
+	// Recovery assumes the account was compromised: agent tokens are revoked
+	// in the same transaction (a wrong code never reaches it).
+	hooks, revokeFailed, revoked := h.tokenRevocation(purpose == "recovery")
+	err = h.store.RedeemAuthCode(purpose, req.Code, req.Username, hash, time.Now(), hooks...)
 	if errors.Is(err, storage.ErrAuthCode) {
 		h.login.failure(ip, req.Username)
 		writeError(w, 403, "Invalid or expired code, or setup already completed")
+		return
+	}
+	if err != nil && revokeFailed() {
+		writeError(w, 500, "The password was not reset because agent tokens could not be revoked. Please retry with the same code.")
 		return
 	}
 	if err != nil {
 		writeError(w, 500, "Cannot update account")
 		return
 	}
+	revoked()
 	h.login.success(ip, req.Username)
 	h.setCookie(w, r, "", -1)
-	if purpose == "recovery" && !h.revokeAgentTokens(w, "The password was reset") {
-		return
-	}
 	status := 200
 	if purpose == "setup" {
 		status = 201
@@ -302,14 +314,17 @@ func (h *AuthHandler) Password(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "Cannot set password")
 		return
 	}
-	if err = h.store.ChangePassword(user.Username, user.PasswordHash, hash); err != nil {
+	hooks, revokeFailed, revoked := h.tokenRevocation(!req.KeepAgentTokens)
+	if err = h.store.ChangePassword(user.Username, user.PasswordHash, hash, hooks...); err != nil {
+		if revokeFailed() {
+			writeError(w, 500, "The password was not changed because agent tokens could not be revoked. Please retry.")
+			return
+		}
 		writeError(w, 500, "Cannot change password. Please retry.")
 		return
 	}
+	revoked()
 	h.setCookie(w, r, "", -1)
-	if !req.KeepAgentTokens && !h.revokeAgentTokens(w, "The password was changed") {
-		return
-	}
 	writeSuccess(w, 200, nil, "")
 }
 func (h *AuthHandler) csrfAllowed(r *http.Request) bool {
