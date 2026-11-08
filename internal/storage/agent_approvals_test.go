@@ -140,7 +140,8 @@ func TestListAgentApprovals(t *testing.T) {
 func TestDecideAgentApproval(t *testing.T) {
 	s := createTestStore(t)
 	defer s.Close()
-	a, err := s.CreateAgentApproval(newToolCallApproval("tok"), testNow)
+	tok, _ := newTestToken(t, s, NewAPIToken{})
+	a, err := s.CreateAgentApproval(newToolCallApproval(tok.ID), testNow)
 	require.NoError(t, err)
 
 	decided, err := s.DecideAgentApproval(a.ID, true, "admin", testNow.Add(time.Minute))
@@ -156,7 +157,7 @@ func TestDecideAgentApproval(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ApprovalApproved, got.Status)
 
-	b, err := s.CreateAgentApproval(newToolCallApproval("tok"), testNow)
+	b, err := s.CreateAgentApproval(newToolCallApproval(tok.ID), testNow)
 	require.NoError(t, err)
 	rejected, err := s.DecideAgentApproval(b.ID, false, "admin", testNow.Add(time.Minute))
 	require.NoError(t, err)
@@ -181,11 +182,12 @@ func TestDecideExpiredAgentApproval(t *testing.T) {
 func TestExpireAgentApprovals(t *testing.T) {
 	s := createTestStore(t)
 	defer s.Close()
-	stale, err := s.CreateAgentApproval(newToolCallApproval("tok"), testNow)
+	tok, _ := newTestToken(t, s, NewAPIToken{})
+	stale, err := s.CreateAgentApproval(newToolCallApproval(tok.ID), testNow)
 	require.NoError(t, err)
-	fresh, err := s.CreateAgentApproval(newToolCallApproval("tok"), testNow.Add(10*time.Minute))
+	fresh, err := s.CreateAgentApproval(newToolCallApproval(tok.ID), testNow.Add(10*time.Minute))
 	require.NoError(t, err)
-	decided, err := s.CreateAgentApproval(newToolCallApproval("tok"), testNow)
+	decided, err := s.CreateAgentApproval(newToolCallApproval(tok.ID), testNow)
 	require.NoError(t, err)
 	_, err = s.DecideAgentApproval(decided.ID, true, "admin", testNow.Add(time.Minute))
 	require.NoError(t, err)
@@ -215,4 +217,154 @@ func TestExpireAgentApprovals(t *testing.T) {
 	require.NoError(t, err)
 	_, err = s.GetAgentApproval(decided.ID)
 	require.ErrorIs(t, err, ErrAgentApprovalNotFound)
+}
+
+func TestRevokeAPITokenRejectsItsPendingApprovals(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	revoked, _ := newTestToken(t, s, NewAPIToken{Name: "compromised"})
+	other, _ := newTestToken(t, s, NewAPIToken{Name: "other"})
+
+	pending, err := s.CreateAgentApproval(newToolCallApproval(revoked.ID), testNow)
+	require.NoError(t, err)
+	approved, err := s.CreateAgentApproval(newToolCallApproval(revoked.ID), testNow)
+	require.NoError(t, err)
+	_, err = s.DecideAgentApproval(approved.ID, true, "admin", testNow.Add(time.Second))
+	require.NoError(t, err)
+	stale := newToolCallApproval(revoked.ID)
+	stale.ExpiresAt = testNow.Add(time.Minute)
+	stale2, err := s.CreateAgentApproval(stale, testNow)
+	require.NoError(t, err)
+	untouched, err := s.CreateAgentApproval(newToolCallApproval(other.ID), testNow)
+	require.NoError(t, err)
+
+	at := testNow.Add(2 * time.Minute)
+	require.NoError(t, s.RevokeAPIToken(revoked.ID, at))
+
+	got, err := s.GetAgentApproval(pending.ID)
+	require.NoError(t, err)
+	assert.Equal(t, ApprovalRejected, got.Status, "a revoked token's queued requests are void")
+	assert.Equal(t, ApprovalDecidedByTokenRevoked, got.DecidedBy)
+	require.NotNil(t, got.DecidedAt)
+	assert.Equal(t, at, *got.DecidedAt)
+	_, err = s.DecideAgentApproval(pending.ID, true, "admin", at.Add(time.Second))
+	require.ErrorIs(t, err, ErrAgentApprovalDecided)
+
+	got, err = s.GetAgentApproval(approved.ID)
+	require.NoError(t, err)
+	assert.Equal(t, ApprovalApproved, got.Status, "past decisions are history and stay as they were")
+	assert.Equal(t, "admin", got.DecidedBy)
+	got, err = s.GetAgentApproval(stale2.ID)
+	require.NoError(t, err)
+	assert.Equal(t, ApprovalPending, got.Status, "already-expired requests are left for the expiry pass")
+	assert.Equal(t, ApprovalExpired, got.EffectiveStatus(at))
+	got, err = s.GetAgentApproval(untouched.ID)
+	require.NoError(t, err)
+	assert.Equal(t, ApprovalPending, got.Status, "other tokens keep their queue")
+}
+
+func TestRevokeAllAPITokensRejectsPendingApprovals(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	first, _ := newTestToken(t, s, NewAPIToken{Name: "first"})
+	second, _ := newTestToken(t, s, NewAPIToken{Name: "second"})
+	toolCall, err := s.CreateAgentApproval(newToolCallApproval(first.ID), testNow)
+	require.NoError(t, err)
+	deploy, err := s.CreateAgentApproval(AgentApproval{Kind: ApprovalKindDraftDeploy, TokenID: second.ID, Ref: "draft-1"}, testNow)
+	require.NoError(t, err)
+
+	at := testNow.Add(time.Minute)
+	n, err := s.RevokeAllAPITokens(at)
+	require.NoError(t, err)
+	require.Equal(t, 2, n)
+	for _, id := range []string{toolCall.ID, deploy.ID} {
+		got, err := s.GetAgentApproval(id)
+		require.NoError(t, err)
+		assert.Equal(t, ApprovalRejected, got.Status, "recovery voids everything the tokens queued")
+		assert.Equal(t, ApprovalDecidedByTokenRevoked, got.DecidedBy)
+		_, err = s.DecideAgentApproval(id, true, "admin", at.Add(time.Second))
+		require.ErrorIs(t, err, ErrAgentApprovalDecided)
+	}
+	count, err := s.CountPendingAgentApprovals(at)
+	require.NoError(t, err)
+	assert.Zero(t, count)
+}
+
+func TestDecideAgentApprovalRefusesInactiveTokens(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	at := testNow.Add(time.Minute)
+
+	// An approval queued after its token was revoked (the agent raced the
+	// revocation) can still be rejected, never approved.
+	revoked, _ := newTestToken(t, s, NewAPIToken{Name: "revoked"})
+	require.NoError(t, s.RevokeAPIToken(revoked.ID, testNow))
+	late, err := s.CreateAgentApproval(newToolCallApproval(revoked.ID), testNow)
+	require.NoError(t, err)
+	_, err = s.DecideAgentApproval(late.ID, true, "admin", at)
+	require.ErrorIs(t, err, ErrAgentApprovalTokenRevoked)
+	got, err := s.GetAgentApproval(late.ID)
+	require.NoError(t, err)
+	assert.Equal(t, ApprovalRejected, got.Status, "the refused approval is closed, not left pending")
+	assert.Equal(t, ApprovalDecidedByTokenRevoked, got.DecidedBy)
+
+	late2, err := s.CreateAgentApproval(newToolCallApproval(revoked.ID), testNow)
+	require.NoError(t, err)
+	rejected, err := s.DecideAgentApproval(late2.ID, false, "admin", at)
+	require.NoError(t, err, "rejecting needs no active token")
+	assert.Equal(t, "admin", rejected.DecidedBy)
+
+	// A token that expired while its request waited cannot have it approved.
+	short, _ := newTestToken(t, s, NewAPIToken{Name: "short", ExpiresAt: testNow.Add(30 * time.Second)})
+	waiting, err := s.CreateAgentApproval(newToolCallApproval(short.ID), testNow)
+	require.NoError(t, err)
+	_, err = s.DecideAgentApproval(waiting.ID, true, "admin", at)
+	require.ErrorIs(t, err, ErrAgentApprovalTokenRevoked)
+	got, err = s.GetAgentApproval(waiting.ID)
+	require.NoError(t, err)
+	assert.Equal(t, ApprovalRejected, got.Status)
+	assert.Equal(t, ApprovalDecidedByTokenExpired, got.DecidedBy)
+
+	// Unknown tokens are never approvable.
+	orphan, err := s.CreateAgentApproval(newToolCallApproval("no-such-token"), testNow)
+	require.NoError(t, err)
+	_, err = s.DecideAgentApproval(orphan.ID, true, "admin", at)
+	require.ErrorIs(t, err, ErrAgentApprovalTokenRevoked)
+
+	// An expired approval reports expiry first, whatever its token.
+	expired, err := s.CreateAgentApproval(newToolCallApproval(revoked.ID), testNow)
+	require.NoError(t, err)
+	_, err = s.DecideAgentApproval(expired.ID, true, "admin", expired.ExpiresAt)
+	require.ErrorIs(t, err, ErrAgentApprovalExpired)
+}
+
+func TestAgentApprovalReportsTokenState(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	tok, _ := newTestToken(t, s, NewAPIToken{Name: "desk"})
+	a, err := s.CreateAgentApproval(newToolCallApproval(tok.ID), testNow)
+	require.NoError(t, err)
+	orphan, err := s.CreateAgentApproval(newToolCallApproval("no-such-token"), testNow)
+	require.NoError(t, err)
+
+	got, err := s.GetAgentApproval(a.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.TokenExpiresAt)
+	assert.Equal(t, tok.ExpiresAt, *got.TokenExpiresAt)
+	assert.Nil(t, got.TokenRevokedAt)
+	assert.True(t, got.TokenActive(testNow))
+	assert.False(t, got.TokenActive(tok.ExpiresAt))
+
+	require.NoError(t, s.RevokeAPIToken(tok.ID, testNow.Add(time.Minute)))
+	list, err := s.ListAgentApprovals(AgentApprovalFilter{})
+	require.NoError(t, err)
+	byID := map[string]*AgentApproval{}
+	for i := range list {
+		byID[list[i].ID] = &list[i]
+	}
+	require.NotNil(t, byID[a.ID].TokenRevokedAt)
+	assert.Equal(t, testNow.Add(time.Minute), *byID[a.ID].TokenRevokedAt)
+	assert.False(t, byID[a.ID].TokenActive(testNow.Add(time.Minute)))
+	assert.Nil(t, byID[orphan.ID].TokenExpiresAt, "no token row")
+	assert.False(t, byID[orphan.ID].TokenActive(testNow))
 }

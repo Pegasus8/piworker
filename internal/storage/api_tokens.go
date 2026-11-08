@@ -390,8 +390,9 @@ func (s *SQLiteStore) inTokenTx(fn func(tx *sql.Tx) error) error {
 	return tx.Commit()
 }
 
-// RevokeAPIToken revokes one token (keeping the first revocation instant) and
-// bumps the tokens epoch.
+// RevokeAPIToken revokes one token (keeping the first revocation instant),
+// rejects its pending approvals so nothing it queued can still run, and bumps
+// the tokens epoch, all in one transaction.
 func (s *SQLiteStore) RevokeAPIToken(id string, now time.Time) error {
 	return s.inTokenTx(func(tx *sql.Tx) error {
 		res, err := tx.Exec(`UPDATE api_tokens SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?`, now.Unix(), id)
@@ -403,12 +404,13 @@ func (s *SQLiteStore) RevokeAPIToken(id string, now time.Time) error {
 		} else if n == 0 {
 			return ErrAPITokenNotFound
 		}
-		return nil
+		return voidPendingApprovals(tx, `a.token_id = ?`, []any{id}, now)
 	})
 }
 
-// RevokeAllAPITokens revokes every token not yet revoked, bumps the tokens
-// epoch (even when nothing changed) and returns how many were revoked.
+// RevokeAllAPITokens revokes every token not yet revoked, rejects every
+// pending approval (no token can act any more), bumps the tokens epoch (even
+// when nothing changed) and returns how many tokens were revoked.
 func (s *SQLiteStore) RevokeAllAPITokens(now time.Time) (int, error) {
 	var n int64
 	err := s.inTokenTx(func(tx *sql.Tx) error {
@@ -416,10 +418,26 @@ func (s *SQLiteStore) RevokeAllAPITokens(now time.Time) (int, error) {
 		if err != nil {
 			return fmt.Errorf("failed to revoke api tokens: %w", err)
 		}
-		n, err = res.RowsAffected()
-		return err
+		if n, err = res.RowsAffected(); err != nil {
+			return err
+		}
+		return voidPendingApprovals(tx, `NOT `+approvalTokenActive, []any{now.Unix()}, now)
 	})
 	return int(n), err
+}
+
+// voidPendingApprovals closes, as rejected because the token was revoked,
+// the pending approvals still within their expiry that match cond (on
+// agent_approvals aliased a). Expired ones are left to the expiry pass.
+func voidPendingApprovals(tx *sql.Tx, cond string, condArgs []any, now time.Time) error {
+	args := append([]any{ApprovalRejected, now.Unix(), ApprovalDecidedByTokenRevoked, ApprovalPending, now.Unix()}, condArgs...)
+	_, err := tx.Exec(`
+		UPDATE agent_approvals AS a SET status = ?, decided_at = ?, decided_by = ?
+		WHERE a.status = ? AND a.expires_at > ? AND `+cond, args...)
+	if err != nil {
+		return fmt.Errorf("failed to reject pending approvals: %w", err)
+	}
+	return nil
 }
 
 // SetAPITokenGrants replaces the grants of a non-revoked token and bumps the

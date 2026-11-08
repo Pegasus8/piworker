@@ -28,6 +28,13 @@ const (
 	ApprovalExpired  = "expired"
 )
 
+// DecidedBy values recorded when the system, not the admin, closes a pending
+// approval because the token that requested it can no longer act.
+const (
+	ApprovalDecidedByTokenRevoked = "token revoked"
+	ApprovalDecidedByTokenExpired = "token expired"
+)
+
 const (
 	// ToolCallApprovalLifetime is how long a tool call waits for the admin.
 	ToolCallApprovalLifetime = 15 * time.Minute
@@ -50,6 +57,9 @@ var (
 	ErrAgentApprovalDecided  = errors.New("approval already decided")
 	ErrAgentApprovalExpired  = errors.New("approval expired")
 	ErrInvalidAgentApproval  = errors.New("invalid approval")
+	// ErrAgentApprovalTokenRevoked refuses to approve a request whose token
+	// is revoked, expired or unknown; the approval is closed as rejected.
+	ErrAgentApprovalTokenRevoked = errors.New("the token that requested this approval is revoked or expired")
 )
 
 // AgentApproval is one request waiting for (or decided by) the admin.
@@ -68,6 +78,18 @@ type AgentApproval struct {
 	DecidedAt *time.Time      `json:"decidedAt,omitempty"`
 	DecidedBy string          `json:"decidedBy,omitempty"`
 	ExpiresAt time.Time       `json:"expiresAt"`
+
+	// TokenRevokedAt and TokenExpiresAt describe the requesting token as read
+	// with the approval (TokenExpiresAt is nil when no such token exists).
+	// They are not stored with the approval; see TokenActive.
+	TokenRevokedAt *time.Time `json:"-"`
+	TokenExpiresAt *time.Time `json:"-"`
+}
+
+// TokenActive reports whether the token that requested the approval existed,
+// was not revoked and had not expired at now, as of the read.
+func (a *AgentApproval) TokenActive(now time.Time) bool {
+	return a.TokenExpiresAt != nil && a.TokenRevokedAt == nil && now.Before(*a.TokenExpiresAt)
 }
 
 // EffectiveStatus is Status, except that a pending approval at or past its
@@ -151,17 +173,23 @@ func (s *SQLiteStore) CreateAgentApproval(a AgentApproval, now time.Time) (*Agen
 
 const agentApprovalSelect = `
 	SELECT a.id, a.kind, a.token_id, COALESCE(t.name, ''), a.flow_id, a.ref, a.args_json, a.summary,
-	       a.status, a.created_at, a.decided_at, a.decided_by, a.expires_at
+	       a.status, a.created_at, a.decided_at, a.decided_by, a.expires_at, t.revoked_at, t.expires_at
 	FROM agent_approvals a LEFT JOIN api_tokens t ON t.id = a.token_id`
+
+// approvalTokenActive matches approvals (aliased a) whose token exists, is
+// not revoked and has not expired at the bound time.
+const approvalTokenActive = `EXISTS (
+	SELECT 1 FROM api_tokens t WHERE t.id = a.token_id AND t.revoked_at IS NULL AND t.expires_at > ?)`
 
 func scanAgentApproval(row rowScanner) (*AgentApproval, error) {
 	var (
-		a                AgentApproval
-		args             sql.NullString
-		created, expires int64
-		decided          sql.NullInt64
+		a                          AgentApproval
+		args                       sql.NullString
+		created, expires           int64
+		decided                    sql.NullInt64
+		tokenRevoked, tokenExpires sql.NullInt64
 	)
-	if err := row.Scan(&a.ID, &a.Kind, &a.TokenID, &a.TokenName, &a.FlowID, &a.Ref, &args, &a.Summary, &a.Status, &created, &decided, &a.DecidedBy, &expires); err != nil {
+	if err := row.Scan(&a.ID, &a.Kind, &a.TokenID, &a.TokenName, &a.FlowID, &a.Ref, &args, &a.Summary, &a.Status, &created, &decided, &a.DecidedBy, &expires, &tokenRevoked, &tokenExpires); err != nil {
 		return nil, err
 	}
 	if args.Valid {
@@ -170,6 +198,8 @@ func scanAgentApproval(row rowScanner) (*AgentApproval, error) {
 	a.CreatedAt = time.Unix(created, 0).UTC()
 	a.ExpiresAt = time.Unix(expires, 0).UTC()
 	a.DecidedAt = unixPtr(decided)
+	a.TokenRevokedAt = unixPtr(tokenRevoked)
+	a.TokenExpiresAt = unixPtr(tokenExpires)
 	return &a, nil
 }
 
@@ -241,7 +271,9 @@ func (s *SQLiteStore) CountPendingAgentApprovals(now time.Time) (int, error) {
 // DecideAgentApproval approves or rejects a pending, unexpired approval. A
 // decision is final: deciding again returns ErrAgentApprovalDecided, and a
 // pending approval past its expiry is marked expired and returns
-// ErrAgentApprovalExpired.
+// ErrAgentApprovalExpired. Only a request whose token is still active can be
+// approved: otherwise the approval is closed as rejected (DecidedBy says why)
+// and ErrAgentApprovalTokenRevoked is returned. Rejecting needs no token.
 func (s *SQLiteStore) DecideAgentApproval(id string, approve bool, decidedBy string, now time.Time) (*AgentApproval, error) {
 	if s.isClosed() {
 		return nil, ErrDatabaseClosed
@@ -255,10 +287,15 @@ func (s *SQLiteStore) DecideAgentApproval(id string, approve bool, decidedBy str
 		return nil, fmt.Errorf("failed to begin approval decision: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
-	res, err := tx.Exec(`
-		UPDATE agent_approvals SET status = ?, decided_at = ?, decided_by = ?
-		WHERE id = ? AND status = ? AND expires_at > ?
-	`, status, now.Unix(), decidedBy, id, ApprovalPending, now.Unix())
+	query := `
+		UPDATE agent_approvals AS a SET status = ?, decided_at = ?, decided_by = ?
+		WHERE a.id = ? AND a.status = ? AND a.expires_at > ?`
+	args := []any{status, now.Unix(), decidedBy, id, ApprovalPending, now.Unix()}
+	if approve {
+		query += ` AND ` + approvalTokenActive
+		args = append(args, now.Unix())
+	}
+	res, err := tx.Exec(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decide approval: %w", err)
 	}
@@ -268,19 +305,29 @@ func (s *SQLiteStore) DecideAgentApproval(id string, approve bool, decidedBy str
 	}
 	var decideErr error
 	if n == 0 {
-		var current string
-		err := tx.QueryRow(`SELECT status FROM agent_approvals WHERE id = ?`, id).Scan(&current)
+		cur, err := scanAgentApproval(tx.QueryRow(agentApprovalSelect+` WHERE a.id = ?`, id))
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 			return nil, ErrAgentApprovalNotFound
 		case err != nil:
 			return nil, fmt.Errorf("failed to read approval: %w", err)
-		case current == ApprovalPending:
+		case cur.Status == ApprovalPending && !now.Before(cur.ExpiresAt):
 			if _, err := tx.Exec(`UPDATE agent_approvals SET status = ?, decided_at = expires_at WHERE id = ?`, ApprovalExpired, id); err != nil {
 				return nil, fmt.Errorf("failed to expire approval: %w", err)
 			}
 			decideErr = ErrAgentApprovalExpired
-		case current == ApprovalExpired:
+		case cur.Status == ApprovalPending:
+			// Only an approval can fail on a live pending request: its
+			// token can no longer act, so the request is void.
+			reason := ApprovalDecidedByTokenRevoked
+			if cur.TokenRevokedAt == nil && cur.TokenExpiresAt != nil {
+				reason = ApprovalDecidedByTokenExpired
+			}
+			if _, err := tx.Exec(`UPDATE agent_approvals SET status = ?, decided_at = ?, decided_by = ? WHERE id = ?`, ApprovalRejected, now.Unix(), reason, id); err != nil {
+				return nil, fmt.Errorf("failed to void approval: %w", err)
+			}
+			decideErr = ErrAgentApprovalTokenRevoked
+		case cur.Status == ApprovalExpired:
 			return nil, ErrAgentApprovalExpired
 		default:
 			return nil, ErrAgentApprovalDecided

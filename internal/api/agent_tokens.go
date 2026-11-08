@@ -19,6 +19,8 @@ const (
 	AgentTokenActive  = "active"
 	AgentTokenExpired = "expired"
 	AgentTokenRevoked = "revoked"
+	// AgentTokenUnknown is reported for an approval whose token does not exist.
+	AgentTokenUnknown = "unknown"
 )
 
 // AgentTokenView is a stored token as listed in the editor (never the secret
