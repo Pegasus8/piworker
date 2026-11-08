@@ -428,6 +428,23 @@ export function auditParams(filters: AuditFilters, limit: number, beforeId?: num
   return params
 }
 
+/**
+ * GET /api/agent/audit parameters for the rejection counters only. The server
+ * filters counters by token and time alone, and limits them like entries, so
+ * they are read apart with their own limit; beforeId=1 asks for no entries
+ * (audit ids start at 1).
+ */
+export function rejectionParams(filters: AuditFilters, limit: number): AuditParams {
+  const { tokenId, since, until } = auditParams(filters, limit)
+  const params: AuditParams = {}
+  if (tokenId) params.tokenId = tokenId
+  if (since) params.since = since
+  if (until) params.until = until
+  params.beforeId = 1
+  params.limit = limit
+  return params
+}
+
 /** A map key for a tool (flow and trigger node ids cannot contain NUL). */
 export function toolKey(flowId: string, triggerNodeId: string): string {
   return `${flowId}\u0000${triggerNodeId}`

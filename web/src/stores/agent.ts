@@ -10,6 +10,7 @@ import { createVisibilityPoller, type Poller, type PollerOptions } from '@/lib/p
 import {
   auditParams,
   buildCreateTokenRequest,
+  rejectionParams,
   toolKey,
   type AgentApproval,
   type AgentDeployLevel,
@@ -29,6 +30,8 @@ import {
 export const APPROVAL_POLL_MS = 10_000
 /** Audit rows per page. */
 export const AUDIT_PAGE_SIZE = 50
+/** Rejection counter rows read at once (the server's largest audit limit). */
+export const MAX_REJECTION_ROWS = 1000
 const MAX_RECENT_DECISIONS = 10
 
 export type ApprovalFilter = 'pending' | 'approved' | 'rejected' | 'expired' | 'all'
@@ -64,6 +67,8 @@ export const useAgentStore = defineStore('agent', () => {
   const agentApiAvailable = ref(true)
   const audit = ref<AuditEntry[]>([])
   const rejections = ref<AuditRejection[]>([])
+  /** Whether older counter rows exist than the ones read. */
+  const rejectionsTruncated = ref(false)
   const auditHasMore = ref(false)
   const auditFilters = ref<AuditFilters>({})
   const flowNames = ref<Record<string, string>>({})
@@ -204,13 +209,21 @@ export const useAgentStore = defineStore('agent', () => {
     const { data } = await apiClient.get('/agent/audit', { params: auditParams(auditFilters.value, AUDIT_PAGE_SIZE, beforeId) })
     const entries: AuditEntry[] = data.data?.entries ?? []
     audit.value = beforeId ? [...audit.value, ...entries] : entries
-    if (!beforeId) rejections.value = data.data?.rejections ?? []
     auditHasMore.value = entries.length === AUDIT_PAGE_SIZE
+  }
+
+  // Counters are per token, reason and minute; summing a page of them would
+  // undercount, so they are read with the largest limit.
+  async function loadRejections() {
+    const { data } = await apiClient.get('/agent/audit', { params: rejectionParams(auditFilters.value, MAX_REJECTION_ROWS) })
+    const rows: AuditRejection[] = data.data?.rejections ?? []
+    rejections.value = rows
+    rejectionsTruncated.value = rows.length >= MAX_REJECTION_ROWS
   }
 
   async function fetchAudit(filters: AuditFilters) {
     auditFilters.value = { ...filters }
-    await loadAudit()
+    await Promise.all([loadAudit(), loadRejections()])
   }
 
   async function loadMoreAudit() {
@@ -231,7 +244,7 @@ export const useAgentStore = defineStore('agent', () => {
 
   return {
     tokens, tools, toolsError, settings, approvals, pendingCount, recentDecisions, agentApiAvailable,
-    audit, rejections, auditHasMore, auditFilters, flowNames, tls,
+    audit, rejections, rejectionsTruncated, auditHasMore, auditFilters, flowNames, tls,
     activeTokens, toolFor,
     fetchTokens, createToken, revokeToken, revokeAllTokens, updateGrant,
     fetchTools, fetchSettings, saveSettings,

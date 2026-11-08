@@ -6,7 +6,7 @@ import { computed, onMounted, ref } from 'vue'
 import { Badge, Button, Card, Input, Label } from '@/components/ui'
 import AgentNav from '@/components/agent/AgentNav.vue'
 import AgentText from '@/components/agent/AgentText.vue'
-import { useAgentStore, apiErrorMessage } from '@/stores/agent'
+import { useAgentStore, apiErrorMessage, MAX_REJECTION_ROWS } from '@/stores/agent'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime, type AuditFilters } from '@/lib/agentAccess'
 
@@ -35,6 +35,12 @@ const rejectionTotals = computed(() => {
     } else totals.set(k, { tokenId: r.tokenId, reason: r.reason, count: r.count, last: r.at })
   }
   return [...totals.values()].sort((a, b) => b.count - a.count)
+})
+// The oldest minute counted, when older counters were left out.
+const rejectionsSince = computed(() => {
+  if (!agent.rejectionsTruncated) return ''
+  const oldest = agent.rejections.reduce((min, r) => r.at < min ? r.at : min, agent.rejections[0]?.at ?? '')
+  return formatDateTime(oldest)
 })
 
 async function run(action: () => Promise<void>) {
@@ -119,7 +125,13 @@ const inputClass = 'flex h-9 w-full rounded-md border border-input bg-background
         <Card v-if="rejectionTotals.length" class="space-y-3 p-4 sm:p-6">
           <div>
             <h2 class="text-lg font-semibold">Rejected calls</h2>
-            <p class="text-sm text-muted-foreground">Calls refused before running (busy, cooling down or invalid arguments) are counted, not listed.</p>
+            <p class="text-sm text-muted-foreground">
+              Calls refused before running (busy, cooling down or invalid arguments) are counted per minute, not listed.
+              The token and time filters apply; the tool, flow and outcome filters do not apply to these counts.
+            </p>
+            <p v-if="agent.rejectionsTruncated" class="text-sm text-amber-700 dark:text-amber-400">
+              Only the {{ MAX_REJECTION_ROWS }} most recent per-minute counts are summed, back to {{ rejectionsSince }}; older rejections are left out.
+            </p>
           </div>
           <div class="overflow-x-auto">
             <table aria-label="Rejected calls" class="w-full text-left text-sm">

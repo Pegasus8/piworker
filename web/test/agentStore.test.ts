@@ -29,7 +29,7 @@ const legacy = {
   getTLSInfo: async () => ({ mode: 'auto', caFingerprint: 'SHA256:AB', sans: [], notAfter: null, caCertUrl: '/piworker-ca.crt' })
 }
 mock.module('../src/composables/useApi', () => ({ apiClient, useApi: () => legacy }))
-const { useAgentStore } = await import('../src/stores/agent')
+const { useAgentStore, MAX_REJECTION_ROWS } = await import('../src/stores/agent')
 
 const token = (id: string, status = 'active', grants: unknown[] = []) => ({
   id, name: `token ${id}`, prefix: `pwk_${id}`, scopes: ['call'], privileged: false, grants, allTools: false,
@@ -182,26 +182,55 @@ test('approving keeps the decision and its execution outcome', async () => {
   expect(calls.filter(c => c.method === 'POST').map(c => c.url)).toEqual(['/agent/approvals/x/approve', '/agent/approvals/y/reject'])
 })
 
+const auditPage = (from: number, n: number) => Array.from({ length: n }, (_, i) => ({ id: from - i, ts: '2026-11-08T12:00:00Z', tokenId: 'a', tokenName: 'laptop', tool: 't', outcome: 'completed', durMs: 5, privileged: false }))
+const rejection = (minute: number, count = 1) => ({ tokenId: 'a', at: new Date(Date.UTC(2026, 10, 8, 12, minute)).toISOString(), reason: 'busy', count })
+// Entries come from requests that page by entries; counters from the one that asks for none.
+const isCounters = (c: Call) => (c.params as Record<string, unknown>).beforeId === 1
+
 test('the audit pages backwards with beforeId and appends', async () => {
-  const page = (from: number, n: number) => Array.from({ length: n }, (_, i) => ({ id: from - i, ts: '2026-11-08T12:00:00Z', tokenId: 'a', tokenName: 'laptop', tool: 't', outcome: 'completed', durMs: 5, privileged: false }))
-  let next = page(100, 50)
-  routes['GET /agent/audit'] = () => ({ entries: next, rejections: [{ tokenId: 'a', at: '2026-11-08T12:00:00Z', reason: 'busy', count: 4 }] })
+  let next = auditPage(100, 50)
+  routes['GET /agent/audit'] = (c) => isCounters(c)
+    ? { entries: [], rejections: [rejection(0, 4)] }
+    : { entries: next, rejections: [] }
   const store = useAgentStore()
   await store.fetchAudit({ tool: 'garage_open' })
-  expect(calls[0].params).toEqual({ tool: 'garage_open', limit: 50 })
+  const entryCalls = () => calls.filter(c => !isCounters(c))
+  expect(entryCalls()[0].params).toEqual({ tool: 'garage_open', limit: 50 })
   expect(store.audit).toHaveLength(50)
   expect(store.auditHasMore).toBe(true)
   expect(store.rejections[0].count).toBe(4)
-  next = page(50, 3)
+  next = auditPage(50, 3)
   await store.loadMoreAudit()
-  expect(calls[1].params).toEqual({ tool: 'garage_open', beforeId: 51, limit: 50 })
+  expect(entryCalls()[1].params).toEqual({ tool: 'garage_open', beforeId: 51, limit: 50 })
   expect(store.audit).toHaveLength(53)
   expect(store.auditHasMore).toBe(false)
+  // Paging does not reload the counters.
+  expect(calls.filter(isCounters)).toHaveLength(1)
   // A new search starts over.
-  next = page(10, 1)
+  next = auditPage(10, 1)
   await store.fetchAudit({})
-  expect(calls[2].params).toEqual({ limit: 50 })
+  expect(entryCalls()[2].params).toEqual({ limit: 50 })
   expect(store.audit.map(e => e.id)).toEqual([10])
+})
+
+test('rejection counters are read apart, with the largest limit and only the filters they support', async () => {
+  let counters = [rejection(2), rejection(1)]
+  routes['GET /agent/audit'] = (c) => isCounters(c) ? { entries: [], rejections: counters } : { entries: auditPage(5, 1), rejections: [rejection(9)] }
+  const store = useAgentStore()
+  const local = '2026-11-08T12:30'
+  await store.fetchAudit({ tokenId: 'a', tool: 'garage_open', flowId: 'f1', outcome: 'busy', since: local, until: local })
+  // The server applies only the token and the time range to counters, and a
+  // page of entries would cut them to its own limit. beforeId=1 asks for no
+  // entries (ids start at 1).
+  const counterCall = calls.find(isCounters)!
+  const at = new Date(local).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  expect(counterCall.params).toEqual({ tokenId: 'a', since: at, until: at, beforeId: 1, limit: MAX_REJECTION_ROWS })
+  expect(MAX_REJECTION_ROWS).toBe(1000)
+  expect(store.rejections).toEqual(counters)
+  expect(store.rejectionsTruncated).toBe(false)
+  counters = Array.from({ length: MAX_REJECTION_ROWS }, (_, i) => rejection(i % 60))
+  await store.fetchAudit({})
+  expect(store.rejectionsTruncated).toBe(true)
 })
 
 test('flow names and TLS details come from the existing API', async () => {
