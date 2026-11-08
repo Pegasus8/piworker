@@ -58,6 +58,10 @@ var (
 	// ErrTooManyCalls: the runtime already tracks its maximum of called runs
 	// and none of them is a finished result that could make room.
 	ErrTooManyCalls = errors.New("too many calls in progress")
+	// ErrTriggerBusy: the trigger did not accept the call within its timeout
+	// (its output stayed full). Like ErrTooManyCalls it means "busy, retry
+	// later"; no run was started.
+	ErrTriggerBusy = errors.New("trigger is busy")
 )
 
 // flowStoppedMessage is the CallError message of calls cancelled by Stop.
@@ -107,6 +111,14 @@ type Replier interface {
 // the run continues and Wait can be used later. On ctx cancellation it returns
 // the same "running" result together with ctx.Err().
 //
+// The timeout counts from the start of Call and covers handing the message to
+// the trigger: when the trigger does not accept it in time, no run is started
+// and Call fails with ErrTriggerBusy.
+//
+// A message of the run that is dropped before it executes (full node queue,
+// unknown target, routing timeout) is recorded like a node error ("message
+// dropped at node X: …"), so the call reports an error unless a reply won.
+//
 // A final result returned by Call is handed over to the caller: the runtime
 // forgets it as soon as the run is over (RunDone closed), so a later Wait for
 // that run reports "expired". Only results Call could not return (status
@@ -151,13 +163,22 @@ func (r *FlowRuntime) Call(ctx context.Context, req CallRequest) (CallResult, er
 	if req.Actor != "" {
 		msg.SetMeta("actor", req.Actor)
 	}
-	if err := emitter.Emit(ctx, msg); err != nil {
+	// The timeout covers the hand-off too: a trigger whose output stays full
+	// must not hold the caller past it.
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	emitCtx, cancelEmit := context.WithTimeout(ctx, timeout)
+	err = emitter.Emit(emitCtx, msg)
+	handOffExpired := ctx.Err() == nil && errors.Is(emitCtx.Err(), context.DeadlineExceeded)
+	cancelEmit()
+	if err != nil {
 		r.calls.remove(runID)
+		if handOffExpired {
+			return CallResult{}, fmt.Errorf("%w: %s did not accept the call within %s", ErrTriggerBusy, req.TriggerNodeID, timeout)
+		}
 		return CallResult{}, fmt.Errorf("start run on %s: %w", req.TriggerNodeID, err)
 	}
 
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
 	var interrupted error
 	select {
 	case <-w.done:
@@ -370,9 +391,22 @@ func (c *callRegistry) runDoneChan(runID string) <-chan struct{} {
 	return closedChan
 }
 
+// waiting reports whether correlationID is a call still waiting for its result.
+func (c *callRegistry) waiting(correlationID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	w := c.waiters[correlationID]
+	return w != nil && !w.final
+}
+
 // Reply implements Replier.
 func (c *callRegistry) Reply(correlationID string, payload any, isError bool) bool {
-	// Serialize outside the lock; this is the deep copy of the payload.
+	// Most runs are not calls: only serialize for a call still waiting.
+	if !c.waiting(correlationID) {
+		return false
+	}
+	// Serialize outside the lock; this is the deep copy of the payload. The
+	// waiter is checked again below, another reply may have won meanwhile.
 	data, err := json.Marshal(payload)
 	failure := ""
 	switch {
@@ -408,13 +442,29 @@ func (c *callRegistry) nodeError(correlationID, nodeID, nodeType string, err err
 	if err == nil {
 		return
 	}
+	c.recordError(correlationID, nodeID, nodeType, err.Error)
+}
+
+// dropped records, as the run's error, that one of its messages was dropped
+// before nodeID could execute it (full queue, unknown target, routing
+// timeout): the call reports error, not a silent completed_no_reply, unless a
+// reply already won or an earlier error was recorded.
+func (c *callRegistry) dropped(correlationID, nodeID, nodeType, reason string) {
+	c.recordError(correlationID, nodeID, nodeType, func() string {
+		return fmt.Sprintf("message dropped at node %s: %s", nodeID, reason)
+	})
+}
+
+// recordError keeps the first error of a call still waiting; message is only
+// built for such a call.
+func (c *callRegistry) recordError(correlationID, nodeID, nodeType string, message func() string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	w := c.waiters[correlationID]
 	if w == nil || w.final || w.nodeErr != nil {
 		return
 	}
-	w.nodeErr = &CallError{NodeID: nodeID, NodeType: nodeType, Message: err.Error()}
+	w.nodeErr = &CallError{NodeID: nodeID, NodeType: nodeType, Message: message()}
 }
 
 // runFinished is called once a run's in-flight work drained. A call still

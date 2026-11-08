@@ -351,7 +351,9 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 			active = append(active, c)
 		}
 	}
-	rt.router = NewMessageRouter(active, rt.logger, WithDropHandler(rt.releaseDropped))
+	rt.router = NewMessageRouter(active, rt.logger, WithDropHandler(func(m RoutedMessage) {
+		rt.releaseDropped(m, "routing timed out (the flow is overloaded)")
+	}))
 
 	return rt, nil
 }
@@ -604,7 +606,7 @@ func (r *FlowRuntime) dispatch() {
 					Str("nodeID", routedMsg.TargetNode).
 					Msg("Target node not found or disabled; dropping message")
 				metrics.IncrementMessagesDropped()
-				r.releaseDropped(routedMsg)
+				r.releaseDropped(routedMsg, "the node is not running (not found or disabled)")
 				continue
 			}
 
@@ -616,7 +618,7 @@ func (r *FlowRuntime) dispatch() {
 					Int("queueLimit", r.queueLimit).
 					Msg("Node queue full; dropping message")
 				metrics.IncrementMessagesDropped()
-				r.releaseDropped(routedMsg)
+				r.releaseDropped(routedMsg, fmt.Sprintf("its queue is full (limit %d)", r.queueLimit))
 			}
 		}
 	}
@@ -634,12 +636,19 @@ func actorOf(msg *types.Message) string {
 }
 
 // releaseDropped accounts for a routed message that will never execute: it
-// counts the drop and releases the message's slot in its run, so the run still
-// finishes. Every drop path (queue overflow, unknown target, router send
-// timeout) must call it exactly once per dropped message.
-func (r *FlowRuntime) releaseDropped(routedMsg RoutedMessage) {
+// counts the drop, records it as the error of a called run (reason says why),
+// and releases the message's slot in its run, so the run still finishes.
+// Every drop path (queue overflow, unknown target, router send timeout) must
+// call it exactly once per dropped message.
+func (r *FlowRuntime) releaseDropped(routedMsg RoutedMessage, reason string) {
 	r.droppedMessages.Add(1)
-	r.runDone(r.ensureCorrelationID(routedMsg.Message))
+	corrID := r.ensureCorrelationID(routedMsg.Message)
+	nodeType := ""
+	if def := r.nodeDefs[routedMsg.TargetNode]; def != nil {
+		nodeType = def.Type
+	}
+	r.calls.dropped(corrID, routedMsg.TargetNode, nodeType, reason)
+	r.runDone(corrID)
 }
 
 // DroppedMessages reports how many messages this runtime discarded.
