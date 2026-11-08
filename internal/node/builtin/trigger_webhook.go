@@ -189,7 +189,7 @@ func webhookTriggerConfigSchema() node.ConfigSchema {
 			"path": {
 				Type:        "string",
 				Title:       "Path",
-				Description: "URL path segment under /api/webhooks/ (e.g. 'github-push')",
+				Description: "URL path segment under /webhooks/ (e.g. 'github-push')",
 			},
 			"method": {
 				Type:        "string",
@@ -229,14 +229,14 @@ service that can POST to a URL.
 ## URL
 
 ` + "```" + `
-http(s)://<host>/api/webhooks/<path>
+http(s)://<host>/webhooks/<path>
 ` + "```" + `
 
 ## Configuration
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| path | string | - | Path segment under /api/webhooks/ (required, unique per flow) |
+| path | string | - | Path segment under /webhooks/ (required, unique per flow) |
 | method | string | (any) | Only accept this HTTP method |
 | token | string | - | Optional shared secret (` + "`?token=`" + ` or ` + "`X-Webhook-Token`" + ` header) |
 

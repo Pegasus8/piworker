@@ -70,7 +70,10 @@ func TestRequestGuardRequiresJSONBodies(t *testing.T) {
 
 func TestRequestGuardLeavesSafeAndExternalRequestsAlone(t *testing.T) {
 	require.Equal(t, http.StatusTeapot, guardRequest("GET", "/api/flows", "", nil))
-	// Webhooks are meant for external callers with arbitrary content types.
-	require.Equal(t, http.StatusTeapot, guardRequest("POST", "/api/webhooks/hook", "a=b", map[string]string{"Content-Type": "text/plain"}))
+	// Webhooks are meant for external callers with arbitrary content types and
+	// live outside /api.
+	require.Equal(t, http.StatusTeapot, guardRequest("POST", "/webhooks/hook", "a=b", map[string]string{"Content-Type": "text/plain"}))
+	// Nothing under /api is exempt any more.
+	require.Equal(t, http.StatusForbidden, guardRequest("POST", "/api/webhooks/hook", "a=b", map[string]string{"Content-Type": "text/plain"}))
 	require.Equal(t, http.StatusTeapot, guardRequest("POST", "/some/page", "", nil))
 }

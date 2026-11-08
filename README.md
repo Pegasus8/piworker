@@ -369,7 +369,7 @@ sudo systemctl start piworker
 | **Interval Timer** | `trigger-interval` | Fire at regular time intervals |
 | **Cron Schedule** | `trigger-cron` | Fire on a cron schedule (e.g., `0 9 * * *`) |
 | **Manual Inject** | `trigger-manual` | Fire on demand from the UI or API |
-| **Webhook** | `trigger-webhook` | Fire on an incoming HTTP request to `/api/webhooks/<path>` |
+| **Webhook** | `trigger-webhook` | Fire on an incoming HTTP request to `/webhooks/<path>` |
 | **RSS / Atom** | `trigger-rss` | Poll a feed for new entries |
 | **MQTT Subscribe** | `trigger-mqtt` | Receive messages from an MQTT broker |
 | **GPIO Edge** | `trigger-gpio` | React to Raspberry Pi pin changes |
@@ -542,7 +542,7 @@ exist; only the implicit `piworker.toml` may be absent.
 Prometheus metrics are served at `/api/metrics` (and `/metrics`). When
 authentication is enabled both require a signed-in session.
 
-Write requests to `/api/` (except `/api/webhooks/`) must come from the editor
+Write requests to `/api/` must come from the editor
 even when authentication is disabled: they need the `X-PiWorker-Request: 1`
 header, a same-origin or `cors_origins` Origin, and a JSON body.
 
@@ -605,9 +605,9 @@ no longer accepted; old JWT configuration values are ignored for compatibility.
 ### Webhooks
 
 Deploy a flow with a **Webhook** trigger and external services can start it by
-calling `http://<host>/api/webhooks/<path>` (or HTTPS through a configured proxy).
-These endpoints use their own optional token authentication, independently of
-the administrator session. Set a token on the node to
+calling `http://<host>/webhooks/<path>` (or HTTPS through a configured proxy).
+These endpoints live outside `/api`, so the administrator's session cookie is
+never sent to them, and they use their own optional token authentication. Set a token on the node to
 require `?token=...` or an `X-Webhook-Token` header.
 
 ---

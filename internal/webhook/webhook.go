@@ -16,7 +16,7 @@ import (
 
 const (
 	// PathPrefix is where webhook endpoints are mounted on the HTTP server.
-	PathPrefix = "/api/webhooks/"
+	PathPrefix = "/webhooks/"
 	// maxBodyBytes caps how much of a webhook request body is read.
 	maxBodyBytes = 1 << 20
 )

@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Pegasus8/piworker/internal/webhook"
 	"github.com/gorilla/mux"
 )
 
@@ -16,10 +15,10 @@ func isSafeMethod(method string) bool {
 }
 
 // isGuardedAPIPath reports whether path is part of the editor's own API. Webhook
-// endpoints are excluded: they exist for external callers and authenticate with
-// their own optional token.
+// endpoints for external callers live outside /api (under /webhooks/), so the
+// whole /api tree is guarded with no exceptions.
 func isGuardedAPIPath(path string) bool {
-	return strings.HasPrefix(path, "/api/") && !strings.HasPrefix(path, webhook.PathPrefix)
+	return strings.HasPrefix(path, "/api/")
 }
 
 // csrfAllowed verifies that an unsafe request comes from the PiWorker editor:
