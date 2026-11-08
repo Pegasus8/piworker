@@ -340,29 +340,74 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 
 ## 8. `/mcp` endpoint — `internal/mcpserver`
 
-- SDK: `github.com/modelcontextprotocol/go-sdk` pinned exactly.
-  `mcp.NewStreamableHTTPHandler(getServer, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, DisableLocalhostProtection: true, MaxRequestBodyBytes: …, PropagateRequestCancellation: true})`.
-- Capabilities: tools and prompts with `listChanged: false`;
-  `subscriptions/listen` rejected; `cacheScope: private`, short `ttlMs`.
-- `getServer(r)` builds (and caches by token id + tools snapshot version +
-  token epoch) a per-token `*mcp.Server` with only permitted tools, inside
-  `recover()` so one bad tool is skipped.
+- SDK: `github.com/modelcontextprotocol/go-sdk` pinned exactly (v1.8.0).
+  `mcp.NewStreamableHTTPHandler(getServer, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, DisableLocalhostProtection: true, MaxRequestBodyBytes: 1 MiB, PropagateRequestCancellation: true})`
+  (1 MiB: arguments are at most 64 KiB in practice; the SDK default of 4 MiB
+  is too much for a Pi under a flood of bodies).
+- Protocol versions: 2026-07-28 (sessionless, `server/discover`),
+  2025-11-25 and 2025-06-18 (`initialize`); others are refused. The legacy
+  handshake asked for 2026-07-28 settles on 2025-11-25 (SDK behaviour).
+- Capabilities: tools and prompts with `listChanged: false` (always
+  advertised, even when empty); `subscriptions/listen` is answered with
+  JSON-RPC `-32601` before the SDK sees it; list and discover results carry
+  `cacheScope: private`, `ttlMs: 5000`.
+- `getServer(r)` builds a per-token `*mcp.Server` holding only what the token
+  may use now: the flow tools `service.Tools.List(actor)` returns (exactly
+  Call's permission rules, without suspending changed grants), plus the
+  built-in tools and prompts of its scopes. Each tool is built inside
+  `recover()` so one bad tool is skipped and logged. Servers are cached by
+  (token id, tools snapshot version, tokens epoch, hash of the token's scopes,
+  flags and grants), one per token, at most 32 (least recently used dropped
+  first), so a redeploy, a grant change or an `agent_deploy` change shows on
+  the next request; a revoked token gets 401.
+- Flow tools use the low-level `Server.AddTool` with the canonical input
+  schema (`toolschema` `JSON()`), title, description, explicit annotations
+  (all four hints), the output schema when set and
+  `_meta["anthropic/requiresUserInteraction"]` when required. Arguments are
+  validated by `service.Tools.Call`, not by the SDK. Calls of names the
+  server does not hold go to the service as well, so hidden and unknown tools
+  get the same `not_found` result (and audit).
+- Built-in tools register as `StaticTool{Name (pw_…), Title, Description,
+  InputSchema (closed toolschema subset), OutputSchema, Annotations, Scope,
+  Handler(ctx, service.Actor, args)}`; prompts as `StaticPrompt{Prompt, Scope,
+  Handler}`. Arguments are validated before the handler runs.
 - Middleware (in order): loopback check when TLS is off and `lan_access` is
-  false → 403; Host allowlist; Origin must be allowlisted if present; write
-  deadline extended to 35 s; own Bearer verifier (401 +
-  `WWW-Authenticate: Bearer`, own failure limiter); per-token token bucket
-  (30/min, burst 10); scope check.
+  false → 403; Host allowlist (also router-wide); Origin, if present, must be
+  this server (scheme, host and port; both schemes without TLS) with an
+  allowed host, or an allowed origin (`cors_origins`) → 403; write deadline
+  extended to 35 s; own Bearer verifier (cookies and query tokens ignored;
+  401 + `WWW-Authenticate: Bearer realm="piworker"` and a JSON body; 503 when
+  the token store cannot be read; tokens never logged) with its own
+  per-client failure limiter (10 failures a minute per IP, IPv6 per /64, then
+  429 + `Retry-After`); per-token token bucket (30/min, burst 10 → 429 +
+  `Retry-After`); scope check (call or read, or the scope of a registered
+  built-in tool or prompt; a `tools/call` needs the tool's scope — call for
+  any flow tool name → 403). The scope check parses the body strictly, like
+  the SDK (case-sensitive names; duplicate names → 400, JSON-RPC `-32700`).
+- `/mcp` is outside `/api`: the ADR-0002 request guard and CSRF do not apply
+  (Bearer only; the router never allows `Authorization` in a CORS preflight).
 - Mounted at `/mcp` without method restriction, before the webui catch-all;
   `/.well-known/*` returns JSON 404. Disabled → JSON 404.
 - `mcp.enabled = true` with auth disabled is a startup error.
-- Tools: dynamic tools + `pw_get_result` (call); `pw_list_flows`,
+- The MCP audit is pruned at start and hourly (30 days, at most 50 000 rows;
+  privileged calls are never evicted early).
+- Tools: dynamic tools + `pw_get_result{runId}` (call; waits up to 10 s for a
+  running call); `pw_list_flows`,
   `pw_get_flow`, `pw_list_runs`, `pw_get_run`, `pw_system_status`, prompt
   `diagnose_flow` (read); `pw_search_node_types`, `pw_get_node_type`,
   `pw_list_secret_names`, `pw_validate_flow`, `pw_test_node`, `pw_dry_run`,
   `pw_save_draft`, `pw_get_draft_status`, prompt `build_flow` (author);
   `pw_deploy_draft`, `pw_stop_flow`, `pw_start_flow` (deploy, policy-gated).
-- Tool errors are `isError: true` results; protocol errors only for protocol
-  problems. Validation errors list `{pointer, message}`.
+- Results: a completed call's structured content is its reply (wrapped as
+  `{"result": …}` unless it is a JSON object), with the JSON as a text block.
+  Every other outcome is an envelope `{status, runId, error?, message?,
+  durationMs?}` (`error`: `{code, message, issues?, retryAfterMs?, nodeId?,
+  nodeType?}`); `_meta` carries `piworker/status` and `piworker/runId`.
+  Tool errors are `isError: true` results (service refusals, flow errors,
+  rejected, expired, `approval_required`); protocol errors only for protocol
+  problems. Validation errors list `{pointer, message}`. With an output
+  schema, outcomes that cannot match it are `isError` too, and a reply that
+  does not match it is reported as `output_schema_mismatch`.
 
 ## 9. Approvals (`confirm: admin`) and audit
 
