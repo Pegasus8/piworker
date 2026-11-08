@@ -371,6 +371,10 @@ func (t *Tools) requestApproval(actor Actor, info flow.ToolInfo, args map[string
 	if errors.Is(err, storage.ErrTooManyPendingApprovals) {
 		return flow.CallResult{}, toolError(ErrBusy, "too many calls of this token are already waiting for the admin's approval")
 	}
+	if errors.Is(err, storage.ErrInvalidAgentApproval) {
+		// The arguments exceed what an approval keeps.
+		return flow.CallResult{}, toolError(ErrInvalidArguments, "the arguments are too large to queue for approval")
+	}
 	if err != nil {
 		return flow.CallResult{}, fmt.Errorf("queue approval: %w", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -483,6 +484,71 @@ func TestExecuteApprovalNeedsTheToolIdentity(t *testing.T) {
 	err = e.tools.ExecuteApproval(context.Background(), *approved)
 	requireKind(t, err, ErrUnavailable)
 	assert.Empty(t, e.tools.results.runs, "nothing ran")
+}
+
+// approvedApproval stores an approved tool-call approval of a new token.
+func (e *env) approvedApproval() string {
+	e.t.Helper()
+	agent := e.agent(storage.NewAPIToken{AllTools: true})
+	a, err := e.store.CreateAgentApproval(storage.AgentApproval{
+		Kind: storage.ApprovalKindToolCall, TokenID: agent.TokenID, FlowID: "f", Ref: "tool",
+	}, time.Now())
+	require.NoError(e.t, err)
+	_, err = e.store.DecideAgentApproval(a.ID, true, "admin", time.Now())
+	require.NoError(e.t, err)
+	return a.ID
+}
+
+func (e *env) storedApprovalResult(id string) flow.CallResult {
+	e.t.Helper()
+	a, err := e.store.GetAgentApproval(id)
+	require.NoError(e.t, err)
+	var res flow.CallResult
+	require.NoError(e.t, json.Unmarshal(a.Result, &res))
+	return res
+}
+
+// The stored result is not HTML-escaped (each <, > and & would take six
+// bytes), and a result that cannot be stored is replaced by an error, so
+// the agent never reads "running" forever.
+func TestApprovalResultStorage(t *testing.T) {
+	e := newEnv(t)
+	html := `"` + strings.Repeat("<b>&", (1<<20)/4) + `"` // 1 MiB, 6 MiB escaped
+	id := e.approvedApproval()
+	e.tools.storeApprovalResult(id, flow.CallResult{Status: flow.CallStatusCompleted, RunID: "run-1", Result: json.RawMessage(html)})
+	got := e.storedApprovalResult(id)
+	assert.Equal(t, flow.CallStatusCompleted, got.Status)
+	assert.JSONEq(t, html, string(got.Result))
+
+	id = e.approvedApproval()
+	e.tools.storeApprovalResult(id, flow.CallResult{Status: flow.CallStatusRunning, RunID: "run-2"})
+	tooBig := `"` + strings.Repeat("x", storage.MaxApprovalResultBytes) + `"`
+	e.tools.storeApprovalResult(id, flow.CallResult{Status: flow.CallStatusCompleted, RunID: "run-2", Result: json.RawMessage(tooBig)})
+	got = e.storedApprovalResult(id)
+	assert.Equal(t, flow.CallStatusError, got.Status)
+	assert.Equal(t, "run-2", got.RunID)
+	require.NotNil(t, got.Error)
+	assert.Contains(t, got.Error.Message, "could not be stored")
+}
+
+// Arguments too large to queue for the admin are the agent's problem
+// (invalid arguments), not an internal failure.
+func TestApprovalArgumentsTooLargeToQueue(t *testing.T) {
+	e := newEnv(t)
+	props := map[string]any{}
+	args := map[string]any{}
+	for i := range 20 {
+		name := fmt.Sprintf("p%02d", i)
+		props[name] = map[string]any{"type": "string", "maxLength": float64(4096)}
+		args[name] = strings.Repeat("a", 4000)
+	}
+	info := e.deploy(fan(toolConfig(map[string]any{"confirm": "admin", "inputSchema": map[string]any{
+		"type": "object", "properties": props,
+	}}), echo()))
+	agent := e.agent(storage.NewAPIToken{Grants: grant(info)})
+	_, err := e.call(agent, info, args)
+	te := requireKind(t, err, ErrInvalidArguments)
+	assert.Contains(t, te.Message, "too large")
 }
 
 func TestExecuteApprovalRefusesOtherKinds(t *testing.T) {

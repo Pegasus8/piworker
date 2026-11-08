@@ -59,13 +59,28 @@ func (t *Tools) ExecuteApproval(ctx context.Context, a storage.AgentApproval) er
 	return nil
 }
 
+// storeApprovalResult stores res on an approved tool call. A result that
+// cannot be stored (too large, or a database error) is replaced by a small
+// error result, so the agent is not told "running" forever.
 func (t *Tools) storeApprovalResult(id string, res flow.CallResult) {
-	data, err := json.Marshal(res)
+	data, err := marshalNoEscape(res)
+	if err == nil {
+		err = t.store.SetAgentApprovalResult(id, data)
+	}
+	if err == nil {
+		return
+	}
+	t.log.Error().Err(err).Str("approvalId", id).Msg("Cannot store the result of an approved tool call")
+	if res.Status == flow.CallStatusRunning {
+		return // the final result replaces it, or fails the same way
+	}
+	data, err = marshalNoEscape(flow.CallResult{Status: flow.CallStatusError, RunID: res.RunID, DurationMs: res.DurationMs,
+		Error: &flow.CallError{Message: "the result could not be stored"}})
 	if err == nil {
 		err = t.store.SetAgentApprovalResult(id, data)
 	}
 	if err != nil {
-		t.log.Error().Err(err).Str("approvalId", id).Msg("Cannot store the result of an approved tool call")
+		t.log.Error().Err(err).Str("approvalId", id).Msg("Cannot store the error result of an approved tool call")
 	}
 }
 
