@@ -50,9 +50,10 @@ an MCP client node (`action-mcp-call`, deferred to its own design).
   - `http_addr` (default `:8080`, empty disables) serves plain HTTP that
     **308-redirects** everything to HTTPS, except `/webhooks/` (served directly
     when `webhooks_http = true`, the default, because many devices cannot trust
-    a custom CA) and `/piworker-ca.crt`.
-- `GET /piworker-ca.crt` (public, both listeners): the CA certificate (PEM,
-  `application/x-pem-file`). `GET /api/tls` (authenticated): mode, CA SHA-256
+    a custom CA), `/piworker-ca.crt` and GET/HEAD `/api/health`.
+- `GET /piworker-ca.crt` (public, both listeners): the CA certificate (PEM body
+  served as `application/x-x509-ca-cert`, so Firefox, iOS and Android offer
+  their CA-import flow; 404 without a local CA). `GET /api/tls` (authenticated): mode, CA SHA-256
   fingerprint, server certificate SANs and expiry.
 - Session cookies are `Secure` automatically when TLS is on (the existing
   `session_secure` remains for `off` behind a proxy).
@@ -145,8 +146,18 @@ func (r *FlowRuntime) RunDone(runID string) <-chan struct{}
 - `runID` is generated server-side (UUID) and set as `correlationID`.
 - Node errors in a called run are collected (`CallError`, redacted by the
   caller); `runDone` closes the waiter.
-- Waiter hard lifetime: `timeout + 10 min`, then `expired`. `Stop` cancels
-  waiters (`error`: "flow stopped").
+- Waiter hard lifetime: `timeout + 10 min` from the call's start, then
+  `expired`. `Stop` cancels waiters (`error`: "flow stopped") and frees them.
+- **Results are handed over once.** A final result returned by `Call` is
+  forgotten when the run ends; only results `Call` returned as `running` stay
+  retrievable with `Wait`. Callers that need a result later (approvals,
+  `pw_get_result`) keep the `CallResult` they received.
+- Bounds: at most `DefaultMaxCallWaiters` (64) tracked calls per runtime (the
+  uncollected result closest to expiry is evicted first; `ErrTooManyCalls`,
+  mapped to `busy`, only when all belong to running runs); a reply larger than
+  `DefaultMaxCallResultBytes` (256 KiB) is refused (the service truncates to
+  `max_result_bytes` itself). `RunDone` also closes on `Stop` and on waiter
+  expiry, so a stuck run cannot hold service slots forever.
 - A trigger-tool with no active router edge (`targetCount == 0`) fails deploy.
 - `flow_runs` gains an `actor` column, filled from the run's meta `actor`.
 
@@ -251,8 +262,13 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 - Grants bind to `(flowID, triggerNodeID, fingerprint)`. A redeploy that
   changes the fingerprint to a higher risk or a wider schema suspends the grant
   until the admin re-confirms. `all_tools` never includes privileged tools.
-- Created/revoked only from the editor (cookie + CSRF) with **password
-  step-up**. No token can manage tokens.
+- Created only from the editor (cookie + CSRF) with **password step-up**;
+  revoking needs no password (it only narrows access). Adding a grant or
+  re-confirming a suspended or widened one needs step-up; suspend/remove do
+  not. Grant changes are applied in one transaction. No token can manage
+  tokens.
+- `tokens_epoch` is bumped on every revoke and grant change; changing
+  `agent_deploy` also bumps it so cached per-token MCP servers are rebuilt.
 - In-memory cache of verified tokens; evicted on revoke; a `tokens_epoch`
   setting re-checked every 5 s covers revocations from other processes.
 - Recovery-code redemption and password change revoke all tokens (password
@@ -295,12 +311,18 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   `tool_call`, `draft_deploy`. Pending approvals expire (tool calls: 15 min).
 - A `confirm: admin` call returns `{status:"approval_required", runId}`; the
   editor shows a queue (badge + page) with tool, args (text only), risk and
-  token; approve runs the call (result retrievable with `pw_get_result`);
-  reject → `rejected`.
+  token; approve runs the call and stores its `CallResult` on the approval
+  (retrievable with `pw_get_result`); reject → `rejected`.
+- Revoking or expiring a token voids its pending approvals (closed as
+  rejected, `decided_by` "token revoked"/"token expired"); approving one is
+  refused. Pending approvals are capped per token and kind
+  (`ErrTooManyPendingApprovals` → `busy`); tool-call arguments are deleted on
+  expiry; decided approvals are kept 30 days.
 - Table `mcp_audit(ts, token_id, token_name, tool, flow_id, run_id,
   args_sha256, args_preview, outcome, dur_ms)`; async batched writes; retention
   30 days by time; rejections (`busy`, cooldown, invalid args) stored as
-  per-token per-minute counters; privileged calls never evicted early.
+  per-token per-minute counters (`mcp_rejections`); privileged calls never
+  evicted early. The audit API pages by `id` (most recently recorded first).
 - Agent-authored text is rendered as plain text only (never `marked`/`v-html`);
   the webui sends `Content-Security-Policy: script-src 'self'`.
 
@@ -314,7 +336,7 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   `baseVersion` → conflict. The redaction sentinel `"<redacted>"` means "keep
   the base value"; any other literal in a `Sensitive` field is rejected (only
   `{{secret.NAME}}` allowed). Author scope cannot create/modify `trigger-tool`,
-  `action-reply`, webhook token/path or `allowPrivate`.
+  `action-reply`, webhook token/path, `allowPrivate` or `allowDashArgs`.
 - `flow.Lint(f, registry)` returns all issues `{path, code, severity,
   message}` (validation + config typing + risk); `pw_validate_flow` exposes it.
 - `pw_dry_run`: instantiates the flow with `Registry.Derive` stubs for output
@@ -324,7 +346,8 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 - `pw_test_node`: processing nodes only, empty stores.
 - Approval page: per-node type and diff, agent text marked as such, risk,
   alerts for recipient/destination changes (`chatId`, `to`, topic, broker,
-  URL), dynamic destinations, secrets moved between fields, new hosts.
+  URL), dynamic destinations, secrets moved between fields, new hosts, and any
+  opt-in risk switch turned on (`allowPrivate`, `allowDashArgs`).
 - **Agent deploy (opt-in risk).** Setting `agent_deploy`: `off` (default),
   `low` (agent may deploy/start/stop flows and approve its own drafts when the
   resulting flow's risk is ≤ external, no recipient/destination changes vs the

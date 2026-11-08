@@ -60,6 +60,8 @@ use their own limiter (not the login limiter).
 
 ## Action items
 
-1. [ ] `api_tokens` storage, verifier with cache and `tokens_epoch`, own limiter.
-2. [ ] Editor UI and REST with password step-up; grants with fingerprints.
-3. [ ] Revocation on recovery-code redemption and password change.
+1. [x] `api_tokens` storage, verifier with cache and `tokens_epoch`.
+2. [ ] Own per-token rate limiter on `/mcp`.
+3. [x] Editor REST with password step-up; grants with fingerprints.
+4. [ ] Editor UI for tokens and grants.
+5. [x] Revocation on recovery-code redemption and password change.

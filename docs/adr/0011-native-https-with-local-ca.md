@@ -66,10 +66,11 @@ the CA. Local development uses `-tls=off`.
 
 ## Action items
 
-1. [ ] `internal/tlsca`, both listeners, redirect rules, `/piworker-ca.crt`,
+1. [x] `internal/tlsca`, both listeners, redirect rules, `/piworker-ca.crt`,
    `/api/tls`, Secure cookies.
-2. [ ] Installer, example config, compose files and health checks on the new
+2. [x] Installer, example config, compose files and health checks on the new
    ports; `piworkerctl tls on|off`.
-3. [ ] "Trust this device" page linked from the HTTP warning.
-4. [ ] Update `CLAUDE.md` (auth paragraph, dev command with `-tls=off`, Vite
-   proxy) and close issue #287 criteria.
+3. [x] "Trust this device" page linked from the HTTP warning.
+4. [x] Update `CLAUDE.md` (auth paragraph, dev command with `-tls=off`, Vite
+   proxy).
+5. [ ] Close issue #287 once merged.

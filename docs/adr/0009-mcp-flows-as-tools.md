@@ -64,8 +64,9 @@ GPIO/shell/I2C tools, reading secrets or variables, legacy HTTP+SSE.
 
 ## Action items
 
-1. [ ] Runtime `Call`/`Wait`/`RunDone` and waiters; deploy rejects a
-   duplicate tool name with 409 (ADR-0006).
-2. [ ] `trigger-tool`, `action-reply`, `internal/toolschema`, risk analysis.
-3. [ ] `internal/service`, REST twin, `internal/mcpserver`.
-4. [ ] Read and author tools; stdio bridge; E2E with a real SDK client.
+1. [x] Runtime `Call`/`Wait`/`RunDone` and waiters (bounded: waiter cap,
+   reply size cap, results handed over once).
+2. [ ] Deploy rejects a duplicate tool name with 409 (ADR-0006).
+3. [ ] `trigger-tool`, `action-reply`, `internal/toolschema`, risk analysis.
+4. [ ] `internal/service`, REST twin, `internal/mcpserver`.
+5. [ ] Read and author tools; stdio bridge; E2E with a real SDK client.

@@ -56,5 +56,5 @@ allowlist.
 
 ## Action items
 
-1. [ ] Middleware, config (`allowed_hosts`), compose settings and tests for
+1. [x] Middleware, config (`allowed_hosts`), compose settings and tests for
    Docker, dev proxy, IP literals and foreign hosts.

@@ -53,5 +53,6 @@ New triggers must follow the same rule (documented in `CLAUDE.md`).
 ## Action items
 
 1. [x] Synchronous trigger start, rollback on failure, MQTT/RSS reachability rule.
-2. [ ] Map unknown node types and invalid node config to 400 and exclusive
-   resource conflicts (`flow.ErrResourceConflict`) to 409; today they return 500.
+2. [x] Map unknown node types and invalid node config (`flow.ErrInvalidNodeConfig`)
+   to 400 and exclusive resource conflicts (`flow.ErrResourceConflict`, an alias
+   of `node.ErrResourceConflict`, wrapped by the webhook hub) to 409.

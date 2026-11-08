@@ -53,15 +53,17 @@ Canonical full build:
 
 ```bash
 make frontend-embed && go build -o build/piworker .   # embed UI, then build
-./build/piworker -auth=false                           # run (auth off for local dev)
+./build/piworker -auth=false                           # HTTPS :8443 + redirect :8080
 ```
 
 - `make build` compiles the root main package (`.`) but does **not** embed the frontend — use
   `make build-all` / `make build-release` (both run `frontend-embed` first) when
   the UI must be current.
-- Local dev: `go run . -addr 127.0.0.1:8080 -debug -auth=false` (backend :8080) +
-  `cd web && bun run dev` (UI :3000, proxies `/api` to the backend). The
-  frontend uses **Bun**. Restart Go after backend edits; Vite provides frontend HMR.
+- Local dev: `go run . -tls=off -addr 127.0.0.1:8080 -debug -auth=false` (plain
+  HTTP backend :8080) + `cd web && bun run dev` (UI :3000, proxies `/api` to
+  `http://localhost:8080`). Without `-tls=off` startup fails: HTTPS `addr` and
+  the redirect `http_addr` (default :8080) cannot share a port. The frontend
+  uses **Bun**. Restart Go after backend edits; Vite provides frontend HMR.
 - Run one Go test: `go test -run TestName ./internal/flow/...`. Per-package
   shortcuts exist (`make test-flow|test-node|test-storage|test-api|test-builtin`),
   plus `make test-race` (the runtime has dedicated concurrency tests).
@@ -126,12 +128,19 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
   stored as a JSON blob in the `data` column; a `settings` table persists the
   legacy settings. The user store **shares the same `*sql.DB` handle**
   (`NewSQLiteUserStoreWithDB(store.DB())`) — don't open a second pool on the file.
-- Auth: SQLite-backed opaque sessions with HttpOnly/SameSite=Strict cookies.
-  Currently HTTP local mode is default; `session_secure` only marks cookies
-  Secure and does not configure TLS. Native HTTPS with a local CA is accepted in
-  ADR-0011 and being implemented (this paragraph and the dev commands change
-  when it lands).
-  External HTTPS reverse proxies require explicit cookie configuration.
+- Auth: SQLite-backed opaque sessions with HttpOnly/SameSite=Strict cookies,
+  Secure whenever PiWorker serves TLS itself (`session_secure` only matters with
+  `tls.mode = "off"` behind an HTTPS proxy).
+- HTTPS is native by default (ADR-0011): `[tls] mode = auto|custom|off`. In
+  auto mode `internal/tlsca` creates a local CA plus a hot-renewed server
+  certificate under `tls/` next to the DB (re-checked every 10 minutes and on
+  SIGHUP; custom mode reloads its files on SIGHUP). `addr` (:8443) serves HTTPS;
+  `http_addr` (:8080) 308-redirects except `/piworker-ca.crt`, GET/HEAD
+  `/api/health` and, with `webhooks_http`, `/webhooks/`. Flags `-tls`,
+  `-http-addr`, `-tls-regenerate-ca`; code in `main_tls.go`,
+  `internal/config/tls.go`, `internal/api/tls.go`. A Host allowlist
+  (`internal/api/hostguard.go`, `allowed_hosts`, ADR-0014) guards everything
+  except webhooks and the CA download.
   Fresh installs print a one-use setup code; optional admin environment variables
   bootstrap unattended installs. Existing accounts remain unchanged. Local
   `-recover-account` issues a one-use recovery code; password changes revoke all
@@ -143,8 +152,9 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
 ### Frontend (`web/`)
 Vue 3 + Vue Flow canvas + Pinia + Tailwind/shadcn-vue. `App.vue` keeps a persistent
 HTTP warning above the routed view; `HttpWarning.vue` checks the browser URL
-protocol, independently of authentication. HTTPS guidance/automation is tracked
-in [the HTTPS issue](https://github.com/Pegasus8/piworker/issues/287).
+protocol, independently of authentication, and links to the Trust this device
+page (`views/TrustView.vue`, `/trust`, also reachable from Settings: CA
+download, fingerprint, per-OS instructions).
 API calls go through
 `composables/useApi.ts` (axios, baseURL `/api`, HttpOnly session cookie and CSRF request header,
 401 → redirect to login). Responses use a `{ success, data }` envelope, hence the
@@ -155,13 +165,19 @@ API calls go through
 1. Create `internal/node/builtin/<name>.go`. Implement `node.Node` (+ `TriggerNode`
    if it initiates flows, + `ConfigurableNode` for settings); embed `*node.BaseNode`.
 2. Write a `…Info()` returning `NodeTypeInfo` (type id, category, ports, markdown
-   `Documentation`, icon) and a `New…` factory; register both in `init()`.
+   `Documentation`, icon, **`Risk`**: `safe`/`external`/`privileged`) and a
+   `New…` factory; register both in `init()`.
 3. If it has settings, implement `GetConfigSchema()` — the UI form is generated
-   from it; no frontend changes needed for the config panel.
+   from it and deploy type-checks configs against it (`node.CheckConfig`, 400 on
+   mismatch). Mark credential fields `Sensitive`, enum/number/boolean and
+   identifier-like fields `AgentVisible`, and give numbers a `Unit` repeated in
+   the description. `builtin/schema_policy_test.go` enforces all of this.
+   Factories and `Validate` must reject bad config (deploy maps that to 400).
 4. Multi-output nodes: declare each output port and set `SourcePort` on every
    emitted message. Add a `_test.go` next to it.
 5. Triggers: `Start` returns an error only for invalid config or exclusive
-   resources; network-dependent triggers connect/retry in the background and never
+   resources (wrap the latter with `node.ErrResourceConflict` → 409);
+   network-dependent triggers connect/retry in the background and never
    fail `Start` for reachability (ADR-0006). Nodes holding resources implement
    `node.Closer` (ADR-0008).
 
