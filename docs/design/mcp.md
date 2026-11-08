@@ -165,7 +165,9 @@ func (r *FlowRuntime) RunDone(runID string) <-chan struct{}
 
 ### `trigger-tool` (input)
 Config: `toolName` (`^[A-Za-z0-9_.-]{1,128}$`, not starting with `pw_`, unique
-across running flows → 409), `title`, `description` (≥ 20 chars),
+across running flows → 409: `Start` claims the name in a process-wide registry,
+like the webhook hub, and returns an error wrapping `node.ErrResourceConflict`
+when it is taken; `Stop` releases it), `title`, `description` (≥ 20 chars),
 `inputSchema` (JSON), `outputSchema` (optional JSON), `timeoutMs` (default
 10000, max 30000), `confirm` (`none` | `client` | `admin`), `idempotent`
 (bool), `maxConcurrent` (default 1; readOnly tools default 4), `cooldownMs`.
@@ -276,7 +278,15 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 - API (cookie): `GET/POST /api/agent/tokens`, `DELETE /api/agent/tokens/{id}`,
   `POST /api/agent/tokens/{id}/grants` (re-confirm), `GET /api/agent/audit`,
   `GET/POST /api/agent/approvals[/{id}/approve|reject]`,
-  `GET/PUT /api/agent/settings` (agent deploy level; PUT needs step-up).
+  `GET/PUT /api/agent/settings` (agent deploy level; PUT needs step-up),
+  `GET /api/agent/tools` (the published tools, for grant pickers):
+  ```json
+  {"version": 7, "tools": [{"flowId": "…", "flowName": "…", "triggerNodeId": "…",
+    "toolName": "garage_open", "title": "…", "description": "…",
+    "risk": "privileged", "annotations": {"readOnlyHint": false,
+    "destructiveHint": true, "idempotentHint": false, "openWorldHint": true},
+    "fingerprint": "sha256:…", "confirm": "admin", "inputSchema": {…}}]}
+  ```
 
 ## 8. `/mcp` endpoint — `internal/mcpserver`
 
