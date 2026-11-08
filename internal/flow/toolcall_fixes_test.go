@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/node"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -244,4 +245,74 @@ func TestCallReplyWinsOverLaterDrops(t *testing.T) {
 	require.Eventually(t, func() bool { return rt.DroppedMessages() > 0 }, 3*time.Second, 5*time.Millisecond)
 	close(gate)
 	waitClosed(t, rt.RunDone(res.RunID), "the run still finishes")
+}
+
+// A called run whose message the router drops on its send timeout (the
+// dispatcher is stalled and the router output stays full) ends as an error
+// naming the node and the reason, through the drop handler NewFlowRuntime
+// wires into the router.
+func TestCallReportsMessagesDroppedByARoutingTimeout(t *testing.T) {
+	reg := callRegistryFor(t, map[string]node.NodeFactory{
+		"fan":  funcFactory(fanOut(3)),
+		"sink": funcFactory(func(context.Context, *Message) ([]*Message, error) { return nil, nil }),
+	})
+	f := callGraph(map[string]string{"tool": "tool", "fan": "fan", "sink": "sink"}, [2]string{"tool", "fan"}, [2]string{"fan", "sink"})
+	rt, err := NewFlowRuntime(f, reg, WithLogger(zerolog.Nop()))
+	require.NoError(t, err)
+	// Before Start (no goroutine reads them yet): a one-slot router output
+	// and a short send timeout, so a stalled dispatcher makes the router drop.
+	rt.router.output = make(chan RoutedMessage, 1)
+	rt.router.sendTimeout = 20 * time.Millisecond
+	require.NoError(t, rt.Start(context.Background()))
+	t.Cleanup(func() { _ = rt.Stop() })
+
+	// Stall the dispatcher on its hand-off to sink's queue.
+	sinkQueue := rt.queues["sink"]
+	sinkQueue.mu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			sinkQueue.mu.Unlock()
+		}
+	}()
+
+	pending := callAsync(rt, context.Background(), CallRequest{TriggerNodeID: "tool", Timeout: 5 * time.Second})
+	require.Eventually(t, func() bool { return rt.router.MessagesDropped() > 0 }, 3*time.Second, 5*time.Millisecond)
+	sinkQueue.mu.Unlock()
+	locked = false
+
+	out := <-pending
+	require.NoError(t, out.err)
+	assert.Equal(t, CallStatusError, out.res.Status)
+	require.NotNil(t, out.res.Error)
+	assert.Equal(t, "sink", out.res.Error.NodeID)
+	assert.Equal(t, "sink", out.res.Error.NodeType)
+	assert.Equal(t, "message dropped at node sink: routing timed out (the flow is overloaded)", out.res.Error.Message)
+	assert.Positive(t, rt.DroppedMessages(), "the runtime counts the router's drop")
+	waitClosed(t, rt.RunDone(out.res.RunID), "the run still finishes")
+}
+
+// A called run whose message targets a node that is not running (no queue)
+// ends as an error naming that node, through dispatch's unknown-target path.
+func TestCallReportsMessagesForANodeThatIsNotRunning(t *testing.T) {
+	reg := callRegistryFor(t, map[string]node.NodeFactory{
+		"sink": funcFactory(replyFn(echoPayload, false)),
+	})
+	f := callGraph(map[string]string{"tool": "tool", "sink": "sink"}, [2]string{"tool", "sink"})
+	rt, err := NewFlowRuntime(f, reg, WithLogger(zerolog.Nop()))
+	require.NoError(t, err)
+	// The router still routes to sink, but Start creates no queue for it:
+	// the state dispatch guards against (a target that is not running).
+	delete(rt.nodes, "sink")
+	require.NoError(t, rt.Start(context.Background()))
+	t.Cleanup(func() { _ = rt.Stop() })
+
+	res, err := rt.Call(context.Background(), CallRequest{TriggerNodeID: "tool", Timeout: 5 * time.Second})
+	require.NoError(t, err)
+	assert.Equal(t, CallStatusError, res.Status)
+	require.NotNil(t, res.Error)
+	assert.Equal(t, "sink", res.Error.NodeID)
+	assert.Equal(t, "sink", res.Error.NodeType)
+	assert.Equal(t, "message dropped at node sink: the node is not running (not found or disabled)", res.Error.Message)
+	assert.Equal(t, int64(1), rt.DroppedMessages())
 }
