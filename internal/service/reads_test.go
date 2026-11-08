@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -366,4 +367,47 @@ func TestListFlowsOrderIsTotal(t *testing.T) {
 		}
 		assert.Equal(t, []string{"z", "a", "b", "c", "d"}, ids)
 	}
+}
+
+// The read views are safe to use concurrently, also while flows are
+// deployed and stopped (run with -race).
+func TestReadsConcurrently(t *testing.T) {
+	e := newReadsEnv(t, func(o *ReadsOptions) { o.Host = func(string) HostStatus { return HostStatus{} } })
+	f := e.save(readsToolFlow("concurrent", "reads_concurrent_tool"))
+	e.addRun(f.ID, "run-1", "token:bot", 0, time.Millisecond, "success",
+		storage.NodeEventRecord{NodeID: "tool", NodeType: "trigger-tool", Phase: "success"})
+	ctx := context.Background()
+	actor := readsAgent(storage.ScopeRead)
+
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		defer close(done)
+		for range 10 {
+			assert.NoError(t, e.manager.Deploy(ctx, f))
+			assert.NoError(t, e.manager.Undeploy(f.ID))
+		}
+	})
+	for range 4 {
+		wg.Go(func() {
+			for {
+				select {
+				case <-done:
+					return
+				default:
+				}
+				_, err := e.reads.ListFlows(ctx, actor)
+				assert.NoError(t, err)
+				_, err = e.reads.GetFlow(ctx, actor, f.ID)
+				assert.NoError(t, err)
+				_, err = e.reads.ListRuns(ctx, actor, f.ID, 5, "")
+				assert.NoError(t, err)
+				_, err = e.reads.GetRun(ctx, actor, f.ID, "run-1")
+				assert.NoError(t, err)
+				_, err = e.reads.SystemStatus(ctx, actor)
+				assert.NoError(t, err)
+			}
+		})
+	}
+	wg.Wait()
 }
