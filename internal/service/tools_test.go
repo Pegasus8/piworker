@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Pegasus8/piworker/internal/agentauth"
 	"github.com/Pegasus8/piworker/internal/flow"
@@ -760,6 +761,27 @@ func TestAuditPreviewIsRedacted(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.NotContains(t, rows[0].ArgsPreview, canary)
+	escaped, err := json.Marshal(canary) // "&" becomes \u0026
+	require.NoError(t, err)
+	assert.NotContains(t, rows[0].ArgsPreview, strings.Trim(string(escaped), `"`), "JSON escaping must not hide the secret")
+	assert.JSONEq(t, `{"text":"<redacted>"}`, rows[0].ArgsPreview)
+}
+
+// The preview is cut to what storage keeps before it waits in the queue,
+// so up to DefaultAuditMaxQueue entries never pin full-size arguments.
+func TestAuditPreviewIsCappedBeforeQueueing(t *testing.T) {
+	e := newEnv(t)
+	info := e.deploy(fan(toolConfig(nil), echo()))
+	agent := e.agent(storage.NewAPIToken{AllTools: true})
+	_, err := e.call(agent, info, map[string]any{"text": strings.Repeat("é", 2000)})
+	require.NoError(t, err)
+	e.audit.mu.Lock()
+	defer e.audit.mu.Unlock()
+	require.Len(t, e.audit.queue, 1)
+	preview := e.audit.queue[0].ArgsPreview
+	assert.LessOrEqual(t, len(preview), storage.MaxMCPAuditPreview)
+	assert.True(t, utf8.ValidString(preview))
+	assert.True(t, strings.HasPrefix(preview, `{"text":"éé`), preview)
 }
 
 // An approved call that outlives its timeout first stores "running", then

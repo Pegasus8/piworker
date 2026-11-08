@@ -483,7 +483,12 @@ func (t *Tools) record(actor Actor, ref ToolRef, info *flow.ToolInfo, args map[s
 	if data, mErr := json.Marshal(nonNilArgs(args)); mErr == nil {
 		sum := sha256.Sum256(data)
 		entry.ArgsSHA256 = hex.EncodeToString(sum[:])
-		entry.ArgsPreview = newSecretRedactor(t.secrets).text(string(data))
+	}
+	if data, mErr := marshalNoEscape(nonNilArgs(args)); mErr == nil {
+		// Redacted on the decoded strings, so JSON escaping cannot hide a
+		// secret, and cut to what storage keeps before it is queued.
+		preview := newSecretRedactor(t.secrets).json(data)
+		entry.ArgsPreview = capText(string(preview), storage.MaxMCPAuditPreview)
 	}
 	switch {
 	case te != nil:
