@@ -109,17 +109,29 @@ func checkValue(p ConfigProperty, v any) string {
 		if !ok {
 			return mismatch()
 		}
+		// shown renders n, or what it is relative to the limit when the
+		// property is Sensitive.
+		shown := func(n float64, hidden string) string {
+			if p.Sensitive {
+				return hidden
+			}
+			return formatNumber(n)
+		}
 		if math.IsNaN(n) || math.IsInf(n, 0) {
-			return fmt.Sprintf("expected a finite number%s, got %v", unit, n)
+			got := fmt.Sprint(n)
+			if p.Sensitive {
+				got = "a non-finite value"
+			}
+			return fmt.Sprintf("expected a finite number%s, got %s", unit, got)
 		}
 		if p.Type == "integer" && n != math.Trunc(n) {
 			return mismatch()
 		}
 		if p.Minimum != nil && n < *p.Minimum {
-			return fmt.Sprintf("expected %s >= %s%s, got %s", p.Type, formatNumber(*p.Minimum), unit, formatNumber(n))
+			return fmt.Sprintf("expected %s >= %s%s, got %s", p.Type, formatNumber(*p.Minimum), unit, shown(n, "a smaller value"))
 		}
 		if p.Maximum != nil && n > *p.Maximum {
-			return fmt.Sprintf("expected %s <= %s%s, got %s", p.Type, formatNumber(*p.Maximum), unit, formatNumber(n))
+			return fmt.Sprintf("expected %s <= %s%s, got %s", p.Type, formatNumber(*p.Maximum), unit, shown(n, "a larger value"))
 		}
 	}
 	return ""
