@@ -139,7 +139,9 @@ onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
         <section class="min-w-0 space-y-4 lg:sticky lg:top-0 lg:self-start">
           <div><h3 class="font-semibold">Configuration</h3><p class="mt-1 text-sm text-muted-foreground">Apply changes to update the draft. Save the flow to keep them.</p></div>
           <p v-if="referencesError" role="alert" class="text-sm text-destructive">{{ referencesError }} <Button size="sm" variant="outline" @click="loadReferences">Retry references</Button></p>
-          <div v-for="field in nodeTypeConfig.configSchema" :key="field.key">
+          <!-- Keyed per node: field editors with their own state (JSON text and
+               its error) start fresh for each node. -->
+          <div v-for="field in nodeTypeConfig.configSchema" :key="`${selectedNode.id}:${field.key}`">
             <Label :for="field.key" class="mb-2 block">
               {{ field.label }}
               <span v-if="field.required" aria-hidden="true" class="text-destructive">*</span>
