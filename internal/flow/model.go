@@ -200,29 +200,12 @@ func (f *Flow) GetNode(nodeID string) *Node {
 	return nil
 }
 
-// GetTriggerNodes returns all input/trigger nodes in the flow.
-func (f *Flow) GetTriggerNodes() []Node {
-	triggers := make([]Node, 0)
-	for _, n := range f.Nodes {
-		if n.Category == NodeCategoryInput && n.Enabled {
-			triggers = append(triggers, n)
-		}
-	}
-	return triggers
-}
-
-// Validate checks if the flow configuration is valid. Trigger-ness is taken
-// from each node's Category field; callers that can resolve node types should
-// prefer ValidateWithRegistry (or the runtime's instance-based check on
-// deploy), since Category is client-supplied and not authoritative.
-func (f *Flow) Validate() error {
-	return f.validate(func(n *Node) bool { return n.Category == NodeCategoryInput })
-}
-
-// ValidateWithRegistry validates the flow, deciding which nodes are triggers
-// from the registered node type's category instead of the client-supplied
-// Category field. Unregistered types are never treated as triggers.
-func (f *Flow) ValidateWithRegistry(reg *node.Registry) error {
+// Validate checks the flow's structure (unique non-empty IDs, existing nodes
+// and ports, no self-loops or cycles) and requires at least one enabled
+// trigger. Whether a node is a trigger is decided by its registered type, never
+// by the client-supplied Category field; unregistered types are never
+// triggers.
+func (f *Flow) Validate(reg *node.Registry) error {
 	return f.validate(func(n *Node) bool {
 		info, ok := reg.Get(n.Type)
 		return ok && info.Category == NodeCategoryInput

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,7 +34,7 @@ func structuralFlow() (*Flow, *Node, *Node, *Node) {
 func TestFlowValidateStructure(t *testing.T) {
 	t.Run("baseline is valid", func(t *testing.T) {
 		f, _, _, _ := structuralFlow()
-		assert.NoError(t, f.Validate())
+		assert.NoError(t, f.Validate(modelTestRegistry()))
 	})
 
 	t.Run("duplicate node IDs", func(t *testing.T) {
@@ -41,7 +42,7 @@ func TestFlowValidateStructure(t *testing.T) {
 		dup := *passPorts(NewNode("process-x", NodeCategoryProcessing))
 		dup.ID = a.ID
 		f.AddNode(dup)
-		err := f.Validate()
+		err := f.Validate(modelTestRegistry())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "duplicate node ID")
 	})
@@ -51,7 +52,7 @@ func TestFlowValidateStructure(t *testing.T) {
 		n := *passPorts(NewNode("process-x", NodeCategoryProcessing))
 		n.ID = ""
 		f.AddNode(n)
-		err := f.Validate()
+		err := f.Validate(modelTestRegistry())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "empty ID")
 	})
@@ -61,7 +62,7 @@ func TestFlowValidateStructure(t *testing.T) {
 		c := *NewConnection(trig.ID, "output", b.ID, "input")
 		c.ID = f.Connections[0].ID
 		f.AddConnection(c)
-		err := f.Validate()
+		err := f.Validate(modelTestRegistry())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "duplicate connection ID")
 	})
@@ -69,7 +70,7 @@ func TestFlowValidateStructure(t *testing.T) {
 	t.Run("self loop", func(t *testing.T) {
 		f, _, a, _ := structuralFlow()
 		f.AddConnection(*NewConnection(a.ID, "output", a.ID, "input"))
-		err := f.Validate()
+		err := f.Validate(modelTestRegistry())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "itself")
 	})
@@ -77,7 +78,7 @@ func TestFlowValidateStructure(t *testing.T) {
 	t.Run("cycle", func(t *testing.T) {
 		f, _, a, b := structuralFlow()
 		f.AddConnection(*NewConnection(b.ID, "output", a.ID, "input"))
-		err := f.Validate()
+		err := f.Validate(modelTestRegistry())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cycle")
 	})
@@ -85,20 +86,20 @@ func TestFlowValidateStructure(t *testing.T) {
 	t.Run("diamond is not a cycle", func(t *testing.T) {
 		f, trig, _, b := structuralFlow()
 		f.AddConnection(*NewConnection(trig.ID, "output", b.ID, "input"))
-		assert.NoError(t, f.Validate())
+		assert.NoError(t, f.Validate(modelTestRegistry()))
 	})
 }
 
-// TestFlowValidateWithRegistryIgnoresClientCategory checks trigger-ness comes
+// TestFlowValidateIgnoresClientCategory checks trigger-ness comes
 // from the registry, not from the client-supplied Category field.
-func TestFlowValidateWithRegistryIgnoresClientCategory(t *testing.T) {
+func TestFlowValidateIgnoresClientCategory(t *testing.T) {
 	reg := createTestRegistry()
 
 	t.Run("action mislabelled as input is not a trigger", func(t *testing.T) {
 		f := NewFlow("liar")
 		n := NewNode("mock-action", NodeCategoryInput)
 		f.AddNode(*n)
-		assert.ErrorIs(t, f.ValidateWithRegistry(reg), ErrNoTriggerNodes)
+		assert.ErrorIs(t, f.Validate(reg), ErrNoTriggerNodes)
 	})
 
 	t.Run("trigger mislabelled as processing is a trigger", func(t *testing.T) {
@@ -106,7 +107,7 @@ func TestFlowValidateWithRegistryIgnoresClientCategory(t *testing.T) {
 		n := NewNode("mock-trigger", NodeCategoryProcessing)
 		n.Outputs = []Port{{ID: "output", DataType: DataTypeAny}}
 		f.AddNode(*n)
-		assert.NoError(t, f.ValidateWithRegistry(reg))
+		assert.NoError(t, f.Validate(reg))
 	})
 }
 
@@ -124,4 +125,18 @@ func TestDeployDeterminesTriggersFromInstances(t *testing.T) {
 	modest := NewFlow("modest")
 	modest.AddNode(*NewNode("mock-trigger", NodeCategoryProcessing))
 	assert.NoError(t, m.Deploy(context.Background(), modest))
+}
+
+// modelTestRegistry registers the node types the model tests use, so that
+// trigger-ness is resolved from the registry as in production.
+func modelTestRegistry() *node.Registry {
+	reg := createTestRegistry()
+	for typ, cat := range map[string]NodeCategory{
+		"trigger-interval": NodeCategoryInput,
+		"action-log":       NodeCategoryOutput,
+		"process-x":        NodeCategoryProcessing,
+	} {
+		_ = reg.Register(node.NodeTypeInfo{Type: typ, Name: typ, Category: cat}, newMockActionNode)
+	}
+	return reg
 }
