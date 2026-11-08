@@ -367,9 +367,12 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 ## 9. Approvals (`confirm: admin`) and audit
 
 - Table `agent_approvals(id, kind, token_id, flow_id, ref, tool_name,
-  tool_fingerprint, args_json, summary, status, created_at, decided_at,
-  decided_by, expires_at, result_json)`; kinds: `tool_call`, `draft_deploy`.
-  Pending approvals expire (tool calls: 15 min).
+  tool_fingerprint, tool_risk, args_json, summary, status, created_at,
+  decided_at, decided_by, expires_at, result_json)`; kinds: `tool_call`,
+  `draft_deploy`. Pending approvals expire (tool calls: 15 min). The editor
+  shows the tool name and risk recorded with the request (`toolName`,
+  `toolRisk`), falling back to the published tool only for approvals stored
+  before the risk was recorded.
 - A `confirm: admin` call returns `{status:"approval_required", runId}`; the
   editor shows a queue (badge + page) with tool, args (text only), risk and
   token; approve runs the call and stores its `CallResult` on the approval
