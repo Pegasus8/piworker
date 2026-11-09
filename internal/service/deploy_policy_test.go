@@ -639,8 +639,8 @@ func TestDeployWithoutALifecycleIsUnavailable(t *testing.T) {
 // Only a deploy or stop that reached the lifecycle path is audited
 // privileged (the row cap never evicts those): a refusal by the policy is an
 // ordinary row, so an agent looping on refused deploys cannot fill the audit
-// with rows that are never evicted. Invalid arguments and busy are counted
-// per minute (mcp_rejections), as tool calls' are.
+// with rows that are never evicted. Invalid arguments and busy are not rows
+// either; the MCP endpoint counts them per minute (mcp_rejections), once.
 func TestRefusedDeploysAreNotPrivilegedRows(t *testing.T) {
 	e := newAuthEnv(t)
 	e.setLevel(storage.AgentDeployLow)
@@ -664,12 +664,10 @@ func TestRefusedDeploysAreNotPrivilegedRows(t *testing.T) {
 	requireKind(t, err, ErrInvalidArguments)
 	_, err = e.a.Validate(t.Context(), agent, ValidateRequest{Flow: safeFlow(), Ops: []flow.Op{{Op: flow.OpRemoveNode, NodeID: "x"}}})
 	requireKind(t, err, ErrInvalidArguments)
-	assert.Len(t, e.auditRows(), 1, "counted, not rows")
+	assert.Len(t, e.auditRows(), 1, "not rows")
 	rejections, err := e.store.ListMCPRejections(storage.MCPAuditFilter{})
 	require.NoError(t, err)
-	require.Len(t, rejections, 1)
-	assert.Equal(t, "invalid_arguments", rejections[0].Reason)
-	assert.Equal(t, 2, rejections[0].Count)
+	assert.Empty(t, rejections, "the endpoint counts them, not the service")
 
 	// At the all level the same deploy happens: a privileged row.
 	e.setLevel(storage.AgentDeployAll)

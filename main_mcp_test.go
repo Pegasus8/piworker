@@ -1592,6 +1592,21 @@ func TestMCPSaveDraftRefusals(t *testing.T) {
 		})
 	}
 	assert.Empty(t, editor.drafts(t, "all"), "nothing refused is stored")
+
+	// The two invalid_arguments refusals (the sensitive literal and the
+	// Lint errors) are counted in mcp_rejections once each, not by both the
+	// service and the endpoint.
+	assert.EventuallyWithT(t, func(c *assert.CollectT) {
+		rows, err := app.store.ListMCPRejections(storage.MCPAuditFilter{TokenID: agent.tok.ID})
+		if !assert.NoError(c, err) {
+			return
+		}
+		counts := map[string]int{}
+		for _, r := range rows {
+			counts[r.Reason] += r.Count
+		}
+		assert.Equal(c, map[string]int{"invalid_arguments": 2}, counts)
+	}, 10*time.Second, 100*time.Millisecond)
 }
 
 // hitCounter is an HTTP server that must never be reached.

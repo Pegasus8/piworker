@@ -520,12 +520,14 @@ func TestAuthorAndDeployRefusals(t *testing.T) {
 	assert.Equal(t, "failed", errorCode(body))
 	assert.NotContains(t, fmt.Sprint(res), "database")
 	assert.Contains(t, a.logs.String(), "database is locked")
-	// The services audit their refusals but count none: the endpoint counts
-	// the invalid_arguments ones (the two flows with errors and the deploy
-	// validation refusal), once each; conflict, forbidden, not_found, busy
-	// and failures are not rejections.
+	// The services count none of their refusals: the endpoint counts the
+	// invalid_arguments and busy ones of every built-in tool (the two flows
+	// with errors, the busy dry-run and the deploy validation refusal),
+	// once each; conflict, forbidden, not_found and failures are not
+	// rejections.
 	assert.Equal(t, []string{
 		"authorauthorauth invalid_arguments " + t0.Format(time.RFC3339),
+		"authorauthorauth busy " + t0.Format(time.RFC3339),
 		"deploydeploydepl invalid_arguments " + t0.Format(time.RFC3339),
 		"deploydeploydepl invalid_arguments " + t0.Format(time.RFC3339),
 	}, a.rejections.seen)

@@ -76,9 +76,10 @@ type authorArgs struct {
 // created), the outcome (completed, the refusal's code, or failed) and its
 // duration. privileged, when set by the operation, marks the row privileged
 // (a deploy or stop of a privileged flow that reached the lifecycle path),
-// which the row cap never evicts. Busy and invalid arguments are counted per
-// token and minute instead (mcp_rejections), as tool calls' are, so a loop
-// of refused requests cannot fill the audit. Use it as defer
+// which the row cap never evicts. Busy and invalid arguments are not rows:
+// the MCP endpoint counts them per token and minute (mcp_rejections), once,
+// as it counts every built-in tool's, so a loop of refused requests cannot
+// fill the audit. Use it as defer
 // a.audited(actor, tool, args, a.now(), &priv)(&err).
 func (a *Authoring) audited(actor Actor, tool string, args *authorArgs, start time.Time, privileged *bool) func(*error) {
 	return func(errp *error) {
@@ -87,8 +88,7 @@ func (a *Authoring) audited(actor Actor, tool string, args *authorArgs, start ti
 		}
 		var te *ToolError
 		if errors.As(*errp, &te) && (te.Kind == ErrBusy || te.Kind == ErrInvalidArguments) {
-			a.audit.Reject(actor.TokenID, te.Code(), start)
-			return
+			return // counted by the endpoint
 		}
 		red := a.views.redactor()
 		entry := storage.MCPAuditEntry{

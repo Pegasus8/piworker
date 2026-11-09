@@ -485,12 +485,15 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   string, integer and array bounds, every problem reported with its
   argument's pointer in toolschema's wording, at most 64, never quoting a
   value. Refusals of either contract are `invalid_arguments`, counted in
-  `mcp_rejections`. The services audit their refusals but count none, so a
+  `mcp_rejections`. The endpoint is the one owner of the counts of
+  built-in tools: the services count none of their refusals, so a
   handler's `invalid_arguments` refusal (`*service.ToolError`: a sensitive
   literal, an unresolved `"<redacted>"`, ops that cannot be applied, H2
-  blocking Lint errors, a deploy refused by validation) is counted there
-  too, once; other refusals (`conflict`, `forbidden`, `not_found`, `busy`)
-  are not rejections.
+  blocking Lint errors, a deploy refused by validation) and its `busy` one
+  (the sandbox slot of `pw_dry_run` and `pw_test_node`) are counted there
+  too, once; other refusals (`conflict`, `forbidden`, `not_found`) are not
+  rejections. (Flow tools' refusals are counted by the tool service, which
+  answers them.)
   A successful result's structured content is checked against the tool's
   output schema before it is sent (a mismatch is logged and answered
   `failed`: clients refuse a result that does not match), and a destructive
@@ -1548,9 +1551,10 @@ toggling a running flow on records nothing (it deploys nothing). A
 - Audit: every agent operation is one `mcp_audit` row under its tool name
   with only references as arguments (`flowId`, `draftId`, `baseVersion`,
   the number of `ops`, a node `type`, `triggerNodeId`) and the outcome code,
-  except `busy` and `invalid_arguments`, which are counted per token and
-  minute (`mcp_rejections`) as tool calls' are; the editor's calls are not
-  audited (they are not agents').
+  except `busy` and `invalid_arguments`, which are not rows: the MCP
+  endpoint counts them per token and minute (`mcp_rejections`), once, as
+  it counts every built-in tool's (§8); the service counts none. The
+  editor's calls are not audited (they are not agents').
 
 **Editor REST** (section D of the wave contract; session cookie, CSRF on
 writes, `{success, data}` envelope; errors as above; `api.DraftsHandler`
