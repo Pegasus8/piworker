@@ -597,15 +597,20 @@ so turn HTTPS on (`mode = "auto"`) to connect from other computers.
 - Agents never manage tokens, settings or approvals, and never read secrets
   or variables. **Agent deploy** is off by default; turning it on needs your
   password and is a risk you accept for every token with the deploy scope.
-- What agents read hides secret values by comparing text with them. So an
-  agent whose token has the author, deploy (with **Agent deploy** at low or
-  all) and read scopes can save a guess of a secret's value in a flow or a
-  run and see whether it comes back hidden, and a granted tool that repeats
-  its arguments in its reply allows the same with the call scope. Only short
-  values can be guessed this way: give secrets 16 characters or more (the
-  **Secrets** dialog marks shorter ones and the **Agents** page counts
-  them), and store credentials as secrets rather than typing them into
-  settings, where they are hidden the same way but never checked
+- What agents read hides secret values by comparing text with them, so an
+  agent whose own text comes back to it can see whether a guess of a value
+  comes back hidden, at any **Agent deploy** level: with the author and
+  read scopes, through a draft you approve or, with the deploy scope at
+  low or all, a flow it deploys; with the call scope, through a granted tool that repeats its
+  arguments; with the read scope, through an error a run records of what
+  it sent (a tool call, a webhook, an MQTT message). Short or predictable
+  values fall this way: use generated secrets of 16 characters or more
+  (the **Secrets** dialog marks shorter ones and the **Agents** page
+  counts them). Store credentials as secrets rather than typing them into
+  settings, URL passwords (`https://user:password@host`) included: typed,
+  they are hidden the same way but never checked. Run errors also hide
+  the settings agents cannot see, so keep guessable passwords, paths and
+  names out of those in flows agents may deploy or read the runs of
   ([ADR-0021](docs/adr/0021-agent-views-never-confirm-a-guess.md)).
 - Client-side confirmations are a convenience, not a control: use
   `confirm: admin` for anything that needs your approval.
