@@ -114,12 +114,9 @@ Temperature is {{payload.temperature}}°C in {{payload.room}}
 }
 
 // renderTemplate expands {{...}} placeholders in tmpl using the message. It is
-// shared by template-style nodes and reuses the package-level templateRe.
-func renderTemplate(tmpl string, msg *types.Message, contexts ...context.Context) string {
-	ctx := context.Background()
-	if len(contexts) > 0 {
-		ctx = contexts[0]
-	}
+// shared by template-style nodes and reuses the package-level templateRe. ctx
+// is the node's context: variables and secrets resolve through its stores.
+func renderTemplate(tmpl string, msg *types.Message, ctx context.Context) string {
 	return renderTemplateEscaped(tmpl, msg, ctx, nil)
 }
 
@@ -135,10 +132,18 @@ func renderTemplateEscaped(tmpl string, msg *types.Message, ctx context.Context,
 // consulted first for each placeholder written in tmpl. Substituted values are
 // never scanned again, so text coming from the message can never reach extra:
 // that is what makes it safe to resolve {{secret.NAME}} through it.
+//
+// In a sandbox (node.SandboxFrom) every substituted value is charged to it
+// first, and the text may not grow past its per-value cap: once a check
+// fails the expansion stops there (the sandbox is marked exceeded and its
+// caller discards the result), so a template cannot expand to more text than
+// the sandbox allows.
 func renderTemplateWith(tmpl string, msg *types.Message, ctx context.Context, escaperAt func(prefix string) func(string) string, extra func(parts []string) (string, bool)) string {
 	if ctx == nil {
-		ctx = context.Background()
+		// No node context: resolve against empty stores, never the real ones.
+		ctx = secrets.WithStore(vars.WithStore(context.Background(), nil), nil)
 	}
+	sb := node.SandboxFrom(ctx)
 	locs := templateRe.FindAllStringIndex(tmpl, -1)
 	if len(locs) == 0 {
 		return tmpl
@@ -164,6 +169,9 @@ func renderTemplateWith(tmpl string, msg *types.Message, ctx context.Context, es
 				if esc := escaperAt(literal.String()); esc != nil {
 					value = esc(value)
 				}
+			}
+			if sb != nil && (sb.Limit(int64(b.Len()+len(value))) != nil || sb.Charge(int64(len(value))) != nil) {
+				return b.String()
 			}
 			b.WriteString(value)
 		}

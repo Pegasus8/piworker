@@ -132,6 +132,17 @@ func (s *Sandbox) Charge(n int64) error {
 	return nil
 }
 
+// Limit fails with ErrSandboxLimit, and marks the sandbox exceeded, when a
+// value of n bytes would be over the per-value cap (a value growing in
+// pieces, each of them charged). It spends nothing.
+func (s *Sandbox) Limit(n int64) error {
+	if n > s.maxValue {
+		s.exceeded.Store(true)
+		return fmt.Errorf("%w: a value of more than %d bytes", ErrSandboxLimit, s.maxValue)
+	}
+	return nil
+}
+
 // CheckValue fails with ErrSandboxLimit when v (sized like its JSON, see
 // EstimateSize) is over the per-value cap. It spends nothing.
 func (s *Sandbox) CheckValue(v any) error {

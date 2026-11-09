@@ -90,6 +90,13 @@ func TestSandboxCharge(t *testing.T) {
 	assert.True(t, sb.Exceeded())
 	require.ErrorIs(t, sb.Charge(1), ErrSandboxLimit, "the budget stays spent")
 	require.ErrorIs(t, sb.Charge(-1), ErrSandboxLimit, "a negative size is refused")
+
+	// Limit: a growing value checked against the per-value cap.
+	sb = NewSandbox(100, 250)
+	require.NoError(t, sb.Limit(100))
+	assert.False(t, sb.Exceeded())
+	require.ErrorIs(t, sb.Limit(101), ErrSandboxLimit)
+	assert.True(t, sb.Exceeded())
 }
 
 // TestSandboxCheckValue: values are sized like their JSON, the walk stops at

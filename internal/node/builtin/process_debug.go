@@ -38,8 +38,29 @@ func NewDebugProcess(config map[string]interface{}) (node.Node, error) {
 	return process, nil
 }
 
-// Process inspects and logs the message, optionally passing it through.
+// Process inspects and logs the message, optionally passing it through. In
+// a sandbox (a dry-run or node test, node.InSandbox) nothing is logged: what
+// a sandboxed flow carries never reaches the process log.
 func (p *DebugProcess) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
+	if !node.InSandbox(ctx) {
+		p.log(msg)
+	}
+
+	// If passThrough is enabled, forward the message
+	if p.passThrough {
+		outputMsg := msg.Clone()
+		outputMsg.SourcePort = "output"
+		outputMsg.SetMeta("debugged", true)
+		outputMsg.SetMeta("debugName", p.name)
+		return []*types.Message{outputMsg}, nil
+	}
+
+	// Otherwise, terminate the message here
+	return nil, nil
+}
+
+// log writes msg to the process log.
+func (p *DebugProcess) log(msg *types.Message) {
 	// Build the log event
 	event := p.logger.Info().
 		Str("debugName", p.name).
@@ -70,18 +91,6 @@ func (p *DebugProcess) Process(ctx context.Context, msg *types.Message) ([]*type
 	}
 
 	event.Msg("Debug node received message")
-
-	// If passThrough is enabled, forward the message
-	if p.passThrough {
-		outputMsg := msg.Clone()
-		outputMsg.SourcePort = "output"
-		outputMsg.SetMeta("debugged", true)
-		outputMsg.SetMeta("debugName", p.name)
-		return []*types.Message{outputMsg}, nil
-	}
-
-	// Otherwise, terminate the message here
-	return nil, nil
 }
 
 // Ports returns the port definitions for this node.

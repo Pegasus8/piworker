@@ -19,7 +19,7 @@ func TestRenderTemplateNeverLeaksSecrets(t *testing.T) {
 	defer secrets.DefaultStore.Delete("api_key")
 
 	msg := types.NewMessage(nil, types.DataTypeAny)
-	out := renderTemplate("Bearer {{secret.api_key}}", msg)
+	out := renderTemplate("Bearer {{secret.api_key}}", msg, context.Background())
 	assert.NotContains(t, out, "s3cr3t", "renderTemplate must never surface a secret value")
 }
 
