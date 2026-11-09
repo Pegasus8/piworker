@@ -185,8 +185,8 @@ func TestDryRunCapsExecutions(t *testing.T) {
 	assert.False(t, res.Capped, "200 executions are within the cap")
 }
 
-// TestDryRunOneAtATime: a second dry-run while one runs fails at once with
-// an error wrapping ErrBusy.
+// TestDryRunOneAtATime: a second dry-run (or a node test) while one runs
+// fails at once with an error wrapping ErrBusy.
 func TestDryRunOneAtATime(t *testing.T) {
 	p := newSandboxProbe()
 	reg := probeRegistry(t, p)
@@ -205,6 +205,8 @@ func TestDryRunOneAtATime(t *testing.T) {
 	_, err := DryRun(context.Background(), probeFlow(nil, "pass"), reg, DryRunInput{TriggerNodeID: "trig"})
 	require.ErrorIs(t, err, ErrBusy)
 	assert.True(t, errors.Is(err, ErrSandboxBusy))
+	_, err = TestNode(context.Background(), reg, "pass", nil, 1)
+	require.ErrorIs(t, err, ErrBusy, "node tests share the slot")
 	assert.Less(t, time.Since(start), time.Second, "refused at once")
 
 	close(p.release)
