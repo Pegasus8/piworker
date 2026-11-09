@@ -229,7 +229,7 @@ func (h *Handler) addStaticTool(srv *mcp.Server, actor service.Actor, st *static
 		Name:        st.Name,
 		Title:       st.Title,
 		Description: st.Description,
-		InputSchema: st.schema.JSON(),
+		InputSchema: st.inputSchema(),
 		Annotations: explicitAnnotations(st.Annotations),
 	}
 	if st.out != nil {
@@ -241,12 +241,7 @@ func (h *Handler) addStaticTool(srv *mcp.Server, actor service.Actor, st *static
 }
 
 func (h *Handler) callStaticTool(ctx context.Context, actor service.Actor, st *staticTool, raw json.RawMessage) *mcp.CallToolResult {
-	args, refusal := decodeArgs(raw)
-	if refusal == nil {
-		if issues := st.schema.Validate(args); len(issues) > 0 {
-			refusal = invalidArguments(issues)
-		}
-	}
+	args, refusal := st.validate(raw)
 	if refusal != nil {
 		// Counted like the tool service's invalid_arguments refusals.
 		h.reject(actor, refusal)
@@ -261,7 +256,31 @@ func (h *Handler) callStaticTool(ctx context.Context, actor service.Actor, st *s
 		h.log.Error().Str("tool", st.Name).Msg("Built-in MCP tool returned no result")
 		return errorResult(fmt.Errorf("tool %s returned no result", st.Name))
 	}
+	if err := st.checkOutput(res); err != nil {
+		// Clients refuse a successful result whose structured content does
+		// not match the advertised output schema (a protocol error the agent
+		// cannot read): a bug of the tool, logged and answered as a failure.
+		h.log.Error().Err(err).Str("tool", st.Name).Str("tokenId", actor.TokenID).
+			Msg("Built-in MCP tool result does not match its output schema")
+		return errorResult(err)
+	}
 	return withoutStructuredError(res)
+}
+
+// checkOutput checks the structured content of a successful result against
+// the tool's output schema, if it has one.
+func (st *staticTool) checkOutput(res *mcp.CallToolResult) error {
+	if st.out == nil || res.IsError {
+		return nil
+	}
+	if res.StructuredContent == nil {
+		return errors.New("the result has no structured content")
+	}
+	data, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		return fmt.Errorf("encode the structured content: %w", err)
+	}
+	return st.out.validate(data)
 }
 
 // reject counts a refusal of the endpoint's own in the audit's per-token
