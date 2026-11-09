@@ -10,7 +10,6 @@ import (
 	"github.com/Pegasus8/piworker/internal/config"
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
-	"github.com/Pegasus8/piworker/internal/redact"
 	"github.com/Pegasus8/piworker/internal/secrets"
 	"github.com/Pegasus8/piworker/internal/storage"
 )
@@ -309,8 +308,9 @@ func (r *Reads) flowName(red secretRedactor, name string) string {
 	return agentText(red, name, maxFlowNameBytes)
 }
 
-// agentText redacts known secrets and URL credentials from admin-written or
-// recorded text and bounds it to limit bytes.
+// agentText redacts known secrets and hides URLs past their host
+// (hideURLsInText) in admin-written or recorded text, and bounds it to limit
+// bytes.
 func agentText(red secretRedactor, s string, limit int) string {
-	return capText(redact.URLsInText(red.text(s)), limit)
+	return capText(hideURLsInText(red.text(s)), limit)
 }

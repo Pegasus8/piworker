@@ -2,8 +2,11 @@ package service
 
 import (
 	"encoding/json"
+	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
@@ -23,8 +26,13 @@ func (r *Reads) redactor(extra ...string) secretRedactor {
 			values = append(values, v)
 		}
 	}
-	values = append(values, extra...)
-	src := make(valueList, 0, 4*len(values))
+	return valuesRedactor(append(values, extra...))
+}
+
+// valuesRedactor redacts values in their literal, URL-encoded and base64
+// forms (secretRedactor) and as they read inside JSON or Go-quoted text.
+func valuesRedactor(values []string) secretRedactor {
+	src := make(valueList, 0, 5*len(values))
 	for _, v := range values {
 		src = append(src, v)
 		src = append(src, escapedForms(v)...)
@@ -81,6 +89,128 @@ func (r *Reads) sensitiveValues(f *flow.Flow) []string {
 		}
 	}
 	return out
+}
+
+// minHiddenPartBytes is the shortest part of a hidden setting (the whole
+// value, a word, a URL's path segment or query value) that hiddenValues
+// returns: shorter parts are no credentials, and redacting them would
+// mangle common words. A URL's password is returned from minSecretLength.
+const minHiddenPartBytes = 8
+
+// hiddenValues returns what GetFlow hides of f's settings in the forms
+// recorded text (node errors) may repeat it other than as a URL, which
+// hideURLsInText already cuts after its host: the string values, at any
+// depth, of every property agents may not see (Sensitive or not
+// AgentVisible, undeclared, or of an unknown node type). Each value is
+// split around its {{…}} templates (references, not values); each literal
+// part is returned whole, with its words outside URLs and, for the URLs in
+// it, their path, path segments, query values, fragment and userinfo (not
+// their scheme and host, which errors show for diagnosis).
+func (r *Reads) hiddenValues(f *flow.Flow) []string {
+	var out []string
+	add := func(s string, minLen int) {
+		if len(s) >= minLen {
+			out = append(out, s)
+		}
+	}
+	var walk func(any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case string:
+			hiddenParts(x, add)
+		case map[string]any:
+			for _, e := range x {
+				walk(e)
+			}
+		case []any:
+			for _, e := range x {
+				walk(e)
+			}
+		}
+	}
+	for i := range f.Nodes {
+		n := &f.Nodes[i]
+		var schema *node.ConfigSchema
+		if info, ok := r.registry.Get(n.Type); ok {
+			schema = info.Config
+		}
+		for name, v := range n.Config {
+			var p node.ConfigProperty
+			declared := false
+			if schema != nil {
+				p, declared = schema.Properties[name]
+			}
+			if declared && p.AgentVisible && !p.Sensitive {
+				continue // shown by GetFlow
+			}
+			walk(redactValue(secretRedactor{}, v))
+		}
+	}
+	return out
+}
+
+// hiddenParts passes add the parts of a hidden setting's value s that
+// hiddenValues returns, with the shortest length each may have.
+func hiddenParts(s string, add func(part string, minLen int)) {
+	for _, lit := range literalParts(s) {
+		add(lit, minHiddenPartBytes)
+		// A URL's words are its parts below: its scheme and host stay
+		// shown (hideURLsInText keeps them for diagnosis).
+		for _, w := range strings.FieldsFunc(urlInViewText.ReplaceAllString(lit, " "), isWordBreak) {
+			add(w, minHiddenPartBytes)
+		}
+		for _, m := range urlInViewText.FindAllString(lit, -1) {
+			u, err := url.Parse(strings.TrimRight(m, ".,;:!?)]}"))
+			if err != nil {
+				continue
+			}
+			add(u.Path, minHiddenPartBytes)
+			add(u.EscapedPath(), minHiddenPartBytes)
+			for _, seg := range strings.Split(u.EscapedPath(), "/") {
+				add(seg, minHiddenPartBytes)
+				if unescaped, err := url.PathUnescape(seg); err == nil {
+					add(unescaped, minHiddenPartBytes)
+				}
+			}
+			for _, values := range u.Query() {
+				for _, v := range values {
+					add(v, minHiddenPartBytes)
+				}
+			}
+			add(u.Fragment, minHiddenPartBytes)
+			if u.User != nil {
+				add(u.User.Username(), minHiddenPartBytes)
+				if pw, ok := u.User.Password(); ok {
+					add(pw, minSecretLength)
+				}
+			}
+		}
+	}
+}
+
+// literalParts splits s around its {{…}} templates; an unclosed template's
+// text counts as literal.
+func literalParts(s string) []string {
+	var out []string
+	for {
+		open := strings.Index(s, "{{")
+		if open < 0 {
+			return append(out, s)
+		}
+		out = append(out, s[:open])
+		end := strings.Index(s[open+2:], "}}")
+		if end < 0 {
+			return append(out, s[open+2:])
+		}
+		s = s[open+2+end+2:]
+	}
+}
+
+// isWordBreak separates the words of a hidden setting: spaces, quotes,
+// path separators and the punctuation around values in commands, headers,
+// queries and JSON.
+func isWordBreak(r rune) bool {
+	return unicode.IsSpace(r) || strings.ContainsRune("\"'`=,;&?#()[]{}<>|/\\", r)
 }
 
 // escapedForms returns v as it reads inside JSON (with and without HTML
@@ -224,4 +354,35 @@ func cutText(s string, limit int) string {
 	}
 	const tail = "…" + truncatedMark
 	return utf8Prefix(s, limit-len(tail)) + tail
+}
+
+// urlInViewText matches a URL with a scheme, up to whitespace, a quote, an
+// angle bracket or a backquote; a "<redacted>" an earlier redaction left in
+// it (a node's own query redaction) is part of it.
+var urlInViewText = regexp.MustCompile("(?i)\\b[a-z][a-z0-9+.-]*://(?:[^\\s\"'<>`]|" + regexp.QuoteMeta(redactedMark) + ")+")
+
+// hideURLsInText rewrites every URL in s that has anything past its host
+// (userinfo, a path, a query or a fragment) to scheme://host/<redacted>:
+// the read views hide the URLs of node settings (they are not
+// AgentVisible), and a credential may sit in any of those parts, the path
+// included (Telegram bot, Discord and Slack webhook URLs). Trailing
+// sentence punctuation is kept out of the URL; a URL that cannot be parsed
+// keeps only its scheme.
+func hideURLsInText(s string) string {
+	if !strings.Contains(s, "://") {
+		return s
+	}
+	return urlInViewText.ReplaceAllStringFunc(s, func(m string) string {
+		trimmed := strings.TrimRight(m, ".,;:!?)]}")
+		tail := m[len(trimmed):]
+		u, err := url.Parse(trimmed)
+		if err != nil {
+			return strings.ToLower(trimmed[:strings.Index(trimmed, "://")]) + "://" + redactedMark + tail
+		}
+		if u.User == nil && (u.Path == "" || u.Path == "/") && u.RawPath == "" && u.RawQuery == "" && !u.ForceQuery &&
+			u.Fragment == "" && u.RawFragment == "" {
+			return m
+		}
+		return u.Scheme + "://" + u.Host + "/" + redactedMark + tail
+	})
 }

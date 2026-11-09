@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Pegasus8/piworker/internal/redact"
 	"github.com/Pegasus8/piworker/internal/storage"
 )
 
@@ -153,6 +152,19 @@ func (r *Reads) GetRun(ctx context.Context, actor Actor, flowID, runID string) (
 		return RunView{}, fmt.Errorf("get run events: %w", err)
 	}
 	red := r.redactor(r.sensitiveValues(f)...)
+	// What GetFlow hides of the flow's settings, redacted from the errors
+	// (built for the first one).
+	var hidden *secretRedactor
+	errorText := func(s string) string {
+		if s == "" {
+			return ""
+		}
+		if hidden == nil {
+			h := valuesRedactor(r.hiddenValues(f))
+			hidden = &h
+		}
+		return recordedText(red, *hidden, s, maxRunFieldBytes)
+	}
 	view := RunView{RunSummary: runSummary(red, *run), Events: []RunEvent{}, TotalEvents: len(events)}
 	budget := maxRunViewBytes
 	for _, e := range events {
@@ -161,7 +173,7 @@ func (r *Reads) GetRun(ctx context.Context, actor Actor, flowID, runID string) (
 			NodeType:   capText(red.text(e.NodeType), maxViewIDBytes),
 			Phase:      e.Phase,
 			DurationMs: e.DurationMs,
-			Error:      recordedText(red, e.Error, maxRunFieldBytes),
+			Error:      errorText(e.Error),
 			At:         e.CreatedAt.UTC(),
 		}
 		data, err := marshalNoEscape(ev)
@@ -209,10 +221,13 @@ func runActorOf(actor string) (kind, token string) {
 	return RunActorOther, ""
 }
 
-// recordedText is text the runtime recorded (node errors): known secret
-// values and URL credentials redacted, bounded to limit bytes.
-func recordedText(red secretRedactor, s string, limit int) string {
-	return cutText(redact.URLsInText(red.text(s)), limit)
+// recordedText is text the runtime recorded (node errors) as agents see
+// it: known secret values redacted (red), URLs hidden past their host
+// (hideURLsInText), then what GetFlow hides of the flow's settings redacted
+// (hidden), bounded to limit bytes. URLs are hidden before the settings are
+// redacted, so an error keeps the scheme and host of the URL it names.
+func recordedText(red, hidden secretRedactor, s string, limit int) string {
+	return cutText(hidden.text(hideURLsInText(red.text(s))), limit)
 }
 
 func unknownRun(runID string) *ToolError {
