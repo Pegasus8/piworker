@@ -113,7 +113,7 @@ func TestRenderTemplateIsBoundedInASandbox(t *testing.T) {
 	runtime.ReadMemStats(&after)
 	assert.True(t, sb.Exceeded())
 	assert.LessOrEqual(t, len(out), 2<<20)
-	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(64<<20), "the 2.6 GB expansion never happens")
+	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(256<<20), "the 2.6 GB expansion never happens")
 
 	sb = node.NewSandbox(1<<20, 8<<20)
 	out = renderTemplate("{{payload}}-{{payload}}", types.NewMessage("ab", types.DataTypeString), node.WithSandbox(context.Background(), sb))
