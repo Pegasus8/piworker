@@ -174,9 +174,10 @@ func TestLowDeployRefusesGlobalVariableWrites(t *testing.T) {
 		"a tool's path made to read globals": {base: toolReplyFlow, ops: []flow.Op{
 			{Op: flow.OpUpdateNode, NodeID: "answer", Config: map[string]any{"expression": `vars["door_code"]`}},
 		}, refuse: true, kind: flow.AlertGlobalVariableRead},
+		// (Not this alert; tool_path_changed refuses it, ADR-0022.)
 		"a tool's path changed, reading no global": {base: toolReplyFlow, ops: []flow.Op{
 			{Op: flow.OpUpdateNode, NodeID: "answer", Config: map[string]any{"expression": "payload"}},
-		}},
+		}, alertOnly: true},
 		// A join emits the tool call's message with every source's payload:
 		// a branch reading globals joined into the path reaches the reply.
 		"a global read joined into a tool's path": {base: toolSideFlow, ops: []flow.Op{

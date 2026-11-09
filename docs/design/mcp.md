@@ -974,7 +974,17 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   (a `get-var` whose scope is not `flow`, or config text naming `vars`,
   `flowVars` or `$env`: it errs on the side of yes) and changed: a node of
   it added, enabled or reconfigured, or a connection into one added; one
-  alert per tool). The two global variable alerts are
+  alert per tool), `tool_path_changed` (`internal/flow/diff_tools.go`,
+  ADR-0022: what a running `trigger-tool` runs changed — its path, the
+  running part its trigger reaches through connections and flow variables
+  together with everything that feeds that part, had a node added,
+  enabled, retyped or reconfigured, a node leave it, or a connection into
+  it added or removed, compared with the base's path of the same trigger;
+  a trigger new or enabled here counts as changed; a published tool is the
+  admin's: a `confirm: none` tool wired to the action behind a `confirm:
+  admin` tool would run it without approval while its grant and
+  fingerprint stay valid; one alert per tool, naming only node IDs and
+  types). The two global variable alerts and the tool path alert are
   listed after the field alerts.
   The rate alert covers the settings whose purpose is the rate; connections,
   filter conditions and thresholds also change how many messages reach a
@@ -1190,7 +1200,8 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   an approved credential is used for: `credentialed_request_changed`, nor to
   how often a flow that reaches out fires: `rate_changed`, no change to what
   a global variable receives or to a tool path that reads global variables:
-  `global_variable_write`, `global_variable_read`), `all`
+  `global_variable_write`, `global_variable_read`, nor to what a published
+  tool runs: `tool_path_changed`, ADR-0022), `all`
   (any flow, including privileged). Changing it needs password step-up and
   shows the risk text; tokens need the `deploy` scope (only grantable when
   not `off`). Every agent deploy is audited, marked "deployed by agent" in
@@ -1518,8 +1529,9 @@ toggling a running flow on records nothing (it deploys nothing). A
   `privileged_node_added`, `destination_changed`, `dynamic_destination`,
   `new_host`, `secret_added`, `secret_moved`, `risk_switch_on`,
   `sensitive_literal`, `credentialed_request_changed` (H1), `rate_changed`,
-  `global_variable_write` (shared state other flows read) and
-  `global_variable_read` (shared state a tool would return) — refused
+  `global_variable_write` (shared state other flows read),
+  `global_variable_read` (shared state a tool would return) and
+  `tool_path_changed` (what a published tool runs, ADR-0022) — refused
   with `forbidden` listing the kinds, never values; `all` → any flow. With
   `draftId` the agent's own pending draft of `flowId` (another token's:
   `not_found`; stale: `conflict`) is evaluated, saved with

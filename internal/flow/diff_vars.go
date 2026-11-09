@@ -35,6 +35,7 @@ type varGraph struct {
 	fedBy     map[string][]*diffNode // source ID → the running nodes it connects to
 	newInput  map[string]bool        // target IDs of added connections between running nodes
 	added     []Connection           // the added connections between running nodes
+	conns     []Connection           // the connections between running nodes
 	// flowWriters are the running set-vars of scope flow; flowReaders the
 	// running nodes that read flow variables.
 	flowWriters, flowReaders []*diffNode
@@ -59,6 +60,7 @@ func newVarGraph(next *Flow, baseByKey map[string]*diffNode, nextOrder []*diffNo
 	}
 	for _, c := range next.Connections {
 		if src, dst := g.running[c.SourceNode], g.running[c.TargetNode]; src != nil && dst != nil {
+			g.conns = append(g.conns, c)
 			g.feeds[c.TargetNode] = append(g.feeds[c.TargetNode], src)
 			g.fedBy[c.SourceNode] = append(g.fedBy[c.SourceNode], dst)
 		}

@@ -75,8 +75,9 @@ const (
 )
 
 var alertRank = map[string]int{
-	// The global variable alerts (diff_vars.go) follow the field alerts.
-	AlertGlobalVariableWrite: 11, AlertGlobalVariableRead: 12,
+	// The global variable alerts (diff_vars.go) and the tool path alert
+	// (diff_tools.go) follow the field alerts.
+	AlertGlobalVariableWrite: 11, AlertGlobalVariableRead: 12, AlertToolPathChanged: 13,
 
 	AlertRiskRaised: 0, AlertPrivilegedNodeAdded: 1, AlertDestinationChanged: 2, AlertDynamicDestination: 3,
 	AlertNewHost: 4, AlertSecretAdded: 5, AlertSecretMoved: 6, AlertRiskSwitchOn: 7, AlertSensitiveLiteral: 8,
@@ -293,7 +294,7 @@ func Diff(base, next *Flow, reg *node.Registry) DiffReport {
 			report.Nodes = append(report.Nodes, nd)
 		}
 	}
-	report.Alerts = diffAlerts(report, next, baseByKey, nextByKey, baseOrder, nextOrder, reg)
+	report.Alerts = diffAlerts(report, base, next, baseByKey, nextByKey, baseOrder, nextOrder, reg)
 	return report
 }
 
@@ -520,7 +521,7 @@ func hasDynamicTemplate(v any) bool {
 // with a draft and returned to its author, so they show a property's values
 // only when an agent may read it (agentReadable); otherwise only risks,
 // hosts, secret names and risk-switch booleans.
-func diffAlerts(report DiffReport, next *Flow, baseByKey, nextByKey map[string]*diffNode,
+func diffAlerts(report DiffReport, base, next *Flow, baseByKey, nextByKey map[string]*diffNode,
 	baseOrder, nextOrder []*diffNode, reg *node.Registry) []Alert {
 	type ranked struct {
 		order int
@@ -723,6 +724,8 @@ func diffAlerts(report DiffReport, next *Flow, baseByKey, nextByKey map[string]*
 	credentialedFlowAlerts(g, nextOrder, credAlerted, add)
 	dynamicDestinationAlerts(g, nextOrder, dynAlerted, add)
 	globalVariableAlerts(g, nextOrder, add)
+	// What a published tool runs is the admin's (diff_tools.go).
+	toolPathAlerts(g, newVarGraph(base, nil, baseOrder, nil), nextOrder, paired, add)
 
 	sort.SliceStable(list, func(i, j int) bool {
 		x, y := list[i], list[j]

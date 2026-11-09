@@ -150,9 +150,11 @@ func (d DeployActor) Deployment(version int) storage.Deployment {
 // contract's eight, credentialed_request_changed (hand-off H1),
 // rate_changed (how often a flow that reaches out fires or is let through),
 // global_variable_write (what a running set-var writes to a global variable,
-// which other flows read for their URLs, commands and conditions, changed)
-// and global_variable_read (a changed tool path reads global variables,
-// whose values would go back to the agent calling the tool).
+// which other flows read for their URLs, commands and conditions, changed),
+// global_variable_read (a changed tool path reads global variables, whose
+// values would go back to the agent calling the tool) and tool_path_changed
+// (what a published tool runs changed: its grant, fingerprint and confirm
+// mode would stay, ADR-0022).
 var lowDeployRefusedAlerts = []string{
 	flow.AlertPrivilegedNodeAdded,
 	flow.AlertDestinationChanged,
@@ -166,6 +168,7 @@ var lowDeployRefusedAlerts = []string{
 	flow.AlertRateChanged,
 	flow.AlertGlobalVariableWrite,
 	flow.AlertGlobalVariableRead,
+	flow.AlertToolPathChanged,
 }
 
 // LowDeployRefusedAlerts returns the alert kinds the low agent_deploy level

@@ -44,6 +44,70 @@ func mqttDoorFlow() *flow.Flow {
 	return f
 }
 
+// garageTools is the flow of audit finding F1 (variant A): garage_status
+// (confirm none, safe) answers through a transform; garage_open (confirm
+// admin) posts to a home-automation webhook with no credential.
+func garageTools() *flow.Flow {
+	schema := map[string]any{"type": "object", "properties": map[string]any{}}
+	f := flow.NewFlow("garage")
+	addNode(f, "status", "trigger-tool", map[string]any{"toolName": "garage_status", "description": "Tells whether the garage door is open.", "inputSchema": schema})
+	addNode(f, "answer", "process-transform", map[string]any{"expression": `"closed"`})
+	addNode(f, "sreply", "action-reply", nil)
+	addNode(f, "open", "trigger-tool", map[string]any{"toolName": "garage_open", "description": "Opens the garage door for a visitor.",
+		"inputSchema": schema, "confirm": "admin"})
+	addNode(f, "pub", "action-http", map[string]any{"url": "https://ha.example.com/api/webhook/abc", "method": "POST"})
+	addNode(f, "oreply", "action-reply", nil)
+	connect(f, "status", "answer")
+	connect(f, "answer", "sreply")
+	connect(f, "open", "pub")
+	connect(f, "pub", "oreply")
+	return f
+}
+
+// Audit finding F1: at the low level an agent may not change what a
+// published tool runs. Wiring the confirm:none tool to the action behind
+// the confirm:admin tool would run that action at will, with no approval,
+// while the tool's grant and fingerprint stay valid.
+func TestLowDeployRefusesRewiringATool(t *testing.T) {
+	cases := map[string]struct {
+		base func() *flow.Flow
+		ops  []flow.Op
+	}{
+		// Variant A: the safe tool reaches the gated action.
+		"a safe tool wired to the gated action": {base: garageTools, ops: []flow.Op{
+			{Op: flow.OpConnect, SourceNode: "status", SourcePort: "output", TargetNode: "pub", TargetPort: "input"},
+		}},
+		// Variant B: a granted tool's action swapped for the gated one;
+		// its risk, and so its fingerprint, stay the same.
+		"a granted tool repointed": {base: func() *flow.Flow {
+			f := garageTools()
+			addNode(f, "lights", "action-http", map[string]any{"url": "https://lights.example.com/on", "method": "POST"})
+			nodeOf(f, "answer").Config["expression"] = "payload"
+			f.Connections = nil
+			connect(f, "status", "lights")
+			connect(f, "lights", "sreply")
+			connect(f, "open", "pub")
+			connect(f, "pub", "oreply")
+			return f
+		}, ops: []flow.Op{
+			{Op: flow.OpDisconnect, SourceNode: "status", SourcePort: "output", TargetNode: "lights", TargetPort: "input"},
+			{Op: flow.OpConnect, SourceNode: "status", SourcePort: "output", TargetNode: "pub", TargetPort: "input"},
+		}},
+		// The gated tool also fires another action once approved.
+		"a gated tool wired to another action": {base: garageTools, ops: []flow.Op{
+			{Op: flow.OpAddNode, Node: &flow.OpNode{ID: "log", Type: "action-log", Config: map[string]any{"message": "opened"}}},
+			{Op: flow.OpConnect, SourceNode: "open", SourcePort: "output", TargetNode: "log", TargetPort: "input"},
+		}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := newAuthEnv(t)
+			base := e.create(tc.base())
+			e.lowRefusal(base, tc.ops, flow.AlertToolPathChanged)
+		})
+	}
+}
+
 // Audit finding F9: the admin approved a publish whose topic takes the
 // device from the message, with the broker password. A transform inserted
 // upstream steers it to any device (a lock) with the admin's credentials;
