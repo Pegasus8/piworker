@@ -342,11 +342,12 @@ func TestScopeCheck(t *testing.T) {
 }
 
 // Only a body that is not JSON (or has duplicate names) is a parse error
-// (-32700, id null). Valid JSON whose method is not a string is an invalid
-// request (-32600, id null); params of the wrong shape (not an object, a
-// tool or prompt name that is not a string) are the SDK's invalid params
-// (-32602, with the request's id), like any other params of the wrong
-// type. The scope check reads such a call as one of an unknown tool.
+// (-32700, id null). Valid JSON that is not an object is an invalid request
+// (-32600, id null), and so is an object whose method is not a string
+// (-32600, with the request's id); params of the wrong shape (not an
+// object, a tool or prompt name that is not a string) are the SDK's invalid
+// params (-32602, with the request's id), like any other params of the
+// wrong type. The scope check reads such a call as one of an unknown tool.
 func TestOnlyInvalidJSONIsAParseError(t *testing.T) {
 	e := newTestEnv(t)
 	n := 0
@@ -368,8 +369,14 @@ func TestOnlyInvalidJSONIsAParseError(t *testing.T) {
 		assert.EqualValues(t, -32602, code, body)
 	}
 	id, code, _ := rpcRefusal(t, serve("", `{"jsonrpc":"2.0","id":5,"method":5}`), http.StatusBadRequest)
-	assert.Nil(t, id)
+	assert.EqualValues(t, 5, id)
 	assert.EqualValues(t, -32600, code)
+	for _, body := range []string{`5`, ` "tools/list" `, `null`, `true`} {
+		id, code, msg := rpcRefusal(t, serve("", body), http.StatusBadRequest)
+		assert.Nil(t, id, body)
+		assert.EqualValues(t, -32600, code, body)
+		assert.Contains(t, msg, "object", body)
+	}
 	for _, body := range []string{
 		`{"jsonrpc":"2.0","id":5,"method":"tools/call",`,
 		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"garage","name":"pw_deploy_flow"}}`,

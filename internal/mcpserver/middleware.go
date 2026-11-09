@@ -323,6 +323,10 @@ func (h *Handler) checkMessage(w http.ResponseWriter, r *http.Request, actor ser
 			"JSON-RPC batching is not supported: send one message per request")
 		return false
 	}
+	if isScalarJSON(body) {
+		writeRPCError(w, http.StatusBadRequest, nil, jsonrpc.CodeInvalidRequest, "Invalid request: a JSON-RPC message is a JSON object")
+		return false
+	}
 	var m rpcMessage
 	if err := jsonv2.Unmarshal(body, &m); err != nil {
 		writeRPCError(w, http.StatusBadRequest, nil, jsonrpc.CodeParseError, "Parse error: "+shorten(err.Error(), 200))
@@ -330,7 +334,7 @@ func (h *Handler) checkMessage(w http.ResponseWriter, r *http.Request, actor ser
 	}
 	var method string
 	if len(m.Method) > 0 && jsonv2.Unmarshal(m.Method, &method) != nil {
-		writeRPCError(w, http.StatusBadRequest, nil, jsonrpc.CodeInvalidRequest, "Invalid request: the method is not a string")
+		writeRPCError(w, http.StatusBadRequest, m.ID, jsonrpc.CodeInvalidRequest, "Invalid request: the method is not a string")
 		return false
 	}
 	isCall := len(m.ID) > 0
@@ -396,9 +400,10 @@ var sdkMethods = map[string]bool{
 	"notifications/progress": true, "notifications/roots/list_changed": true,
 }
 
-// rpcMessage is what checkScope reads of a JSON-RPC message: any valid JSON
-// (without duplicate names) decodes into it, so only a body that is not
-// JSON is a parse error.
+// rpcMessage is what checkScope reads of a JSON-RPC message: any JSON
+// object (without duplicate names) decodes into it, so only a body that is
+// not JSON is a parse error (valid JSON that is not an object, an array
+// aside, is refused before as an invalid request).
 type rpcMessage struct {
 	ID     jsontext.Value `json:"id"`
 	Method jsontext.Value `json:"method"`
@@ -409,6 +414,14 @@ type rpcMessage struct {
 func isBatch(body []byte) bool {
 	trimmed := bytes.TrimSpace(body)
 	return len(trimmed) > 0 && trimmed[0] == '['
+}
+
+// isScalarJSON reports a body that is a valid JSON number, string, true,
+// false or null: neither a JSON-RPC message (an object) nor a batch (an
+// array).
+func isScalarJSON(body []byte) bool {
+	trimmed := bytes.TrimSpace(body)
+	return len(trimmed) > 0 && trimmed[0] != '{' && trimmed[0] != '[' && jsontext.Value(trimmed).IsValid()
 }
 
 // writeRPCError answers a JSON-RPC error without involving the SDK.
