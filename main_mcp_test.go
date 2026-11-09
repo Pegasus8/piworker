@@ -791,7 +791,7 @@ func TestMCPReadCanaries(t *testing.T) {
 	const secretName = "MCP_READ_CANARY"
 	const secret = "Zq7SecretCanary/v+1&key=<x>"
 	require.NoError(t, secrets.DefaultStore.Set(secretName, secret))
-	t.Cleanup(func() { secrets.DefaultStore.Delete(secretName) })
+	t.Cleanup(func() { _ = secrets.DefaultStore.Delete(secretName) })
 
 	canaries := map[string]string{} // where it was planted → canary
 	plant := func(where string) string {
