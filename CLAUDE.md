@@ -130,7 +130,7 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
   `toolName` on `Start` (duplicate → `node.ErrResourceConflict` → 409) and
   releases it on `Stop`.
 
-### Agent tools (MCP; ADR-0009…0021, `docs/design/mcp.md`)
+### Agent tools (MCP; ADR-0009…0023, `docs/design/mcp.md`)
 - A flow becomes a tool through a `trigger-tool` node (input schema, `confirm`,
   limits) answered by `action-reply`. `internal/toolschema` compiles the closed
   schema subset and validates arguments; `flow/risk.go` (`AnalyzeTools`) rates
@@ -153,27 +153,39 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
   `service.Reads`). Middleware order: loopback (TLS off) → Host → Origin →
   write deadline → Bearer (own failure limiter) → per-token bucket → scope.
   Unknown and hidden tool names both go to the service (same `not_found`).
-  `mountMCP` (`main.go`) registers it before the UI catch-all; with
-  `mcp.enabled = false` it answers a JSON 404.
+  Author tools are listed only with `mcp.author_enabled`, deploy tools only
+  while `agent_deploy` is above `off`. `mountMCP` (`main.go`) registers it
+  before the UI catch-all; with `mcp.enabled = false` it answers a JSON 404.
+  Raw JSON-RPC exchanges per protocol version are goldens in `testdata/`
+  (`TestMCPProtocolGolden`), the author/deploy tool listing one in
+  `internal/mcpserver/testdata/`; regenerate with the test's `-update` flag
+  (`go test -run TestMCPProtocolGolden . -update`) and review the diff.
 - `cmd/piworker-mcp` is the stdio bridge for Claude Desktop: pure Go
   (`CGO_ENABLED=0`, a test enforces it), a protocol-agnostic JSON-RPC relay
   that pins the CA; built for six OS/arch pairs by `make build-mcp-bridge-all`.
 - Background polls from the editor send `X-PiWorker-Background: 1` (or use a
   passive path) so they never extend the session (ADR-0017).
-- **Authoring** (ADR-0018…0021, design §10): agents never write flows, only
-  drafts (`flow_drafts`) through `service.Authoring` (`pw_save_draft`, ops or a
-  whole flow against a `baseVersion`; stale → `conflict`). The admin approves
-  them on `/agents/drafts`. Every definition save is a numbered version in
-  `flow_versions` (`UpdateFlowVersioned`; deploy/stop are `UpdateFlowState`,
-  not versions); editor saves and deploys send the loaded `version` and get 409
-  on a stale one. `flow.Lint` reports every issue from the **same collectors
-  deploy runs** (keep it that way: a flow without Lint errors deploys);
-  `flow.Risk`; `flow.Diff` gives field diffs plus the alerts that define
-  `agent_deploy = low` (`internal/service/deploy.go`). Agent deploys go
-  through the editor's lifecycle path (`FlowsHandler.WithLock`, one lifecycle)
-  and record the deployment marker. `flow.DryRun`/`flow.TestNode` run in a
-  private runtime from `Registry.Derive`: non-`safe` nodes are stubs, stores
-  and secrets are empty, one run at a time.
+- **Authoring** (ADR-0018…0023, design §10): agents never write flows
+  directly, only drafts (`flow_drafts`) through `service.Authoring`
+  (`pw_save_draft`, ops or a whole flow against a `baseVersion`; stale →
+  `conflict`). The admin approves them on `/agents/drafts`, or a `deploy`
+  token applies its own with `pw_deploy_flow{draftId}` within
+  `agent_deploy`. Every definition save is a numbered version in
+  `flow_versions` (`UpdateFlowVersioned`, which keeps the stored state;
+  deploy/stop are `UpdateFlowState`, not versions); editor saves and deploys
+  send the loaded `version` and get 409 on a stale one. `flow.Lint` reports
+  every issue from the **same collectors deploy runs** (keep it that way: a
+  flow without Lint errors deploys); `flow.Risk`; `flow.Diff`/`DiffWith`
+  give field diffs plus the alerts whose kinds `agent_deploy = low` refuses
+  (`service.LowDeployRefusedAlerts`, `internal/service/deploy.go`; ADR-0019,
+  ADR-0022). Agent deploys go through the editor's lifecycle path
+  (`FlowsHandler.WithLock`, one lifecycle) and record the deployment marker
+  (`flow_deployments`). Runs record the version they ran
+  (`flow_runs.flow_version`); agents see run errors only of admin-approved
+  versions (ADR-0023). `flow.DryRun` runs in a private runtime from
+  `Registry.Derive` (non-`safe` nodes are stubs) and `flow.TestNode` runs one
+  safe node; both get isolated stores, no secrets and a `node.Sandbox`, one
+  run at a time.
 - Agent-facing output **never depends on comparing the agent's text with a
   hidden value** (ADR-0021): echo what the agent wrote, withhold the admin's
   hidden content whole. Test new agent-facing paths by sending a secret's value
@@ -183,8 +195,9 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
 - `internal/storage`: SQLite tuned in `buildDSN` (WAL, `busy_timeout`,
   `_txlock=immediate`) with `SetMaxOpenConns(1)` (single writer). Flows are
   stored as a JSON blob in the `data` column with a `version`, each definition
-  also in `flow_versions` (newest 50 plus the last admin-approved); a
-  `settings` table persists the legacy settings. The user store **shares the same `*sql.DB` handle**
+  also in `flow_versions` (newest 50 plus the last admin-approved); the
+  `settings` key/value table holds `agent_deploy` and `tokens_epoch`. The
+  user store **shares the same `*sql.DB` handle**
   (`NewSQLiteUserStoreWithDB(store.DB())`) — don't open a second pool on the file.
 - Auth: SQLite-backed opaque sessions with HttpOnly/SameSite=Strict cookies,
   Secure whenever PiWorker serves TLS itself (`session_secure` only matters with
@@ -220,8 +233,12 @@ API calls go through
 `data.data` unwrapping in the composable. Flow editing state is the
 `stores/flows.ts` Pinia store; the canvas is `components/flow/FlowCanvas.vue`.
 Agent access (`/agents`, `/agents/approvals`, `/agents/audit`) uses
-`stores/agent.ts`; background polling goes through `lib/poller.ts` (pauses
-while the tab is hidden).
+`stores/agent.ts`, the drafts pages (`/agents/drafts`, `/agents/drafts/:id`)
+`stores/drafts.ts` with presentation rules in `lib/drafts.ts`; flow markers
+and version history/rollback are `components/agent/FlowMarks.vue` and
+`components/flow/VersionHistoryDialog.vue` over `stores/flows.ts`.
+Background polling goes through `lib/poller.ts` (pauses while the tab is
+hidden).
 
 ## Adding a new node (most common extension)
 1. Create `internal/node/builtin/<name>.go`. Implement `node.Node` (+ `TriggerNode`
@@ -236,9 +253,10 @@ while the tab is hidden).
    the description. Mark where data goes `Destination` (URLs, hosts, topics,
    recipients, paths, pins), opt-ins that widen access `RiskSwitch`, what
    selects a request's action `Operation`, and rates `Rate` — the `low` agent
-   deploy policy is built on these (ADR-0019). Settings that cannot work
-   without their secrets implement `node.SecretRequirer`.
-   `builtin/schema_policy_test.go` enforces all of this.
+   deploy policy is built on these (ADR-0019). `builtin/schema_policy_test.go`
+   enforces the markers. Settings that cannot work without their secrets
+   implement `node.SecretRequirer` (deploy then refuses an undefined one).
+   Resolve secrets per execution through the context, never in the factory.
    Factories and `Validate` must reject bad config (deploy maps that to 400).
 4. Multi-output nodes: declare each output port and set `SourcePort` on every
    emitted message. Add a `_test.go` next to it.
