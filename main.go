@@ -463,7 +463,11 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 		opt(router)
 	}
 
-	mountMCP(router, cfg, services, agentTokens, hostGuard)
+	// TODO(wave4-join): pass authoring: services.authoring once buildApp
+	// creates the authoring service (built with AuthorEnabled:
+	// cfg.MCP.AuthorEnabled and the FlowsHandler as its Lifecycle); until
+	// then no author or deploy tool is registered.
+	mountMCP(router, cfg, services, agentTokens, hostGuard, mcpBuiltins{registry: registry, settings: store})
 
 	// Webhook endpoints: trigger-webhook nodes register their paths on the shared
 	// hub, and incoming requests are dispatched to them. Public (the node's
@@ -492,25 +496,14 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 // authentication, so agent tokens exist); otherwise /mcp answers a JSON 404.
 // OAuth discovery under /.well-known/ always answers a JSON 404, so clients
 // fall back to their configured Bearer token instead of an OAuth flow.
-func mountMCP(router *mux.Router, cfg config.Config, services appServices, tokens *agentauth.TokenVerifier, hosts *api.HostGuard) {
+func mountMCP(router *mux.Router, cfg config.Config, services appServices, tokens *agentauth.TokenVerifier, hosts *api.HostGuard, builtins mcpBuiltins) {
 	notFound := http.HandlerFunc(api.NotFoundHandler)
 	router.PathPrefix("/.well-known/").Handler(notFound)
 	if !cfg.MCP.Enabled || tokens == nil {
 		router.Handle(mcpserver.Path, notFound)
 		return
 	}
-	// TODO(wave4-join): buildApp does not create the authoring service yet.
-	// Once appServices holds it (authoring *service.Authoring, built with
-	// AuthorEnabled: cfg.MCP.AuthorEnabled and the FlowsHandler as its
-	// Lifecycle), register the author and deploy tools here:
-	//   StaticTools: append ReadTools(services.reads) with
-	//     mcpserver.AuthorTools(services.authoring, registry) and
-	//     mcpserver.DeployTools(services.authoring),
-	//   Prompts: append ReadPrompts(services.reads) with mcpserver.AuthorPrompts(),
-	//   DeployLevel: store (the *storage.SQLiteStore: AgentDeployLevel),
-	// passing registry and store to mountMCP. Until then no author or deploy
-	// tool is registered, so AuthorEnabled changes nothing.
-	handler, err := mcpserver.New(mcpserver.Options{
+	opts := mcpserver.Options{
 		Tools:          services.tools,
 		Tokens:         tokens,
 		Rejections:     services.audit,
@@ -523,12 +516,32 @@ func mountMCP(router *mux.Router, cfg config.Config, services appServices, token
 		AllowedOrigins: cfg.CORSOrigins,
 		Version:        version,
 		Logger:         log.Logger,
-	})
+	}
+	if a := builtins.authoring; a != nil {
+		// The author tools (mcp.author_enabled, scope author), the deploy
+		// tools (agent_deploy above off, scope deploy) and author_flow; the
+		// endpoint audits what runs no service (node types, the prompt).
+		opts.StaticTools = append(append(opts.StaticTools, mcpserver.AuthorTools(a, builtins.registry, services.audit)...),
+			mcpserver.DeployTools(a)...)
+		opts.Prompts = append(opts.Prompts, mcpserver.AuthorPrompts(services.audit)...)
+		opts.DeployLevel = builtins.settings
+	}
+	handler, err := mcpserver.New(opts)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Cannot set up the MCP endpoint")
 	}
 	router.Handle(mcpserver.Path, handler)
 	log.Info().Str("path", mcpserver.Path).Bool("tls", cfg.TLSEnabled()).Bool("lanAccess", cfg.MCP.LANAccess).Msg("MCP endpoint mounted")
+}
+
+// mcpBuiltins are what /mcp serves besides the flow and read tools: with
+// the authoring service, the author and deploy tools and author_flow, the
+// node types they list and the agent deploy level (settings) that gates the
+// deploy tools.
+type mcpBuiltins struct {
+	authoring *service.Authoring
+	registry  *node.Registry
+	settings  mcpserver.DeployLevelReader
 }
 
 // setupLogging configures the global logger.
