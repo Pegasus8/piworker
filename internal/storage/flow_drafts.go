@@ -26,6 +26,8 @@ const (
 	DraftVoid     = "void"
 	// DraftFilterDecided lists every draft that is no longer pending.
 	DraftFilterDecided = "decided"
+	// DraftFilterAll lists every draft (as does "").
+	DraftFilterAll = "all"
 )
 
 // Reasons recorded when the system voids a pending draft.
@@ -89,8 +91,8 @@ type FlowDraft struct {
 	AppliedVersion  int             `json:"appliedVersion,omitempty"` // the version an approval saved
 }
 
-// FlowDraftFilter selects drafts for ListFlowDrafts. Status is "" (all),
-// DraftFilterDecided, or one status.
+// FlowDraftFilter selects drafts for ListFlowDrafts. Status is "" or
+// DraftFilterAll (every draft), DraftFilterDecided, or one status.
 type FlowDraftFilter struct {
 	Status  string
 	TokenID string
@@ -347,7 +349,7 @@ func (s *SQLiteStore) ListFlowDrafts(filter FlowDraftFilter, limit int, beforeID
 		args  []any
 	)
 	switch filter.Status {
-	case "":
+	case "", DraftFilterAll:
 	case DraftFilterDecided:
 		where, args = append(where, `status != ?`), append(args, DraftPending)
 	case DraftPending, DraftApproved, DraftRejected, DraftVoid:

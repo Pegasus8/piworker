@@ -184,6 +184,9 @@ func TestListFlowDrafts(t *testing.T) {
 	all, err := s.ListFlowDrafts(FlowDraftFilter{}, 0, "")
 	require.NoError(t, err)
 	assert.Equal(t, []string{ids[4], ids[3], ids[2], ids[1], ids[0]}, idsOf(all), "newest first")
+	explicit, err := s.ListFlowDrafts(FlowDraftFilter{Status: DraftFilterAll}, 0, "")
+	require.NoError(t, err)
+	assert.Equal(t, idsOf(all), idsOf(explicit))
 	for _, d := range all {
 		assert.Nil(t, d.Data, "listings carry no flow data")
 		assert.Equal(t, "Proposed", d.Name)
