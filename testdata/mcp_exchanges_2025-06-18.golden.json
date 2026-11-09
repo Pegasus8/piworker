@@ -1041,12 +1041,12 @@
       "jsonrpc": "2.0",
       "result": {
         "_meta": {
-          "piworker/runId": "<id-3>",
+          "piworker/runId": "<id-2>",
           "piworker/status": "completed"
         },
         "content": [
           {
-            "text": "{\"status\":\"completed\",\"runId\":\"<id-3>\",\"result\":{\"door\":\"right\"}}",
+            "text": "{\"status\":\"completed\",\"runId\":\"<id-2>\",\"result\":{\"door\":\"right\"}}",
             "type": "text"
           }
         ],
@@ -1054,7 +1054,7 @@
           "result": {
             "door": "right"
           },
-          "runId": "<id-3>",
+          "runId": "<id-2>",
           "status": "completed"
         }
       }
@@ -1567,7 +1567,7 @@
       "method": "tools/call",
       "params": {
         "arguments": {
-          "draftId": "<id-4>",
+          "draftId": "<id-3>",
           "flowId": "flow-report"
         },
         "name": "pw_deploy_flow"

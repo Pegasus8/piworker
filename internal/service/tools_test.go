@@ -1011,3 +1011,55 @@ func TestRunningCallsSurviveAFullResultStore(t *testing.T) {
 	assert.Equal(t, flow.CallStatusCompleted, final.Status)
 	assert.JSONEq(t, `{"door":"left"}`, string(final.Result))
 }
+
+// The handle of a confirm:admin call is its approval's id (§8): every answer
+// for it carries that id as RunID, never the id of the flow run the approved
+// call started, so an agent that polls with the runId it was last given
+// keeps reaching the call, also after the in-memory record of the run is
+// gone and only the approval's stored copy answers.
+func TestApprovedCallAnswersWithTheApprovalID(t *testing.T) {
+	e := newEnv(t)
+	info := e.deploy(slowTool(1500, map[string]any{"confirm": "admin"}))
+	agent := e.agent(storage.NewAPIToken{Grants: grant(info)})
+	req, err := e.call(agent, info, map[string]any{"door": "left"})
+	require.NoError(t, err)
+	require.Equal(t, flow.CallStatusApprovalRequired, req.Status)
+	approvalID := req.RunID
+	approved, err := e.store.DecideAgentApproval(approvalID, true, "admin", time.Now())
+	require.NoError(t, err)
+	require.NoError(t, e.tools.ExecuteApproval(context.Background(), *approved))
+
+	poll := func() flow.CallResult {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		got, err := e.tools.Result(ctx, agent, approvalID)
+		require.NoError(t, err)
+		return got
+	}
+	forget := func() {
+		e.tools.results.mu.Lock()
+		defer e.tools.results.mu.Unlock()
+		for id := range e.tools.results.runs {
+			e.tools.results.dropLocked(id)
+		}
+	}
+
+	got := poll() // the live record of the run answers
+	assert.Equal(t, flow.CallStatusRunning, got.Status)
+	assert.Equal(t, approvalID, got.RunID)
+
+	forget() // the stored copy answers
+	got = poll()
+	assert.Equal(t, flow.CallStatusRunning, got.Status)
+	assert.Equal(t, approvalID, got.RunID)
+
+	require.Eventually(t, func() bool {
+		return e.storedApprovalResult(approvalID).Status == flow.CallStatusCompleted
+	}, 5*time.Second, 20*time.Millisecond)
+	forget()
+	got = poll()
+	assert.Equal(t, flow.CallStatusCompleted, got.Status)
+	assert.Equal(t, approvalID, got.RunID)
+	assert.JSONEq(t, `{"door":"left"}`, string(got.Result))
+}

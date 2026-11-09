@@ -726,7 +726,11 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   editor shows a queue (badge + page) with tool, args (text only), risk and
   token; approve runs the call and stores its `CallResult` on the approval
   (retrievable with `pw_get_result`; a call still running past its timeout
-  stores `running`, then its final result); reject → `rejected`. The call runs
+  stores `running`, then its final result). The approval's id stays the
+  call's handle: every answer for it carries it as `runId`, never the id of
+  the flow run the approved call started (which the stored result keeps for
+  the admin), so the agent can poll it after the run's in-memory record is
+  gone. Reject → `rejected`. The call runs
   only if the tool still has the name and fingerprint recorded with the
   request; otherwise nothing runs and the stored result is an error ("the tool
   changed since the request; ask again"). Arguments over 64 KiB cannot be

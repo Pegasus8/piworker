@@ -120,8 +120,12 @@ func (t *Tools) approvalResult(ctx context.Context, actor Actor, id string) (flo
 	}
 	if res.Status == flow.CallStatusRunning {
 		if live, ok, err := t.runResult(ctx, actor, res.RunID); ok && err == nil {
-			return live, nil
+			res = live
 		}
 	}
+	// The approval is the call's handle (§8): the stored result names the
+	// flow run the approved call started (for the admin), but the agent
+	// polls by the approval's id, which outlives the run's in-memory record.
+	res.RunID = a.ID
 	return res, nil
 }

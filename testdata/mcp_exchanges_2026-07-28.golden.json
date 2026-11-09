@@ -1188,12 +1188,12 @@
             "title": "PiWorker",
             "version": "dev"
           },
-          "piworker/runId": "<id-3>",
+          "piworker/runId": "<id-2>",
           "piworker/status": "completed"
         },
         "content": [
           {
-            "text": "{\"status\":\"completed\",\"runId\":\"<id-3>\",\"result\":{\"door\":\"right\"}}",
+            "text": "{\"status\":\"completed\",\"runId\":\"<id-2>\",\"result\":{\"door\":\"right\"}}",
             "type": "text"
           }
         ],
@@ -1202,7 +1202,7 @@
           "result": {
             "door": "right"
           },
-          "runId": "<id-3>",
+          "runId": "<id-2>",
           "status": "completed"
         }
       }
@@ -1918,7 +1918,7 @@
           "io.modelcontextprotocol/protocolVersion": "2026-07-28"
         },
         "arguments": {
-          "draftId": "<id-4>",
+          "draftId": "<id-3>",
           "flowId": "flow-report"
         },
         "name": "pw_deploy_flow"
