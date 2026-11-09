@@ -16,7 +16,7 @@ func DiagnoseFlowPrompt(flowID, flowName string) string {
 	return fmt.Sprintf(`Diagnose why the PiWorker flow %[2]s (flowId %[1]s) is failing or not behaving as expected. Use only the read tools listed here; do not change, deploy, start or stop anything.
 
 1. Call pw_get_flow with flowId %[1]s. Note the flow's state (running, stopped, or failed: meant to run but not running), its nodes (type, enabled, risk), connections and published tools. Config values shown as %[3]q are hidden on purpose (credentials, or settings not shown to agents): do not ask for them or guess them; refer to them by node and property name.
-2. Call pw_list_runs with flowId %[1]s to find the recent runs and their status. Then call pw_get_run for the latest run with status "error" (and, if there is one, a recent successful run to compare): its events say which node failed, after how long, and with which error.
+2. Call pw_list_runs with flowId %[1]s to find the recent runs and their status. Then call pw_get_run for the latest run with status "error" (and, if there is one, a recent successful run to compare): its events say which node failed, after how long, and with which error. The errors of runs that are not of a version the admin approved are withheld (the event says so): for those, report the failing node and its type, not that text, as the evidence.
 3. Relate each error to its node: the node's type and visible settings, whether it is enabled, and what it is connected to (missing or unexpected connections, a disabled node in the path, an output port that leads nowhere).
 4. If the flow is in the failed state, runs stopped appearing, or errors suggest resource trouble (timeouts, disk, memory), call pw_system_status.
 

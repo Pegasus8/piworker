@@ -24,6 +24,18 @@ func TestDiagnoseFlowPromptNamesTheReadTools(t *testing.T) {
 	assert.Equal(t, text, DiagnoseFlowPrompt("flow-123", "Garage door"), "pure and deterministic")
 }
 
+// Agents get a fixed text instead of the errors of runs that are not of a
+// version the admin approved (ADR-0022, ADR-0023): the prompt says so, so
+// the agent does not report that text as the cause.
+func TestDiagnoseFlowPromptExplainsWithheldErrors(t *testing.T) {
+	text := DiagnoseFlowPrompt("flow-123", "Garage door")
+	assert.Contains(t, text, "withheld")
+	assert.Contains(t, text, "not of a version the admin approved")
+	assert.Contains(t, text, "report the failing node and its type")
+	assert.True(t, strings.HasPrefix(withheldRunError, "the node failed; its error is withheld because this run is not of a version the admin approved"),
+		"the prompt's words match the text agents get")
+}
+
 // The flow's ID and name are inlined as quoted, bounded data: a name cannot
 // add lines (instructions) to the prompt.
 func TestDiagnoseFlowPromptQuotesItsData(t *testing.T) {

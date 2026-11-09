@@ -370,8 +370,9 @@ Shared by REST and MCP (thin adapters):
     effort on Linux, free disk of the data directory, memory and CPU
     temperature (omitted when unknown); no host names, addresses or paths.
   - `DiagnoseFlowPrompt` / `DiagnoseFlow`: the `diagnose_flow` prompt text,
-    which points to the read tools and inlines only the flow's quoted ID and
-    name.
+    which points to the read tools, says that the errors of runs not of a
+    version the admin approved are withheld (report the failing node and
+    type instead), and inlines only the flow's quoted ID and name.
   Known secret values (literal, URL-encoded, base64, JSON- or Go-escaped)
   are redacted from every view, as are credentials typed literally into a
   flow's `Sensitive` properties (in every view of that flow: its summary in
