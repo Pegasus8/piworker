@@ -17,7 +17,10 @@ const apiMock: {
   toggleFlow: async (_id, enabled) => enabled, getFlowVersions: async () => ({ current: 1, lastAdminApproved: 1, versions: [] }),
   rollbackFlow: async () => ({ flowId: 'a', version: 2, deployed: false })
 }
-mock.module('../src/composables/useApi', () => ({ useApi: () => apiMock }))
+// bun keeps a mocked module's export names for the whole run, so every
+// mock of useApi exports the same names (apiClient too): a later file
+// whose stores import apiClient would otherwise fail to link.
+mock.module('../src/composables/useApi', () => ({ apiClient: {}, useApi: () => apiMock }))
 const { useFlowsStore, FlowVersionConflictError } = await import('../src/stores/flows')
 
 function deferred<T>() {
