@@ -1,9 +1,8 @@
 <script setup lang="ts">
 // The approval queue (docs/design/mcp.md §9): tool calls with confirm "admin"
-// and agents' draft deploys wait here. Arguments, summaries and results come
-// from agents or flows and are rendered as plain text only.
+// wait here (agents' drafts have their own pages). Arguments, summaries and
+// results come from agents or flows and are rendered as plain text only.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
 import { RefreshCw } from 'lucide-vue-next'
 import { Badge, Button, Card, Label, Select } from '@/components/ui'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
@@ -67,20 +66,18 @@ watch(() => agent.pendingCount, (count, before) => {
   if (filter.value === 'pending' && count !== before && !pending.value) void load({ background: true })
 })
 
-const isTool = (a: AgentApproval) => a.kind === 'tool_call'
-const toolOf = (a: AgentApproval) => isTool(a) ? agent.toolFor(a.flowId, a.ref) : undefined
+const toolOf = (a: AgentApproval) => agent.toolFor(a.flowId, a.ref)
 // The tool name and risk recorded with the request are what approving runs
 // (ADR-0015); the published tool fills in only for older approvals.
 const title = (a: AgentApproval) => visibleText(approvalToolName(a, toolOf(a)))
 const flowName = (a: AgentApproval) => a.flowId ? (toolOf(a)?.flowName ?? agent.flowNames[a.flowId] ?? a.flowId) : ''
-const kindLabel = (a: AgentApproval) => isTool(a) ? 'Tool call' : a.kind === 'draft_deploy' ? 'Draft deploy' : a.kind
 const statusLabel: Record<string, string> = { pending: 'Waiting', approved: 'Approved', rejected: 'Rejected', expired: 'Expired' }
 const tokenStatusLabel: Record<string, string> = { active: 'active', expired: 'token expired', revoked: 'token revoked', unknown: 'token deleted' }
 const riskVariant = (risk: string) => risk === 'privileged' || risk === 'unknown' ? 'destructive' : risk === 'external' ? 'secondary' : 'outline'
 const riskOf = (a: AgentApproval) => approvalRisk(a, toolOf(a), !!agent.toolsError)
 // Why approving would run nothing ('' when it would run or cannot be told here).
 const toolChange = (a: AgentApproval) => approvalToolChange(a, toolOf(a))
-const canApprove = (a: AgentApproval) => a.status === 'pending' && isTool(a) && a.tokenStatus === 'active' && !toolChange(a)
+const canApprove = (a: AgentApproval) => a.status === 'pending' && a.tokenStatus === 'active' && !toolChange(a)
 const hasArgs = (a: AgentApproval) => a.args !== undefined && a.args !== null
 // Invisible or direction-changing characters in what the agent sent.
 const hiddenCount = (a: AgentApproval) => countHidden(a.summary ?? '') + countHidden(jsonText(a.args))
@@ -155,7 +152,7 @@ const decisions = computed(() => agent.recentDecisions)
 
         <article v-for="a in agent.approvals" :key="a.id" :aria-label="`Request ${title(a)}`" class="space-y-3 rounded-lg border bg-card p-4 shadow-sm">
           <div class="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">{{ kindLabel(a) }}</Badge>
+            <Badge variant="outline">Tool call</Badge>
             <h3 class="break-all font-mono font-semibold">{{ title(a) }}</h3>
             <Badge :variant="a.status === 'pending' ? 'default' : 'secondary'">{{ statusLabel[a.status] ?? a.status }}</Badge>
             <Badge v-if="riskOf(a)" :variant="riskVariant(riskOf(a)!.risk)" :title="riskOf(a)!.reason">{{ riskOf(a)!.label }}</Badge>
@@ -187,11 +184,7 @@ const decisions = computed(() => agent.recentDecisions)
             <p class="text-xs text-muted-foreground">Result</p>
             <pre aria-label="Result" class="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs"><AgentText :text="jsonText(a.result)" /></pre>
           </div>
-          <p v-if="a.kind === 'draft_deploy'" class="text-sm">
-            <RouterLink :to="`/agents/drafts/${encodeURIComponent(a.ref)}`" class="font-medium text-primary underline underline-offset-2">Review draft</RouterLink>
-            — drafts are approved on their review page, after their alerts and changes; you can reject this request here.
-          </p>
-          <p v-else-if="a.status === 'pending' && a.tokenStatus !== 'active'" class="text-sm text-muted-foreground">
+          <p v-if="a.status === 'pending' && a.tokenStatus !== 'active'" class="text-sm text-muted-foreground">
             The token that asked for this is no longer active, so the request can only be rejected.
           </p>
           <p v-else-if="toolChange(a)" role="note" class="text-sm text-amber-700 dark:text-amber-400">{{ toolChange(a) }}</p>

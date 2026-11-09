@@ -23,8 +23,7 @@ function tokens() {
 const now = Date.now()
 const iso = (offsetMs: number) => new Date(now + offsetMs).toISOString()
 const approvals = [
-  { id: 'ap1', kind: 'tool_call', tokenId: 'tokA', tokenName: 'laptop', flowId: 'f1', ref: 'n1', toolName: 'garage_open', toolFingerprint: 'sha256:new', toolRisk: 'external', args: { door: 'main', note: XSS }, summary: 'Open it please ' + XSS, status: 'pending', createdAt: iso(-60_000), expiresAt: iso(14 * 60_000), tokenStatus: 'active' },
-  { id: 'ap2', kind: 'draft_deploy', tokenId: 'tokA', tokenName: 'laptop', flowId: 'f1', ref: 'draft-1', summary: 'Deploy my draft', status: 'pending', createdAt: iso(-120_000), expiresAt: iso(3_600_000), tokenStatus: 'active' }
+  { id: 'ap1', kind: 'tool_call', tokenId: 'tokA', tokenName: 'laptop', flowId: 'f1', ref: 'n1', toolName: 'garage_open', toolFingerprint: 'sha256:new', toolRisk: 'external', args: { door: 'main', note: XSS }, summary: 'Open it please ' + XSS, status: 'pending', createdAt: iso(-60_000), expiresAt: iso(14 * 60_000), tokenStatus: 'active' }
 ]
 
 function auditPage(from: number, n: number, preview = '{"door":"main"}') {
@@ -452,9 +451,7 @@ test('approvals render agent text as plain text and report the execution', async
   await expect(call.locator('img')).toHaveCount(0)
   expect(await page.evaluate(() => (window as any).__xss)).toBeUndefined()
 
-  const draft = page.getByRole('article', { name: 'Request draft-1' })
-  await expect(draft.getByText('Review draft')).toBeVisible()
-  await expect(draft.getByRole('button', { name: 'Approve…' })).toBeDisabled()
+  await expect(call.getByText('Tool call', { exact: true })).toBeVisible()
   await page.screenshot({ path: 'test-results/agent-approvals.png', fullPage: true })
 
   await call.getByRole('button', { name: 'Approve…' }).click()
@@ -474,8 +471,6 @@ test('an approval for a tool that is not published says its risk is unknown', as
   await expect(call.getByText('Risk unknown: the tool is not published now')).toBeVisible()
   await expect(page.getByRole('article', { name: 'Request garage_open' }).getByText('external', { exact: true })).toBeVisible()
   await expect(page.getByRole('article', { name: 'Request garage_open' }).getByText(/risk unknown/i)).toHaveCount(0)
-  // Draft deploys get their risk on the draft review.
-  await expect(page.getByRole('article', { name: 'Request draft-1' }).getByText(/risk/i)).toHaveCount(0)
 })
 
 test('approvals show the tool and risk recorded with the request, and refuse a tool that changed since', async ({ page }) => {

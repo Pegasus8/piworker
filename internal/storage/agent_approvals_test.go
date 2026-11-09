@@ -54,11 +54,11 @@ func TestCreateAndGetAgentApproval(t *testing.T) {
 func TestCreateAgentApprovalKeepsCallerIDAndDefaults(t *testing.T) {
 	s := createTestStore(t)
 	defer s.Close()
-	a := AgentApproval{ID: "run-123", Kind: ApprovalKindDraftDeploy, TokenID: "tok", Ref: "draft-9", Summary: "Deploy draft"}
+	a := AgentApproval{ID: "run-123", Kind: ApprovalKindToolCall, TokenID: "tok", Ref: "trigger-9", Summary: "Call tool"}
 	created, err := s.CreateAgentApproval(a, testNow)
 	require.NoError(t, err)
 	assert.Equal(t, "run-123", created.ID, "the run id doubles as the approval id")
-	assert.Equal(t, testNow.Add(DraftDeployApprovalLifetime), created.ExpiresAt)
+	assert.Equal(t, testNow.Add(ToolCallApprovalLifetime), created.ExpiresAt)
 	assert.Nil(t, created.Args)
 	got, err := s.GetAgentApproval("run-123")
 	require.NoError(t, err)
@@ -82,6 +82,8 @@ func TestCreateAgentApprovalValidates(t *testing.T) {
 	defer s.Close()
 	mut := map[string]func(*AgentApproval){
 		"unknown kind": func(a *AgentApproval) { a.Kind = "shell" },
+		// Drafts wait in flow_drafts; no approval deploys one.
+		"draft deploy": func(a *AgentApproval) { a.Kind = "draft_deploy" },
 		"no token":     func(a *AgentApproval) { a.TokenID = "" },
 		"no ref":       func(a *AgentApproval) { a.Ref = "" },
 		"invalid args": func(a *AgentApproval) { a.Args = json.RawMessage(`{"a":`) },
@@ -270,14 +272,14 @@ func TestRevokeAllAPITokensRejectsPendingApprovals(t *testing.T) {
 	second, _ := newTestToken(t, s, NewAPIToken{Name: "second"})
 	toolCall, err := s.CreateAgentApproval(newToolCallApproval(first.ID), testNow)
 	require.NoError(t, err)
-	deploy, err := s.CreateAgentApproval(AgentApproval{Kind: ApprovalKindDraftDeploy, TokenID: second.ID, Ref: "draft-1"}, testNow)
+	other, err := s.CreateAgentApproval(newToolCallApproval(second.ID), testNow)
 	require.NoError(t, err)
 
 	at := testNow.Add(time.Minute)
 	n, err := s.RevokeAllAPITokens(at)
 	require.NoError(t, err)
 	require.Equal(t, 2, n)
-	for _, id := range []string{toolCall.ID, deploy.ID} {
+	for _, id := range []string{toolCall.ID, other.ID} {
 		got, err := s.GetAgentApproval(id)
 		require.NoError(t, err)
 		assert.Equal(t, ApprovalRejected, got.Status, "recovery voids everything the tokens queued")
@@ -387,8 +389,6 @@ func TestCreateAgentApprovalCapsPendingPerTokenAndKind(t *testing.T) {
 	require.ErrorIs(t, err, ErrTooManyPendingApprovals, "one token cannot flood the queue")
 	_, err = s.CreateAgentApproval(newToolCallApproval(other.ID), testNow)
 	require.NoError(t, err, "other tokens are unaffected")
-	_, err = s.CreateAgentApproval(AgentApproval{Kind: ApprovalKindDraftDeploy, TokenID: busy.ID, Ref: "draft-1"}, testNow)
-	require.NoError(t, err, "long-lived draft deploys and tool calls are capped separately")
 
 	// A decision frees a slot, and so does expiry.
 	_, err = s.DecideAgentApproval(first.ID, false, "admin", testNow.Add(time.Second))
@@ -434,9 +434,6 @@ func TestExpiringToolCallApprovalsDropsArguments(t *testing.T) {
 	tok, _ := newTestToken(t, s, NewAPIToken{})
 	call, err := s.CreateAgentApproval(newToolCallApproval(tok.ID), testNow)
 	require.NoError(t, err)
-	deploy := AgentApproval{Kind: ApprovalKindDraftDeploy, TokenID: tok.ID, Ref: "draft-1", Args: json.RawMessage(`{"baseVersion":3}`), ExpiresAt: testNow.Add(time.Hour)}
-	deployed, err := s.CreateAgentApproval(deploy, testNow)
-	require.NoError(t, err)
 	rejected, err := s.CreateAgentApproval(newToolCallApproval(tok.ID), testNow)
 	require.NoError(t, err)
 	_, err = s.DecideAgentApproval(rejected.ID, false, "admin", testNow.Add(time.Minute))
@@ -448,7 +445,7 @@ func TestExpiringToolCallApprovalsDropsArguments(t *testing.T) {
 	require.ErrorIs(t, err, ErrAgentApprovalExpired)
 	n, err := s.ExpireAgentApprovals(testNow.Add(2 * time.Hour))
 	require.NoError(t, err)
-	assert.Equal(t, 2, n)
+	assert.Equal(t, 1, n, "the late one expired when it was decided")
 
 	got, err := s.GetAgentApproval(call.ID)
 	require.NoError(t, err)
@@ -457,10 +454,6 @@ func TestExpiringToolCallApprovalsDropsArguments(t *testing.T) {
 	got, err = s.GetAgentApproval(late.ID)
 	require.NoError(t, err)
 	assert.Nil(t, got.Args, "also when expiry is noticed on a late decision")
-	got, err = s.GetAgentApproval(deployed.ID)
-	require.NoError(t, err)
-	assert.Equal(t, ApprovalExpired, got.Status)
-	assert.JSONEq(t, `{"baseVersion":3}`, string(got.Args), "draft deploys keep their reference data")
 	got, err = s.GetAgentApproval(rejected.ID)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"pin":17,"state":"on"}`, string(got.Args), "decided requests stay reviewable")

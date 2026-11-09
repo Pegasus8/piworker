@@ -345,15 +345,12 @@ test('older approvals without a recorded risk fall back to the published tool, o
   const unavailable = approvalRisk(old, undefined, true)!
   expect(unavailable).toMatchObject({ risk: 'unknown', label: 'risk unknown' })
   expect(unavailable.reason).toContain('could not be loaded')
-  // Draft deploys are reviewed with their own risk on the draft page.
-  expect(approvalRisk({ kind: 'draft_deploy' }, undefined, false)).toBeNull()
 })
 
 test('approvals name the tool recorded with the request', () => {
   expect(approvalToolName({ kind: 'tool_call', ref: 'n1', toolName: 'garage_open' }, tool({ toolName: 'renamed' }))).toBe('garage_open')
   expect(approvalToolName({ kind: 'tool_call', ref: 'n1' }, tool({ toolName: 'published' }))).toBe('published')
   expect(approvalToolName({ kind: 'tool_call', ref: 'n1' }, undefined)).toBe('n1')
-  expect(approvalToolName({ kind: 'draft_deploy', ref: 'draft-1' }, undefined)).toBe('draft-1')
 })
 
 test('a pending approval whose tool changed since the request says it will not run', () => {
@@ -366,7 +363,6 @@ test('a pending approval whose tool changed since the request says it will not r
   expect(approvalToolChange({ ...a, status: 'approved' }, tool({ fingerprint: 'sha256:bbb' }))).toBe('')
   // Older approvals did not record the tool: approving them runs nothing.
   expect(approvalToolChange({ kind: 'tool_call', status: 'pending' }, tool())).toContain('did not record')
-  expect(approvalToolChange({ kind: 'draft_deploy', status: 'pending' }, undefined)).toBe('')
 })
 
 test('the MCP status says whether agents can connect and how to turn it on', () => {

@@ -231,8 +231,7 @@ func TestRecoveryVoidsQueuedApprovals(t *testing.T) {
 	env := newAgentTestEnv(t, AgentHandlerOptions{Executor: exec})
 	created := env.createToken(t, map[string]any{"name": "compromised", "scopes": []string{"call"}})
 	call := addApprovalFor(t, env.store, created.Info.ID, time.Now(), 15*time.Minute)
-	deploy, err := env.store.CreateAgentApproval(storage.AgentApproval{Kind: storage.ApprovalKindDraftDeploy, TokenID: created.Info.ID, Ref: "draft-1"}, time.Now())
-	require.NoError(t, err)
+	other := addApprovalFor(t, env.store, created.Info.ID, time.Now(), 15*time.Minute)
 
 	code, err := env.users.NewAuthCode("recovery", "admin", time.Now())
 	require.NoError(t, err)
@@ -242,7 +241,7 @@ func TestRecoveryVoidsQueuedApprovals(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	env.cookie = w.Result().Cookies()[0]
 
-	for _, id := range []string{call.ID, deploy.ID} {
+	for _, id := range []string{call.ID, other.ID} {
 		w = env.do("POST", "/api/agent/approvals/"+id+"/approve", nil)
 		require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
 	}

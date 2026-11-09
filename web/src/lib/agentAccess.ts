@@ -71,7 +71,8 @@ export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired'
 
 export interface AgentApproval {
   id: string
-  kind: 'tool_call' | 'draft_deploy' | string
+  /** The one approval kind: a confirm:admin tool call. */
+  kind: 'tool_call'
   tokenId: string
   tokenName?: string
   flowId?: string
@@ -529,11 +530,9 @@ const RISKS: readonly string[] = ['safe', 'external', 'privileged']
  * (ADR-0015), which is what approving runs. Approvals stored before the risk
  * was recorded fall back to the tool as published now; a tool call whose tool
  * is not published (or when the tools could not be loaded) says its risk is
- * unknown rather than showing none. Draft deploys get their risk on the
- * draft review.
+ * unknown rather than showing none.
  */
-export function approvalRisk(approval: Pick<AgentApproval, 'kind' | 'toolRisk'>, tool: AgentTool | undefined, toolsUnavailable: boolean): ApprovalRisk | null {
-  if (approval.kind !== 'tool_call') return null
+export function approvalRisk(approval: Pick<AgentApproval, 'toolRisk'>, tool: AgentTool | undefined, toolsUnavailable: boolean): ApprovalRisk {
   const recorded = approval.toolRisk
   if (recorded && RISKS.includes(recorded)) {
     return { risk: recorded, label: recorded, reason: 'Risk of the tool when the agent asked.' }
@@ -547,8 +546,7 @@ export function approvalRisk(approval: Pick<AgentApproval, 'kind' | 'toolRisk'>,
 }
 
 /** The tool an approval names: as recorded with the request, else as published now, else the node id. */
-export function approvalToolName(approval: Pick<AgentApproval, 'kind' | 'ref' | 'toolName'>, tool: AgentTool | undefined): string {
-  if (approval.kind !== 'tool_call') return approval.ref
+export function approvalToolName(approval: Pick<AgentApproval, 'ref' | 'toolName'>, tool: AgentTool | undefined): string {
   return approval.toolName || tool?.toolName || approval.ref
 }
 
@@ -558,8 +556,8 @@ export function approvalToolName(approval: Pick<AgentApproval, 'kind' | 'ref' | 
  * request (ADR-0015). '' when it would run, or when the published tool is not
  * known here (the server then decides).
  */
-export function approvalToolChange(approval: Pick<AgentApproval, 'kind' | 'status' | 'toolName' | 'toolFingerprint'>, tool: AgentTool | undefined): string {
-  if (approval.kind !== 'tool_call' || approval.status !== 'pending') return ''
+export function approvalToolChange(approval: Pick<AgentApproval, 'status' | 'toolName' | 'toolFingerprint'>, tool: AgentTool | undefined): string {
+  if (approval.status !== 'pending') return ''
   if (!approval.toolName || !approval.toolFingerprint) {
     return 'This request did not record which version of the tool it was for, so approving it runs nothing. The agent can ask again.'
   }

@@ -553,7 +553,7 @@ func TestApprovalArgumentsTooLargeToQueue(t *testing.T) {
 
 func TestExecuteApprovalRefusesOtherKinds(t *testing.T) {
 	e := newEnv(t)
-	err := e.tools.ExecuteApproval(context.Background(), storage.AgentApproval{Kind: storage.ApprovalKindDraftDeploy})
+	err := e.tools.ExecuteApproval(context.Background(), storage.AgentApproval{Kind: "draft_deploy"})
 	requireKind(t, err, ErrUnavailable)
 }
 

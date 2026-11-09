@@ -10,15 +10,12 @@ import (
 	"github.com/google/uuid"
 )
 
-// Agent approvals (docs/design/mcp.md §9): a tool call with confirm "admin" or
-// an agent's draft deploy waits here until the admin approves or rejects it in
-// the editor, or it expires.
+// Agent approvals (docs/design/mcp.md §9): a tool call with confirm "admin"
+// waits here until the admin approves or rejects it in the editor, or it
+// expires. (Agents' drafts wait in flow_drafts.)
 
-// Approval kinds.
-const (
-	ApprovalKindToolCall    = "tool_call"
-	ApprovalKindDraftDeploy = "draft_deploy"
-)
+// ApprovalKindToolCall is the one approval kind: a confirm:admin tool call.
+const ApprovalKindToolCall = "tool_call"
 
 // Approval statuses.
 const (
@@ -46,8 +43,6 @@ const (
 const (
 	// ToolCallApprovalLifetime is how long a tool call waits for the admin.
 	ToolCallApprovalLifetime = 15 * time.Minute
-	// DraftDeployApprovalLifetime is how long a draft deploy request waits.
-	DraftDeployApprovalLifetime = 7 * 24 * time.Hour
 	// AgentApprovalRetention is how long decided approvals are kept.
 	AgentApprovalRetention = 30 * 24 * time.Hour
 	// MaxApprovalArgsBytes bounds the stored arguments.
@@ -59,8 +54,8 @@ const (
 	MaxApprovalSummaryLength = 2048
 	// MaxApprovalToolRefLength bounds ToolName and ToolFingerprint (bytes).
 	MaxApprovalToolRefLength = 256
-	// MaxPendingApprovalsPerToken bounds the approvals of one kind that one
-	// token may have waiting at a time.
+	// MaxPendingApprovalsPerToken bounds the approvals one token may have
+	// waiting at a time.
 	MaxPendingApprovalsPerToken = 20
 	// DefaultApprovalListLimit and MaxApprovalListLimit bound listings.
 	DefaultApprovalListLimit = 100
@@ -143,22 +138,16 @@ func invalidApproval(format string, args ...any) error {
 }
 
 // CreateAgentApproval stores a new pending approval. An empty ID is generated
-// (callers may pass the run id); a zero ExpiresAt defaults per kind. A token
-// may have at most MaxPendingApprovalsPerToken approvals of each kind waiting
-// (ErrTooManyPendingApprovals). Each creation also runs the expiry and
+// (callers may pass the run id); a zero ExpiresAt defaults to
+// ToolCallApprovalLifetime. A token may have at most
+// MaxPendingApprovalsPerToken approvals waiting (ErrTooManyPendingApprovals). Each creation also runs the expiry and
 // retention pass of ExpireAgentApprovals, so agent traffic alone keeps the
 // table bounded even when nobody opens the queue.
 func (s *SQLiteStore) CreateAgentApproval(a AgentApproval, now time.Time) (*AgentApproval, error) {
 	if s.isClosed() {
 		return nil, ErrDatabaseClosed
 	}
-	var lifetime time.Duration
-	switch a.Kind {
-	case ApprovalKindToolCall:
-		lifetime = ToolCallApprovalLifetime
-	case ApprovalKindDraftDeploy:
-		lifetime = DraftDeployApprovalLifetime
-	default:
+	if a.Kind != ApprovalKindToolCall {
 		return nil, invalidApproval("unknown kind %q", a.Kind)
 	}
 	if a.TokenID == "" || a.Ref == "" {
@@ -187,7 +176,7 @@ func (s *SQLiteStore) CreateAgentApproval(a AgentApproval, now time.Time) (*Agen
 		return nil, invalidApproval("a tool call that names its tool must record the tool's risk")
 	}
 	if a.ExpiresAt.IsZero() {
-		a.ExpiresAt = now.Add(lifetime)
+		a.ExpiresAt = now.Add(ToolCallApprovalLifetime)
 	}
 	if !a.ExpiresAt.After(now) {
 		return nil, invalidApproval("expiry must be in the future")

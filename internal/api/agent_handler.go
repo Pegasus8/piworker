@@ -22,8 +22,8 @@ import (
 // ErrApprovalExecutionUnavailable is returned by the default ApprovalExecutor.
 var ErrApprovalExecutionUnavailable = errors.New("not available")
 
-// ApprovalExecutor runs what an approved request asked for (a tool call or a
-// draft deploy). It is called after the decision is recorded; the default
+// ApprovalExecutor runs what an approved request asked for (a confirm:admin
+// tool call). It is called after the decision is recorded; the default
 // returns ErrApprovalExecutionUnavailable until the MCP service is wired in.
 type ApprovalExecutor interface {
 	ExecuteApproval(ctx context.Context, approval storage.AgentApproval) error

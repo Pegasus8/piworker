@@ -72,12 +72,6 @@ func TestSetAgentApprovalResultValidates(t *testing.T) {
 	_, err = s.DecideAgentApproval(rejected.ID, false, "admin", testNow.Add(time.Minute))
 	require.NoError(t, err)
 	require.ErrorIs(t, s.SetAgentApprovalResult(rejected.ID, json.RawMessage(`{}`)), ErrInvalidAgentApproval, "a rejected call never runs")
-
-	draft, err := s.CreateAgentApproval(AgentApproval{Kind: ApprovalKindDraftDeploy, TokenID: tok.ID, Ref: "draft-1"}, testNow)
-	require.NoError(t, err)
-	_, err = s.DecideAgentApproval(draft.ID, true, "admin", testNow.Add(time.Minute))
-	require.NoError(t, err)
-	require.ErrorIs(t, s.SetAgentApprovalResult(draft.ID, json.RawMessage(`{}`)), ErrInvalidAgentApproval, "only tool calls have a call result")
 }
 
 func TestAgentApprovalResultMigration(t *testing.T) {

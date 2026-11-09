@@ -858,8 +858,9 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 
 - Table `agent_approvals(id, kind, token_id, flow_id, ref, tool_name,
   tool_fingerprint, tool_risk, args_json, summary, status, created_at,
-  decided_at, decided_by, expires_at, result_json)`; kinds: `tool_call`,
-  `draft_deploy`. Pending approvals expire (tool calls: 15 min). The editor
+  decided_at, decided_by, expires_at, result_json)`; one kind, `tool_call`
+  (agents' drafts wait in `flow_drafts`, §10). Pending approvals expire
+  (15 min). The editor
   shows the tool name and risk recorded with the request (`toolName`,
   `toolRisk`), falling back to the published tool only for approvals stored
   before the risk was recorded.
@@ -878,7 +879,7 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   queued (`invalid_arguments`).
 - Revoking or expiring a token voids its pending approvals (closed as
   rejected, `decided_by` "token revoked"/"token expired"); approving one is
-  refused. Pending approvals are capped per token and kind
+  refused. Pending approvals are capped per token
   (`ErrTooManyPendingApprovals` → `busy`); tool-call arguments are deleted on
   expiry; decided approvals are kept 30 days.
 - Table `mcp_audit(ts, token_id, token_name, tool, flow_id, run_id,
