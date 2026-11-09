@@ -355,9 +355,9 @@ func (h *FlowsHandler) UpdateFlow(w http.ResponseWriter, r *http.Request) {
 	f.CreatedAt = existing.CreatedAt
 	f.UpdatedAt = time.Now()
 
-	// Don't trust the client's state field. The flow is not running (guarded
-	// above), so never persist a "running" state coming from the request body.
-	f.State = flow.FlowStateInactive
+	// The client's state field is ignored: a definition save keeps the
+	// stored state (restart intent), which only deploy, stop and toggle
+	// change.
 
 	// The version the editor loaded, when sent, must still be the stored one:
 	// a save never silently overwrites a definition it did not see (an agent

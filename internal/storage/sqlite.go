@@ -192,14 +192,24 @@ func (s *SQLiteStore) SetSetting(key, value string) error {
 }
 
 // CreateFlow saves a new flow to the database as version 1, recorded as an
-// editor save (admin-approved). Any f.Version is ignored; on success it is 1.
+// editor save (admin-approved), with the state f carries (the API handlers
+// always create flows inactive). Any f.Version is ignored; on success it is
+// 1. Zero timestamps are set to now.
 func (s *SQLiteStore) CreateFlow(f *flow.Flow) error {
-	return s.CreateFlowVersioned(f, VersionMeta{ActorKind: VersionActorEditor, AdminApproved: true})
+	if f == nil {
+		return ErrInvalidFlowData
+	}
+	return s.createFlow(f, VersionMeta{ActorKind: VersionActorEditor, AdminApproved: true}, f.State)
 }
 
 // CreateFlowVersioned is CreateFlow with the version 1 recorded with meta
-// (an approved agent draft creating a new flow, for example).
+// (an approved agent draft creating a new flow, for example). The flow is
+// always created inactive: a definition never carries restart intent.
 func (s *SQLiteStore) CreateFlowVersioned(f *flow.Flow, meta VersionMeta) error {
+	return s.createFlow(f, meta, flow.FlowStateInactive)
+}
+
+func (s *SQLiteStore) createFlow(f *flow.Flow, meta VersionMeta, state flow.FlowState) error {
 	if s.isClosed() {
 		return ErrDatabaseClosed
 	}
@@ -227,10 +237,17 @@ func (s *SQLiteStore) CreateFlowVersioned(f *flow.Flow, meta VersionMeta) error 
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
 
 	now := time.Now()
+	created, updated := f.CreatedAt, f.UpdatedAt
+	if created.IsZero() {
+		created = now
+	}
+	if updated.IsZero() {
+		updated = now
+	}
 	_, err = tx.Exec(`
 		INSERT INTO flows (id, name, description, data, state, version, created_at, updated_at)
-		VALUES (?, ?, ?, json_set(?, '$.version', 1), ?, 1, ?, ?)
-	`, f.ID, f.Name, f.Description, string(data), f.State, now, now)
+		VALUES (?, ?, ?, json_set(?, '$.version', 1, '$.state', ?, '$.createdAt', ?, '$.updatedAt', ?), ?, 1, ?, ?)
+	`, f.ID, f.Name, f.Description, string(data), state, jsonTime(created), jsonTime(updated), state, now, now)
 
 	if err != nil {
 		// Check for unique constraint violation
@@ -249,7 +266,7 @@ func (s *SQLiteStore) CreateFlowVersioned(f *flow.Flow, meta VersionMeta) error 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit flow creation: %w", err)
 	}
-	f.Version = 1
+	f.Version, f.State, f.CreatedAt, f.UpdatedAt = 1, state, created, updated
 	return nil
 }
 

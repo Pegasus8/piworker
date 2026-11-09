@@ -386,3 +386,18 @@ func TestFlowDraftJSONIsCamelCase(t *testing.T) {
 		assert.Contains(t, string(data), fmt.Sprintf("%q:", key))
 	}
 }
+
+// A draft is a definition: run state, version and timestamps are the
+// server's and are not stored with it.
+func TestCreateFlowDraftDropsServerOwnedFields(t *testing.T) {
+	s, tok := newDraftFixture(t)
+	d := draftFor(tok.ID, "", 0)
+	d.Data = json.RawMessage(`{"name":"P","state":"running","version":7,"createdAt":"2020-01-01T00:00:00Z","updatedAt":"2020-01-01T00:00:00Z","nodes":[],"connections":[]}`)
+	created, err := s.CreateFlowDraft(d)
+	require.NoError(t, err)
+	want := `{"name":"P","nodes":[],"connections":[]}`
+	assert.JSONEq(t, want, string(created.Data))
+	got, err := s.GetFlowDraft(created.ID)
+	require.NoError(t, err)
+	assert.JSONEq(t, want, string(got.Data))
+}

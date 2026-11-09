@@ -142,6 +142,11 @@ func draftReport(name string, raw json.RawMessage) (string, error) {
 	return string(raw), nil
 }
 
+// draftServerFields are the flow fields CreateFlowDraft drops from a draft.
+var draftServerFields = []string{"state", "version", "createdAt", "updatedAt"}
+
+// validateNewDraft checks a new draft and drops draftServerFields from its
+// data.
 func validateNewDraft(d *FlowDraft) error {
 	if d.AuthorTokenID == "" {
 		return invalidDraft("the author token is required")
@@ -165,6 +170,24 @@ func validateNewDraft(d *FlowDraft) error {
 	if err := json.Unmarshal(d.Data, &obj); err != nil || obj == nil {
 		return invalidDraft("the proposed flow is not a JSON object")
 	}
+	// A draft is a definition: run state, version and timestamps are the
+	// server's (a save keeps the stored ones) and are not stored with it.
+	stripped := false
+	for _, key := range draftServerFields {
+		if _, ok := obj[key]; ok {
+			delete(obj, key)
+			stripped = true
+		}
+	}
+	if stripped {
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		enc.SetEscapeHTML(false)
+		if err := enc.Encode(obj); err != nil {
+			return invalidDraft("the proposed flow cannot be stored")
+		}
+		d.Data = json.RawMessage(bytes.TrimSpace(buf.Bytes()))
+	}
 	if len(d.Note) > MaxDraftNoteBytes {
 		return invalidDraft("note exceeds %d bytes", MaxDraftNoteBytes)
 	}
@@ -177,7 +200,8 @@ func validateNewDraft(d *FlowDraft) error {
 }
 
 // CreateFlowDraft stores a new pending draft (an empty ID is generated; a
-// zero CreatedAt is now) and returns it. In one transaction it checks that
+// zero CreatedAt is now; draftServerFields are dropped from the data) and
+// returns it. In one transaction it checks that
 // the author token exists and is not revoked (ErrDraftTokenRevoked), that
 // the token has fewer than MaxPendingDraftsPerToken drafts waiting
 // (ErrDraftLimit) and, for an existing flow, that the flow exists

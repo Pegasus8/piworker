@@ -369,3 +369,112 @@ func TestDeleteFlowRemovesVersionsAndDeployment(t *testing.T) {
 		assert.Zerof(t, n, "%s rows of a deleted flow must not linger", table)
 	}
 }
+
+func runningIDs(t *testing.T, s *SQLiteStore) []string {
+	t.Helper()
+	flows, err := s.GetRunningFlows()
+	require.NoError(t, err)
+	ids := []string{}
+	for _, f := range flows {
+		ids = append(ids, f.ID)
+	}
+	return ids
+}
+
+// A definition save is not a state change: it neither sets the restart
+// intent (a draft or a stored version saying "running" would otherwise
+// start the flow at the next boot without any deploy) nor drops it.
+func TestVersionedSavesKeepTheStoredState(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	f := createTestFlow("stopped")
+	require.NoError(t, s.CreateFlow(f))
+
+	g, err := s.GetFlow(f.ID)
+	require.NoError(t, err)
+	g.State = flow.FlowStateRunning
+	_, err = s.UpdateFlowVersioned(g, 0, VersionMeta{ActorKind: VersionActorAgent, TokenID: "tok-1"})
+	require.NoError(t, err)
+	assert.Empty(t, runningIDs(t, s), "saving a definition never schedules it for startup")
+	got, err := s.GetFlow(f.ID)
+	require.NoError(t, err)
+	assert.Equal(t, flow.FlowStateInactive, got.State, "nor in the stored definition")
+	assert.Equal(t, flow.FlowStateInactive, g.State, "the caller's flow carries the stored state")
+
+	// The reverse: a running flow keeps its restart intent across a save.
+	require.NoError(t, s.UpdateFlowState(f.ID, flow.FlowStateRunning))
+	g.State = flow.FlowStateInactive
+	require.NoError(t, s.UpdateFlow(g))
+	assert.Equal(t, []string{f.ID}, runningIDs(t, s))
+	got, err = s.GetFlow(f.ID)
+	require.NoError(t, err)
+	assert.Equal(t, flow.FlowStateRunning, got.State)
+}
+
+// Versions are definitions: they carry no run state, so nothing loaded from
+// one (a rollback) can carry restart intent either.
+func TestFlowVersionsCarryNoState(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	f := createTestFlow("v")
+	f.State = flow.FlowStateRunning // CreateFlow keeps the caller's state
+	require.NoError(t, s.CreateFlow(f))
+	require.NoError(t, s.UpdateFlow(f))
+	for _, v := range []int{1, 2} {
+		got, err := s.GetFlowVersion(f.ID, v)
+		require.NoError(t, err)
+		assert.Empty(t, got.Flow.State, "version %d", v)
+		var raw sql.NullString
+		require.NoError(t, s.DB().QueryRow(`SELECT json_extract(data, '$.state') FROM flow_versions WHERE flow_id = ? AND version = ?`, f.ID, v).Scan(&raw))
+		assert.False(t, raw.Valid, "version %d stores no state", v)
+	}
+	approved, err := s.LastAdminApprovedVersion(f.ID)
+	require.NoError(t, err)
+	assert.Empty(t, approved.Flow.State)
+}
+
+// CreateFlowVersioned (a definition from a draft) always creates the flow
+// stopped.
+func TestCreateFlowVersionedStoresTheFlowInactive(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	f := createTestFlow("from a draft")
+	f.State = flow.FlowStateRunning
+	require.NoError(t, s.CreateFlowVersioned(f, VersionMeta{ActorKind: VersionActorEditor, AdminApproved: true}))
+	assert.Equal(t, flow.FlowStateInactive, f.State)
+	assert.Empty(t, runningIDs(t, s))
+	got, err := s.GetFlow(f.ID)
+	require.NoError(t, err)
+	assert.Equal(t, flow.FlowStateInactive, got.State)
+}
+
+// The creation time is the stored one and the update time is the save's,
+// whatever the caller's flow says (a draft or a version carries neither).
+func TestVersionedSavesOwnTheTimestamps(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	f := createTestFlow("times")
+	created := time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)
+	f.CreatedAt, f.UpdatedAt = created, created
+	require.NoError(t, s.CreateFlow(f))
+
+	g, err := s.GetFlow(f.ID)
+	require.NoError(t, err)
+	g.CreatedAt, g.UpdatedAt = time.Time{}, time.Time{}
+	before := time.Now().Add(-time.Second)
+	_, err = s.UpdateFlowVersioned(g, 0, VersionMeta{ActorKind: VersionActorEditor, AdminApproved: true})
+	require.NoError(t, err)
+	got, err := s.GetFlow(f.ID)
+	require.NoError(t, err)
+	assert.True(t, got.CreatedAt.Equal(created), "created at %v", got.CreatedAt)
+	assert.True(t, got.UpdatedAt.After(before), "updated at %v", got.UpdatedAt)
+	assert.True(t, g.CreatedAt.Equal(created))
+
+	h := createTestFlow("no times")
+	h.CreatedAt, h.UpdatedAt = time.Time{}, time.Time{}
+	require.NoError(t, s.CreateFlowVersioned(h, VersionMeta{ActorKind: VersionActorEditor, AdminApproved: true}))
+	got, err = s.GetFlow(h.ID)
+	require.NoError(t, err)
+	assert.True(t, got.CreatedAt.After(before))
+	assert.True(t, got.UpdatedAt.After(before))
+}

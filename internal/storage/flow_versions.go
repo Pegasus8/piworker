@@ -87,7 +87,7 @@ func validActor(kind string) error {
 }
 
 // FlowVersion is one stored version of a flow. Flow is set by GetFlowVersion
-// and LastAdminApprovedVersion, not by listings.
+// and LastAdminApprovedVersion, not by listings; it has no State.
 type FlowVersion struct {
 	FlowID        string     `json:"flowId"`
 	Version       int        `json:"version"`
@@ -136,7 +136,7 @@ const flowVersionsSchema = `
 
 // migrateFlowVersions adds flows.version, the version and deployment tables,
 // and seeds every flow without a stored version with its current definition
-// (editor, admin-approved). Every step is idempotent.
+// (editor, admin-approved; without its run state). Every step is idempotent.
 func migrateFlowVersions(db *sql.DB) error {
 	has, err := historyHasColumn(db, "flows", "version")
 	if err != nil {
@@ -155,7 +155,7 @@ func migrateFlowVersions(db *sql.DB) error {
 	_, err = db.Exec(`
 		INSERT INTO flow_versions (flow_id, version, data, actor_kind, admin_approved, created_at)
 		SELECT f.id, f.version,
-			CASE WHEN json_valid(f.data) THEN json_set(f.data, '$.version', f.version) ELSE f.data END,
+			CASE WHEN json_valid(f.data) THEN json_remove(json_set(f.data, '$.version', f.version), '$.state') ELSE f.data END,
 			?, 1, ?
 		FROM flows f
 		WHERE NOT EXISTS (SELECT 1 FROM flow_versions v WHERE v.flow_id = f.id)
@@ -167,11 +167,12 @@ func migrateFlowVersions(db *sql.DB) error {
 }
 
 // recordFlowVersion copies the flows row of flowID (just written) into
-// flow_versions with meta, then prunes old versions, inside tx.
+// flow_versions with meta, without its run state (a version is a
+// definition), then prunes old versions, inside tx.
 func recordFlowVersion(tx *sql.Tx, flowID string, meta VersionMeta, now time.Time) error {
 	_, err := tx.Exec(`
 		INSERT INTO flow_versions (flow_id, version, data, actor_kind, token_id, token_name, admin_approved, note, draft_id, created_at)
-		SELECT id, version, data, ?, ?, ?, ?, ?, ?, ? FROM flows WHERE id = ?
+		SELECT id, version, json_remove(data, '$.state'), ?, ?, ?, ?, ?, ?, ? FROM flows WHERE id = ?
 	`, meta.ActorKind, meta.TokenID, meta.TokenName, boolInt(meta.AdminApproved), meta.Note, meta.DraftID, now.Unix(), flowID)
 	if err != nil {
 		return fmt.Errorf("failed to record flow version: %w", err)
@@ -199,8 +200,11 @@ func boolInt(b bool) int {
 // version, recorded with meta, in one transaction. expected 0 skips the
 // check; otherwise a stored version other than expected fails with a
 // *VersionConflictError (errors.Is ErrVersionConflict) and changes nothing.
-// f.Version is ignored on input and holds the new version on success, which
-// is also returned. Old versions are pruned in the same transaction.
+// Only the definition changes: the stored state (restart intent) and
+// creation time are kept and the update time is the save's, whatever f
+// says (f may come from a draft or an old version). On success f holds the
+// new version, the stored state and both times; the new version is also
+// returned. Old versions are pruned in the same transaction.
 func (s *SQLiteStore) UpdateFlowVersioned(f *flow.Flow, expected int, meta VersionMeta) (int, error) {
 	if s.isClosed() {
 		return 0, ErrDatabaseClosed
@@ -225,8 +229,15 @@ func (s *SQLiteStore) UpdateFlowVersioned(f *flow.Flow, expected int, meta Versi
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
 
-	var current int
-	if err := tx.QueryRow(`SELECT version FROM flows WHERE id = ?`, f.ID).Scan(&current); err != nil {
+	var (
+		current int
+		state   string
+		created sql.NullString // the stored definition's createdAt (JSON text)
+	)
+	err = tx.QueryRow(`
+		SELECT version, state, CASE WHEN json_valid(data) THEN json_extract(data, '$.createdAt') END
+		FROM flows WHERE id = ?`, f.ID).Scan(&current, &state, &created)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, ErrFlowNotFound
 		}
@@ -239,9 +250,10 @@ func (s *SQLiteStore) UpdateFlowVersioned(f *flow.Flow, expected int, meta Versi
 	now := time.Now()
 	if _, err := tx.Exec(`
 		UPDATE flows
-		SET name = ?, description = ?, data = json_set(?, '$.version', ?), state = ?, version = ?, updated_at = ?
+		SET name = ?, description = ?, version = ?, updated_at = ?,
+			data = json_set(?, '$.version', ?, '$.state', ?, '$.createdAt', ?, '$.updatedAt', ?)
 		WHERE id = ?
-	`, f.Name, f.Description, string(data), next, f.State, next, now, f.ID); err != nil {
+	`, f.Name, f.Description, next, now, string(data), next, state, created, jsonTime(now), f.ID); err != nil {
 		return 0, fmt.Errorf("failed to update flow: %w", err)
 	}
 	if err := recordFlowVersion(tx, f.ID, meta, now); err != nil {
@@ -250,9 +262,15 @@ func (s *SQLiteStore) UpdateFlowVersioned(f *flow.Flow, expected int, meta Versi
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("failed to commit flow update: %w", err)
 	}
-	f.Version = next
+	f.Version, f.State, f.UpdatedAt = next, flow.FlowState(state), now
+	if t, err := time.Parse(time.RFC3339Nano, created.String); err == nil && created.Valid {
+		f.CreatedAt = t
+	}
 	return next, nil
 }
+
+// jsonTime renders t as encoding/json does.
+func jsonTime(t time.Time) string { return t.Format(time.RFC3339Nano) }
 
 const flowVersionColumns = `flow_id, version, actor_kind, token_id, token_name, admin_approved, note, draft_id, created_at`
 
@@ -277,7 +295,9 @@ func scanFlowVersion(row rowScanner, withData bool) (*FlowVersion, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to unmarshal flow version %s/%d: %w", v.FlowID, v.Version, err)
 		}
-		f.Version = v.Version
+		// A version is a definition: no run state (rows stored before
+		// versions dropped it may still hold one).
+		f.Version, f.State = v.Version, ""
 		v.Flow = f
 	}
 	return &v, nil
