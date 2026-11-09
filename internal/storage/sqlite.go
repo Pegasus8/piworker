@@ -293,7 +293,8 @@ func (s *SQLiteStore) UpdateFlow(f *flow.Flow) error {
 	return err
 }
 
-// DeleteFlow removes a flow from the database.
+// DeleteFlow removes a flow, its run history, versions and deployment marker,
+// and voids its pending drafts, in one transaction.
 func (s *SQLiteStore) DeleteFlow(id string) error {
 	if s.isClosed() {
 		return ErrDatabaseClosed
@@ -336,6 +337,9 @@ func (s *SQLiteStore) DeleteFlow(id string) error {
 	}
 	if _, err := tx.Exec(`DELETE FROM flow_deployments WHERE flow_id = ?`, id); err != nil {
 		return fmt.Errorf("failed to delete flow deployment: %w", err)
+	}
+	if err := voidPendingDrafts(tx, `d.flow_id = ?`, []any{id}, DraftReasonFlowDeleted, time.Now()); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(); err != nil {

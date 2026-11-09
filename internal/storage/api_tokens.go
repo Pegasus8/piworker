@@ -391,8 +391,8 @@ func (s *SQLiteStore) inTokenTx(fn func(tx *sql.Tx) error) error {
 }
 
 // RevokeAPIToken revokes one token (keeping the first revocation instant),
-// rejects its pending approvals so nothing it queued can still run, and bumps
-// the tokens epoch, all in one transaction.
+// rejects its pending approvals so nothing it queued can still run, voids its
+// pending drafts and bumps the tokens epoch, all in one transaction.
 func (s *SQLiteStore) RevokeAPIToken(id string, now time.Time) error {
 	return s.inTokenTx(func(tx *sql.Tx) error {
 		res, err := tx.Exec(`UPDATE api_tokens SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?`, now.Unix(), id)
@@ -404,14 +404,18 @@ func (s *SQLiteStore) RevokeAPIToken(id string, now time.Time) error {
 		} else if n == 0 {
 			return ErrAPITokenNotFound
 		}
-		return voidPendingApprovals(tx, `a.token_id = ?`, []any{id}, now)
+		if err := voidPendingApprovals(tx, `a.token_id = ?`, []any{id}, now); err != nil {
+			return err
+		}
+		return voidPendingDrafts(tx, `d.author_token_id = ?`, []any{id}, DraftReasonTokenRevoked, now)
 	})
 }
 
 // RevokeAllAPITokens revokes every token not yet revoked (expired ones
-// included), rejects every pending approval (no token can act any more),
-// bumps the tokens epoch (even when nothing changed) and returns how many of
-// the revoked tokens were active at now, i.e. not expired.
+// included), rejects every pending approval and voids every pending draft
+// (no token can act any more), bumps the tokens epoch (even when nothing
+// changed) and returns how many of the revoked tokens were active at now,
+// i.e. not expired.
 func (s *SQLiteStore) RevokeAllAPITokens(now time.Time) (int, error) {
 	var n int
 	err := s.inTokenTx(func(tx *sql.Tx) error {
@@ -446,6 +450,9 @@ func revokeAllAPITokens(tx *sql.Tx, now time.Time) (int, error) {
 		return 0, fmt.Errorf("failed to revoke api tokens: %w", err)
 	}
 	if err := voidPendingApprovals(tx, `NOT `+approvalTokenActive, []any{now.Unix()}, now); err != nil {
+		return 0, err
+	}
+	if err := voidPendingDrafts(tx, `NOT `+draftTokenUnrevoked, nil, DraftReasonTokenRevoked, now); err != nil {
 		return 0, err
 	}
 	return active, nil
@@ -570,7 +577,7 @@ const apiTokensSchema = `
 // migrateAgent creates the agent tables (tokens, approvals, audit). Every
 // statement is idempotent.
 func (s *SQLiteStore) migrateAgent() error {
-	for _, schema := range []string{apiTokensSchema, agentApprovalsSchema, mcpAuditSchema} {
+	for _, schema := range []string{apiTokensSchema, agentApprovalsSchema, mcpAuditSchema, flowDraftsSchema} {
 		if _, err := s.db.Exec(schema); err != nil {
 			return fmt.Errorf("failed to migrate agent tables: %w", err)
 		}
