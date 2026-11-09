@@ -277,15 +277,17 @@ export const useFlowsStore = defineStore('flows', () => {
       // refuses (409) to deploy another one saved since (an approved draft,
       // an agent's version) instead of running what nobody saw.
       const item = flows.value.find(f => f.id === id)
-      const wasRunning = item?.running ?? false
       let running: boolean
       try {
         running = await api.toggleFlow(id, enabled, enabled ? item?.version : undefined)
       } catch (e) {
         throw versionConflict(e) ?? e
       }
-      if (running && !wasRunning) markEditorDeployment(id, item?.version)
       applyRunningState(id, running)
+      // Turning on deploys only a flow that was not running, and the list
+      // may be older than an agent's deploy: read who deployed it instead
+      // of guessing from the list.
+      if (enabled) await refreshFlowState(id)
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to toggle flow'
       throw e
@@ -362,22 +364,45 @@ export const useFlowsStore = defineStore('flows', () => {
     if (item) {
       item.version = result.version
       item.agentChanged = false
-      if (result.deployed) {
-        item.running = true
-        item.state = 'running'
-      } else if (result.deployError) {
-        // The redeploy failed after the old instance stopped: the flow is
-        // stopped, its running intent kept.
-        item.running = false
-        item.state = 'failed'
-      }
     }
-    if (result.deployed) markEditorDeployment(id, result.version)
+    // A refused redeploy may have left the old version running (refused
+    // before stopping it) or stopped it with its running intent kept: read
+    // the flow back. If that fails, claim only what the result says.
+    if (!await refreshFlowState(id) && result.deployed) {
+      applyRunningState(id, true)
+      markEditorDeployment(id, result.version)
+    }
     if (currentFlow.value?.id === id) {
       isDirty.value = false
       await fetchFlow(id)
     }
     return result
+  }
+
+  // Reads one flow's live state into the list: whether it runs, its version
+  // and marks (GET /api/flows/{id}). A stored running intent without a
+  // running instance is a failed deploy, as the read views show it. Returns
+  // false, changing nothing, when the flow cannot be read.
+  async function refreshFlowState(id: string): Promise<boolean> {
+    let flow: Flow
+    try {
+      flow = await api.getFlow(id)
+    } catch {
+      return false
+    }
+    const idx = flows.value.findIndex(f => f.id === id)
+    if (idx === -1) return true
+    const running = flow.running === true
+    const item = flows.value[idx]
+    flows.value[idx] = {
+      ...item,
+      running,
+      state: running ? 'running' : flow.state === 'running' ? 'failed' : flow.state ?? item.state,
+      version: typeof flow.version === 'number' ? flow.version : item.version,
+      deployment: flow.deployment ?? null,
+      agentChanged: flow.agentChanged === true
+    }
+    return true
   }
 
   // Apply the running state returned by deploy/stop directly to local state,

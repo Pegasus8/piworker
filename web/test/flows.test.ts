@@ -201,23 +201,52 @@ const listItem = (id: string, over: Record<string, unknown> = {}) => ({
   deployment: { version: 2, actorKind: 'agent', tokenName: 'laptop', deployedAt: '2026-11-08T12:00:00Z' }, agentChanged: true, ...over
 })
 
-test('turning a flow on from the list sends the version the list shows; an editor deploy replaces the agent marker', async () => {
+const editorMark = { version: 3, actorKind: 'editor', deployedAt: '2026-11-09T08:00:00Z' }
+const agentMark = { version: 3, actorKind: 'agent', tokenName: 'phone', deployedAt: '2026-11-09T07:00:00Z' }
+
+test('turning a flow on from the list sends the version the list shows, then reads who deployed it', async () => {
   setActivePinia(createPinia())
   const store = useFlowsStore()
   apiMock.getFlows = async () => [listItem('a')]
   const calls: Array<[string, boolean, number | undefined]> = []
   apiMock.toggleFlow = async (id, enabled, version) => { calls.push([id, enabled, version]); return enabled }
+  const reads: string[] = []
+  apiMock.getFlow = async (id) => { reads.push(id); return { ...backendFlow(id), state: 'running', running: true, version: 3, deployment: editorMark, agentChanged: true } }
   await store.fetchFlows()
 
   await store.toggleFlow('a', true)
   expect(calls).toEqual([['a', true, 3]])
-  expect(store.flows[0].running).toBe(true)
-  expect(store.flows[0].deployment).toMatchObject({ actorKind: 'editor', version: 3 })
+  expect(reads).toEqual(['a'])
+  expect(store.flows[0]).toMatchObject({ running: true, state: 'running', version: 3, agentChanged: true })
+  expect(store.flows[0].deployment).toEqual(editorMark)
 
-  // Stopping keeps the marker (it names the last deployment) and sends no version.
+  // Stopping keeps the marker (it names the last deployment), sends no
+  // version and needs no read.
   await store.toggleFlow('a', false)
   expect(calls[1]).toEqual(['a', false, undefined])
-  expect(store.flows[0].deployment).toMatchObject({ actorKind: 'editor' })
+  expect(reads).toEqual(['a'])
+  expect(store.flows[0].deployment).toEqual(editorMark)
+})
+
+test('turning on a flow an agent deployed since the list loaded keeps the agent marker', async () => {
+  setActivePinia(createPinia())
+  const store = useFlowsStore()
+  // The list loaded before the agent deployed: it shows the flow stopped.
+  apiMock.getFlows = async () => [listItem('a', { deployment: null })]
+  // The server's non-strict toggle only keeps the running intent: no new deployment.
+  apiMock.toggleFlow = async () => true
+  apiMock.getFlow = async (id) => ({ ...backendFlow(id), state: 'running', running: true, version: 3, deployment: agentMark })
+  await store.fetchFlows()
+
+  await store.toggleFlow('a', true)
+  expect(store.flows[0].deployment).toEqual(agentMark)
+
+  // When the flow cannot be read back, no marker is made up.
+  apiMock.getFlows = async () => [listItem('a', { deployment: agentMark })]
+  apiMock.getFlow = async () => { throw new Error('offline') }
+  await store.fetchFlows()
+  await store.toggleFlow('a', true)
+  expect(store.flows[0]).toMatchObject({ running: true, deployment: agentMark })
 })
 
 test('turning on a flow saved since the list loaded is a version conflict, not a deploy', async () => {
@@ -270,8 +299,14 @@ test('rolling back updates the list, and reloads the flow the editor shows', asy
   setActivePinia(createPinia())
   const store = useFlowsStore()
   apiMock.getFlows = async () => [listItem('a', { running: true, state: 'running' }), listItem('b')]
-  let loads = 0
-  apiMock.getFlow = async () => { loads++; return { ...backendFlow('a'), version: loads > 1 ? 6 : 5, agentChanged: loads === 1 } }
+  const rolledBack = { version: 6, actorKind: 'editor', deployedAt: '2026-11-09T09:00:00Z' }
+  const reads: string[] = []
+  apiMock.getFlow = async (id) => {
+    reads.push(id)
+    return reads.length === 1
+      ? { ...backendFlow(id), version: 5, agentChanged: true }
+      : { ...backendFlow(id), state: 'running', running: true, version: 6, agentChanged: false, deployment: rolledBack }
+  }
   apiMock.rollbackFlow = async (id) => ({ flowId: id, version: 6, deployed: true })
   await store.fetchFlows()
   await store.fetchFlow('a')
@@ -279,15 +314,52 @@ test('rolling back updates the list, and reloads the flow the editor shows', asy
   const result = await store.rollbackFlow('a')
 
   expect(result).toEqual({ flowId: 'a', version: 6, deployed: true })
-  expect(store.flows[0]).toMatchObject({ version: 6, agentChanged: false, running: true })
-  expect(store.flows[0].deployment).toMatchObject({ actorKind: 'editor', version: 6 })
-  expect(loads).toBe(2)
+  expect(store.flows[0]).toMatchObject({ version: 6, agentChanged: false, running: true, state: 'running' })
+  expect(store.flows[0].deployment).toEqual(rolledBack)
+  // The list's read back, then the editor's reload.
+  expect(reads).toEqual(['a', 'a', 'a'])
   expect(store.currentFlow?.version).toBe(6)
   expect(store.isDirty).toBe(false)
 
-  // A failed redeploy leaves the flow stopped (its running intent kept: failed).
-  apiMock.rollbackFlow = async (id) => ({ flowId: id, version: 4, deployed: false, deployError: { status: 400, message: 'bad' } })
+  // A flow the editor does not show is read back, not reloaded.
+  apiMock.rollbackFlow = async (id) => ({ flowId: id, version: 4, deployed: false })
   await store.rollbackFlow('b')
-  expect(store.flows[1]).toMatchObject({ version: 4, agentChanged: false, running: false })
-  expect(loads).toBe(2)
+  expect(reads).toEqual(['a', 'a', 'a', 'b'])
+  expect(store.currentFlow?.id).toBe('a')
+
+  // Unreadable after a redeploy: the result says it runs, deployed from here.
+  apiMock.getFlow = async () => { throw new Error('offline') }
+  apiMock.rollbackFlow = async (id) => ({ flowId: id, version: 5, deployed: true })
+  await store.rollbackFlow('b')
+  expect(store.flows[1]).toMatchObject({ version: 5, running: true, agentChanged: false })
+  expect(store.flows[1].deployment).toMatchObject({ actorKind: 'editor', version: 5 })
+})
+
+test('after a rollback the list shows the flow as the server has it, not a guess', async () => {
+  setActivePinia(createPinia())
+  const store = useFlowsStore()
+  apiMock.getFlows = async () => [listItem('a', { running: true, state: 'running', deployment: agentMark })]
+  apiMock.rollbackFlow = async (id) => ({ flowId: id, version: 6, deployed: false, deployError: { status: 503, message: 'shutting down' } })
+  // Refused before stopping (shutdown, a failed stop): the old version still runs.
+  apiMock.getFlow = async (id) => ({ ...backendFlow(id), state: 'running', running: true, version: 6, deployment: agentMark, agentChanged: false })
+  await store.fetchFlows()
+
+  await store.rollbackFlow('a')
+  expect(store.flows[0]).toMatchObject({ version: 6, running: true, state: 'running', agentChanged: false })
+  expect(store.flows[0].deployment).toEqual(agentMark)
+
+  // Stopped after the old instance stopped: the running intent is kept, so it failed.
+  apiMock.getFlow = async (id) => ({ ...backendFlow(id), state: 'running', running: false, version: 7, deployment: agentMark, agentChanged: false })
+  apiMock.rollbackFlow = async (id) => ({ flowId: id, version: 7, deployed: false, deployError: { status: 400, message: 'bad' } })
+  await store.rollbackFlow('a')
+  expect(store.flows[0]).toMatchObject({ version: 7, running: false, state: 'failed' })
+
+  // Unreadable: what is unknown is not changed (the version is known).
+  apiMock.getFlows = async () => [listItem('a', { running: true, state: 'running', deployment: agentMark })]
+  await store.fetchFlows()
+  apiMock.getFlow = async () => { throw new Error('offline') }
+  apiMock.rollbackFlow = async (id) => ({ flowId: id, version: 8, deployed: false, deployError: { status: 500, message: 'Failed to stop flow' } })
+  await store.rollbackFlow('a')
+  expect(store.flows[0]).toMatchObject({ version: 8, running: true, state: 'running', agentChanged: false })
+  expect(store.flows[0].deployment).toEqual(agentMark)
 })
