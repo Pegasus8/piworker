@@ -251,14 +251,17 @@ type DraftResult struct {
 // author may not add,
 // change or remove trigger-tool or action-reply nodes, change a webhook
 // trigger's path or token, turn on a RiskSwitch property or change the
-// legacy Variables (forbidden naming the path). Limits: the note, the name,
-// MaxDraftNodes, MaxDraftConnections, MaxDraftFlowBytes, and 20 pending
-// drafts per token (forbidden: the admin must decide pending drafts first).
-// A proposal whose Lint has blocking errors (flow.BlockingIssues: duplicate
-// or empty node IDs, unknown types, config typing, …) is refused with
-// invalid_arguments and FlowIssues (H2); undefined secrets are kept as
-// issues. The stored draft holds the resolved flow, its issues, risk and
-// alerts. Audited.
+// legacy Variables (forbidden naming the path), nor have more than 20
+// pending drafts (forbidden: the admin must decide pending drafts first). A
+// note over MaxDraftNoteChars, a name over MaxDraftNameChars, more than
+// MaxDraftNodes nodes or MaxDraftConnections connections, or a flow over
+// MaxDraftFlowBytes of JSON is invalid_arguments. A proposal with blocking
+// errors (flow.BlockingIssues: Lint's — duplicate or empty node IDs,
+// unknown types, config typing, … — and the two authoring errors) is
+// refused with invalid_arguments and FlowIssues (H2); undefined secrets
+// and warnings are kept as issues. The stored draft holds the resolved
+// flow, its issues, risk and alerts (flow.Diff against the current
+// version; agent-safe). Audited.
 func (a *Authoring) SaveDraft(ctx context.Context, actor Actor, in DraftInput) (DraftResult, error) {
 	return DraftResult{}, notImplemented("save draft")
 }

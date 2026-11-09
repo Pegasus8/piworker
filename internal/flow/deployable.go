@@ -13,9 +13,10 @@ import (
 // instance implementing node.TriggerNode or the registered category, never
 // by the client-supplied Category), callable triggers, and the tool risk
 // analysis (ADR-0013), whose tools and warning issues it returns; error
-// issues fail it (a *ValidationError). RuntimeManager.deploy and the dry-run
-// share it, so the dry-run refuses exactly the flows deploy refuses
-// (ADR-0007); it is the one place to switch to flow.Lint.
+// issues fail it (a *ValidationError). Its checks are Lint's collectors
+// (structureFindings, callTriggerFindings, analyzeTools), so Lint, and the
+// dry-run and authoring that use it, refuse exactly the flows deploy refuses
+// (ADR-0007).
 func validateDeployable(rt *FlowRuntime, reg *node.Registry) ([]ToolInfo, []Issue, error) {
 	f := rt.flow
 	if err := f.validate(func(n *Node) bool {

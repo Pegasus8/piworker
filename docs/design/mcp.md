@@ -652,12 +652,12 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   read-only count for the badge. Every token-revoking transaction (revoke,
   revoke-all, recovery code, password change) voids the affected pending
   drafts together with the approvals.
-- `pw_save_draft{flowId?, baseVersion, flow | ops, note}`: `ops` = add/update/
-  remove node, connect/disconnect; auto-layout for new nodes; stale
-  `baseVersion` → conflict. The redaction sentinel `"<redacted>"` means "keep
-  the base value"; any other literal in a `Sensitive` field is rejected (only
-  `{{secret.NAME}}` allowed). Author scope cannot create/modify `trigger-tool`,
-  `action-reply`, webhook token/path, `allowPrivate` or `allowDashArgs`.
+- Agents write drafts through `service.Authoring.SaveDraft`
+  (`pw_save_draft{flowId?, baseVersion?, flow | ops, name?, note}`): the
+  authoring rules (stale base → conflict, the `"<redacted>"` sentinel keeps
+  the base value, only `{{secret.NAME}}` in `Sensitive` fields, what the
+  author scope may not change, limits) are in the service contract at the
+  end of this section.
 - **`flow.Lint(f, registry) []Issue`** (`internal/flow/lint.go`) returns
   every issue `{path, code, severity, message}` deploy would find, from the
   collectors deploy itself runs (ADR-0007): config typing
@@ -665,11 +665,26 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   `Validate` errors), structure, callable triggers without an active
   connection (a connection to any enabled node of a registered type, even
   one failing its own checks, is active), and the tool risk rules of
-  `AnalyzeTools` (errors and warnings), plus one definition check deploy
-  does not need: node positions must be finite and within ±1,000,000
-  (`invalid_position`). Deploy still fails on the first error of each stage
-  (config typing and the tool rules aggregate theirs) with the same errors,
-  statuses and messages. Lint never modifies the flow. Its messages go to
+  `AnalyzeTools` (errors and warnings), the secrets strict settings require
+  (`node.SecretRequirer`: deploy's last check, below), plus one definition
+  check deploy does not need: node positions must be finite and within
+  ±1,000,000 (`invalid_position`). Deploy still fails on the first error of
+  each stage (config typing and the tool rules aggregate theirs) with the
+  same errors, statuses and messages: `validateDeployable` (structure,
+  callable triggers, tool rules) and `checkRequiredSecrets` are these
+  collectors, so a flow without Lint errors deploys (H8), except for what
+  only starting it can tell (an exclusive resource already taken: 409). The
+  secrets are checked against the store deploy resolves them in:
+  `flow.LintContext(ctx, f, registry)` uses `secrets.FromContext(ctx)` and
+  `flow.Lint` the process-wide store; an undefined one is `undefined_secret`
+  (error, at `/nodes/{id}/config/{prop}`, naming the secret, never a value).
+  That error depends on the secret store, not on the definition (the admin
+  may define the secret later): `flow.EnvironmentIssue` reports it, and
+  `flow.BlockingIssues` — the error issues that are not environment issues
+  — is what stops a dry-run and the storing or approval of a draft. Lint
+  never modifies the flow and closes the node instances it builds
+  (`node.Closer`, ADR-0008), as a failed build and a deploy refused after
+  the build now do too. Its messages go to
   agents, so a node's messages never quote the value of a setting the read
   views hide (Sensitive, not AgentVisible, undeclared or schemaless), raw or
   as `%q`, `%+q`, JSON or `CheckConfig`'s cut-off quote (a short Sensitive
@@ -681,7 +696,7 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   `no_trigger`, `duplicate_connection_id`, `connection_unknown_node`,
   `connection_unknown_port`, `self_loop`, `cycle`, `unknown_type`,
   `config_type`, `invalid_config`, `trigger_not_connected`,
-  `invalid_position`, and the tool
+  `undefined_secret`, `invalid_position`, and the tool
   rules' `dynamic_destination_credentials`, `tool_global_variable`,
   `tool_stateful_aggregate`, `tool_stateful_join`,
   `tool_delay_exceeds_timeout` (warning), `tool_strict_arguments`,
@@ -751,10 +766,14 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   property's values only when agents may read it (AgentVisible and not
   Sensitive), and otherwise only risks, hosts, secret names and risk-switch
   booleans.
-- Dry-run (`flow.DryRun`, behind `pw_dry_run`). The flow is first validated
-  as deploy validates it (`validateDeployable`, the checks
-  `RuntimeManager.deploy` runs; an invalid flow is refused with the deploy's
-  error). It then runs once in a private `FlowRuntime` that is never
+- Dry-run (`flow.DryRun`, behind `pw_dry_run`). The flow is first linted
+  (`flow.LintContext` with the caller's secret store, on the flow as it
+  would run, after `Redact`: the one validation path, ADR-0007); its issues
+  are the result's `issues`. A blocking error (`flow.BlockingIssues`) means
+  it does not run: the result holds only the issues, with an empty trace,
+  and `DryRun` returns no error. Warnings and `undefined_secret` (the
+  sandbox has no secrets anyway) are reported with the run. A valid flow
+  then runs once in a private `FlowRuntime` that is never
   registered with the `RuntimeManager` (no tools published, no webhook path
   or tool name claimed, no recorder, not counted in the Prometheus metrics),
   built through `Registry.Derive`, which wraps every node: triggers never
@@ -790,8 +809,9 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
     node's output over it, or a node that ran into a sandbox limit, is an
     error of its step. Retries are off. Each preview (the JSON of a payload)
     and error is cut to 2 KiB, the whole result to 64 KiB (`truncated`: a
-    preview was cut or entries left out, keeping `wouldExecute` first, then
-    `missingSecrets`, then the trace).
+    preview was cut or entries left out, keeping the issues first, then
+    `wouldExecute`, then `missingSecrets`, then the trace; each issue
+    message is cut to 2 KiB too).
   - Expressions (transform, filter, switch, set-var, join, database
     parameters) are compiled with a guard (`expr_guard.go`): every predicate
     body (the loops of `filter`, `map`, `count`, `reduce`, …) checks the
@@ -801,7 +821,9 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
     `toJSON`, `string` and `toBase64` size their result before it exists
     and charge the sandbox, and the result is capped at 1 MiB. Templates
     stop expanding at the sandbox's limits.
-  - The result lists, in execution order, the trace (`nodeId`, `type`,
+  - The result (`flow.DryRunResult`: `issues`, `trace`, `wouldExecute`,
+    `missingSecrets`, `truncated`, `timedOut`, `capped`) lists the Lint
+    issues and, in execution order, the trace (`nodeId`, `type`,
     `input`, `outputs[{port, preview}]`, `error`, `durationMs`, `stubbed`;
     the trigger first, stubbed, with the payload as its output) and
     `wouldExecute`. One dry-run or node test runs at a time process-wide;
@@ -820,12 +842,18 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
     an unknown type) whose value the agent did not write itself — for a
     stored flow all of them, for a draft those equal to the base version's
     value at the same node and property. The run then computes only on what
-    the agent may see; a redacted value that makes its node invalid fails
-    the dry-run like any invalid flow. A flow the agent sends inline holds
-    only what it wrote and is not redacted.
+    the agent may see; a redacted value that makes its node invalid is an
+    issue like any invalid flow's (no run; the message quotes the sentinel,
+    not the value). A flow the agent sends inline holds only what it wrote
+    and is not redacted.
 - Node test (`flow.TestNode`, behind `pw_test_node`): one node of a
   processing type whose type and instance risk are `safe` (anything else is
-  forbidden), its config checked as deploy checks it, its input and config
+  forbidden), its config checked as deploy checks it (Lint's collectors:
+  its problems are the result's `issues`, `config_type` at
+  `/config/{prop}` and `invalid_config` at `/config`, and the node does not
+  run then; the messages are not hidden, the config being the caller's
+  own; result `flow.TestNodeResult`: `issues`, `outputs[{port, preview}]`,
+  `error`, `durationMs`, `truncated`, `timedOut`), its input and config
   at most 64 KiB of JSON each, run once on the input with the same isolated
   stores and sandbox, a 5 s timeout (`timedOut`; it returns then even if the
   node ignores cancellation, and the node keeps the slot until it returns)
@@ -833,8 +861,10 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 - Secrets in strict settings. The Telegram bot token, the notification URL
   and the database DSN cannot work without the secrets they reference:
   deploy refuses a flow (400, naming node, setting and secret) while one of
-  them is not defined (`node.SecretRequirer`); the values themselves are
-  resolved per execution. A dry-run does not check: it stubs these nodes.
+  them is not defined (`node.SecretRequirer`), and Lint reports the same
+  secrets as `undefined_secret`; the values themselves are resolved per
+  execution. A dry-run does not stop at them: it stubs these nodes, keeps
+  the issues and lists the names in `missingSecrets`.
 - Approval page: per-node type and diff, agent text marked as such, risk,
   alerts for recipient/destination changes (`chatId`, `to`, topic, broker,
   URL), dynamic destinations, secrets moved between fields, new hosts, and any
@@ -849,6 +879,274 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   not `off`). Every agent deploy is audited, marked "deployed by agent" in
   the editor, and the admin can roll back to the last admin-approved version
   in one click.
+
+### Service contract — authoring, drafts, agent deploy (`internal/service`)
+
+The exported API below exists (`authoring.go`, `drafts.go`, `deploy.go`);
+until the service stream writes a method's body it refuses with
+`unavailable` ("…: not implemented yet"). The service, MCP and editor
+streams code against it.
+
+**Construction.** `service.NewAuthoring(service.AuthoringOptions{Store,
+Lifecycle, Registry, Secrets, Audit, AuthorEnabled, Now, Logger})
+*service.Authoring`, safe for concurrent use.
+- `Store service.AuthoringStore` (required; `*storage.SQLiteStore`):
+  `GetFlow`, `CreateFlowVersioned`, `UpdateFlowVersioned`, `GetFlowVersion`,
+  `ListFlowVersions`, `LastAdminApprovedVersion`, `GetDeployment`,
+  `CreateFlowDraft`, `GetFlowDraft`, `ListFlowDrafts`, `DecideFlowDraft`,
+  `GetAPIToken`, `TokensEpoch`, `AgentDeployLevel` (storage's signatures).
+- `Lifecycle service.FlowLifecycle`: internal/api's `FlowsHandler` (below);
+  without it `ApproveDraft`, `Rollback`, `Deploy` and `Stop` are
+  `unavailable`.
+- `Registry *node.Registry` (default `node.DefaultRegistry`); `Secrets
+  *secrets.Store` (default `secrets.DefaultStore`: Lint's secret checks
+  through `secrets.WithStore` + `flow.LintContext`, unknown-secret warnings,
+  redaction of its values); `Audit *service.AuditWriter` (nil: not
+  audited); `AuthorEnabled` (`mcp.author_enabled`); `Now`; `Logger`.
+
+**Actors.** Agents need the token scope `author` and `AuthorEnabled` for
+`Validate`, `SaveDraft`, `GetDraft`, `DryRun`, `TestNode`, and the scope
+`deploy` with a level above `off` for `Deploy`, `Stop` (else `forbidden`).
+The editor (`service.EditorActor()`) may call `Validate`, `DryRun`,
+`TestNode` and the editor methods (`ListDrafts`, `GetDraftDetail`,
+`ApproveDraft`, `RejectDraft`, `Rollback`, `Versions`, `Marks`), which
+refuse agents (`forbidden`); `SaveDraft`, `GetDraft`, `Deploy` and `Stop`
+refuse the editor (`forbidden`: it saves, reads and deploys through its own
+paths). Agent operations are audited under the tool names
+`service.AuthorTool*` / `service.DeployTool*` (`pw_validate_flow`,
+`pw_save_draft`, `pw_get_draft`, `pw_dry_run`, `pw_test_node`,
+`pw_deploy_flow`, `pw_stop_flow`), outcome only (never payloads).
+
+**Errors.** `*service.ToolError` with `Code()`: `forbidden`, `not_found` (an
+unknown draft, or another token's), `flow_not_found`, `invalid_arguments`
+(`FlowIssues []flow.Issue` for a flow's problems), `conflict` (new kind
+`service.ErrConflict`: a stale base version, with `CurrentVersion`; a draft
+no longer pending; a flow already running or not running; an exclusive
+resource taken; nothing to roll back), `busy` (the sandbox slot, which wraps
+`flow.ErrBusy`), `unavailable`; any other error is internal. MCP results
+carry `error.flowIssues` and `error.currentVersion`; the REST writer
+(`api.ToolCallErrorData`) answers 403/404/400/409/429/503 with `{"success":
+false, "error": "…", "data": {"code": "…", "issues"?: […], "flowIssues"?:
+[{"path", "code", "severity", "message"}], "currentVersion"?: N,
+"retryAfterMs"?: N}}`.
+
+**Lifecycle.** `FlowLifecycle.WithLock(ctx, fn func(LockedLifecycle) error)
+error` runs `fn` under `FlowsHandler.lifecycleMu` (not reentrant), so what
+`fn` checked still holds when it deploys. `LockedLifecycle`:
+- `Running(flowID) bool`.
+- `Deploy(ctx, flowID, by DeployActor, restart bool) (version int, err)`:
+  deploys the stored current version as the editor's deploy does (a running
+  flow is 409 unless `restart`, which stops it first; 503 after
+  `BeginShutdown`; 404 unknown; 400 deploy validation; 409 still stopping or
+  an exclusive resource taken), persists the restart intent and records the
+  deployment marker (`RecordDeployment(flowID, by.Deployment(version))`). A
+  redeploy failing after the old instance stopped leaves the flow stopped
+  with its running intent (read views: `failed`). It lints nothing beyond
+  deploy's checks: callers lint first.
+- `Stop(ctx, flowID, by DeployActor) error`: stops and persists the stop
+  intent (409 not running, 404 unknown; allowed during shutdown); the marker
+  is kept.
+Refusals are `*service.LifecycleError{Status, Message, Err}` (the editor
+path's statuses; `Err` the cause for `errors.Is`); `ToolError()` maps 400 →
+`invalid_arguments` (a fixed message: deploy's may quote config values),
+404 → `flow_not_found`, 409 → `conflict`, 503 → `unavailable`, anything else
+→ nil (internal). `service.DeployActor{Kind, TokenID, TokenName}` comes from
+`actor.DeployActor()` (the editor, or the agent's token). Every successful
+deploy records the marker, the editor's (`changeRunning`, toggle) as actor
+`editor` and the agent's as `agent` with the token (H6); restoring running
+flows at startup keeps the existing marker.
+
+**Methods** (requests and results marshal with these JSON names):
+
+| Method | Request | Result |
+|---|---|---|
+| `Validate(ctx, actor, ValidateRequest)` | `{flowId?, flow?, ops?}` | `ValidateResult{valid, issues, risk}` |
+| `SaveDraft(ctx, actor, DraftInput)` | `{flowId?, baseVersion?, flow? \| ops?, name?, note}` | `DraftResult{draftId, status, risk, issues, alerts, flowId, baseVersion}` |
+| `GetDraft(ctx, actor, draftID)` | | `DraftView{draftId, status, reason?, risk, issues, alerts, flowId, baseVersion, appliedVersion?, note, createdAt, decidedAt?, flow: DraftFlowView{id?, name, nodes: [NodeView], connections: [ConnectionView], totalNodes, totalConnections, truncated}}` |
+| `DryRun(ctx, actor, DryRunRequest)` | `{flow? \| draftId? \| flowId?, triggerNodeId?, payload?, mocks?, flowVars?}` | `flow.DryRunResult` |
+| `TestNode(ctx, actor, TestNodeRequest)` | `{type, config?, input?}` | `flow.TestNodeResult` |
+| `ListDrafts(ctx, actor, DraftQuery)` | `{status, limit, beforeId}` | `DraftList{drafts: [DraftSummary], nextBefore}` |
+| `GetDraftDetail(ctx, actor, draftID)` | | `DraftDetail` |
+| `ApproveDraft(ctx, actor, draftID, deploy)` | | `ApplyResult{flowId, version, deployed, deployError?{status, message}}` |
+| `RejectDraft(ctx, actor, draftID, reason)` | | (error only) |
+| `Deploy(ctx, actor, DeployRequest)` | `{flowId, draftId?}` | `DeployResult{flowId, version, running, risk}` |
+| `Stop(ctx, actor, flowID)` | | `DeployResult` (`running` false) |
+| `Rollback(ctx, actor, flowID)` | | `ApplyResult` |
+| `Versions(ctx, actor, flowID, limit)` | | `VersionList{current, lastAdminApproved, versions: [VersionEntry]}` |
+| `Marks(ctx, actor, f)` | | `FlowMarks{deployment, agentChanged}` |
+
+- `Validate` resolves the proposal exactly as `SaveDraft` (a whole flow, or
+  with `flowId` ops or a flow whose `"<redacted>"` values keep the current
+  version's), then reports `flow.LintContext` (with `Secrets`), the
+  authoring issues and `flow.Risk`; `valid` means `flow.BlockingIssues` is
+  empty (an `undefined_secret` error still blocks a deploy until the admin
+  defines the secret). Request problems `SaveDraft` refuses outright are
+  refused the same way. Nothing is stored. `ops` and `flowId` extend the
+  contract's `{flow}`.
+- `SaveDraft` (`service.RedactedValue` = `"<redacted>"`): an existing flow
+  needs `baseVersion` = its current version (else `conflict` with
+  `currentVersion`; unknown: `flow_not_found`); a new flow needs `flow` (no
+  `ops`) and a name (`name` or `flow.name`, ≤ `MaxDraftNameChars` = 100);
+  an existing flow keeps its name unless `name` (or a whole flow's name) is
+  set. `ops` apply to the base (their issues, at `/ops/{i}`:
+  `invalid_arguments` with `flowIssues`); new nodes are laid out. Authoring
+  issue codes (besides Lint's): `sensitive_literal` (error: a `Sensitive`
+  property holds a literal, not `{{secret.NAME}}` or the sentinel; the
+  message never quotes it), `unresolved_redaction` (error: a sentinel
+  without a base value at the same node ID, type and property),
+  `unknown_secret` (warning: a reference to a secret that is not defined;
+  a strict setting's is Lint's `undefined_secret`). A proposal with
+  blocking errors (`flow.BlockingIssues`: Lint's — duplicate or empty node
+  IDs, unknown types, config typing… — and the two authoring errors) is
+  refused with `invalid_arguments` and `flowIssues` (H2); `undefined_secret`
+  and warnings are stored with it. `forbidden`, naming the path: adding,
+  changing or removing `trigger-tool` or `action-reply` nodes, a webhook
+  trigger's `path` or token, any `RiskSwitch` property turned on, the legacy
+  `Variables`; and 20 pending drafts per token (the admin must decide
+  pending drafts first). `invalid_arguments`: a note over
+  `MaxDraftNoteChars` (2000), more than `MaxDraftNodes` (200) nodes or
+  `MaxDraftConnections` (400) connections, over `MaxDraftFlowBytes` (512
+  KiB) of JSON. The stored draft holds the resolved flow, its issues, risk
+  and alerts (`flow.Diff` against the current version, an empty flow when
+  new; agent-safe, H7).
+- `GetDraft`: the agent's own drafts only (another token's: `not_found`);
+  the proposed flow through the read views' default-deny redaction.
+- `DryRun` of exactly one of `flow`, `draftId` (own draft) or `flowId` (the
+  current version). For an agent by `flowId` or `draftId` it sets
+  `DryRunInput.Redact` (H4): properties agents may not read (`Sensitive`,
+  not `AgentVisible`, undeclared, unknown type) are hidden — all of them for
+  a stored flow, for a draft those equal to the base version's value at the
+  same node and property; an inline `flow` is the agent's own and is not
+  redacted, but no dry-run ever gets real secrets (the sandbox's store is
+  empty). Previews and errors are redacted for agents (known secret values,
+  URLs after their host, hidden values); the editor sees them unredacted
+  except secret values. `flow.ErrSandboxBusy` → `busy`,
+  `flow.ErrDryRunInput` → `invalid_arguments`; an invalid flow is a result
+  with `issues` (no run), not an error.
+- `TestNode`: `Sensitive` literals in `config` refused as in `SaveDraft`;
+  `flow.ErrTestNodeForbidden` → `forbidden`; `flow.ErrInvalidNodeType` and
+  `flow.ErrDryRunInput` → `invalid_arguments`; busy → `busy`; config
+  problems are the result's `issues`; outputs redacted for agents.
+- `ListDrafts`: `status` `pending` (default), `decided` or `all` (else
+  `invalid_arguments`), `limit` 1–100 (0: 50), newest first, `nextBefore`
+  the next page's `beforeId` ("" at the end).
+- `GetDraftDetail`: recomputed on read against the current version and
+  registry: `issues` (Lint now), `diff` (vs the current version; an empty
+  flow when new; field diffs with full values, `Sensitive` ones
+  `"<hidden>"` unless a secret reference, H7), `diffApproved` (vs
+  `lastApprovedVersion` when that is not the current one, else null),
+  `running`, and `flow` (the proposed flow, `Sensitive` literals
+  `"<hidden>"`). The summary's `alertCount`/`issueCounts` come from what was
+  stored at save time.
+- `ApproveDraft(deploy)`, under the lifecycle lock: not pending → `conflict`;
+  stale (base ≠ current) → `conflict` with `currentVersion`; unknown →
+  `not_found`. Re-linted against the current registry (H2): blocking
+  errors refuse it (`invalid_arguments` + `flowIssues`, REST 400), and so
+  does any Lint error, `undefined_secret` included, when the flow will be
+  redeployed (`deploy`, or the flow is running: a running flow is always
+  redeployed) — the draft stays pending and nothing is saved. Saved by
+  `UpdateFlowVersioned` (`CreateFlowVersioned` for a new flow, created
+  inactive) with `VersionMeta{editor, AdminApproved, DraftID, note
+  "approved draft <id> from <token name>"}`, which requires a real pending
+  draft and closes it as approved in the same transaction (H5: never
+  `DecideFlowDraft` afterwards). Then (re)deployed through
+  `LockedLifecycle.Deploy(…, EditorActor().DeployActor(), restart =
+  running)` when asked or running; a failed deploy is `deployError`
+  (`{status, message}`, the editor path's), the version stays saved.
+- `RejectDraft(reason ≤ 500)`: not pending → `conflict`, unknown →
+  `not_found`; the reason is shown to the author.
+- `Deploy` / `Stop` (agent): level `off` → `forbidden`; `low` → allowed only
+  when `flow.Risk` of the flow that would run (Stop: the current one) is at
+  most `external` and `flow.Diff(last admin-approved version or an empty
+  flow, candidate)` raises none of `service.LowDeployRefusedAlerts()`:
+  `privileged_node_added`, `destination_changed`, `dynamic_destination`,
+  `new_host`, `secret_added`, `secret_moved`, `risk_switch_on`,
+  `sensitive_literal` and `credentialed_request_changed` (H1) — refused
+  with `forbidden` listing the kinds, never values; `all` → any flow. With
+  `draftId` the agent's own pending draft of `flowId` (another token's:
+  `not_found`; stale: `conflict`) is evaluated, saved with
+  `VersionMeta{agent, token, not admin-approved, DraftID}` (closing the
+  draft, H5) and deployed, restarting a running flow; without it the current
+  version is deployed (a running flow: `conflict`). The flow is linted first
+  (any Lint error, `undefined_secret` included: `invalid_arguments` +
+  `flowIssues`). Under the lifecycle lock, right before deploying or
+  stopping, the token is re-checked — `TokensEpoch` unchanged since the
+  policy was evaluated, or the token re-read active (not revoked or
+  expired) with the `deploy` scope, else `forbidden` — and the flow's
+  version must still be the one the policy evaluated, else `conflict`;
+  nothing is deployed then (H3). Audited (privileged when the flow is);
+  the marker records the agent's token.
+- `Rollback` (editor), under the lock: restores the last admin-approved
+  version as a new version (`VersionMeta{editor, AdminApproved, note
+  "rollback to vN"}`) and redeploys it when the flow is running (a failed
+  redeploy is `deployError`); `conflict` when the current version is
+  already admin-approved or none exists.
+- `Versions` (editor): newest first, `limit` 1–50 (0: 50), metadata only;
+  `lastAdminApproved` 0 when none; `deployed` marks the version the
+  deployment marker names.
+- `Marks` (editor): `deployment` (the marker, or null) and `agentChanged`
+  (the flow's current version is not admin-approved).
+
+**Editor REST** (section D of the wave contract; session cookie, CSRF on
+writes, `{success, data}` envelope; errors as above):
+- `GET /api/agent/drafts?status=pending|decided|all&limit=&beforeId=` →
+  `DraftList`: `{"drafts": [{"id", "flowId", "flowName", "isNew",
+  "baseVersion", "currentVersion", "stale", "status", "risk", "alertCount",
+  "issueCounts": {"error", "warning"}, "note" (≤ 200 characters), "tokenId",
+  "tokenName", "createdAt", "decidedAt" (null while pending), "reason"?,
+  "appliedVersion"?}], "nextBefore": ""}`.
+- `GET /api/agent/drafts/{id}` → `DraftDetail`: the summary's fields with
+  the whole `note`, plus `"issues": [flow.Issue]`, `"running"`, `"diff":
+  {"nodes": [{"nodeId", "type", "typeName", "change", "fields": [{"path",
+  "change", "before"?, "after"?, "sensitive", "destination"}], "moved"}],
+  "connections": {"added": [Connection], "removed": [Connection]},
+  "riskBefore", "riskAfter", "alerts": [{"kind", "nodeId"?, "path"?,
+  "message", "before"?, "after"?}]}`, `"lastApprovedVersion"` (0: none),
+  `"diffApproved"` (the same shape, or null), `"flow"` (the proposed flow).
+- `POST /api/agent/drafts/{id}/approve` `{"deploy": bool}` → `ApplyResult`
+  `{"flowId", "version", "deployed", "deployError"?: {"status",
+  "message"}}`; 409 not pending or stale (`currentVersion`), 400 invalid
+  (`flowIssues`), 404 unknown.
+- `POST /api/agent/drafts/{id}/reject` `{"reason"?}` → `{}`.
+- `GET /api/agent/approvals/pending-count` → `{"pending", "drafts"}`
+  (`drafts`: `storage.CountPendingFlowDrafts`, read-only, on the same
+  passive path).
+- `GET /api/flows/{id}/versions?limit=` → `VersionList` `{"current",
+  "lastAdminApproved", "versions": [{"version", "actorKind", "tokenId"?,
+  "tokenName"?, "adminApproved", "note"?, "draftId"?, "createdAt",
+  "deployed"}]}`.
+- `POST /api/flows/{id}/rollback` → `ApplyResult`; 409 nothing to roll back.
+- `GET /api/flows` → `{"flows": [FlowWithMarks], "total"}` and `GET
+  /api/flows/{id}` → `{"flow": FlowWithMarks, "running"}`:
+  `service.FlowWithMarks{*flow.Flow; FlowMarks}` is the flow's own JSON
+  (with `version`) plus `"deployment": {"version", "actorKind",
+  "tokenName"?, "deployedAt"} | null` and `"agentChanged": bool` (H6).
+
+**MCP** (section E): each built-in tool's arguments are the request's JSON
+(`pw_validate_flow` → `Validate`, `pw_save_draft` → `SaveDraft`,
+`pw_get_draft{draftId}` → `GetDraft`, `pw_dry_run` → `DryRun`,
+`pw_test_node` → `TestNode`, `pw_deploy_flow` → `Deploy`, `pw_stop_flow
+{flowId}` → `Stop`) and its structured content the result's JSON.
+`pw_list_node_types` reads the registry (no service state).
+
+**Hand-offs from the foundations (binding).** H1 the low policy also
+refuses `credentialed_request_changed`. H2 `SaveDraft` and `ApproveDraft`
+refuse a proposal with blocking Lint errors (re-linted at approval against
+the current registry). H3 an agent deploy or stop re-checks the token and
+the evaluated version under the lifecycle lock. H4 agent dry-runs by
+`flowId`/`draftId` set `Redact`; inline flows are not redacted but never
+get real secrets. H5 a version saved with a `DraftID` requires a real
+pending draft and closes it in the same transaction (no `DecideFlowDraft`
+afterwards); an agent applying another token's draft gets `not_found`. H6
+`RecordDeployment` on every successful deploy (editor and agent; a restore
+keeps the marker); flow list and view carry `version`, `deployment`,
+`agentChanged`. H7 alerts carry `before`/`after` only for `AgentVisible`,
+non-`Sensitive` properties; the editor's full values come from the field
+diffs (`Sensitive` as `<hidden>`); disabled nodes count as absent for
+alerts. H8 deploy's required-secret check is a Lint collector:
+`undefined_secret`. H9 every expression loop checks its context (about 3×
+on tight loops) and the sandbox bounds data; kept, to be recorded in an
+ADR.
 
 ## 11. Configuration
 
