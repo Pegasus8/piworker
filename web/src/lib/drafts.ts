@@ -6,8 +6,8 @@
 // characters with visibleText.
 import type { Component } from 'vue'
 import {
-  AlertTriangle, ArrowRightLeft, DatabaseZap, Eye, Fingerprint, Gauge, Globe, KeyRound, Lock, Send, Shield, ShieldAlert,
-  ShieldCheck, ShieldQuestion, Shuffle, ToggleRight, TrendingUp, XCircle
+  AlertTriangle, ArrowRightLeft, DatabaseZap, Eye, Fingerprint, Gauge, Globe, KeyRound, Lock, Route, ScanEye, Send, Shield,
+  ShieldAlert, ShieldCheck, ShieldQuestion, Shuffle, ToggleRight, TrendingUp, XCircle
 } from 'lucide-vue-next'
 import { jsonText, visibleText } from '@/lib/agentAccess'
 
@@ -155,8 +155,8 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 // --- Icons -----------------------------------------------------------------
 
 const ICONS: Record<string, Component> = {
-  AlertTriangle, ArrowRightLeft, DatabaseZap, Eye, Fingerprint, Gauge, Globe, KeyRound, Lock, Send, Shield, ShieldAlert,
-  ShieldCheck, ShieldQuestion, Shuffle, ToggleRight, TrendingUp, XCircle
+  AlertTriangle, ArrowRightLeft, DatabaseZap, Eye, Fingerprint, Gauge, Globe, KeyRound, Lock, Route, ScanEye, Send, Shield,
+  ShieldAlert, ShieldCheck, ShieldQuestion, Shuffle, ToggleRight, TrendingUp, XCircle
 }
 
 /** The component of an icon name the helpers return (AlertTriangle when unknown). */
@@ -227,6 +227,14 @@ export const ALERT_KINDS: Readonly<Record<string, AlertKindInfo>> = {
   global_variable_read: {
     icon: 'Eye', label: 'Global variable read by a tool',
     description: 'A tool whose path changed reads global variables: what it reads goes back to the agent that calls it.'
+  },
+  tool_path_changed: {
+    icon: 'Route', label: 'Tool changed',
+    description: 'What a published tool runs changed: an agent calling it, under its grant and confirmation setting, would run something you did not approve.'
+  },
+  data_read_changed: {
+    icon: 'ScanEye', label: 'Protected data read',
+    description: 'A new or changed node reads variables, the settings earlier nodes pass along, or what a credential returned: it could hand them back to an agent through the flow\'s runs.'
   }
 }
 
