@@ -63,12 +63,19 @@ const (
 	// property changed (an HTTP method or body) or a connection into it was
 	// added: the approved credential is used for something else.
 	AlertCredentialedRequestChanged = "credentialed_request_changed"
+	// AlertRateChanged: on a flow that reaches other services (its risk is
+	// above safe), a Rate property of a running node was added, removed or
+	// changed, or a running node with Rate properties was added or removed
+	// (enabled or disabled): how often a trigger fires, or how many
+	// messages a limiter lets through, changed. The direction is not
+	// computed (a cron expression has none to compare).
+	AlertRateChanged = "rate_changed"
 )
 
 var alertRank = map[string]int{
 	AlertRiskRaised: 0, AlertPrivilegedNodeAdded: 1, AlertDestinationChanged: 2, AlertDynamicDestination: 3,
 	AlertNewHost: 4, AlertSecretAdded: 5, AlertSecretMoved: 6, AlertRiskSwitchOn: 7, AlertSensitiveLiteral: 8,
-	AlertCredentialedRequestChanged: 9,
+	AlertCredentialedRequestChanged: 9, AlertRateChanged: 10,
 }
 
 // DiffReport is what Diff found.
@@ -186,6 +193,18 @@ func (d *diffNode) hasOperation() bool {
 		}
 	}
 	return false
+}
+
+// rateProps returns the names of the node's Rate properties, sorted.
+func (d *diffNode) rateProps() []string {
+	var names []string
+	for name, p := range d.schema {
+		if p.Rate {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 // agentReadable reports whether an agent may read key on every one of nodes
@@ -546,6 +565,19 @@ func diffAlerts(report DiffReport, baseByKey, nextByKey map[string]*diffNode,
 		}
 	}
 
+	// Rates matter where the flow sends somewhere: a daily request turned
+	// into ten a second spends the approved credentials, on the flow that
+	// runs.
+	ratesMatter := riskRank(report.RiskAfter) > riskRank(node.RiskSafe)
+	// rateNode reports a running node with Rate properties that starts or
+	// stops running (verb: adds, enables, removes, disables).
+	rateNode := func(d *diffNode, verb string) {
+		if props := d.rateProps(); ratesMatter && len(props) > 0 {
+			add(d.order, Alert{Kind: AlertRateChanged, NodeID: d.n.ID,
+				Message: fmt.Sprintf("%s node %s (%s), which sets how often messages flow (%s)", verb, d.n.ID, d.n.Type, strings.Join(props, ", "))})
+		}
+	}
+
 	alertedHosts := map[string]bool{}
 	alertedSecrets := map[string]bool{}
 	for _, d := range nextOrder {
@@ -561,8 +593,15 @@ func diffAlerts(report DiffReport, baseByKey, nextByKey map[string]*diffNode,
 		if d.live() == nil {
 			if lb := b.live(); lb != nil {
 				gone(lb, "disables")
+				rateNode(lb, "disables")
 			}
 			continue
+		}
+		switch {
+		case b == nil:
+			rateNode(d, "adds")
+		case b.live() == nil:
+			rateNode(d, "enables")
 		}
 		b = b.live() // a node enabled here but not in base is new
 		credentialed := b.credentialed()
@@ -628,11 +667,16 @@ func diffAlerts(report DiffReport, baseByKey, nextByKey map[string]*diffNode,
 				add(d.order, values(Alert{Kind: AlertCredentialedRequestChanged, NodeID: d.n.ID, Path: path,
 					Message: fmt.Sprintf("changes what node %s (%s) does with the credential it uses (%s)", d.n.ID, d.n.Type, key)}, true, true))
 			}
+			if ratesMatter && b != nil && changed && isRate(b, d, key) {
+				add(d.order, values(Alert{Kind: AlertRateChanged, NodeID: d.n.ID, Path: path,
+					Message: fmt.Sprintf("changes how often messages flow through node %s (%s) (%s)", d.n.ID, d.n.Type, key)}, true, true))
+			}
 		}
 	}
 	for _, b := range baseOrder {
 		if nextByKey[b.key] == nil && b.live() != nil {
 			gone(b, "removes")
+			rateNode(b, "removes")
 		}
 	}
 
@@ -690,6 +734,19 @@ func isOperation(b, n *diffNode, key string) bool {
 			continue
 		}
 		if p, ok := d.prop(key); ok && p.Operation {
+			return true
+		}
+	}
+	return false
+}
+
+// isRate reports whether key is a Rate property of either node's type.
+func isRate(b, n *diffNode, key string) bool {
+	for _, d := range []*diffNode{b, n} {
+		if d == nil {
+			continue
+		}
+		if p, ok := d.prop(key); ok && p.Rate {
 			return true
 		}
 	}

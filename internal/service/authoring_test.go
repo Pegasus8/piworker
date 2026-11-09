@@ -16,14 +16,15 @@ import (
 // The SQLite store is what authoring and agent deploy run on.
 var _ AuthoringStore = (*storage.SQLiteStore)(nil)
 
-// The low agent_deploy level refuses the contract's eight alert kinds and
-// credentialed_request_changed (H1); risk_raised is bounded by the level's
-// risk cap instead.
+// The low agent_deploy level refuses the contract's eight alert kinds,
+// credentialed_request_changed (H1) and rate_changed (a trigger made to
+// fire more often spends the approved credentials as surely as a new
+// destination); risk_raised is bounded by the level's risk cap instead.
 func TestLowDeployRefusedAlerts(t *testing.T) {
 	assert.Equal(t, []string{
 		flow.AlertPrivilegedNodeAdded, flow.AlertDestinationChanged, flow.AlertDynamicDestination,
 		flow.AlertNewHost, flow.AlertSecretAdded, flow.AlertSecretMoved, flow.AlertRiskSwitchOn,
-		flow.AlertSensitiveLiteral, flow.AlertCredentialedRequestChanged,
+		flow.AlertSensitiveLiteral, flow.AlertCredentialedRequestChanged, flow.AlertRateChanged,
 	}, LowDeployRefusedAlerts())
 	assert.NotContains(t, LowDeployRefusedAlerts(), flow.AlertRiskRaised)
 	kinds := LowDeployRefusedAlerts()

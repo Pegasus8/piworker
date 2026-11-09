@@ -72,7 +72,8 @@ type NodeConfigView struct {
 // agentVisible (shown to agents; other values read "<redacted>"),
 // destination (where the node sends data or connects), riskSwitch (an
 // opt-in that widens what the node may do; agents may not turn it on),
-// operation (what selects the action a request performs).
+// operation (what selects the action a request performs), rate (how often a
+// trigger fires or how many messages a node lets through).
 type NodePropertyView struct {
 	Type            string   `json:"type,omitempty"`
 	Title           string   `json:"title,omitempty"`
@@ -88,6 +89,7 @@ type NodePropertyView struct {
 	Destination     bool     `json:"destination,omitempty"`
 	RiskSwitch      bool     `json:"riskSwitch,omitempty"`
 	Operation       bool     `json:"operation,omitempty"`
+	Rate            bool     `json:"rate,omitempty"`
 }
 
 // omittedMarker is what a type whose documentation was left out carries.
@@ -186,7 +188,7 @@ func nodeTypeView(info node.NodeTypeInfo) NodeTypeView {
 			v.Config.Properties[name] = NodePropertyView{
 				Type: p.Type, Title: p.Title, Description: p.Description, Default: p.Default,
 				Enum: slices.Clone(p.Enum), Minimum: p.Minimum, Maximum: p.Maximum, Unit: p.Unit, CaseInsensitive: p.CaseInsensitive,
-				Sensitive: p.Sensitive, AgentVisible: p.AgentVisible, Destination: p.Destination, RiskSwitch: p.RiskSwitch, Operation: p.Operation,
+				Sensitive: p.Sensitive, AgentVisible: p.AgentVisible, Destination: p.Destination, RiskSwitch: p.RiskSwitch, Operation: p.Operation, Rate: p.Rate,
 			}
 		}
 	}

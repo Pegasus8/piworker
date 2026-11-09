@@ -250,6 +250,7 @@ func sysMetricConfigSchema() node.ConfigSchema {
 				Minimum:      &min,
 				Unit:         "seconds",
 				AgentVisible: true,
+				Rate:         true,
 			},
 		},
 		Required: []string{"metric", "threshold"},

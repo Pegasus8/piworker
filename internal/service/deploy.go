@@ -122,7 +122,8 @@ func (d DeployActor) Deployment(version int) storage.Deployment {
 
 // lowDeployRefusedAlerts are the alert kinds (flow.Diff against the last
 // admin-approved version) that the low agent_deploy level refuses: the
-// contract's eight plus credentialed_request_changed (hand-off H1).
+// contract's eight plus credentialed_request_changed (hand-off H1) and
+// rate_changed (how often a flow that reaches out fires or is let through).
 var lowDeployRefusedAlerts = []string{
 	flow.AlertPrivilegedNodeAdded,
 	flow.AlertDestinationChanged,
@@ -133,6 +134,7 @@ var lowDeployRefusedAlerts = []string{
 	flow.AlertRiskSwitchOn,
 	flow.AlertSensitiveLiteral,
 	flow.AlertCredentialedRequestChanged,
+	flow.AlertRateChanged,
 }
 
 // LowDeployRefusedAlerts returns the alert kinds the low agent_deploy level

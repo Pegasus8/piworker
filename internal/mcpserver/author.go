@@ -223,7 +223,7 @@ func AuthorTools(authoring AuthoringService, types NodeTypeLister) []StaticTool 
 			Description: "Lists the node types flows are built from, triggers (input) first, then processing and actions " +
 				"(output): type id, name, risk (safe, external: reaches other services, privileged: acts on the device), " +
 				"ports, settings (type, bounds, default, and the markers sensitive, agentVisible, destination, riskSwitch, " +
-				"operation, present when true) and documentation. A dynamic URL or host, or a risk switch turned on, makes a " +
+				"operation and rate, present when true) and documentation. A dynamic URL or host, or a risk switch turned on, makes a " +
 				"node privileged. Documentation left out to keep the list small (documentationOmitted) comes with the type " +
 				"alone (type). trigger-tool and action-reply (flow tools) are listed for reference: agents cannot add, change " +
 				"or remove them.",
@@ -316,8 +316,9 @@ func authorFlowText(goal string) string {
 		strconv.Quote(goal) + "\n\n" +
 		"1. Call pw_list_node_types to learn the node types: triggers (input), processing and actions (output), their ports, " +
 		"settings and risk. Settings marked sensitive take only a {{secret.NAME}} reference to a secret the admin defines; " +
-		"destination, riskSwitch and operation settings are what the admin reviews most closely, so change only those the " +
-		"goal needs.\n" +
+		"destination, riskSwitch, operation and rate settings (where data goes, what widens a node, what a credentialed " +
+		"request does, how often a flow fires) are what the admin reviews most closely, so change only those the goal " +
+		"needs.\n" +
 		"2. Write the flow: nodes {id, type, config} and connections {id, sourceNode, sourcePort, targetNode, targetPort}. " +
 		"To change an existing flow, send its flowId with ops (add_node, update_node, remove_node, connect, disconnect); " +
 		"\"<redacted>\" values keep the current settings.\n" +

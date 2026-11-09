@@ -39,7 +39,7 @@ func testNodeTypes(t *testing.T) *node.Registry {
 			Category: types.NodeCategoryInput, Outputs: []types.Port{out}, Risk: node.RiskSafe,
 			Config: &node.ConfigSchema{Properties: map[string]node.ConfigProperty{
 				"intervalMs": {Type: "integer", Title: "Interval", Description: "In milliseconds.", Minimum: ptr(1), Maximum: ptr(86400000),
-					Unit: "milliseconds", Default: 1000, AgentVisible: true},
+					Unit: "milliseconds", Default: 1000, AgentVisible: true, Rate: true},
 			}}},
 		{Type: "process-b", Name: "Pass", Description: "Passes messages on.", Category: types.NodeCategoryProcessing,
 			Inputs: []types.Port{in}, Outputs: []types.Port{out}, Risk: node.RiskSafe},
@@ -73,7 +73,7 @@ func TestListNodeTypes(t *testing.T) {
 	assert.JSONEq(t, `{"type":"trigger-a","name":"Tick","category":"input","risk":"safe","description":"Ticks.","inputs":[],
 		"outputs":[{"id":"output","name":"Output","dataType":"object","multiple":true,"required":false}],
 		"config":{"required":[],"properties":{"intervalMs":{"type":"integer","title":"Interval","description":"In milliseconds.",
-			"default":1000,"minimum":1,"maximum":86400000,"unit":"milliseconds","agentVisible":true}}},
+			"default":1000,"minimum":1,"maximum":86400000,"unit":"milliseconds","agentVisible":true,"rate":true}}},
 		"documentation":"Ticks every interval."}`, jsonOf(t, list.Types[0]))
 	assert.JSONEq(t, `{"properties":{},"required":[]}`, jsonOf(t, list.Types[1].Config), "no settings")
 	assert.NotContains(t, jsonOf(t, list), "globe", "only what authoring needs")

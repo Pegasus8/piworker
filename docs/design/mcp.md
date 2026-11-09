@@ -602,8 +602,8 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
     output) and id, each with name, category, risk (an unrated type reads
     privileged), description, ports, config schema (type, title,
     description, default, enum, bounds, unit, and the markers `sensitive`,
-    `agentVisible`, `destination`, `riskSwitch`, `operation`, present when
-    true) and documentation cut to 8 KiB; the list's JSON stays within 64
+    `agentVisible`, `destination`, `riskSwitch`, `operation`, `rate`,
+    present when true) and documentation cut to 8 KiB; the list's JSON stays within 64
     KiB: every type's structure first, in order while it fits, then the
     documentation in order while it fits (`documentationOmitted`),
     `truncated` when anything was left out or cut, `total` the matching
@@ -840,8 +840,13 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   opt-ins that widen what it may do (`allowPrivate`, `allowDashArgs`);
   `Operation` marks what selects the action a request performs at its
   destination rather than message content (action-http `method` and
-  `body`, action-database `query`). Every builtin is marked;
-  `builtin/schema_policy_test.go` enforces it.
+  `body`, action-database `query`); `Rate` marks what sets how often a
+  trigger fires or how many messages a node lets through (trigger
+  intervals, the cron expression, process-ratelimit `limit` and
+  `windowMs`, aggregate and join counts, trigger-tool `cooldownMs`). Every
+  builtin is marked; `builtin/schema_policy_test.go` enforces it (the
+  operations and rates are review-decision lists, and a name that reads
+  like a rate must be listed).
 - **Diff** (`flow.Diff(base, next, registry)`, base nil = an empty flow):
   added, removed and changed nodes with field diffs (`type`, `enabled`,
   `config.<prop>`, each marked `sensitive`/`destination`; a position-only
@@ -860,7 +865,15 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   that is not exactly `{{secret.NAME}}`), `credentialed_request_changed` (on
   a node that uses a credential in the base, a secret reference or a
   Sensitive value, an `Operation` property changed or a new input was
-  connected: the approved credential would be used for something else).
+  connected: the approved credential would be used for something else),
+  `rate_changed` (on a flow whose risk is above safe, a `Rate` property of
+  a running node added, removed or changed, or a running node with one
+  added, removed, enabled or disabled: a daily request with the admin's
+  key turned into ten a second spends the credential as surely as a new
+  destination; the direction is not computed, a cron expression has none).
+  The rate alert covers the settings whose purpose is the rate; connections,
+  filter conditions and thresholds also change how many messages reach a
+  node, as they change what the messages hold, and raise no rate alert.
   Alerts describe the flow that runs: a disabled node counts as absent
   (baselines come from the base's enabled nodes; enabling a node raises the
   alerts of adding it, disabling one those of removing it; changing or
@@ -981,7 +994,8 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   `low` (agent may deploy/start/stop flows and approve its own drafts when the
   resulting flow's risk is ≤ external, no recipient/destination changes vs the
   last admin-approved version, no new secrets references, no change to what
-  an approved credential is used for: `credentialed_request_changed`), `all`
+  an approved credential is used for: `credentialed_request_changed`, nor to
+  how often a flow that reaches out fires: `rate_changed`), `all`
   (any flow, including privileged). Changing it needs password step-up and
   shows the risk text; tokens need the `deploy` scope (only grantable when
   not `off`). Every agent deploy is audited, marked "deployed by agent" in
@@ -1169,7 +1183,8 @@ flows at startup keeps the existing marker.
   flow, candidate)` raises none of `service.LowDeployRefusedAlerts()`:
   `privileged_node_added`, `destination_changed`, `dynamic_destination`,
   `new_host`, `secret_added`, `secret_moved`, `risk_switch_on`,
-  `sensitive_literal` and `credentialed_request_changed` (H1) — refused
+  `sensitive_literal`, `credentialed_request_changed` (H1) and
+  `rate_changed` — refused
   with `forbidden` listing the kinds, never values; `all` → any flow. With
   `draftId` the agent's own pending draft of `flowId` (another token's:
   `not_found`; stale: `conflict`) is evaluated, saved with

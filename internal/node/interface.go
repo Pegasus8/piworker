@@ -103,6 +103,12 @@ type ConfigProperty struct {
 	// credential (credentialed_request_changed): the approved credential
 	// would be used for something else.
 	Operation bool `json:"operation,omitempty"`
+	// Rate marks what sets how often a trigger fires or how many messages
+	// a node lets through: an interval, a cron expression, a rate limit, a
+	// batch size, a cooldown. flow.Diff flags a change to it, or a node
+	// with one added or removed, on a flow that reaches other services
+	// (rate_changed): how often it sends is the admin's to approve.
+	Rate bool `json:"rate,omitempty"`
 }
 
 // BaseNode provides a common implementation for simple nodes.

@@ -9,7 +9,7 @@
       "openWorldHint": true,
       "readOnlyHint": false
     },
-    "description": "Deploys a flow as this token: starts it, or restarts it when draftId applies your pending draft of it first (saved as a version the admin did not approve). Without draftId the current version starts (a running flow is a conflict). PiWorker's agent deploy level decides: low allows flows whose risk is at most external and that, compared with the version the admin last approved, add no privileged node and change no destination, host, secret reference, risk switch or credentialed request; all allows any flow. A refusal says which alert kinds stood in the way. A flow with errors is refused with error.flowIssues, a flow changed meanwhile with conflict. The admin sees every agent deploy and can roll back.",
+    "description": "Deploys a flow as this token: starts it, or restarts it when draftId applies your pending draft of it first (saved as a version the admin did not approve). Without draftId the current version starts (a running flow is a conflict). PiWorker's agent deploy level decides: low allows flows whose risk is at most external and that, compared with the version the admin last approved, add no privileged node and change no destination, host, secret reference, risk switch, credentialed request or rate (how often a flow that reaches other services fires); all allows any flow. A refusal says which alert kinds stood in the way. A flow with errors is refused with error.flowIssues, a flow changed meanwhile with conflict. The admin sees every agent deploy and can roll back.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -789,7 +789,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Lists the node types flows are built from, triggers (input) first, then processing and actions (output): type id, name, risk (safe, external: reaches other services, privileged: acts on the device), ports, settings (type, bounds, default, and the markers sensitive, agentVisible, destination, riskSwitch, operation, present when true) and documentation. A dynamic URL or host, or a risk switch turned on, makes a node privileged. Documentation left out to keep the list small (documentationOmitted) comes with the type alone (type). trigger-tool and action-reply (flow tools) are listed for reference: agents cannot add, change or remove them.",
+    "description": "Lists the node types flows are built from, triggers (input) first, then processing and actions (output): type id, name, risk (safe, external: reaches other services, privileged: acts on the device), ports, settings (type, bounds, default, and the markers sensitive, agentVisible, destination, riskSwitch, operation and rate, present when true) and documentation. A dynamic URL or host, or a risk switch turned on, makes a node privileged. Documentation left out to keep the list small (documentationOmitted) comes with the type alone (type). trigger-tool and action-reply (flow tools) are listed for reference: agents cannot add, change or remove them.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -832,7 +832,7 @@
               "config": {
                 "properties": {
                   "properties": {
-                    "description": "The settings by name: type, title, description, default, enum, minimum, maximum, unit, and the markers sensitive, agentVisible, destination, riskSwitch, operation (present only when true)."
+                    "description": "The settings by name: type, title, description, default, enum, minimum, maximum, unit, and the markers sensitive, agentVisible, destination, riskSwitch, operation, rate (present only when true)."
                   },
                   "required": {
                     "items": {
@@ -1502,7 +1502,7 @@
       "openWorldHint": false,
       "readOnlyHint": false
     },
-    "description": "Stops a running flow as this token (a flow that is not running is a conflict). The same agent deploy level as pw_deploy_flow applies to the flow being stopped. PiWorker's agent deploy level decides: low allows flows whose risk is at most external and that, compared with the version the admin last approved, add no privileged node and change no destination, host, secret reference, risk switch or credentialed request; all allows any flow. A refusal says which alert kinds stood in the way.",
+    "description": "Stops a running flow as this token (a flow that is not running is a conflict). The same agent deploy level as pw_deploy_flow applies to the flow being stopped. PiWorker's agent deploy level decides: low allows flows whose risk is at most external and that, compared with the version the admin last approved, add no privileged node and change no destination, host, secret reference, risk switch, credentialed request or rate (how often a flow that reaches other services fires); all allows any flow. A refusal says which alert kinds stood in the way.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

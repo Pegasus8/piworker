@@ -278,6 +278,7 @@ func rssTriggerConfigSchema() node.ConfigSchema {
 				Minimum:      &minInterval,
 				Unit:         "seconds",
 				AgentVisible: true,
+				Rate:         true,
 			},
 			"allowPrivate": {
 				Type:         "boolean",

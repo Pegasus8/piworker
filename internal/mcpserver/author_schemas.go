@@ -92,7 +92,7 @@ const (
 		`"inputs":{"type":"array","items":` + portSchema + `},"outputs":{"type":"array","items":` + portSchema + `},` +
 		`"config":{"type":"object","required":["properties","required"],"properties":{` +
 		`"properties":{"description":"The settings by name: type, title, description, default, enum, minimum, maximum, unit, ` +
-		`and the markers sensitive, agentVisible, destination, riskSwitch, operation (present only when true)."},` +
+		`and the markers sensitive, agentVisible, destination, riskSwitch, operation, rate (present only when true)."},` +
 		`"required":{"type":"array","items":` + stringSchema + `}}},` +
 		`"documentation":{"type":"string","description":"Markdown."},` +
 		`"documentationOmitted":{"type":"boolean","description":"Left out to keep the list small: ask for this type alone."}}}`
