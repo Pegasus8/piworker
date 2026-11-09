@@ -585,17 +585,120 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 
 ## 10. Authoring and agent deploy
 
-- Flows gain `version` (incremented on every save). Table `flow_drafts(id,
-  flow_id, base_version, data, note, author_token_id, status, risk,
-  issues_json, created_at, decided_at)`.
+- **Flow versions** (`internal/storage/flow_versions.go`). `flows.version`
+  (`flow.Flow.Version`, JSON `version`, server-controlled: client and agent
+  values are ignored) counts definition changes. `CreateFlow` stores version
+  1, and every definition save stores the next version in
+  `flow_versions(flow_id, version, data, actor_kind, token_id, token_name,
+  admin_approved, note, draft_id, created_at)` in the same transaction. The
+  migration defaults the column to 1 and seeds every existing flow as
+  version 1 (editor, admin-approved). State changes (deploy, stop, toggle, a
+  failed restore: `UpdateFlowState`) are not versions. `UpdateFlow(f)` is an
+  editor save (admin-approved); `UpdateFlowVersioned(f, expected,
+  VersionMeta)` checks the expected version (0: no check; stale:
+  `ErrVersionConflict`, as `*VersionConflictError{Current}`) and records an
+  agent or draft version (an agent version is never admin-approved);
+  `CreateFlowVersioned` records the meta of version 1. Retention: the newest
+  50 versions plus always the newest admin-approved one, pruned in the
+  insert's transaction. Reads: `GetFlowVersion`, `ListFlowVersions` (newest
+  first, metadata only), `LastAdminApprovedVersion` (nil when none).
+  `flow_deployments` holds the last deployment marker (`RecordDeployment`,
+  `GetDeployment`). Deleting a flow deletes its versions and marker and
+  voids its pending drafts.
+- **Editor saves are optimistic.** `GET /api/flows` items and `GET
+  /api/flows/{id}` carry `version`. `PUT /api/flows/{id}` with the `version`
+  the editor loaded answers 409 `{"success":false,"error":…,"data":
+  {"currentVersion":N}}` when another version was saved since (an approved
+  draft, another tab); without one there is no check (scripts). The editor
+  sends the loaded version and on that 409 offers Reload (discarding its
+  changes) or Cancel (keeping them on screen, unsaved): never a silent
+  overwrite.
+- **Drafts** (`internal/storage/flow_drafts.go`): `flow_drafts(id, seq,
+  flow_id ('' = new flow), base_version (0 = new), data (the resolved
+  proposed flow), note, author_token_id, author_token_name, status
+  pending|approved|rejected|void, risk, issues_json, alerts_json, reason,
+  created_at, decided_at, applied_version)`. `CreateFlowDraft` checks in its
+  transaction that the author token is not revoked, that it has fewer than
+  20 pending drafts (`ErrDraftLimit`) and that an existing flow is still at
+  the base version; it prunes decided drafts older than 30 days.
+  `ListFlowDrafts(filter{Status: pending, decided, one status or all;
+  TokenID; FlowID}, limit, beforeID)` pages newest first without the data
+  (the proposed `name` is read from it); `DecideFlowDraft` closes only
+  pending drafts (`ErrDraftNotPending`); `CountPendingFlowDrafts` is a
+  read-only count for the badge. Every token-revoking transaction (revoke,
+  revoke-all, recovery code, password change) voids the affected pending
+  drafts together with the approvals.
 - `pw_save_draft{flowId?, baseVersion, flow | ops, note}`: `ops` = add/update/
   remove node, connect/disconnect; auto-layout for new nodes; stale
   `baseVersion` → conflict. The redaction sentinel `"<redacted>"` means "keep
   the base value"; any other literal in a `Sensitive` field is rejected (only
   `{{secret.NAME}}` allowed). Author scope cannot create/modify `trigger-tool`,
   `action-reply`, webhook token/path, `allowPrivate` or `allowDashArgs`.
-- `flow.Lint(f, registry)` returns all issues `{path, code, severity,
-  message}` (validation + config typing + risk); `pw_validate_flow` exposes it.
+- **`flow.Lint(f, registry) []Issue`** (`internal/flow/lint.go`) returns
+  every issue `{path, code, severity, message}` deploy would find, from the
+  collectors deploy itself runs (ADR-0007): config typing
+  (`node.CheckConfig`), node instantiation (unknown types, factory and
+  `Validate` errors), structure, callable triggers without an active
+  connection, and the tool risk rules of `AnalyzeTools` (errors and
+  warnings). Deploy still fails on the first error of each stage (config
+  typing and the tool rules aggregate theirs) with the same errors, statuses
+  and messages. Lint never modifies the flow, never quotes Sensitive values
+  (node errors that do are scrubbed), and orders issues deterministically:
+  flow-level first, then nodes and connections in definition order; within
+  one location by path, errors first, code, message. Paths: `/nodes`,
+  `/nodes/{nodeId}`, `/nodes/{nodeId}/config/{prop}`, `/connections/{id}`
+  (RFC 6901 escaping). Codes: `empty_node_id`, `duplicate_node_id`,
+  `no_trigger`, `duplicate_connection_id`, `connection_unknown_node`,
+  `connection_unknown_port`, `self_loop`, `cycle`, `unknown_type`,
+  `config_type`, `invalid_config`, `trigger_not_connected`, and the tool
+  rules' `dynamic_destination_credentials`, `tool_global_variable`,
+  `tool_stateful_aggregate`, `tool_stateful_join`,
+  `tool_delay_exceeds_timeout` (warning), `tool_strict_arguments`,
+  `tool_no_schema`. `pw_validate_flow` exposes it. `flow.Risk(f, registry)`
+  is the highest instance risk over the enabled nodes: the type risk,
+  escalated to privileged by a dynamic URL or broker host or `allowPrivate`
+  (the instance rules of §5, shared with the tool analysis); unregistered
+  types are privileged.
+- **Ops** (`flow.ApplyOps(base, ops, registry)`, at most 200, applied in
+  order to a copy of the base): `add_node{node{id?, type, config?, enabled?,
+  position?}}` (category and ports from the registry, a generated ID unless
+  one of 1-64 `[A-Za-z0-9_-]` is given, enabled by default),
+  `update_node{nodeId, config?, enabled?, position?}` (config is a JSON merge
+  patch: null deletes), `remove_node{nodeId}` (with its connections),
+  `connect{sourceNode, sourcePort, targetNode, targetPort}`,
+  `disconnect{connectionId}` or the four endpoints. Every failing operation
+  is an issue at `/ops/{index}` (`/ops` for the limit): `too_many_ops`,
+  `unknown_op`, `invalid_op`, `invalid_node_id`, `node_exists`,
+  `node_not_found`, `unknown_type`, `connection_unknown_port`, `self_loop`,
+  `connection_exists`, `connection_not_found`; any issue returns no flow.
+  `flow.AutoLayout(f, nodeIDs)` places the listed nodes without a position
+  (the zero position counts as none) 240 right of their rightmost upstream
+  node, or in a new column right of the canvas, at the first slot (120
+  apart) whose 200×80 box overlaps no node; upstream first, deterministic.
+  ApplyOps lays out the nodes it added without a position.
+- **Schema markers.** `ConfigProperty.Destination` marks where a node sends
+  data or connects (URLs, hosts, brokers, topics, recipients, chat ids, file
+  paths, webhook paths, pins and buses written, DSNs); `RiskSwitch` marks
+  opt-ins that widen what it may do (`allowPrivate`, `allowDashArgs`).
+  Every builtin is marked; `builtin/schema_policy_test.go` enforces it.
+- **Diff** (`flow.Diff(base, next, registry)`, base nil = an empty flow):
+  added, removed and changed nodes with field diffs (`type`, `enabled`,
+  `config.<prop>`, each marked `sensitive`/`destination`; a position-only
+  change is `moved` without fields), connections added and removed (by
+  endpoints), `riskBefore`/`riskAfter` (`flow.Risk`), and alerts `{kind,
+  nodeId, path, message, before?, after?}` about changes only (an unchanged
+  approved flow raises none), in a deterministic order: `risk_raised`,
+  `privileged_node_added` (an enabled node is privileged where the base had
+  no enabled privileged node with its ID), `destination_changed` (also on
+  added and removed nodes), `dynamic_destination` (a new or changed
+  Destination value with a template other than secret references),
+  `new_host` (the host of a URL or host Destination value that the base
+  never uses; only the host is shown), `secret_added`, `secret_moved` (a
+  secret the base uses, referenced at a new node and property),
+  `risk_switch_on`, `sensitive_literal` (a new or changed Sensitive value
+  that is not exactly `{{secret.NAME}}`). Values of Sensitive properties
+  (and every value of an unregistered type) read as `<hidden>` unless they
+  are exactly a secret reference, whose name is shown.
 - `pw_dry_run`: instantiates the flow with `Registry.Derive` stubs for output
   nodes and triggers, isolated empty variable **and secret** stores
   (`RuntimeOption`s), no recorder; one at a time; 50 nodes / 10 s cap; returns
