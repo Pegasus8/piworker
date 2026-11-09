@@ -108,6 +108,36 @@ func probeNode(factory NodeFactory) (n Node) {
 	return probe
 }
 
+// Derive returns a new registry with the same node types and infos, whose
+// factories are chosen by override: it is called once per type with the
+// type's info and registered factory and returns the factory the new registry
+// uses, or nil to keep the original (a nil override keeps every original).
+// The infos are copied as registered (no factory is called again), and r is
+// never modified, before or after: the dry-run builds its stubs this way
+// without touching the global registry.
+func (r *Registry) Derive(override func(info NodeTypeInfo, factory NodeFactory) NodeFactory) *Registry {
+	r.mu.RLock()
+	derived := &Registry{
+		factories: make(map[string]NodeFactory, len(r.factories)),
+		types:     make(map[string]NodeTypeInfo, len(r.types)),
+	}
+	for typ, factory := range r.factories {
+		derived.factories[typ] = factory
+		derived.types[typ] = r.types[typ]
+	}
+	r.mu.RUnlock()
+
+	// override runs without r's lock, so it may read r (Get, List).
+	if override != nil {
+		for typ, factory := range derived.factories {
+			if replacement := override(derived.types[typ], factory); replacement != nil {
+				derived.factories[typ] = replacement
+			}
+		}
+	}
+	return derived
+}
+
 // Unregister removes a node type from the registry.
 func (r *Registry) Unregister(nodeType string) {
 	r.mu.Lock()
