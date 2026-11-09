@@ -246,6 +246,10 @@ func (h *Handler) addStaticTool(srv *mcp.Server, actor service.Actor, st *static
 	if st.out != nil {
 		tool.OutputSchema = st.OutputSchema
 	}
+	if st.Annotations.DestructiveHint {
+		// As for flow tools: clients should confirm with the user (UX only).
+		tool.Meta = mcp.Meta{metaRequiresUserInteraction: true}
+	}
 	srv.AddTool(tool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return h.callStaticTool(ctx, actor, st, req.Params.Arguments), nil
 	})
