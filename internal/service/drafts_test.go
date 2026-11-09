@@ -153,6 +153,18 @@ func TestGetDraftDetailRecomputesTheDiff(t *testing.T) {
 	assert.Equal(t, flow.HiddenValue, nodeOf(detail.Flow, "call").Config["headers"])
 	assert.NotContains(t, mustJSON(t, detail), "typed-by-admin")
 
+	// Hiding them never changes what is compared: against the version the
+	// admin last approved too, the untouched node is unchanged.
+	e.agentVersion(stored.ID, agent, func(f *flow.Flow) { nodeOf(f, "calc").Config["expression"] = "2" })
+	again := e.draft(agent, DraftInput{FlowID: stored.ID, BaseVersion: 2, Ops: []flow.Op{
+		{Op: flow.OpUpdateNode, NodeID: "calc", Config: map[string]any{"expression": "3"}},
+	}})
+	detail, err = e.a.GetDraftDetail(t.Context(), EditorActor(), again.DraftID)
+	require.NoError(t, err)
+	require.NotNil(t, detail.DiffApproved)
+	require.Len(t, detail.DiffApproved.Nodes, 1, "%+v", detail.DiffApproved.Nodes)
+	assert.Equal(t, "calc", detail.DiffApproved.Nodes[0].NodeID)
+
 	_, err = e.a.GetDraftDetail(t.Context(), EditorActor(), "nope")
 	requireKind(t, err, ErrToolNotFound)
 	_, err = e.a.GetDraftDetail(t.Context(), agent, kept.DraftID)

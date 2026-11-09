@@ -232,12 +232,16 @@ func (a *Authoring) GetDraftDetail(ctx context.Context, actor Actor, draftID str
 	if d.BaseVersion != 0 {
 		base = current
 	}
+	shown, err := cloneFlow(proposed)
+	if err != nil {
+		return DraftDetail{}, fmt.Errorf("copy draft %s: %w", d.ID, err)
+	}
 	detail := DraftDetail{
 		DraftSummary: draftSummary(d, current),
 		Note:         d.Note,
 		Issues:       a.proposalIssues(ctx, &proposal{base: base, next: proposed, issues: a.unknownSecretIssues(base, proposed)}),
 		Diff:         flow.Diff(base, proposed, a.registry),
-		Flow:         hideSensitiveLiterals(a.registry, proposed),
+		Flow:         hideSensitiveLiterals(a.registry, shown),
 	}
 	if current != nil && a.lifecycle != nil {
 		if err := a.lifecycle.WithLock(ctx, func(l LockedLifecycle) error {

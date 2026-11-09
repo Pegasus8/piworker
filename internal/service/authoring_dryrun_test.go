@@ -157,6 +157,12 @@ func TestDryRunDraftHidesOnlyTheBaseValues(t *testing.T) {
 	res, err = e.a.DryRun(t.Context(), EditorActor(), DryRunRequest{DraftID: saved.DraftID, Payload: "x"})
 	require.NoError(t, err)
 	assert.Contains(t, outputOf(t, res, "t2"), "AGENTTEXT BASEHIDDENWORDS x")
+
+	// A new flow's draft is all the agent's: nothing is hidden from it.
+	fresh := e.draft(agent, DraftInput{Flow: templateFlow(), Name: "fresh"})
+	res, err = e.a.DryRun(t.Context(), agent, DryRunRequest{DraftID: fresh.DraftID, Payload: "x"})
+	require.NoError(t, err)
+	assert.Contains(t, outputOf(t, res, "t2"), "second BASEHIDDENWORDS x")
 }
 
 func TestDryRunRefusals(t *testing.T) {

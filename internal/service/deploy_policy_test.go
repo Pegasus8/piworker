@@ -402,3 +402,20 @@ func TestDeployWithoutALifecycleIsUnavailable(t *testing.T) {
 	_, err = e.a.Rollback(t.Context(), EditorActor(), f.ID)
 	requireKind(t, err, ErrUnavailable)
 }
+
+// A refused deploy of a privileged flow is audited as privileged too: the
+// row cap never evicts it early.
+func TestRefusedPrivilegedDeployIsAuditedPrivileged(t *testing.T) {
+	e := newAuthEnv(t)
+	e.setLevel(storage.AgentDeployLow)
+	priv := safeFlow()
+	addNode(priv, "cmd", "action-command", map[string]any{"command": "true"})
+	connect(priv, "calc", "cmd")
+	stored := e.create(priv)
+	_, err := e.a.Deploy(t.Context(), e.deployer(), DeployRequest{FlowID: stored.ID})
+	requireKind(t, err, ErrPermissionDenied)
+	rows := e.auditRows()
+	require.Len(t, rows, 1)
+	assert.Equal(t, "forbidden", rows[0].Outcome)
+	assert.True(t, rows[0].Privileged)
+}

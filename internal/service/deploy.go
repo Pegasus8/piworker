@@ -287,10 +287,12 @@ func (a *Authoring) Deploy(ctx context.Context, actor Actor, req DeployRequest) 
 		return DeployResult{}, err
 	}
 	plan, err := a.evaluateDeploy(ctx, level, actor, req.FlowID, req.DraftID, false)
+	if plan != nil {
+		privileged = plan.risk == node.RiskPrivileged
+	}
 	if err != nil {
 		return DeployResult{}, err
 	}
-	privileged = plan.risk == node.RiskPrivileged
 	var res DeployResult
 	err = a.lifecycle.WithLock(ctx, func(l LockedLifecycle) error {
 		if err := a.recheckDeploy(actor, plan); err != nil {
@@ -402,17 +404,19 @@ func (a *Authoring) evaluateDeploy(ctx context.Context, level storage.AgentDeplo
 		candidate.ID = flowID
 		plan.draft, plan.candidate = d, candidate
 	}
+	// From here the plan is returned with a refusal too: its risk marks the
+	// audit row.
+	plan.risk = flow.Risk(plan.candidate, a.registry)
 	if !stop {
 		issues := a.lint(ctx, plan.candidate)
 		if errs := errorIssues(issues); len(errs) > 0 {
-			return nil, &ToolError{Kind: ErrInvalidArguments, FlowIssues: agentIssues(a.proposalRedactor(plan.candidate), issues),
+			return plan, &ToolError{Kind: ErrInvalidArguments, FlowIssues: agentIssues(a.proposalRedactor(plan.candidate), issues),
 				Message: fmt.Sprintf("the flow has %d error(s) deploy would refuse", len(errs))}
 		}
 	}
-	plan.risk = flow.Risk(plan.candidate, a.registry)
 	if level == storage.AgentDeployLow {
 		if err := a.lowPolicy(flowID, plan.candidate, plan.risk); err != nil {
-			return nil, err
+			return plan, err
 		}
 	}
 	return plan, nil
@@ -520,10 +524,12 @@ func (a *Authoring) Stop(ctx context.Context, actor Actor, flowID string) (_ Dep
 		return DeployResult{}, err
 	}
 	plan, err := a.evaluateDeploy(ctx, level, actor, flowID, "", true)
+	if plan != nil {
+		privileged = plan.risk == node.RiskPrivileged
+	}
 	if err != nil {
 		return DeployResult{}, err
 	}
-	privileged = plan.risk == node.RiskPrivileged
 	err = a.lifecycle.WithLock(ctx, func(l LockedLifecycle) error {
 		if err := a.recheckDeploy(actor, plan); err != nil {
 			return err
