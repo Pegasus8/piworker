@@ -26,6 +26,17 @@ type authoringCall struct {
 	req    any
 }
 
+// lifecycleWant is the error a lifecycle refusal reaching the endpoint
+// unmapped gets: the service's mapping (whatever its messages), with code.
+func lifecycleWant(t *testing.T, le *service.LifecycleError, code string) string {
+	t.Helper()
+	te := le.ToolError()
+	require.NotNil(t, te)
+	require.Equal(t, code, te.Code())
+	assert.NotContains(t, te.Message, "user:pw", "never deploy's own message")
+	return jsonOf(t, map[string]any{"code": te.Code(), "message": te.Message})
+}
+
 // fakeAuthoring answers every authoring and deploy method with the sample
 // results (or err) and records the calls.
 type fakeAuthoring struct {
@@ -451,6 +462,9 @@ func TestAuthorAndDeployRefusals(t *testing.T) {
 	blocking := &service.ToolError{Kind: service.ErrInvalidArguments, Message: "the flow has errors", FlowIssues: sampleIssues()[:1]}
 	policy := &service.ToolError{Kind: service.ErrPermissionDenied, Message: "agent_deploy low refuses: new_host"}
 	revoked := &service.ToolError{Kind: service.ErrPermissionDenied, Message: "the token is no longer valid"}
+	invalidDeploy := &service.LifecycleError{Status: 400, Message: "node http: url \"https://user:pw@example.com\" is invalid"}
+	notRunning := &service.LifecycleError{Status: 409, Message: "Flow is not running"}
+	shuttingDown := &service.LifecycleError{Status: 503, Message: "Shutting down"}
 	for _, tc := range []struct {
 		tool, args, raw string
 		err             error
@@ -474,15 +488,11 @@ func TestAuthorAndDeployRefusals(t *testing.T) {
 		{"pw_deploy_flow", `{"flowId":"f1"}`, deployToken, policy, `{"code":"forbidden","message":"agent_deploy low refuses: new_host"}`},
 		{"pw_stop_flow", `{"flowId":"f1"}`, deployToken, revoked, `{"code":"forbidden","message":"the token is no longer valid"}`},
 		// A lifecycle refusal that reaches the endpoint unmapped is mapped as
-		// the service maps it (never deploy's message, which may quote
-		// settings).
-		{"pw_deploy_flow", `{"flowId":"f1"}`, deployToken,
-			&service.LifecycleError{Status: 400, Message: "node http: url \"https://user:pw@example.com\" is invalid"},
-			`{"code":"invalid_arguments","message":"the flow cannot be deployed: validate it (pw_validate_flow) to see why"}`},
-		{"pw_stop_flow", `{"flowId":"f1"}`, deployToken, &service.LifecycleError{Status: 409, Message: "Flow is not running"},
-			`{"code":"conflict","message":"Flow is not running"}`},
-		{"pw_deploy_flow", `{"flowId":"f1"}`, deployToken, &service.LifecycleError{Status: 503, Message: "Shutting down"},
-			`{"code":"unavailable","message":"Shutting down"}`},
+		// the service maps it (LifecycleError.ToolError: never deploy's
+		// message, which may quote settings).
+		{"pw_deploy_flow", `{"flowId":"f1"}`, deployToken, invalidDeploy, lifecycleWant(t, invalidDeploy, "invalid_arguments")},
+		{"pw_stop_flow", `{"flowId":"f1"}`, deployToken, notRunning, lifecycleWant(t, notRunning, "conflict")},
+		{"pw_deploy_flow", `{"flowId":"f1"}`, deployToken, shuttingDown, lifecycleWant(t, shuttingDown, "unavailable")},
 	} {
 		a.authoring.mu.Lock()
 		a.authoring.err = tc.err
