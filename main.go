@@ -281,21 +281,28 @@ func runOfflineCommand(cfg config.Config) {
 	fmt.Printf("%s code (one use, expires in 30 minutes): %s\nEnter it on the PiWorker sign-in page.\n", purpose, code)
 }
 
+// maxHeaderBytes caps a request's line and headers on every listener: the
+// editor's and agents' requests need a few KiB (cookies, a bearer token).
+const maxHeaderBytes = 64 << 10
+
 // newHTTPServer builds the HTTP server. Every request context derives from a
 // base context that is cancelled as soon as Shutdown begins, so long-lived
 // requests that honour r.Context() (the SSE event stream) end promptly instead
 // of holding Shutdown until its timeout. Server errors go to zerolog, rate
-// limited, with handshake noise at debug level (serverErrorWriter).
+// limited, with handshake noise at debug level (serverErrorWriter). The
+// request line and headers are capped at maxHeaderBytes (Go's default is
+// 1 MiB), larger ones refused with 431 before any handler runs.
 func newHTTPServer(addr string, handler http.Handler) *http.Server {
 	baseCtx, cancelBase := context.WithCancel(context.Background())
 	srv := &http.Server{
-		Addr:         addr,
-		Handler:      handler,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
-		BaseContext:  func(net.Listener) context.Context { return baseCtx },
-		ErrorLog:     newServerErrorWriter(log.Logger, time.Now).logger(),
+		Addr:           addr,
+		Handler:        handler,
+		ReadTimeout:    15 * time.Second,
+		WriteTimeout:   15 * time.Second,
+		IdleTimeout:    60 * time.Second,
+		MaxHeaderBytes: maxHeaderBytes,
+		BaseContext:    func(net.Listener) context.Context { return baseCtx },
+		ErrorLog:       newServerErrorWriter(log.Logger, time.Now).logger(),
 	}
 	srv.RegisterOnShutdown(cancelBase)
 	return srv

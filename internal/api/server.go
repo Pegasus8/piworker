@@ -22,8 +22,8 @@ func RecoveryMiddleware(logger zerolog.Logger) mux.MiddlewareFunc {
 				if rec := recover(); rec != nil {
 					logger.Error().
 						Interface("panic", rec).
-						Str("method", r.Method).
-						Str("path", r.URL.Path).
+						Str("method", logField(r.Method)).
+						Str("path", logField(r.URL.Path)).
 						Bytes("stack", debug.Stack()).
 						Msg("Recovered from panic in HTTP handler")
 					writeError(w, http.StatusInternalServerError, "Internal server error")
@@ -43,7 +43,7 @@ func MetricsMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(wrapped, r)
 
-		routeLabel := r.URL.Path
+		routeLabel := "unmatched" // never the raw path: one series per path
 		if route := mux.CurrentRoute(r); route != nil {
 			if tmpl, err := route.GetPathTemplate(); err == nil {
 				routeLabel = tmpl
@@ -82,20 +82,56 @@ func (w *ResponseWriter) Flush() {
 	}
 }
 
-// LoggingMiddleware logs all incoming requests.
+// maxLogField caps a request field (method, path) in log lines: Go accepts
+// either up to the header limit, from anyone who can connect.
+const maxLogField = 256
+
+// logField is s cut to maxLogField bytes (marked with "…").
+func logField(s string) string {
+	if len(s) <= maxLogField {
+		return s
+	}
+	return s[:maxLogField] + "…"
+}
+
+// accessLogNote lets the handlers behind LoggingMiddleware lower the level
+// of the request's access log line (quietAccessLog).
+type accessLogNote struct{ quiet bool }
+
+type accessLogKey struct{}
+
+// quietAccessLog logs r's access line at debug level instead of info: for
+// refusals anyone on the network can cause at will (an unknown Host), so
+// they do not fill the SD card at the default level.
+func quietAccessLog(r *http.Request) {
+	if note, ok := r.Context().Value(accessLogKey{}).(*accessLogNote); ok {
+		note.quiet = true
+	}
+}
+
+// LoggingMiddleware logs every request, with its method and path as
+// requested (a handler may rewrite r.URL.Path), cut to maxLogField bytes;
+// at info level, or debug for refusals marked with quietAccessLog.
 func LoggingMiddleware(logger zerolog.Logger) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
+			method, path := logField(r.Method), logField(r.URL.Path)
+			note := &accessLogNote{}
+			r = r.WithContext(context.WithValue(r.Context(), accessLogKey{}, note))
 
 			// Wrap response writer to capture status code
 			wrapped := &ResponseWriter{ResponseWriter: w, StatusCode: http.StatusOK}
 
 			next.ServeHTTP(wrapped, r)
 
-			logger.Info().
-				Str("method", r.Method).
-				Str("path", r.URL.Path).
+			event := logger.Info()
+			if note.quiet {
+				event = logger.Debug()
+			}
+			event.
+				Str("method", method).
+				Str("path", path).
 				Int("status", wrapped.StatusCode).
 				Dur("duration", time.Since(start)).
 				Str("remoteAddr", r.RemoteAddr).

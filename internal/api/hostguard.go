@@ -135,7 +135,8 @@ func (g *HostGuard) Middleware(next http.Handler) http.Handler {
 		if len(shown) > 100 {
 			shown = shown[:100] + "…"
 		}
-		log.Debug().Str("host", shown).Str("path", r.URL.Path).Msg("Rejected request for an unknown Host")
+		log.Debug().Str("host", shown).Str("path", logField(r.URL.Path)).Msg("Rejected request for an unknown Host")
+		quietAccessLog(r)
 		writeError(w, http.StatusForbidden, fmt.Sprintf(
 			"Host %q is not allowed. To reach PiWorker by this name, add it to allowed_hosts (PIWORKER_ALLOWED_HOSTS or -allowed-hosts).", shown))
 	})

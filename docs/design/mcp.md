@@ -104,6 +104,15 @@ func RegenerateCA(dir string) error
   hostname, `hostname.local`, current interface IPs (re-read lazily), and any
   IP-literal Host (rebinding needs a hostname). Port stripped, case-insensitive.
   403 on mismatch. Compose files set `PIWORKER_ALLOWED_HOSTS`.
+- What anyone who can connect can make the server keep or write is bounded:
+  both listeners cap the request line and headers at 64 KiB (431 above;
+  Go's default is 1 MiB); the HTTP metrics label methods with a fixed set
+  (GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS, else `other`) and paths
+  with the route template, since every distinct label value is a series
+  kept for good; the access log cuts the method and the path to 256 bytes
+  and logs a refusal for an unknown Host at debug level only (the guard
+  logs its own refusals at debug too), like the rate-limited server error
+  log keeps handshake noise off the SD card.
 - `action-http` resolves `{{secret.NAME}}` in headers and in the URL userinfo/
   query at request time (never in payload-derived text); `trigger-webhook`
   `token` is `Sensitive` and supports `{{secret.NAME}}`. When the URL or a
