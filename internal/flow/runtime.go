@@ -180,6 +180,10 @@ type FlowRuntime struct {
 	// tools are the tools this flow publishes, computed by the risk analysis
 	// at deploy (see analyzeRuntimeTools) and immutable afterwards.
 	tools []ToolInfo
+
+	// nodeContext, when set, wraps the context every node of the runtime
+	// gets (trigger Start and Process); see WithNodeContext.
+	nodeContext func(context.Context) context.Context
 }
 
 // RuntimeOption is a functional option for configuring the FlowRuntime.
@@ -198,6 +202,18 @@ func withLenientConfig() RuntimeOption {
 func WithObserver(hook NodeEventHook) RuntimeOption {
 	return func(r *FlowRuntime) {
 		r.observer = hook
+	}
+}
+
+// WithNodeContext wraps the context every node of the runtime gets, trigger
+// Start and Process alike: wrap adds values (an isolated secret store,
+// variable stores) to the runtime's context and returns it. It must keep its
+// argument as the parent (the runtime cancels it on Stop) and should only add
+// values. When the result carries a flow variable store (vars.WithFlowStore),
+// the runtime uses it and does not load the flow's persistent store at all.
+func WithNodeContext(wrap func(context.Context) context.Context) RuntimeOption {
+	return func(r *FlowRuntime) {
+		r.nodeContext = wrap
 	}
 }
 
@@ -377,12 +393,23 @@ func (r *FlowRuntime) Start(ctx context.Context) error {
 
 	// Use background context so the flow survives HTTP request completion.
 	// The parent ctx is only used for initial validation, not for runtime lifecycle.
-	local, err := flowvars.DefaultFlows.Get(r.flow.ID)
-	if err != nil {
-		r.mu.Unlock()
-		return fmt.Errorf("load flow variables: %w", err)
+	nodeCtx := withCallRegistry(context.Background(), r.calls)
+	if r.nodeContext != nil {
+		if wrapped := r.nodeContext(nodeCtx); wrapped != nil {
+			nodeCtx = wrapped
+		}
 	}
-	r.ctx, r.cancel = context.WithCancel(withCallRegistry(flowvars.WithFlowStore(context.Background(), local), r.calls))
+	// The flow's persistent variable store, unless the node context brings
+	// its own (a sandboxed run must not load or touch the real one).
+	if flowvars.FlowFromContext(nodeCtx) == nil {
+		local, err := flowvars.DefaultFlows.Get(r.flow.ID)
+		if err != nil {
+			r.mu.Unlock()
+			return fmt.Errorf("load flow variables: %w", err)
+		}
+		nodeCtx = flowvars.WithFlowStore(nodeCtx, local)
+	}
+	r.ctx, r.cancel = context.WithCancel(nodeCtx)
 	r.calls.start()
 	r.drained = make(chan struct{})
 	r.running = true
