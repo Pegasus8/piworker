@@ -2,12 +2,16 @@
 import VariablesDialog from '@/components/VariablesDialog.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { useFlowsStore } from '@/stores/flows'
+import { useFlowsStore, FlowVersionConflictError } from '@/stores/flows'
 import { useAuthStore } from '@/stores/auth'
 import { useAgentStore } from '@/stores/agent'
 import { useApi } from '@/composables/useApi'
 import { Button, Card, Input, Switch, Badge } from '@/components/ui'
 import SecretsDialog from '@/components/SecretsDialog.vue'
+import FlowMarks from '@/components/agent/FlowMarks.vue'
+import AgentText from '@/components/agent/AgentText.vue'
+import VersionHistoryDialog from '@/components/flow/VersionHistoryDialog.vue'
+import type { FlowListItem } from '@/types'
 import {
   Plus,
   Trash2,
@@ -19,7 +23,8 @@ import {
   Copy,
   Download,
   Upload,
-  KeyRound
+  KeyRound,
+  History
 } from 'lucide-vue-next'
 
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
@@ -92,9 +97,53 @@ function editFlow(id: string) {
 }
 
 async function toggleFlow(id: string, enabled: boolean) {
-  await run(() => flowsStore.toggleFlow(id, enabled), enabled ? 'Flow deployed.' : 'Flow stopped.', 'Could not update the flow. Try again.')
+  let conflict: FlowVersionConflictError | null = null
+  await run(async () => {
+    try {
+      await flowsStore.toggleFlow(id, enabled)
+    } catch (e) {
+      if (e instanceof FlowVersionConflictError) conflict = e
+      throw e
+    }
+  }, enabled ? 'Flow deployed.' : 'Flow stopped.', 'Could not update the flow. Try again.')
   flowsStore.error = null
+  if (conflict) await offerReview(id, conflict)
 }
+
+// Turning on a flow saved since this list loaded (an approved draft, an
+// agent's version) deploys nothing: show the new version and offer to review
+// it in the editor first.
+async function offerReview(id: string, conflict: FlowVersionConflictError) {
+  const name = flowsStore.flows.find(flow => flow.id === id)?.name || 'This flow'
+  feedback.value = { kind: 'error', text: `Not deployed: “${name}” was changed since this list loaded (now version ${conflict.currentVersion}).` }
+  await flowsStore.fetchFlows()
+  if (await confirmation.value?.ask(
+    'This flow was changed',
+    `Version ${conflict.currentVersion} of “${name}” was saved after this list loaded, so it was not deployed. Open it to review that version before deploying it.`,
+    'Open in editor', 'Cancel')) await router.push(`/editor/${id}`)
+}
+
+// Version history and rollback (docs/design/mcp.md §10). The dialog stays
+// mounted once opened so closing it returns focus to the button.
+const historyId = ref('')
+const historyOpen = ref(false)
+const historyFlow = computed(() => flowsStore.flows.find(flow => flow.id === historyId.value) ?? null)
+function openHistory(flow: FlowListItem) {
+  historyId.value = flow.id
+  historyOpen.value = true
+}
+
+// Agent requests and drafts waiting for the admin (the passive badge count).
+const agentWaiting = computed(() => agentStore.pendingCount + agentStore.pendingDrafts)
+const agentsLabel = computed(() => {
+  const parts: string[] = []
+  const n = agentStore.pendingCount
+  const drafts = agentStore.pendingDrafts
+  if (n) parts.push(`${n} request${n === 1 ? '' : 's'} waiting for approval`)
+  if (drafts) parts.push(`${drafts} draft${drafts === 1 ? '' : 's'} to review`)
+  return parts.length ? `Agents: ${parts.join(', ')}` : 'Agents'
+})
+const agentsTarget = computed(() => agentStore.pendingCount ? '/agents/approvals' : agentStore.pendingDrafts ? '/agents/drafts' : '/agents')
 
 async function deleteFlow(id: string) {
   if (pending.value) return
@@ -155,12 +204,12 @@ async function logout() {
           <Button
             v-if="authStore.authEnabled"
             variant="ghost"
-            title="Agent access: tokens, approvals and audit"
-            :aria-label="agentStore.pendingCount ? `Agents: ${agentStore.pendingCount} request${agentStore.pendingCount === 1 ? '' : 's'} waiting for approval` : 'Agents'"
-            @click="router.push(agentStore.pendingCount ? '/agents/approvals' : '/agents')"
+            title="Agent access: tokens, approvals, drafts and audit"
+            :aria-label="agentsLabel"
+            @click="router.push(agentsTarget)"
           >
             Agents
-            <span v-if="agentStore.pendingCount" class="ml-1.5 rounded-full bg-destructive px-1.5 text-xs font-semibold text-destructive-foreground">{{ agentStore.pendingCount }}</span>
+            <span v-if="agentWaiting" class="ml-1.5 rounded-full bg-destructive px-1.5 text-xs font-semibold text-destructive-foreground">{{ agentWaiting }}</span>
           </Button>
           <Button v-if="authStore.authEnabled" variant="ghost" @click="router.push('/account')">Account</Button>
           <Button v-if="authStore.authEnabled" variant="ghost" size="icon" @click="logout" title="Logout" aria-label="Logout">
@@ -236,7 +285,8 @@ async function logout() {
             <!-- Header -->
             <div class="flex items-start justify-between gap-3">
               <div class="flex-1 min-w-0">
-                <h3 class="font-semibold truncate">{{ flow.name }}</h3>
+                <!-- Agents may name flows (approved drafts): shown as text, hidden characters revealed. -->
+                <h3 class="font-semibold truncate"><AgentText :text="flow.name" /></h3>
                 <p
                   v-if="flow.description"
                   class="mt-1 text-sm text-muted-foreground line-clamp-2"
@@ -263,21 +313,23 @@ async function logout() {
               </div>
             </div>
 
-            <!-- Status Badge -->
-            <Badge
-              v-if="flow.running"
-              variant="default"
-              class="mt-3 bg-primary text-primary-foreground"
-            >
-              Running
-            </Badge>
-            <Badge
-              v-else-if="flow.state === 'failed'"
-              variant="secondary"
-              class="mt-3"
-            >
-              Failed
-            </Badge>
+            <!-- Status and agent marks (Deployed by agent, Changed by agent) -->
+            <div v-if="flow.running || flow.state === 'failed' || flow.agentChanged || flow.deployment?.actorKind === 'agent'" class="mt-3 flex flex-wrap gap-2">
+              <Badge
+                v-if="flow.running"
+                variant="default"
+                class="bg-primary text-primary-foreground"
+              >
+                Running
+              </Badge>
+              <Badge
+                v-else-if="flow.state === 'failed'"
+                variant="secondary"
+              >
+                Failed
+              </Badge>
+              <FlowMarks :flow="flow" />
+            </div>
 
             <!-- Actions -->
             <div class="mt-4 flex gap-2 border-t pt-4">
@@ -289,6 +341,15 @@ async function logout() {
               >
                 <Edit3 class="mr-2 h-4 w-4" />
                 Edit
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Version history"
+                :aria-label="`Version history of ${flow.name}`"
+                @click="openHistory(flow)"
+              >
+                <History class="h-4 w-4" />
               </Button>
               <Button
                 variant="ghost"
@@ -322,6 +383,13 @@ async function logout() {
     </main>
 
     <ConfirmDialog ref="confirmation" />
+    <VersionHistoryDialog
+      v-if="historyFlow"
+      v-model:open="historyOpen"
+      :flow-id="historyFlow.id"
+      :flow-name="historyFlow.name"
+      :running="historyFlow.running"
+    />
     <!-- Secrets manager -->
     <SecretsDialog v-model:open="showSecrets" />
     <VariablesDialog v-model:open="showVariables" />
