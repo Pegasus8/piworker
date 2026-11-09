@@ -270,12 +270,8 @@ func (a *Authoring) GetDraftDetail(ctx context.Context, actor Actor, draftID str
 	detail.NameChange = textChange(was.Name, proposed.Name)
 	detail.DescriptionChange = textChange(was.Description, proposed.Description)
 	if current != nil && a.lifecycle != nil {
-		if err := a.lifecycle.WithLock(ctx, func(l LockedLifecycle) error {
-			detail.Running = l.Running(current.ID)
-			return nil
-		}); err != nil {
-			return DraftDetail{}, err
-		}
+		// Advisory, so no lock: ApproveDraft reads it again under it.
+		detail.Running = a.lifecycle.Running(current.ID)
 	}
 	if current != nil {
 		approved, err := a.store.LastAdminApprovedVersion(current.ID)

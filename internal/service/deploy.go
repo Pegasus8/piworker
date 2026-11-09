@@ -27,8 +27,11 @@ import (
 // makes (the version it read, the token it re-read) still holds when fn
 // deploys. The LockedLifecycle is valid only during fn; fn must not call
 // WithLock again (the lock is not reentrant). WithLock returns fn's error.
+// Running reports, without the lock, whether flowID is deployed and running:
+// an advisory read (what acts on the flow reads it again under the lock).
 type FlowLifecycle interface {
 	WithLock(ctx context.Context, fn func(LockedLifecycle) error) error
+	Running(flowID string) bool
 }
 
 // LockedLifecycle is what the lifecycle path does under its lock, exactly as

@@ -183,6 +183,9 @@ func (l *fakeLifecycle) WithLock(ctx context.Context, fn func(LockedLifecycle) e
 	return fn(lockedFake{l})
 }
 
+// Running reads the manager without the lock, as FlowsHandler.Running does.
+func (l *fakeLifecycle) Running(id string) bool { return lockedFake{l}.Running(id) }
+
 type lockedFake struct{ l *fakeLifecycle }
 
 func (f lockedFake) Running(id string) bool {

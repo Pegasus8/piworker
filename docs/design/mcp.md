@@ -962,7 +962,10 @@ false, "error": "…", "data": {"code": "…", "issues"?: […], "flowIssues"?:
 
 **Lifecycle.** `FlowLifecycle.WithLock(ctx, fn func(LockedLifecycle) error)
 error` runs `fn` under `FlowsHandler.lifecycleMu` (not reentrant), so what
-`fn` checked still holds when it deploys. `LockedLifecycle`:
+`fn` checked still holds when it deploys; `FlowLifecycle.Running(flowID)`
+reads without the lock, for views (`GetDraftDetail`'s `running`: an advisory
+value that `ApproveDraft` reads again under the lock, so reading a draft
+never waits for a slow restart or a drain timeout). `LockedLifecycle`:
 - `Running(flowID) bool`.
 - `Deploy(ctx, flowID, by DeployActor, restart bool) (version int, err)`:
   deploys the stored current version as the editor's deploy does (a running

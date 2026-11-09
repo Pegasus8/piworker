@@ -120,6 +120,25 @@ func TestGetDraftDetailShowsNameAndDescriptionChanges(t *testing.T) {
 	assert.Contains(t, mustJSON(t, detail), `"nameChange":null`)
 }
 
+// Reading a draft does not wait for the lifecycle lock (a slow restart or
+// a drain timeout): whether the flow runs is advisory there, and approving
+// reads it again under the lock.
+func TestGetDraftDetailReadsRunningWithoutTheLock(t *testing.T) {
+	e := newAuthEnv(t)
+	base := e.create(safeFlow())
+	require.NoError(t, e.life.WithLock(t.Context(), func(l LockedLifecycle) error {
+		_, err := l.Deploy(t.Context(), base.ID, EditorActor().DeployActor(), false)
+		return err
+	}))
+	saved := e.draft(e.token(), DraftInput{FlowID: base.ID, BaseVersion: 1, Ops: []flow.Op{
+		{Op: flow.OpUpdateNode, NodeID: "calc", Config: map[string]any{"expression": "payload + 1"}},
+	}})
+	e.life.inLock = func() { t.Error("GetDraftDetail took the lifecycle lock") }
+	detail, err := e.a.GetDraftDetail(t.Context(), EditorActor(), saved.DraftID)
+	require.NoError(t, err)
+	assert.True(t, detail.Running)
+}
+
 func TestGetDraftDetailRecomputesTheDiff(t *testing.T) {
 	e := newAuthEnv(t)
 	base := e.create(lightsFlow())

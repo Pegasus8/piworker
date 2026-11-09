@@ -278,3 +278,20 @@ func TestFlowReadsCarryTheMarks(t *testing.T) {
 	require.NotNil(t, one.Data.Flow.Deployment)
 	assert.Equal(t, "claude", one.Data.Flow.Deployment.TokenName)
 }
+
+// Running reads without the lifecycle lock: it answers while the lock is
+// held (a slow restart, a drain timeout).
+func TestRunningReadsWithoutTheLock(t *testing.T) {
+	server, store := createTestServer(t)
+	h := server.handler
+	t.Cleanup(h.manager.StopAll)
+	f := createTestFlow("running")
+	require.NoError(t, store.CreateFlow(f))
+	assert.False(t, h.Running(f.ID))
+	require.NoError(t, lifecycleCall(t, h, func(l service.LockedLifecycle) error {
+		_, err := l.Deploy(context.Background(), f.ID, agentDeployer, false)
+		assert.True(t, h.Running(f.ID), "while the lock is held")
+		return err
+	}))
+	assert.True(t, h.Running(f.ID))
+}

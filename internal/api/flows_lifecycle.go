@@ -33,6 +33,15 @@ func (h *FlowsHandler) WithLock(ctx context.Context, fn func(service.LockedLifec
 	return fn(l)
 }
 
+// Running reports whether flow id is deployed and running, without the
+// lifecycle lock (service.FlowLifecycle): an advisory read for views; what
+// acts on the flow reads it again under the lock. The runtime manager is
+// safe for concurrent use.
+func (h *FlowsHandler) Running(id string) bool {
+	rt, ok := h.manager.GetRuntime(id)
+	return ok && rt.IsRunning()
+}
+
 // lockedLifecycle is the service.LockedLifecycle of one WithLock call.
 type lockedLifecycle struct{ h *FlowsHandler }
 
