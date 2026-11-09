@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -328,11 +329,17 @@ func (h *Handler) checkMessage(w http.ResponseWriter, r *http.Request, actor ser
 		return false
 	}
 	isCall := len(m.ID) > 0
+	version := r.Header.Get(protocolVersionHeader)
 	switch {
-	case isCall && m.Method != "initialize" && r.Header.Get(protocolVersionHeader) == "":
+	case isCall && m.Method != "initialize" && version == "":
 		writeRPCError(w, http.StatusBadRequest, m.ID, jsonrpc.CodeInvalidRequest, fmt.Sprintf(
 			"The %s header is required on every request but initialize (supported versions: %s)",
 			protocolVersionHeader, strings.Join(ProtocolVersions, ", ")))
+		return false
+	case isCall && !sdkMethods[m.Method] && version < sessionlessVersion && slices.Contains(ProtocolVersions, version):
+		// As the SDK answers a method it knows but does not serve (from
+		// 2026-07-28 it answers unknown ones in JSON-RPC itself).
+		writeRPCError(w, http.StatusOK, m.ID, jsonrpc.CodeMethodNotFound, fmt.Sprintf("method not found: %q", shorten(m.Method, maxToolNameLength)))
 		return false
 	case m.Method == "subscriptions/listen":
 		writeRPCError(w, http.StatusOK, m.ID, jsonrpc.CodeMethodNotFound,
@@ -349,6 +356,20 @@ func (h *Handler) checkMessage(w http.ResponseWriter, r *http.Request, actor ser
 
 // protocolVersionHeader names the request's MCP protocol version.
 const protocolVersionHeader = "Mcp-Protocol-Version"
+
+// sdkMethods are the methods the SDK (go-sdk v1.8.0, pinned) dispatches,
+// served or answered with a JSON-RPC error: before 2026-07-28 it answers a
+// request of any other method with a plain-text HTTP 400 rather than a
+// JSON-RPC error, so checkMessage answers those requests itself.
+var sdkMethods = map[string]bool{
+	"initialize": true, "ping": true, "server/discover": true, "subscriptions/listen": true,
+	"tools/list": true, "tools/call": true, "prompts/list": true, "prompts/get": true,
+	"resources/list": true, "resources/templates/list": true, "resources/read": true,
+	"resources/subscribe": true, "resources/unsubscribe": true,
+	"completion/complete": true, "logging/setLevel": true,
+	"notifications/initialized": true, "notifications/cancelled": true,
+	"notifications/progress": true, "notifications/roots/list_changed": true,
+}
 
 // rpcMessage is what checkScope reads of a JSON-RPC message.
 type rpcMessage struct {

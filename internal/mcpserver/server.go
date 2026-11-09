@@ -372,15 +372,15 @@ func endpointResult(req mcp.Request, res *mcp.CallToolResult) mcp.Result {
 			version = p.ProtocolVersion
 		}
 	}
-	if version < resultTypeVersion {
+	if version < sessionlessVersion {
 		return res
 	}
 	return completeResult{res}
 }
 
-// resultTypeVersion is the first protocol version whose results carry a
-// resultType.
-const resultTypeVersion = "2026-07-28"
+// sessionlessVersion is the first sessionless protocol version
+// (server/discover, per-request _meta, results with a resultType).
+const sessionlessVersion = "2026-07-28"
 
 // completeResult is a tool result marked "resultType": "complete".
 type completeResult struct{ *mcp.CallToolResult }

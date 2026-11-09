@@ -1497,9 +1497,15 @@
       "jsonrpc": "2.0",
       "method": "flows/list"
     },
-    "status": 400,
-    "contentType": "text/plain; charset=utf-8",
-    "response": "JSON RPC not handled: \"flows/list\" unsupported\n"
+    "status": 200,
+    "response": {
+      "error": {
+        "code": -32601,
+        "message": "method not found: \"flows/list\""
+      },
+      "id": 18,
+      "jsonrpc": "2.0"
+    }
   },
   {
     "name": "pw_deploy_flow at agent deploy low: a destination change is refused",

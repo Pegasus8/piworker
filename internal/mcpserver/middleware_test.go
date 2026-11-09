@@ -408,3 +408,53 @@ func TestProtocolVersionHeaderIsRequired(t *testing.T) {
 	r.Header.Set("Mcp-Protocol-Version", "2025-03-26")
 	assert.Equal(t, http.StatusBadRequest, e.serve(r).Code)
 }
+
+// A request of a method the SDK does not know gets a JSON-RPC error
+// (-32601) at every version, like a method the SDK knows but does not
+// serve: before 2026-07-28 the SDK would answer it with a plain-text HTTP
+// 400, which no JSON-RPC client can read as the answer to its request.
+func TestUnknownMethodsAreJSONRPCErrors(t *testing.T) {
+	e := newTestEnv(t)
+	token := func(n int) string { return e.verifier.add(fmt.Sprintf("method%09d", n)) }
+	request := func(version, method string) *http.Request {
+		r := rpc(`{"jsonrpc":"2.0","id":5,"method":"` + method + `","params":{}}`)
+		r.Header.Set("Mcp-Protocol-Version", version)
+		return r
+	}
+	for i, version := range []string{"2025-06-18", "2025-11-25"} {
+		// resources/subscribe: the SDK knows it, PiWorker serves no resources.
+		_, code, unserved := rpcRefusal(t, e.serve(withToken(request(version, "resources/subscribe"), token(2*i))), http.StatusOK)
+		require.EqualValues(t, -32601, code)
+		id, code, msg := rpcRefusal(t, e.serve(withToken(request(version, "flows/list"), token(2*i+1))), http.StatusOK)
+		assert.EqualValues(t, 5, id, version)
+		assert.EqualValues(t, -32601, code, version)
+		assert.Equal(t, strings.ReplaceAll(unserved, "resources/subscribe", "flows/list"), msg, version)
+	}
+	// 2026-07-28: the SDK answers it (404, -32601).
+	_, code, _ := rpcRefusal(t, e.serve(withToken(rpc2026(t, "flows/list", nil), token(9))), http.StatusNotFound)
+	assert.EqualValues(t, -32601, code)
+	// The name is echoed shortened.
+	_, _, msg := rpcRefusal(t, e.serve(withToken(request("2025-06-18", strings.Repeat("x", 100_000)), token(10))), http.StatusOK)
+	assert.Less(t, len(msg), 300)
+	// A notification gets no answer: HTTP 400 is the transport's refusal.
+	r := withToken(rpc(`{"jsonrpc":"2.0","method":"notifications/nothing"}`), token(11))
+	assert.Equal(t, http.StatusBadRequest, e.serve(r).Code)
+}
+
+// sdkMethods lists only methods the SDK dispatches: none of them is
+// answered as unknown to the SDK, as a request or as a notification.
+func TestSDKMethodsAreDispatched(t *testing.T) {
+	e := newTestEnv(t)
+	n := 0
+	for method := range sdkMethods {
+		for _, body := range []string{`{"jsonrpc":"2.0","id":5,"method":"` + method + `","params":{}}`, `{"jsonrpc":"2.0","method":"` + method + `","params":{}}`} {
+			n++
+			r := rpc(body)
+			r.Header.Set("Mcp-Protocol-Version", "2025-11-25")
+			w := e.serve(withToken(r, e.verifier.add(fmt.Sprintf("sdk%013d", n))))
+			assert.NotContains(t, w.Body.String(), "not handled", "%s: %s", method, body)
+			assert.NotContains(t, w.Body.String(), "unsupported", "%s: %s", method, body)
+		}
+	}
+	assert.Greater(t, n, 30)
+}

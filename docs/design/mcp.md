@@ -419,7 +419,11 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   serve a request without it as 2025-03-26) and JSON-RPC batches are refused
   (none of these versions allows them; a batch would also carry many calls
   past the per-token rate limit): both 400, JSON-RPC `-32600`, before the
-  SDK sees the request.
+  SDK sees the request. A request of a method the SDK does not dispatch
+  (`sdkMethods`, its v1.8.0 table) is answered JSON-RPC `-32601` (HTTP 200)
+  at 2025-06-18 and 2025-11-25, as the SDK answers a method it knows but
+  does not serve; the SDK itself would send a plain-text 400 there (from
+  2026-07-28 it answers `-32601` itself, HTTP 404).
 - Capabilities: tools and prompts with `listChanged: false` (always
   advertised, even when empty); `subscriptions/listen` is answered with
   JSON-RPC `-32601` before the SDK sees it; list and discover results carry
@@ -696,7 +700,10 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   answers a call still pending (`running`, `approval_required`) as a
   non-error result: fetching worked, and the agent is to ask again later.
   A handler that panics is recovered: a tool call gets a `failed` result, any
-  other method JSON-RPC `-32603`. Validation errors list `{pointer, message}`. With an output
+  other method JSON-RPC `-32603`. From 2026-07-28 every tool result carries
+  `resultType: "complete"`: the SDK's tool handler sets it, and the endpoint
+  sets it on the results it answers itself (calls of tools the server does
+  not hold, recovered panics), so they read like any other. Validation errors list `{pointer, message}`. With an output
   schema, outcomes that cannot match it are `isError` too, and a reply that
   does not match it is reported as `output_schema_mismatch`.
 
