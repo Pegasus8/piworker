@@ -136,3 +136,84 @@ func TestDiffAlertsGlobalVariableWrites(t *testing.T) {
 		})
 	}
 }
+
+// toolFlow is a tool answered through a transform, and an unrelated branch.
+func toolFlow(change func(f *flow.Flow)) *flow.Flow {
+	f := diffFlow(
+		lintNode("tool", "trigger-tool", map[string]any{"toolName": "status"}),
+		lintNode("calc", "process-transform", map[string]any{"expression": "payload"}),
+		lintNode("reply", "action-reply", nil),
+		trigger(),
+		lintNode("side", "process-transform", map[string]any{"expression": "payload"}),
+	)
+	f.Connections = []flow.Connection{
+		lintConn("c1", "tool", "output", "calc", "input"),
+		lintConn("c2", "calc", "output", "reply", "input"),
+		lintConn("c3", "t", "output", "side", "input"),
+	}
+	if change != nil {
+		change(f)
+	}
+	return f
+}
+
+// What a tool's path reads from global variables goes back to the agent
+// that calls it: a changed tool path that reads global variables is an
+// alert (an agent could otherwise route them into its own reply).
+func TestDiffAlertsGlobalVariableReads(t *testing.T) {
+	cases := []struct {
+		name  string
+		base  *flow.Flow
+		next  *flow.Flow
+		alert bool
+	}{
+		{name: "nothing changed", base: toolFlow(nil), next: toolFlow(nil)},
+		{name: "a global read wired into the reply", base: toolFlow(nil), next: toolFlow(func(f *flow.Flow) {
+			f.Nodes = append(f.Nodes, lintNode("gv", "get-var", map[string]any{"key": "door_code"}))
+			f.Connections = append(f.Connections, lintConn("c4", "tool", "output", "gv", "input"), lintConn("c5", "gv", "output", "reply", "input"))
+		}), alert: true},
+		{name: "an expression on the path made to read globals", base: toolFlow(nil), next: toolFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "calc").Config["expression"] = `vars["door_code"]`
+		}), alert: true},
+		{name: "an approved global read whose path changed", base: toolFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "calc").Config["expression"] = `vars["setpoint"]`
+		}), next: toolFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "calc").Config["expression"] = `vars["door_code"]`
+		}), alert: true},
+		{name: "an approved global read left alone", base: toolFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "calc").Config["expression"] = `vars["setpoint"]`
+		}), next: toolFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "calc").Config["expression"] = `vars["setpoint"]`
+			diffNodeOf(f, "side").Config["expression"] = "payload * 2"
+		})},
+		{name: "a path change that reads no global", base: toolFlow(nil), next: toolFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "calc").Config["expression"] = "payload * 2"
+		})},
+		{name: "a flow variable read on the path", base: toolFlow(nil), next: toolFlow(func(f *flow.Flow) {
+			f.Nodes = append(f.Nodes, lintNode("fv", "get-var", map[string]any{"scope": "flow", "key": "count"}))
+			f.Connections = append(f.Connections, lintConn("c4", "tool", "output", "fv", "input"))
+		})},
+		{name: "a global read off the tool's path", base: toolFlow(nil), next: toolFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "side").Config["expression"] = `vars["door_code"]`
+		})},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := flow.Diff(tc.base, tc.next, node.DefaultRegistry)
+			var got []flow.Alert
+			for _, a := range r.Alerts {
+				if a.Kind == flow.AlertGlobalVariableRead {
+					got = append(got, a)
+				}
+			}
+			if !tc.alert {
+				assert.Empty(t, got, "alerts: %v", r.Alerts)
+				return
+			}
+			require.Len(t, got, 1, "alerts: %v", r.Alerts)
+			assert.Equal(t, "tool", got[0].NodeID)
+			assert.Contains(t, got[0].Message, "global variable")
+			assert.NotContains(t, got[0].Message, "door_code", "values agents may not read stay out of alerts")
+		})
+	}
+}

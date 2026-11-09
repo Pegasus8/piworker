@@ -119,7 +119,8 @@ func TestLowDeployPolicy(t *testing.T) {
 // commands and conditions: at the low level an agent may not change what a
 // running set-var writes there (the reviewer's case: a new interval-driven
 // writer of a command variable, saved as a draft and deployed), nor what
-// feeds an approved writer.
+// feeds an approved writer, nor make a tool's path (whose result goes back
+// to the agent) read them.
 func TestLowDeployRefusesGlobalVariableWrites(t *testing.T) {
 	writerFlow := func() *flow.Flow {
 		f := safeFlow()
@@ -131,6 +132,7 @@ func TestLowDeployRefusesGlobalVariableWrites(t *testing.T) {
 		base   func() *flow.Flow
 		ops    []flow.Op
 		refuse bool
+		kind   string // the alert refused (default global_variable_write)
 	}{
 		"a new global writer": {base: safeFlow, ops: []flow.Op{
 			{Op: flow.OpAddNode, Node: &flow.OpNode{ID: "tick", Type: "trigger-interval", Config: map[string]any{"interval": 60000}}},
@@ -150,6 +152,12 @@ func TestLowDeployRefusesGlobalVariableWrites(t *testing.T) {
 		"a change beside an approved writer": {base: writerFlow, ops: []flow.Op{
 			{Op: flow.OpUpdateNode, NodeID: "sv", Position: &flow.Position{X: 900, Y: 400}},
 		}},
+		"a tool's path made to read globals": {base: toolReplyFlow, ops: []flow.Op{
+			{Op: flow.OpUpdateNode, NodeID: "answer", Config: map[string]any{"expression": `vars["door_code"]`}},
+		}, refuse: true, kind: flow.AlertGlobalVariableRead},
+		"a tool's path changed, reading no global": {base: toolReplyFlow, ops: []flow.Op{
+			{Op: flow.OpUpdateNode, NodeID: "answer", Config: map[string]any{"expression": "payload"}},
+		}},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -164,14 +172,32 @@ func TestLowDeployRefusesGlobalVariableWrites(t *testing.T) {
 				assert.True(t, e.running(base.ID))
 				return
 			}
-			assert.Contains(t, alertKindsOf(saved.Alerts), flow.AlertGlobalVariableWrite, "the draft shows it too")
+			kind := tc.kind
+			if kind == "" {
+				kind = flow.AlertGlobalVariableWrite
+			}
+			assert.Contains(t, alertKindsOf(saved.Alerts), kind, "the draft shows it too")
 			te := requireKind(t, err, ErrPermissionDenied)
-			assert.Contains(t, te.Message, flow.AlertGlobalVariableWrite)
+			assert.Contains(t, te.Message, kind)
 			assert.NotContains(t, te.Message, "curl")
 			assert.False(t, e.running(base.ID), "nothing deployed")
 			assert.Equal(t, 1, mustFlow(t, e, base.ID).Version, "nothing saved")
 		})
 	}
+}
+
+// toolReplyFlow is a tool answered through a transform.
+func toolReplyFlow() *flow.Flow {
+	f := flow.NewFlow("tool")
+	addNode(f, "tool", "trigger-tool", map[string]any{
+		"toolName": "garage_status", "description": "Tells whether the garage door is open.",
+		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+	})
+	addNode(f, "answer", "process-transform", map[string]any{"expression": `"closed"`})
+	addNode(f, "reply", "action-reply", nil)
+	connect(f, "tool", "answer")
+	connect(f, "answer", "reply")
+	return f
 }
 
 func alertKindsOf(alerts []flow.Alert) []string {

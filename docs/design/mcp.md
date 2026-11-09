@@ -773,7 +773,14 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   feeds it, through connections or, when a node feeding it reads flow
   variables, through the flow-scope set-vars, was added, enabled or
   reconfigured, or a connection into that part was added; one alert per
-  writer, `after` the variable's name; listed after the field alerts).
+  writer, `after` the variable's name), `global_variable_read` (a running
+  `trigger-tool`'s path — the running part its trigger reaches through
+  connections, whose result goes back to the agent that calls it — reads
+  global variables (a `get-var` whose scope is not `flow`, or config text
+  naming `vars`, `flowVars` or `$env`: it errs on the side of yes) and
+  changed: a node on it added, enabled or reconfigured, or a connection
+  into it added; one alert per tool). The two global variable alerts are
+  listed after the field alerts.
   Alerts describe the flow that runs: a disabled node counts as absent
   (baselines come from the base's enabled nodes; enabling a node raises the
   alerts of adding it, disabling one those of removing it; changing or
@@ -895,7 +902,8 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   resulting flow's risk is ≤ external, no recipient/destination changes vs the
   last admin-approved version, no new secrets references, no change to what
   an approved credential is used for: `credentialed_request_changed`, no
-  change to what a global variable receives: `global_variable_write`), `all`
+  change to what a global variable receives or to a tool path that reads
+  global variables: `global_variable_write`, `global_variable_read`), `all`
   (any flow, including privileged). Changing it needs password step-up and
   shows the risk text; tokens need the `deploy` scope (only grantable when
   not `off`). Every agent deploy is audited, marked "deployed by agent" in
@@ -1184,8 +1192,9 @@ toggling a running flow on records nothing (it deploys nothing). A
   flow, candidate)` raises none of `service.LowDeployRefusedAlerts()`:
   `privileged_node_added`, `destination_changed`, `dynamic_destination`,
   `new_host`, `secret_added`, `secret_moved`, `risk_switch_on`,
-  `sensitive_literal`, `credentialed_request_changed` (H1) and
-  `global_variable_write` (shared state other flows read) — refused
+  `sensitive_literal`, `credentialed_request_changed` (H1),
+  `global_variable_write` (shared state other flows read) and
+  `global_variable_read` (shared state a tool would return) — refused
   with `forbidden` listing the kinds, never values; `all` → any flow. With
   `draftId` the agent's own pending draft of `flowId` (another token's:
   `not_found`; stale: `conflict`) is evaluated, saved with

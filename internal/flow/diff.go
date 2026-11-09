@@ -66,8 +66,8 @@ const (
 )
 
 var alertRank = map[string]int{
-	// global_variable_write (diff_vars.go) is listed after the field alerts.
-	AlertGlobalVariableWrite: 11,
+	// The global variable alerts (diff_vars.go) follow the field alerts.
+	AlertGlobalVariableWrite: 11, AlertGlobalVariableRead: 12,
 
 	AlertRiskRaised: 0, AlertPrivilegedNodeAdded: 1, AlertDestinationChanged: 2, AlertDynamicDestination: 3,
 	AlertNewHost: 4, AlertSecretAdded: 5, AlertSecretMoved: 6, AlertRiskSwitchOn: 7, AlertSensitiveLiteral: 8,
