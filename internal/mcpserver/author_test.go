@@ -315,6 +315,15 @@ func TestAuthorAndDeployToolAnnotations(t *testing.T) {
 	assert.Equal(t, map[string]any{"anthropic/requiresUserInteraction": true}, tools["pw_deploy_flow"]["_meta"], "destructive")
 	assert.Equal(t, map[string]any{"anthropic/requiresUserInteraction": true}, tools["pw_stop_flow"]["_meta"], "destructive")
 	assert.NotContains(t, tools["pw_save_draft"], "_meta")
+
+	// The deploy tools tell agents every kind of change the low level
+	// refuses (service.LowDeployRefusedAlerts), so a refusal is no surprise.
+	for _, name := range deployToolNames {
+		for _, words := range []string{"privileged node", "destination", "host", "secret reference", "risk switch",
+			"credentialed request", "rate", "global variable"} {
+			assert.Contains(t, tools[name]["description"], words, name)
+		}
+	}
 }
 
 // sampleFlowJSON is a flow as an agent sends it, with the informational

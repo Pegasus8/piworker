@@ -38,8 +38,9 @@ var (
 // deployLevelText says what the levels allow, for the descriptions.
 const deployLevelText = "PiWorker's agent deploy level decides: low allows flows whose risk is at most external and that, " +
 	"compared with the version the admin last approved, add no privileged node and change no destination, host, secret " +
-	"reference, risk switch, credentialed request or rate (how often a flow that reaches other services fires); all " +
-	"allows any flow. A refusal says which alert kinds stood in the way."
+	"reference, risk switch, credentialed request, rate (how often a flow that reaches other services fires), what a " +
+	"global variable receives, or a tool path that reads a global variable; all allows any flow. A refusal says which " +
+	"alert kinds stood in the way."
 
 // DeployTools returns the deploy tools (scope deploy; listed only while the
 // agent deploy level is above off): pw_deploy_flow{flowId, draftId?} and

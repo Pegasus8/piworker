@@ -440,4 +440,10 @@ test('deploy levels describe their risk', () => {
   expect(all.risk).toContain('privileged')
   const low = DEPLOY_LEVELS.find(l => l.value === 'low')!
   expect(low.risk).toContain('external')
+  // Every kind of change the low level refuses (service.LowDeployRefusedAlerts),
+  // in words the admin reads before turning it on.
+  for (const words of ['privileged node', 'destination', 'new host', 'secret reference', 'risk switch',
+    'credential', 'how often', 'global variable']) {
+    expect(low.risk).toContain(words)
+  }
 })

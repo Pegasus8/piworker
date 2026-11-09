@@ -186,7 +186,7 @@ export const DEPLOY_LEVELS: DeployLevelOption[] = [
   {
     value: 'low',
     label: 'Low-risk flows',
-    risk: 'Agents with the deploy scope may deploy, start and stop flows, and deploy their own drafts, when the resulting flow is at most external risk (HTTP, MQTT, e-mail, Telegram, notifications), changes no recipient or destination, and adds no secret reference compared with the version you last approved.'
+    risk: 'Agents with the deploy scope may deploy, start and stop flows, and deploy their own drafts, when the resulting flow is at most external risk (HTTP, MQTT, e-mail, Telegram, notifications) and, compared with the version you last approved, adds no privileged node, changes no recipient or destination, reaches no new host, adds or moves no secret reference, turns on no risk switch, uses no credential for a different request, changes no setting of how often it runs, and changes nothing a global variable receives or a tool reads from one.'
   },
   {
     value: 'all',
