@@ -28,10 +28,12 @@ import (
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/Pegasus8/piworker/internal/tlsca"
+	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/Pegasus8/piworker/internal/webhook"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // tlsEnv is a running PiWorker (real router, listeners and certificates) on
@@ -173,9 +175,11 @@ func sessionCookieHeader(resp *http.Response) string {
 	return ""
 }
 
-func TestHTTPSSetupRecoveryLoginAndLiveEvents(t *testing.T) {
-	// A short write timeout proves that live streams outlive it over HTTP/2.
-	env := startTLSEnv(t, nil, func(s *serverSet) { s.main.WriteTimeout = time.Second })
+func TestHTTPSSetupRecoveryAndLogin(t *testing.T) {
+	// The server's own write timeout: setup, recovery and login hash
+	// passwords with bcrypt, which under -race on a busy machine takes
+	// longer than the short timeout the live-events test below uses.
+	env := startTLSEnv(t, nil)
 	c := env.client(t)
 	origin := env.httpsBase
 
@@ -231,6 +235,20 @@ func TestHTTPSSetupRecoveryLoginAndLiveEvents(t *testing.T) {
 	require.NotNil(t, tlsBody.Data.HTTPPort)
 	assert.Equal(t, env.port(env.httpsBase), strconv.Itoa(*tlsBody.Data.HTTPSPort))
 	assert.Equal(t, env.port(env.httpBase), strconv.Itoa(*tlsBody.Data.HTTPPort))
+}
+
+// TestHTTPSLiveEventsOutliveTheWriteTimeout: over HTTP/2 a live stream
+// clears the server's write deadline, so it keeps delivering past it. The
+// account's hash has bcrypt's minimum cost, so logging in fits well within
+// the short timeout even under -race on a busy machine.
+func TestHTTPSLiveEventsOutliveTheWriteTimeout(t *testing.T) {
+	env := startTLSEnv(t, nil, func(s *serverSet) { s.main.WriteTimeout = time.Second })
+	hash, err := bcrypt.GenerateFromPassword([]byte("stream-password"), bcrypt.MinCost)
+	require.NoError(t, err)
+	require.NoError(t, env.users.CreateUser(&types.User{Username: "owner", PasswordHash: string(hash)}))
+	c := env.client(t)
+	resp := env.post(t, c, "/api/auth/login", env.httpsBase, map[string]string{"username": "owner", "password": "stream-password"})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// Live events (SSE) stream over HTTPS.
 	streamResp := get(t, c, env.httpsBase+"/api/flows/tls-sse-flow/events")

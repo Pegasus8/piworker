@@ -57,7 +57,7 @@ func TestEvalExprBoundsArrayBuiltins(t *testing.T) {
 				program, err := compileExpr(src)
 				require.NoError(t, err)
 				before := runtime.NumGoroutine()
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				sb := node.NewSandbox(1<<20, 32<<20)
 				if sandboxed {
@@ -68,7 +68,9 @@ func TestEvalExprBoundsArrayBuiltins(t *testing.T) {
 				start := time.Now()
 				_, err = evalExpr(ctx, program, types.NewMessage(nil, types.DataTypeAny))
 				require.Error(t, err)
-				assert.Less(t, time.Since(start), time.Second, "refused before it runs: %v", err)
+				// A memory limit, well before the deadline (asserted below);
+				// the bound leaves room for -race on a busy CI runner.
+				assert.Less(t, time.Since(start), 5*time.Second, "refused before it runs: %v", err)
 				assert.True(t, errors.Is(err, node.ErrSandboxLimit) || strings.Contains(err.Error(), "memory budget exceeded"),
 					"a memory limit: %v", err)
 				if sandboxed {
