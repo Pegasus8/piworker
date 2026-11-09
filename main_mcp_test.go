@@ -7,13 +7,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,8 +24,10 @@ import (
 	"github.com/Pegasus8/piworker/internal/config"
 	"github.com/Pegasus8/piworker/internal/events"
 	"github.com/Pegasus8/piworker/internal/flow"
+	"github.com/Pegasus8/piworker/internal/mcpserver"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/secrets"
+	"github.com/Pegasus8/piworker/internal/service"
 	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/google/jsonschema-go/jsonschema"
@@ -1215,4 +1220,701 @@ func TestMCPAuthorDeployToolsListGolden(t *testing.T) {
 	want, err := os.ReadFile(filepath.Join("internal", "mcpserver", "testdata", "tools_author_deploy.golden.json"))
 	require.NoError(t, err)
 	assert.Equal(t, string(want), pretty.String())
+}
+
+// Flows as agents send them (pw_validate_flow, pw_save_draft, pw_dry_run).
+
+func agentNode(id, typ string, cfg map[string]any) map[string]any {
+	n := map[string]any{"id": id, "type": typ}
+	if cfg != nil {
+		n["config"] = cfg
+	}
+	return n
+}
+
+// agentChain is a flow whose nodes are connected in order, output → input.
+func agentChain(name string, nodes ...map[string]any) map[string]any {
+	conns := []any{}
+	for i := 1; i < len(nodes); i++ {
+		from, to := nodes[i-1]["id"].(string), nodes[i]["id"].(string)
+		conns = append(conns, map[string]any{"id": from + "-" + to, "sourceNode": from, "sourcePort": "output", "targetNode": to, "targetPort": "input"})
+	}
+	list := make([]any, len(nodes))
+	for i, n := range nodes {
+		list[i] = n
+	}
+	f := map[string]any{"nodes": list, "connections": conns}
+	if name != "" {
+		f["name"] = name
+	}
+	return f
+}
+
+// adminChain stores a flow the admin wrote (version 1, admin-approved):
+// nodes connected in order, output → input.
+func (a mcpApp) adminChain(t *testing.T, name string, nodes ...*flow.Node) *flow.Flow {
+	t.Helper()
+	f := flow.NewFlow(name)
+	for i, n := range nodes {
+		f.AddNode(*n)
+		if i > 0 {
+			f.AddConnection(*flow.NewConnection(nodes[i-1].ID, "output", n.ID, "input"))
+		}
+	}
+	require.NoError(t, a.store.CreateFlow(f))
+	return f
+}
+
+func newNode(id, typ string, category flow.NodeCategory, cfg map[string]any) *flow.Node {
+	n := flow.NewNode(typ, category)
+	n.ID, n.Config = id, cfg
+	return n
+}
+
+func manualNode(id string) *flow.Node {
+	return newNode(id, "trigger-manual", flow.NodeCategoryInput, nil)
+}
+
+func transformNode(id, expr string) *flow.Node {
+	return newNode(id, "process-transform", flow.NodeCategoryProcessing, map[string]any{"expression": expr})
+}
+
+func httpNode(id string, cfg map[string]any) *flow.Node {
+	return newNode(id, "action-http", flow.NodeCategoryOutput, cfg)
+}
+
+// editorSession is the admin's cookie session on the app's REST API.
+type editorSession struct {
+	app     mcpApp
+	headers map[string]string
+}
+
+func (a mcpApp) editor(t *testing.T) editorSession {
+	t.Helper()
+	return editorSession{app: a, headers: a.login(t)}
+}
+
+// do sends a REST request (body encoded as JSON unless nil) and returns
+// the status and the body.
+func (e editorSession) do(t *testing.T, method, path string, body any) (int, []byte) {
+	t.Helper()
+	var raw, contentType string
+	if body != nil {
+		raw, contentType = string(mustJSON(t, body)), "application/json"
+	}
+	w := e.app.do(method, path, contentType, raw, e.headers)
+	return w.Code, w.Body.Bytes()
+}
+
+// get decodes the data of a successful GET.
+func editorGet[T any](t *testing.T, e editorSession, path string) T {
+	t.Helper()
+	code, body := e.do(t, http.MethodGet, path, nil)
+	require.Equal(t, http.StatusOK, code, string(body))
+	return appData[T](t, body)
+}
+
+// flowMarks is what the editor's flow list and view show of a flow.
+type flowMarks struct {
+	ID           string                  `json:"id"`
+	Version      int                     `json:"version"`
+	Deployment   *service.DeploymentView `json:"deployment"`
+	AgentChanged bool                    `json:"agentChanged"`
+}
+
+func (e editorSession) flow(t *testing.T, id string) flowMarks {
+	t.Helper()
+	return editorGet[struct {
+		Flow flowMarks `json:"flow"`
+	}](t, e, "/api/flows/"+id).Flow
+}
+
+func (e editorSession) drafts(t *testing.T, status string) []service.DraftSummary {
+	t.Helper()
+	return editorGet[service.DraftList](t, e, "/api/agent/drafts?status="+status).Drafts
+}
+
+func issueCodes(issues []flow.Issue) []string {
+	var codes []string
+	for _, is := range issues {
+		codes = append(codes, is.Code)
+	}
+	return codes
+}
+
+func alertKinds(alerts []flow.Alert) []string {
+	var kinds []string
+	for _, al := range alerts {
+		kinds = append(kinds, al.Kind)
+	}
+	return kinds
+}
+
+// flowIssueCodes are the codes of a refusal's error.flowIssues.
+func flowIssueCodes(t *testing.T, e map[string]any) []string {
+	t.Helper()
+	var issues []flow.Issue
+	require.NoError(t, json.Unmarshal(mustJSON(t, e["flowIssues"]), &issues))
+	return issueCodes(issues)
+}
+
+// pw_list_node_types lists the registry with the schema markers agents
+// author by.
+func TestMCPListNodeTypes(t *testing.T) {
+	app := newAuthorApp(t, true, storage.AgentDeployOff)
+	agent := app.agent(t, "agent", storage.ScopeAuthor)
+
+	list := callOK[mcpserver.NodeTypeList](t, agent, "pw_list_node_types", map[string]any{})
+	require.NotEmpty(t, list.Types)
+	assert.Equal(t, len(node.DefaultRegistry.List()), list.Total)
+	assert.Equal(t, "input", list.Types[0].Category, "triggers first")
+	byType := map[string]mcpserver.NodeTypeView{}
+	for _, nt := range list.Types {
+		byType[nt.Type] = nt
+	}
+	require.Contains(t, byType, "trigger-tool", "listed for reference")
+	http := byType["action-http"]
+	assert.Equal(t, "output", http.Category)
+	assert.Equal(t, node.RiskExternal, http.Risk)
+	props := http.Config.Properties
+	assert.True(t, props["url"].Destination)
+	assert.True(t, props["headers"].Sensitive)
+	assert.True(t, props["method"].Operation)
+	assert.True(t, props["method"].AgentVisible)
+	assert.True(t, props["allowPrivate"].RiskSwitch)
+	assert.True(t, byType["trigger-interval"].Config.Properties["interval"].Rate)
+
+	one := callOK[mcpserver.NodeTypeList](t, agent, "pw_list_node_types", map[string]any{"type": "action-http"})
+	require.Len(t, one.Types, 1)
+	assert.NotEmpty(t, one.Types[0].Documentation)
+	refused(t, agent, "pw_list_node_types", map[string]any{"type": "action-nope"}, "invalid_arguments")
+}
+
+// pw_validate_flow reports every problem deploy would refuse, with the
+// flow's risk; nothing is stored.
+func TestMCPValidateFlow(t *testing.T) {
+	app := newAuthorApp(t, true, storage.AgentDeployOff)
+	agent := app.agent(t, "agent", storage.ScopeAuthor)
+	start := agentNode("start", "trigger-manual", nil)
+	calc := agentNode("calc", "process-transform", map[string]any{"expression": "payload"})
+	for _, tc := range []struct {
+		name  string
+		flow  map[string]any
+		valid bool
+		risk  node.Risk
+		codes []string
+	}{
+		{"valid", agentChain("", start, calc), true, node.RiskSafe, nil},
+		{"external", agentChain("", start, agentNode("http", "action-http", map[string]any{"url": "https://api.example.com/x"})),
+			true, node.RiskExternal, nil},
+		// Agents send nodes without ports: a disabled node's come from its
+		// type too, so its connections are valid.
+		{"disabled node without ports", agentChain("", start, map[string]any{"id": "calc", "type": "process-transform",
+			"enabled": false, "config": map[string]any{"expression": "payload"}}, agentNode("log", "action-log", nil)),
+			true, node.RiskSafe, nil},
+		// A type the registry does not know counts as privileged.
+		{"unknown type", agentChain("", start, agentNode("calc", "process-nope", nil)), false, node.RiskPrivileged,
+			[]string{flow.IssueUnknownType}},
+		{"duplicate node", agentChain("", start, calc, agentNode("calc", "process-transform", map[string]any{"expression": "1"})),
+			false, node.RiskSafe, []string{flow.IssueDuplicateNodeID}},
+		{"config typing", agentChain("", start, agentNode("calc", "process-transform", map[string]any{"expression": 42})),
+			false, node.RiskSafe, []string{flow.IssueConfigType}},
+		{"sensitive literal", agentChain("", start, agentNode("http", "action-http", map[string]any{
+			"url": "https://api.example.com/x", "headers": map[string]any{"Authorization": "Bearer pw-literal-5d1"}})),
+			false, node.RiskExternal, []string{service.IssueSensitiveLiteral}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res := callOK[service.ValidateResult](t, agent, "pw_validate_flow", map[string]any{"flow": tc.flow})
+			assert.Equal(t, tc.valid, res.Valid, "%+v", res.Issues)
+			assert.Equal(t, tc.risk, res.Risk)
+			for _, code := range tc.codes {
+				assert.Contains(t, issueCodes(res.Issues), code)
+			}
+			assert.NotContains(t, string(mustJSON(t, res)), "pw-literal-5d1", "a sensitive literal is never echoed")
+		})
+	}
+	assert.Empty(t, app.editor(t).drafts(t, "all"), "validating stores nothing")
+}
+
+// An agent drafts a new flow and a change of it; the admin reviews the
+// drafts over REST (with their alerts) and approves them, saving
+// admin-approved versions. Drafts are private to their token.
+func TestMCPDraftsReviewedAndApprovedByTheAdmin(t *testing.T) {
+	app := newAuthorApp(t, true, storage.AgentDeployOff)
+	agent := app.agent(t, "claude", storage.ScopeRead, storage.ScopeAuthor)
+	other := app.agent(t, "other", storage.ScopeRead, storage.ScopeAuthor)
+	editor := app.editor(t)
+
+	// A new flow.
+	proposal := agentChain("Weather to API",
+		agentNode("start", "trigger-manual", nil),
+		agentNode("calc", "process-transform", map[string]any{"expression": "payload"}),
+		agentNode("http", "action-http", map[string]any{"url": "https://api.example.com/v1/report", "method": "POST"}))
+	saved := callOK[service.DraftResult](t, agent, "pw_save_draft", map[string]any{"flow": proposal, "note": "Posts the weather."})
+	assert.Equal(t, storage.DraftPending, saved.Status)
+	assert.Equal(t, node.RiskExternal, saved.Risk)
+	assert.Empty(t, saved.FlowID)
+	assert.Contains(t, alertKinds(saved.Alerts), flow.AlertNewHost)
+
+	// Only its author sees it.
+	view := callOK[service.DraftView](t, agent, "pw_get_draft", map[string]any{"draftId": saved.DraftID})
+	assert.Equal(t, "Posts the weather.", view.Note)
+	assert.Equal(t, "Weather to API", view.Flow.Name)
+	refused(t, other, "pw_get_draft", map[string]any{"draftId": saved.DraftID}, "not_found")
+
+	// The admin's list and review page.
+	assert.Equal(t, 1, editorGet[api.PendingApprovalsCount](t, editor, api.PendingApprovalsCountPath).Drafts)
+	listed := editor.drafts(t, "pending")
+	require.Len(t, listed, 1)
+	assert.True(t, listed[0].IsNew)
+	assert.Equal(t, "claude", listed[0].TokenName)
+	assert.Equal(t, len(saved.Alerts), listed[0].AlertCount)
+	detail := editorGet[service.DraftDetail](t, editor, "/api/agent/drafts/"+saved.DraftID)
+	assert.Equal(t, node.RiskSafe, detail.Diff.RiskBefore)
+	assert.Equal(t, node.RiskExternal, detail.Diff.RiskAfter)
+	assert.Contains(t, alertKinds(detail.Diff.Alerts), flow.AlertDestinationChanged)
+	require.NotNil(t, detail.NameChange)
+	assert.Equal(t, "Weather to API", detail.NameChange.After)
+
+	// Approving saves it as an admin-approved version 1.
+	code, body := editor.do(t, http.MethodPost, "/api/agent/drafts/"+saved.DraftID+"/approve", map[string]any{"deploy": false})
+	require.Equal(t, http.StatusOK, code, string(body))
+	applied := appData[service.ApplyResult](t, body)
+	assert.Equal(t, 1, applied.Version)
+	assert.False(t, applied.Deployed)
+	flowID := applied.FlowID
+	versions := editorGet[service.VersionList](t, editor, "/api/flows/"+flowID+"/versions")
+	assert.Equal(t, 1, versions.LastAdminApproved)
+	require.Len(t, versions.Versions, 1)
+	assert.Equal(t, saved.DraftID, versions.Versions[0].DraftID)
+	assert.False(t, editor.flow(t, flowID).AgentChanged)
+	view = callOK[service.DraftView](t, agent, "pw_get_draft", map[string]any{"draftId": saved.DraftID})
+	assert.Equal(t, storage.DraftApproved, view.Status)
+	assert.Equal(t, 1, view.AppliedVersion)
+
+	// The agent reads the flow (its version) and drafts a change with ops.
+	read := callOK[service.FlowView](t, agent, "pw_get_flow", map[string]any{"flowId": flowID})
+	require.Equal(t, 1, read.Version)
+	change := callOK[service.DraftResult](t, agent, "pw_save_draft", map[string]any{
+		"flowId": flowID, "baseVersion": read.Version, "note": "Rounds the value.",
+		"ops": []any{map[string]any{"op": "update_node", "nodeId": "calc", "config": map[string]any{"expression": "payload * 2"}}},
+	})
+	assert.Equal(t, flowID, change.FlowID)
+	assert.Equal(t, 1, change.BaseVersion)
+	assert.Empty(t, change.Alerts, "a processing change raises no alert")
+	detail = editorGet[service.DraftDetail](t, editor, "/api/agent/drafts/"+change.DraftID)
+	require.Len(t, detail.Diff.Nodes, 1)
+	assert.Equal(t, "calc", detail.Diff.Nodes[0].NodeID)
+
+	code, body = editor.do(t, http.MethodPost, "/api/agent/drafts/"+change.DraftID+"/approve", map[string]any{"deploy": false})
+	require.Equal(t, http.StatusOK, code, string(body))
+	assert.Equal(t, 2, appData[service.ApplyResult](t, body).Version)
+	stored, err := app.store.GetFlow(flowID)
+	require.NoError(t, err)
+	assert.Equal(t, 2, stored.Version)
+	assert.Equal(t, "payload * 2", stored.GetNode("calc").Config["expression"])
+	versions = editorGet[service.VersionList](t, editor, "/api/flows/"+flowID+"/versions")
+	assert.Equal(t, 2, versions.LastAdminApproved)
+	assert.Empty(t, editor.drafts(t, "pending"))
+
+	// Approving again: not pending.
+	code, _ = editor.do(t, http.MethodPost, "/api/agent/drafts/"+change.DraftID+"/approve", map[string]any{"deploy": false})
+	assert.Equal(t, http.StatusConflict, code)
+}
+
+// pw_save_draft refuses what the admin could not approve or the author may
+// not change, saying why and never echoing hidden values; a refused draft
+// is not stored.
+func TestMCPSaveDraftRefusals(t *testing.T) {
+	app := newAuthorApp(t, true, storage.AgentDeployOff)
+	agent := app.agent(t, "claude", storage.ScopeRead, storage.ScopeAuthor)
+	editor := app.editor(t)
+	const literal = "pw-hidden-literal-77c"
+
+	plain := app.adminChain(t, "Plain", manualNode("start"), transformNode("calc", "payload"),
+		httpNode("http", map[string]any{"url": "https://api.example.com/x", "headers": map[string]any{"X-Key": "{{secret.pw_e2e_key}}"}}))
+	tool := saveToolFlow(t, app.testApp, nil)
+	// The editor saves the plain flow again: version 2.
+	current := editorGet[struct {
+		Flow map[string]any `json:"flow"`
+	}](t, editor, "/api/flows/"+plain.ID).Flow
+	current["description"] = "edited"
+	code, body := editor.do(t, http.MethodPut, "/api/flows/"+plain.ID, current)
+	require.Equal(t, http.StatusOK, code, string(body))
+
+	updateCalc := []any{map[string]any{"op": "update_node", "nodeId": "calc", "config": map[string]any{"expression": "1"}}}
+	for _, tc := range []struct {
+		name   string
+		args   map[string]any
+		code   string
+		issues []string // error.flowIssues codes
+		check  func(t *testing.T, e map[string]any)
+	}{
+		{name: "stale base version", code: "conflict",
+			args: map[string]any{"flowId": plain.ID, "baseVersion": 1, "note": "n", "ops": updateCalc},
+			check: func(t *testing.T, e map[string]any) {
+				assert.EqualValues(t, 2, e["currentVersion"])
+			}},
+		{name: "unknown flow", code: "flow_not_found",
+			args: map[string]any{"flowId": "no-such-flow", "baseVersion": 1, "note": "n", "ops": updateCalc}},
+		{name: "sensitive literal", code: "invalid_arguments", issues: []string{service.IssueSensitiveLiteral},
+			args: map[string]any{"flowId": plain.ID, "baseVersion": 2, "note": "n", "ops": []any{
+				map[string]any{"op": "update_node", "nodeId": "http", "config": map[string]any{"headers": map[string]any{"X-Key": literal}}},
+			}}},
+		{name: "changed trigger-tool", code: "forbidden",
+			args: map[string]any{"flowId": tool.ID, "baseVersion": 1, "note": "n", "ops": []any{
+				map[string]any{"op": "update_node", "nodeId": "tool", "config": map[string]any{"description": "Opens every door."}},
+			}},
+			check: func(t *testing.T, e map[string]any) {
+				assert.Contains(t, e["message"], "/nodes/tool")
+			}},
+		{name: "removed action-reply", code: "forbidden",
+			args: map[string]any{"flowId": tool.ID, "baseVersion": 1, "note": "n", "ops": []any{
+				map[string]any{"op": "remove_node", "nodeId": "reply"},
+			}}},
+		{name: "risk switch turned on", code: "forbidden",
+			args: map[string]any{"flowId": plain.ID, "baseVersion": 2, "note": "n", "ops": []any{
+				map[string]any{"op": "update_node", "nodeId": "http", "config": map[string]any{"allowPrivate": true}},
+			}}},
+		{name: "lint errors (H2)", code: "invalid_arguments", issues: []string{flow.IssueUnknownType, flow.IssueDuplicateNodeID},
+			args: map[string]any{"name": "Broken", "note": "n", "flow": agentChain("",
+				agentNode("start", "trigger-manual", nil), agentNode("x", "process-nope", nil), agentNode("x", "process-debug", nil))}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := refused(t, agent, "pw_save_draft", tc.args, tc.code)
+			for _, code := range tc.issues {
+				assert.Contains(t, flowIssueCodes(t, e), code)
+			}
+			if tc.check != nil {
+				tc.check(t, e)
+			}
+			assert.NotContains(t, string(mustJSON(t, e)), literal)
+		})
+	}
+	assert.Empty(t, editor.drafts(t, "all"), "nothing refused is stored")
+}
+
+// hitCounter is an HTTP server that must never be reached.
+func hitCounter(t *testing.T) (*httptest.Server, *atomic.Int64) {
+	t.Helper()
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_, _ = io.WriteString(w, `{"status":"reached"}`)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &hits
+}
+
+// defineSecret defines a secret in the process-wide store for the test.
+func defineSecret(t *testing.T, name, value string) {
+	t.Helper()
+	require.NoError(t, secrets.DefaultStore.Set(name, value))
+	t.Cleanup(func() { _ = secrets.DefaultStore.Delete(name) })
+}
+
+func traceStep(res flow.DryRunResult, nodeID string) *flow.TraceStep {
+	for i := range res.Trace {
+		if res.Trace[i].NodeID == nodeID {
+			return &res.Trace[i]
+		}
+	}
+	return nil
+}
+
+// pw_dry_run never reaches outside PiWorker: a node that is not safe does
+// not run (its mock continues the branch), whether the flow is sent
+// inline, stored or drafted. Settings the agent may not read are hidden
+// from a stored flow's run, and a node they leave invalid (an expression,
+// a headers object) is stubbed and mockable too; what the agent wrote in a
+// draft runs. pw_test_node runs one safe processing node.
+func TestMCPDryRunAndTestNode(t *testing.T) {
+	app := newAuthorApp(t, true, storage.AgentDeployOff)
+	agent := app.agent(t, "claude", storage.ScopeRead, storage.ScopeAuthor)
+	srv, hits := hitCounter(t)
+	const secretValue = "pw-dry-run-secret-9e1"
+	defineSecret(t, "pw_e2e_dry_key", secretValue)
+	httpCfg := map[string]any{"url": srv.URL + "/hook", "method": "POST", "allowPrivate": true}
+	inline := agentChain("", agentNode("start", "trigger-manual", nil), agentNode("http", "action-http", httpCfg),
+		agentNode("calc", "process-transform", map[string]any{"expression": `payload.status + "!"`}))
+	stored := app.adminChain(t, "Stored", manualNode("start"),
+		httpNode("http", map[string]any{"url": srv.URL + "/hook", "allowPrivate": true, "headers": map[string]any{"X-Key": "{{secret.pw_e2e_dry_key}}"}}),
+		transformNode("calc", `payload.status + "!"`))
+	draft := callOK[service.DraftResult](t, agent, "pw_save_draft", map[string]any{
+		"flowId": stored.ID, "baseVersion": 1, "note": "Louder.",
+		"ops": []any{map[string]any{"op": "update_node", "nodeId": "calc", "config": map[string]any{"expression": `payload.status + "!!"`}}},
+	})
+
+	httpMock := map[string]any{"http": map[string]any{"status": "mocked"}}
+	for _, tc := range []struct {
+		name    string
+		args    map[string]any
+		mocks   map[string]any
+		stubbed []string // wouldExecute, in order
+		hidden  []string // the hidden_settings warnings' paths
+		want    string   // calc's output
+	}{
+		{"inline flow", map[string]any{"flow": inline}, httpMock, []string{"http"}, nil, `"mocked!"`},
+		// Every setting of the stored flow agents may not read is hidden:
+		// the headers object and the expression leave their nodes invalid.
+		{"stored flow", map[string]any{"flowId": stored.ID},
+			map[string]any{"http": map[string]any{"status": "mocked"}, "calc": "calc mocked"},
+			[]string{"http", "calc"}, []string{"/nodes/http", "/nodes/calc"}, `"calc mocked"`},
+		// The agent wrote calc's expression: it runs.
+		{"draft", map[string]any{"draftId": draft.DraftID}, httpMock, []string{"http"}, []string{"/nodes/http"}, `"mocked!!"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := map[string]any{"triggerNodeId": "start", "payload": map[string]any{"x": 1}, "mocks": tc.mocks}
+			maps.Copy(args, tc.args)
+			res := callOK[flow.DryRunResult](t, agent, "pw_dry_run", args)
+			require.Empty(t, flow.BlockingIssues(res.Issues), "%+v", res.Issues)
+			var hidden, stubbed []string
+			for _, is := range res.Issues {
+				if is.Code == flow.IssueHiddenSettings {
+					hidden = append(hidden, is.Path)
+				}
+			}
+			for _, w := range res.WouldExecute {
+				stubbed = append(stubbed, w.NodeID)
+			}
+			assert.Equal(t, tc.hidden, hidden)
+			assert.Equal(t, tc.stubbed, stubbed)
+			calc := traceStep(res, "calc")
+			require.NotNil(t, calc, "the mock continues downstream")
+			require.Len(t, calc.Outputs, 1)
+			assert.Equal(t, tc.want, calc.Outputs[0].Preview)
+			assert.NotContains(t, string(mustJSON(t, res)), secretValue)
+		})
+	}
+	assert.Zero(t, hits.Load(), "a dry-run never reaches the HTTP server")
+
+	out := callOK[flow.TestNodeResult](t, agent, "pw_test_node", map[string]any{
+		"type": "process-transform", "config": map[string]any{"expression": "payload.n * 2"}, "input": map[string]any{"n": 21}})
+	require.Len(t, out.Outputs, 1, "%+v", out)
+	assert.Equal(t, "42", out.Outputs[0].Preview)
+	refused(t, agent, "pw_test_node", map[string]any{"type": "action-http", "config": httpCfg}, "forbidden")
+	assert.Zero(t, hits.Load())
+}
+
+// The agent deploy level decides what an agent may deploy: low allows a
+// safe flow and refuses destination changes (H1: and a credential used for
+// another request) and privileged flows; all allows them. The editor sees
+// who deployed what and rolls back to the version it approved.
+func TestMCPAgentDeployPolicy(t *testing.T) {
+	app := newAuthorApp(t, true, storage.AgentDeployLow)
+	agent := app.agent(t, "claude", storage.ScopeRead, storage.ScopeAuthor, storage.ScopeDeploy)
+	editor := app.editor(t)
+	defineSecret(t, "pw_e2e_policy_key", "pw-policy-secret-31c")
+
+	safe := app.adminChain(t, "Safe", manualNode("start"), transformNode("calc", "payload"))
+	api1 := app.adminChain(t, "Report", manualNode("start"), httpNode("http", map[string]any{"url": "https://api.example.com/report"}))
+	keyed := app.adminChain(t, "Keyed", manualNode("start"), httpNode("http", map[string]any{
+		"url": "https://api.example.com/read", "method": "GET", "headers": map[string]any{"X-Key": "{{secret.pw_e2e_policy_key}}"}}))
+	privileged := app.adminChain(t, "Command", manualNode("start"),
+		newNode("cmd", "action-command", flow.NodeCategoryOutput, map[string]any{"command": "echo hi"}))
+
+	running := func(id string) bool {
+		rt, ok := app.manager.GetRuntime(id)
+		return ok && rt.IsRunning()
+	}
+	draftOf := func(f *flow.Flow, nodeID string, cfg map[string]any) string {
+		return callOK[service.DraftResult](t, agent, "pw_save_draft", map[string]any{"flowId": f.ID, "baseVersion": 1, "note": "change",
+			"ops": []any{map[string]any{"op": "update_node", "nodeId": nodeID, "config": cfg}}}).DraftID
+	}
+
+	// low: a safe flow deploys and stops; the editor sees the agent did it.
+	deployed := callOK[service.DeployResult](t, agent, "pw_deploy_flow", map[string]any{"flowId": safe.ID})
+	assert.True(t, deployed.Running)
+	assert.True(t, running(safe.ID))
+	marks := editor.flow(t, safe.ID)
+	require.NotNil(t, marks.Deployment)
+	assert.Equal(t, storage.VersionActorAgent, marks.Deployment.ActorKind)
+	assert.Equal(t, "claude", marks.Deployment.TokenName)
+	assert.False(t, marks.AgentChanged)
+	stopped := callOK[service.DeployResult](t, agent, "pw_stop_flow", map[string]any{"flowId": safe.ID})
+	assert.False(t, stopped.Running)
+	assert.False(t, running(safe.ID))
+
+	// low refuses, naming the alert kinds and never the values.
+	newHost := draftOf(api1, "http", map[string]any{"url": "https://exfil.example.net/report"})
+	post := draftOf(keyed, "http", map[string]any{"method": "POST"})
+	for _, tc := range []struct {
+		name  string
+		args  map[string]any
+		kinds []string
+	}{
+		{"destination change", map[string]any{"flowId": api1.ID, "draftId": newHost},
+			[]string{flow.AlertDestinationChanged, flow.AlertNewHost}},
+		{"credentialed request changed (H1)", map[string]any{"flowId": keyed.ID, "draftId": post},
+			[]string{flow.AlertCredentialedRequestChanged}},
+		{"privileged flow", map[string]any{"flowId": privileged.ID}, []string{"privileged"}},
+	} {
+		t.Run("low refuses "+tc.name, func(t *testing.T) {
+			e := refused(t, agent, "pw_deploy_flow", tc.args, "forbidden")
+			for _, kind := range tc.kinds {
+				assert.Contains(t, e["message"], kind)
+			}
+			assert.NotContains(t, e["message"], "exfil.example.net")
+			assert.False(t, running(tc.args["flowId"].(string)))
+		})
+	}
+	assert.Len(t, editor.drafts(t, "pending"), 2, "refused drafts stay pending")
+
+	// all: the same deploys go through; an applied draft is an agent version.
+	require.NoError(t, app.store.SetAgentDeployLevel(storage.AgentDeployAll))
+	callOK[service.DeployResult](t, agent, "pw_deploy_flow", map[string]any{"flowId": privileged.ID})
+	assert.True(t, running(privileged.ID))
+	res := callOK[service.DeployResult](t, agent, "pw_deploy_flow", map[string]any{"flowId": api1.ID, "draftId": newHost})
+	assert.Equal(t, 2, res.Version)
+	assert.True(t, running(api1.ID))
+	marks = editor.flow(t, api1.ID)
+	assert.True(t, marks.AgentChanged)
+	require.NotNil(t, marks.Deployment)
+	assert.Equal(t, storage.VersionActorAgent, marks.Deployment.ActorKind)
+	assert.Equal(t, 2, marks.Deployment.Version)
+
+	// The admin rolls back to the version it approved: saved as version 3
+	// and redeployed by the editor.
+	code, body := editor.do(t, http.MethodPost, "/api/flows/"+api1.ID+"/rollback", nil)
+	require.Equal(t, http.StatusOK, code, string(body))
+	rolled := appData[service.ApplyResult](t, body)
+	assert.Equal(t, 3, rolled.Version)
+	assert.True(t, rolled.Deployed)
+	marks = editor.flow(t, api1.ID)
+	assert.False(t, marks.AgentChanged)
+	require.NotNil(t, marks.Deployment)
+	assert.Equal(t, storage.VersionActorEditor, marks.Deployment.ActorKind)
+	stored, err := app.store.GetFlow(api1.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "https://api.example.com/report", stored.GetNode("http").Config["url"])
+	code, _ = editor.do(t, http.MethodPost, "/api/flows/"+api1.ID+"/rollback", nil)
+	assert.Equal(t, http.StatusConflict, code, "nothing left to roll back")
+}
+
+// A secret a strict setting needs must be defined before the flow runs:
+// the draft is stored with the issue, approving it with a deploy is
+// refused (H2) and so is an agent deploy (H8), until the admin defines it.
+func TestMCPUndefinedSecretsBlockDeploys(t *testing.T) {
+	app := newAuthorApp(t, true, storage.AgentDeployAll)
+	agent := app.agent(t, "claude", storage.ScopeRead, storage.ScopeAuthor, storage.ScopeDeploy)
+	editor := app.editor(t)
+	const secretName = "pw_e2e_bot_token"
+
+	saved := callOK[service.DraftResult](t, agent, "pw_save_draft", map[string]any{"name": "Alerts", "note": "Sends alerts.",
+		"flow": agentChain("", agentNode("start", "trigger-manual", nil), agentNode("tg", "action-telegram", map[string]any{
+			"botToken": "{{secret." + secretName + "}}", "chatId": "42", "message": "hi"}))})
+	assert.Contains(t, issueCodes(saved.Issues), flow.IssueUndefinedSecret)
+
+	code, body := editor.do(t, http.MethodPost, "/api/agent/drafts/"+saved.DraftID+"/approve", map[string]any{"deploy": true})
+	require.Equal(t, http.StatusBadRequest, code, string(body))
+	assert.Contains(t, string(body), flow.IssueUndefinedSecret)
+	assert.Len(t, editor.drafts(t, "pending"), 1, "a refused approval leaves the draft pending")
+
+	code, body = editor.do(t, http.MethodPost, "/api/agent/drafts/"+saved.DraftID+"/approve", map[string]any{"deploy": false})
+	require.Equal(t, http.StatusOK, code, string(body))
+	flowID := appData[service.ApplyResult](t, body).FlowID
+
+	e := refused(t, agent, "pw_deploy_flow", map[string]any{"flowId": flowID}, "invalid_arguments")
+	assert.Contains(t, flowIssueCodes(t, e), flow.IssueUndefinedSecret)
+	defineSecret(t, secretName, "123:pw-bot-token")
+	callOK[service.DeployResult](t, agent, "pw_deploy_flow", map[string]any{"flowId": flowID})
+}
+
+// waitForLifecycleWaiter waits until a goroutine is blocked on the
+// lifecycle lock (FlowsHandler.WithLock).
+func waitForLifecycleWaiter(t *testing.T) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		buf := make([]byte, 4<<20)
+		buf = buf[:runtime.Stack(buf, true)]
+		for g := range strings.SplitSeq(string(buf), "\n\n") {
+			if strings.Contains(g, "(*FlowsHandler).WithLock") && strings.Contains(g, "Mutex).lockSlow") {
+				return true
+			}
+		}
+		return false
+	}, 10*time.Second, 5*time.Millisecond, "the deploy never waited for the lifecycle lock")
+}
+
+// H3: an agent deploy evaluated before something changed is checked again
+// under the lifecycle lock and deploys nothing: a revoked token, a flow
+// saved meanwhile, an agent deploy level turned off.
+func TestMCPAgentDeployRechecksUnderTheLifecycleLock(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		meanwhile func(t *testing.T, app mcpApp, editor editorSession, tok *storage.APIToken, f *flow.Flow)
+		code      string
+	}{
+		{"token revoked", func(t *testing.T, _ mcpApp, editor editorSession, tok *storage.APIToken, _ *flow.Flow) {
+			code, body := editor.do(t, http.MethodDelete, "/api/agent/tokens/"+tok.ID, nil)
+			require.Equal(t, http.StatusOK, code, string(body))
+		}, "forbidden"},
+		{"flow saved meanwhile", func(t *testing.T, app mcpApp, _ editorSession, _ *storage.APIToken, f *flow.Flow) {
+			// The editor's own save waits for the lock: save in storage.
+			f.Description = "changed"
+			require.NoError(t, app.store.UpdateFlow(f))
+		}, "conflict"},
+		{"agent deploy turned off", func(t *testing.T, app mcpApp, _ editorSession, _ *storage.APIToken, _ *flow.Flow) {
+			require.NoError(t, app.store.SetAgentDeployLevel(storage.AgentDeployOff))
+		}, "forbidden"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newAuthorApp(t, true, storage.AgentDeployAll)
+			agent := app.agent(t, "claude", storage.ScopeDeploy)
+			editor := app.editor(t)
+			f := app.adminChain(t, "Safe", manualNode("start"), transformNode("calc", "payload"))
+
+			var res *mcp.CallToolResult
+			var callErr error
+			done := make(chan struct{})
+			require.NoError(t, app.flows.WithLock(t.Context(), func(service.LockedLifecycle) error {
+				go func() {
+					defer close(done)
+					ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+					defer cancel()
+					res, callErr = agent.session.CallTool(ctx, &mcp.CallToolParams{Name: "pw_deploy_flow", Arguments: map[string]any{"flowId": f.ID}})
+				}()
+				waitForLifecycleWaiter(t)
+				tc.meanwhile(t, app, editor, agent.tok, f)
+				return nil
+			}))
+			<-done
+			require.NoError(t, callErr)
+			require.True(t, res.IsError, resultText(res))
+			assert.Equal(t, tc.code, errCode(structured(t, res)))
+			rt, ok := app.manager.GetRuntime(f.ID)
+			assert.False(t, ok && rt.IsRunning(), "nothing was deployed")
+			assert.Nil(t, editor.flow(t, f.ID).Deployment)
+		})
+	}
+}
+
+// Revoking a token voids its pending drafts in the same transaction; other
+// tokens' drafts stay.
+func TestMCPRevokingATokenVoidsItsDrafts(t *testing.T) {
+	app := newAuthorApp(t, true, storage.AgentDeployOff)
+	agent := app.agent(t, "claude", storage.ScopeAuthor)
+	other := app.agent(t, "other", storage.ScopeAuthor)
+	editor := app.editor(t)
+	draft := func(s agentSession, name string) string {
+		return callOK[service.DraftResult](t, s, "pw_save_draft", map[string]any{"name": name, "note": "n",
+			"flow": agentChain("", agentNode("start", "trigger-manual", nil), agentNode("calc", "process-transform", map[string]any{"expression": "1"}))}).DraftID
+	}
+	mine := []string{draft(agent, "one"), draft(agent, "two")}
+	theirs := draft(other, "three")
+
+	code, body := editor.do(t, http.MethodDelete, "/api/agent/tokens/"+agent.tok.ID, nil)
+	require.Equal(t, http.StatusOK, code, string(body))
+
+	pending := editor.drafts(t, "pending")
+	require.Len(t, pending, 1)
+	assert.Equal(t, theirs, pending[0].ID)
+	assert.Equal(t, 1, editorGet[api.PendingApprovalsCount](t, editor, api.PendingApprovalsCountPath).Drafts)
+	for _, id := range mine {
+		d := editorGet[service.DraftDetail](t, editor, "/api/agent/drafts/"+id)
+		assert.Equal(t, storage.DraftVoid, d.Status)
+		assert.NotEmpty(t, d.Reason)
+	}
+	code, _ = editor.do(t, http.MethodPost, "/api/agent/drafts/"+mine[0]+"/approve", map[string]any{"deploy": false})
+	assert.Equal(t, http.StatusConflict, code, "a void draft cannot be approved")
 }
