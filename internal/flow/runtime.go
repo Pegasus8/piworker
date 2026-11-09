@@ -313,26 +313,18 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 		}
 	}
 
-	// Instantiate all nodes from the registry
+	// Instantiate and validate every enabled node (the collector Lint
+	// shares); the first node that fails is the deploy error.
+	instances, findings := instantiateNodes(f, registry, nil)
+	if err := firstError(findings); err != nil {
+		return nil, err
+	}
 	for i := range f.Nodes {
+		nodeInstance, ok := instances[i]
+		if !ok {
+			continue // disabled
+		}
 		n := &f.Nodes[i]
-		if !n.Enabled {
-			continue
-		}
-
-		nodeInstance, err := registry.Create(n.Type, n.Config)
-		if err != nil {
-			// Unknown types are rejected earlier by Flow.Validate; anything the
-			// factory refuses is the node's configuration.
-			return nil, NewNodeExecutionError(n.ID, n.Type, fmt.Errorf("%w: %w", ErrInvalidNodeConfig, err))
-		}
-
-		// Enforce the documented contract that a node's configuration is
-		// validated before deploy, so an invalid config fails fast and visibly
-		// instead of running with silently-coerced values.
-		if err := nodeInstance.Validate(); err != nil {
-			return nil, NewNodeExecutionError(n.ID, n.Type, fmt.Errorf("%w: %w", ErrInvalidNodeConfig, err))
-		}
 
 		n.Inputs, n.Outputs = nodeInstance.Ports()
 		rt.nodes[n.ID] = nodeInstance

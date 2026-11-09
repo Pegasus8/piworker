@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"sync"
 	"time"
 
@@ -238,24 +237,7 @@ func (r *FlowRuntime) ActiveTargets(nodeID string) int {
 // active downstream connection: calls to it could never do anything. Deploy
 // runs it; the error is a *ValidationError.
 func (r *FlowRuntime) ValidateCallTriggers() error {
-	ids := make([]string, 0, len(r.triggers))
-	for id, trigger := range r.triggers {
-		if _, ok := trigger.(node.Emitter); ok {
-			ids = append(ids, id)
-		}
-	}
-	sort.Strings(ids)
-	for _, id := range ids {
-		if r.ActiveTargets(id) > 0 {
-			continue
-		}
-		nodeType := ""
-		if def := r.nodeDefs[id]; def != nil {
-			nodeType = def.Type
-		}
-		return NewValidationError("callable trigger %s (%s) has no active connection: connect it to at least one enabled node", id, nodeType)
-	}
-	return nil
+	return firstError(callTriggerFindings(r.flow, r.nodes, func(id string) bool { return r.ActiveTargets(id) > 0 }))
 }
 
 type callRegistryKey struct{}

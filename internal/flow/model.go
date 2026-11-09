@@ -3,7 +3,6 @@ package flow
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -235,25 +234,14 @@ func (f *Flow) Validate(reg *node.Registry) error {
 // type's schema (node.CheckConfig: types, enums, bounds) and returns the
 // problems with flow-level paths such as "nodes[3].config.interval". Disabled
 // nodes are never instantiated and are skipped, as are unregistered types
-// (instantiating them reports the unknown type).
+// (instantiating them reports the unknown type). It is Lint's config check.
 func (f *Flow) ConfigIssues(reg *node.Registry) []node.ConfigIssue {
 	if reg == nil {
 		return nil
 	}
 	var issues []node.ConfigIssue
-	for i := range f.Nodes {
-		n := &f.Nodes[i]
-		if !n.Enabled {
-			continue
-		}
-		info, ok := reg.Get(n.Type)
-		if !ok {
-			continue
-		}
-		for _, issue := range node.CheckConfig(info.Config, n.Config) {
-			issue.Path = fmt.Sprintf("nodes[%d].config.%s", i, issue.Path)
-			issues = append(issues, issue)
-		}
+	for _, fd := range configFindings(f, reg) {
+		issues = append(issues, node.ConfigIssue{Path: fd.legacyPath(), Message: fd.msg})
 	}
 	return issues
 }
@@ -273,76 +261,11 @@ func (f *Flow) CheckConfig(reg *node.Registry) error {
 	return NewValidationError("%s", strings.Join(msgs, "; "))
 }
 
-// validate runs the structural checks and requires at least one enabled node
-// for which isTrigger reports true.
+// validate runs the structural checks (structureFindings, which Lint shares)
+// on the ports stored on the nodes, requiring at least one enabled node for
+// which isTrigger reports true, and returns the first problem's error.
 func (f *Flow) validate(isTrigger func(*Node) bool) error {
-	// An empty flow is valid (for initial creation)
-	if len(f.Nodes) == 0 {
-		return nil
-	}
-
-	nodeMap := make(map[string]*Node, len(f.Nodes))
-	for i := range f.Nodes {
-		n := &f.Nodes[i]
-		if n.ID == "" {
-			return NewValidationError("node at index %d (type %s) has an empty ID", i, n.Type)
-		}
-		if _, dup := nodeMap[n.ID]; dup {
-			return NewValidationError("duplicate node ID %s", n.ID)
-		}
-		nodeMap[n.ID] = n
-	}
-
-	// If there are nodes, there must be at least one trigger node
-	hasTrigger := false
-	for i := range f.Nodes {
-		if f.Nodes[i].Enabled && isTrigger(&f.Nodes[i]) {
-			hasTrigger = true
-			break
-		}
-	}
-	if !hasTrigger {
-		return ErrNoTriggerNodes
-	}
-
-	// Validate all connections reference existing nodes and ports
-	connIDs := make(map[string]struct{}, len(f.Connections))
-	adjacency := make(map[string][]string)
-	for _, conn := range f.Connections {
-		if conn.ID != "" {
-			if _, dup := connIDs[conn.ID]; dup {
-				return NewValidationError("duplicate connection ID %s", conn.ID)
-			}
-			connIDs[conn.ID] = struct{}{}
-		}
-
-		sourceNode, ok := nodeMap[conn.SourceNode]
-		if !ok {
-			return NewValidationError("connection %s references non-existent source node %s", conn.ID, conn.SourceNode)
-		}
-		targetNode, ok := nodeMap[conn.TargetNode]
-		if !ok {
-			return NewValidationError("connection %s references non-existent target node %s", conn.ID, conn.TargetNode)
-		}
-		if conn.SourceNode == conn.TargetNode {
-			return NewValidationError("connection %s connects node %s to itself", conn.ID, conn.SourceNode)
-		}
-
-		// Validate ports exist
-		if !hasPort(sourceNode.Outputs, conn.SourcePort) {
-			return NewValidationError("connection %s references non-existent source port %s", conn.ID, conn.SourcePort)
-		}
-		if !hasPort(targetNode.Inputs, conn.TargetPort) {
-			return NewValidationError("connection %s references non-existent target port %s", conn.ID, conn.TargetPort)
-		}
-		adjacency[conn.SourceNode] = append(adjacency[conn.SourceNode], conn.TargetNode)
-	}
-
-	if cycle := findCycle(f.Nodes, adjacency); cycle != "" {
-		return NewValidationError("flow contains a cycle through node %s", cycle)
-	}
-
-	return nil
+	return firstError(structureFindings(f, func(i int) bool { return isTrigger(&f.Nodes[i]) }, storedPorts(f)))
 }
 
 // findCycle returns the ID of a node on a cycle, or "" if the graph is acyclic.

@@ -68,8 +68,9 @@ const (
 	IssueToolNoSchema = "tool_no_schema"
 )
 
-// Issue is one problem found in a flow, located by a path such as
-// "nodes[2].config.url".
+// Issue is one problem found in a flow. Lint locates it by a
+// JSON-pointer-like path ("/nodes/{nodeId}/config/url"); AnalyzeTools and
+// deploy messages by index ("nodes[2].config.url").
 type Issue struct {
 	Path     string        `json:"path"`
 	Code     string        `json:"code"`
@@ -120,10 +121,28 @@ var readOnlyTypes = map[string]bool{"action-reply": true, "action-log": true}
 
 // AnalyzeTools computes the ToolInfo of every enabled node of f listed in
 // specs (keyed by node ID: the ToolSpec of each instantiated tool trigger) and
-// returns every issue found, sorted by path. Error issues must fail the
-// deploy; issueError builds that error. Disabled nodes and connections
-// touching them are ignored, as at runtime.
+// returns every issue found, located by deploy's paths ("nodes[2].config.url")
+// and sorted by path. Error issues must fail the deploy; issueError builds
+// that error. Disabled nodes and connections touching them are ignored, as at
+// runtime. Lint reports the same issues with its own paths.
 func AnalyzeTools(f *Flow, reg *node.Registry, specs map[string]node.ToolSpec) ([]ToolInfo, []Issue) {
+	tools, fds := analyzeTools(f, reg, specs)
+	issues := make([]Issue, 0, len(fds))
+	for _, fd := range fds {
+		issues = append(issues, Issue{Path: fd.legacyPath(), Code: fd.code, Severity: fd.sev, Message: fd.msg})
+	}
+	sort.SliceStable(issues, func(a, b int) bool {
+		if issues[a].Path != issues[b].Path {
+			return issues[a].Path < issues[b].Path
+		}
+		return issues[a].Message < issues[b].Message
+	})
+	return tools, issues
+}
+
+// analyzeTools is AnalyzeTools' collector, shared with Lint: the tools and
+// the findings, each once, in the order found.
+func analyzeTools(f *Flow, reg *node.Registry, specs map[string]node.ToolSpec) ([]ToolInfo, []finding) {
 	g := newToolGraph(f)
 	var tools []ToolInfo
 	issues := newIssueSet()
@@ -135,8 +154,8 @@ func AnalyzeTools(f *Flow, reg *node.Registry, specs map[string]node.ToolSpec) (
 			continue
 		}
 		if spec.InputSchema == nil {
-			issues.add(Issue{Path: fmt.Sprintf("nodes[%d]", idx), Code: IssueToolNoSchema, Severity: IssueError,
-				Message: fmt.Sprintf("tool %q has no input schema", spec.Name)})
+			issues.add(nodeFinding(idx, "", IssueToolNoSchema, IssueError,
+				fmt.Sprintf("tool %q has no input schema", spec.Name), nil))
 			continue
 		}
 		a := toolAnalysis{risk: node.RiskSafe, readOnly: true, spec: spec, issues: issues}
@@ -162,18 +181,13 @@ func AnalyzeTools(f *Flow, reg *node.Registry, specs map[string]node.ToolSpec) (
 		}
 		if a.risk == node.RiskPrivileged {
 			for _, si := range spec.InputSchema.RequireStrictFor(nil) {
-				issues.add(Issue{
-					Path:     fmt.Sprintf("nodes[%d].config.inputSchema", idx),
-					Code:     IssueToolStrictArguments,
-					Severity: IssueError,
-					Message: fmt.Sprintf("tool %q is privileged, so its arguments must be strict: %s",
-						spec.Name, si.String()),
-				})
+				issues.add(nodeFinding(idx, "inputSchema", IssueToolStrictArguments, IssueError,
+					fmt.Sprintf("tool %q is privileged, so its arguments must be strict: %s", spec.Name, si.String()), nil))
 			}
 		}
 		tools = append(tools, a.info(f.ID, n.ID))
 	}
-	return tools, issues.sorted()
+	return tools, issues.list
 }
 
 // issueError returns a *ValidationError listing the error issues, or nil when
@@ -269,30 +283,19 @@ func (g *toolGraph) reachableFrom(roots []string, withRoots bool) []int {
 	return out
 }
 
-// issueSet collects issues once each (several tools may reach one node).
+// issueSet collects findings once each (several tools may reach one node).
 type issueSet struct {
-	seen map[Issue]bool
-	list []Issue
+	seen map[finding]bool
+	list []finding
 }
 
-func newIssueSet() *issueSet { return &issueSet{seen: map[Issue]bool{}} }
+func newIssueSet() *issueSet { return &issueSet{seen: map[finding]bool{}} }
 
-func (s *issueSet) add(i Issue) {
-	if !s.seen[i] {
-		s.seen[i] = true
-		s.list = append(s.list, i)
+func (s *issueSet) add(fd finding) {
+	if !s.seen[fd] {
+		s.seen[fd] = true
+		s.list = append(s.list, fd)
 	}
-}
-
-func (s *issueSet) sorted() []Issue {
-	out := append([]Issue(nil), s.list...)
-	sort.SliceStable(out, func(a, b int) bool {
-		if out[a].Path != out[b].Path {
-			return out[a].Path < out[b].Path
-		}
-		return out[a].Message < out[b].Message
-	})
-	return out
 }
 
 // toolAnalysis accumulates what one tool can reach.
@@ -328,11 +331,7 @@ func riskRank(r node.Risk) int {
 }
 
 func (a *toolAnalysis) issue(idx int, key, code string, sev IssueSeverity, format string, args ...any) {
-	path := fmt.Sprintf("nodes[%d]", idx)
-	if key != "" {
-		path += ".config." + key
-	}
-	a.issues.add(Issue{Path: path, Code: code, Severity: sev, Message: fmt.Sprintf(format, args...)})
+	a.issues.add(nodeFinding(idx, key, code, sev, fmt.Sprintf(format, args...), nil))
 }
 
 // visit applies the rules of one reachable node. direct is false for a node
@@ -342,21 +341,14 @@ func (a *toolAnalysis) visit(idx int, n *Node, reg *node.Registry, direct bool) 
 	if !readOnlyTypes[n.Type] && !strings.HasPrefix(n.Type, "process-") {
 		a.readOnly = false
 	}
-	info, ok := reg.Get(n.Type)
-	if !ok {
-		a.raise(node.RiskPrivileged)
-	} else {
-		a.raise(info.Risk)
-	}
+	// The node's own risk, with the instance escalations Risk applies to
+	// whole flows (dynamic destinations, allowPrivate).
+	a.raise(instanceRisk(n, reg))
 	cfg := n.Config
 
 	switch n.Type {
 	case "action-http":
-		dynamic := dynamicDestination(configString(cfg, "url"))
-		if dynamic || configBool(cfg, "allowPrivate") {
-			a.raise(node.RiskPrivileged)
-		}
-		if dynamic {
+		if dynamicDestination(configString(cfg, "url")) {
 			if httpHasHeaders(cfg) {
 				a.credentialIssue(idx, "headers", "headers")
 			}
@@ -365,11 +357,7 @@ func (a *toolAnalysis) visit(idx int, n *Node, reg *node.Registry, direct bool) 
 			}
 		}
 	case "action-notify":
-		dynamic := dynamicDestination(configString(cfg, "url"))
-		if dynamic || configBool(cfg, "allowPrivate") {
-			a.raise(node.RiskPrivileged)
-		}
-		if dynamic && urlHasCredentials(configString(cfg, "url")) {
+		if dynamicDestination(configString(cfg, "url")) && urlHasCredentials(configString(cfg, "url")) {
 			a.credentialIssue(idx, "url", "a {{secret.NAME}} or user:password@ in the URL")
 		}
 	case "action-mqtt":
