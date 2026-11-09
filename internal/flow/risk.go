@@ -680,3 +680,14 @@ func (m *RuntimeManager) Tools() (version uint64, tools []ToolInfo) {
 func (r *FlowRuntime) Tools() []ToolInfo {
 	return append([]ToolInfo(nil), r.tools...)
 }
+
+// InstanceRisk returns the risk of one node: its type's declared risk, raised
+// by the instance rules of the tool analysis (a dynamic destination or
+// allowPrivate on HTTP and notify nodes, MQTT and files as shared state). An
+// unregistered type, or one without a declared risk, is privileged. The
+// dry-run uses it to decide which nodes it stubs.
+func InstanceRisk(n *Node, reg *node.Registry) node.Risk {
+	a := toolAnalysis{risk: node.RiskSafe, issues: newIssueSet()}
+	a.visit(0, n, reg, false)
+	return a.risk
+}
