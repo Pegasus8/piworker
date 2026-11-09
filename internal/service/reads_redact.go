@@ -20,13 +20,35 @@ import (
 // it reads inside JSON or Go-quoted text, where recorded errors that echo a
 // payload carry it.
 func (r *Reads) redactor(extra ...string) secretRedactor {
+	return valuesRedactor(append(r.secretValues(), extra...))
+}
+
+// secretValues snapshots the secret store's values.
+func (r *Reads) secretValues() []string {
 	var values []string
 	for _, name := range r.secrets.Names() {
 		if v, ok := r.secrets.Get(name); ok {
 			values = append(values, v)
 		}
 	}
-	return valuesRedactor(append(values, extra...))
+	return values
+}
+
+// maxFormGrowth bounds how many times longer than a value its longest form
+// a valuesRedactor matches can be (an escaped form, 6 bytes per byte at
+// most, URL-encoded, 3 per byte).
+const maxFormGrowth = 24
+
+// longestForm bounds the length of the longest text valuesRedactor(values)
+// matches.
+func longestForm(values ...[]string) int {
+	longest := 0
+	for _, list := range values {
+		for _, v := range list {
+			longest = max(longest, len(v))
+		}
+	}
+	return maxFormGrowth * longest
 }
 
 // valuesRedactor redacts values in their literal, URL-encoded and base64

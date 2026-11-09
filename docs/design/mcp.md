@@ -316,7 +316,11 @@ Shared by REST and MCP (thin adapters):
     next page's cursor) and `GetRun(flowId, runId)`: status, actor
     (`trigger`, `editor`, or `agent` with the token's name), timings,
     counts, and the node events in order (node, type, phase, duration,
-    error ≤ 2 KiB, the run ≤ 64 KiB). The recorder stores no payloads, so
+    error ≤ 2 KiB, the run ≤ 64 KiB). `GetRun` reads a bounded part of a
+    run: its events 64 at a time until the budget is spent, each error cut
+    to 8 Ki characters in storage (a cut error also loses, after redaction,
+    as many bytes as the longest redacted form, so a secret straddling the
+    cut is never half shown), and the total from a count. The recorder stores no payloads, so
     there are no payload previews; events never carry node config. A run is
     read only through its own flow (`run_not_found`).
   - `SystemStatus`: version, platform, uptime, running/total flows, tools,

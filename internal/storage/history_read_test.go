@@ -98,3 +98,47 @@ func TestHistoryReadsOnClosedStore(t *testing.T) {
 	_, err = store.ListFlowRunsBefore("flow-1", "", 10)
 	assert.ErrorIs(t, err, ErrDatabaseClosed)
 }
+
+// The read views page through a run's events with their errors cut, so a
+// run of any size costs one bounded page at a time; a run is only read
+// through its own flow.
+func TestListFlowRunEventsAfterPagesWithCutErrors(t *testing.T) {
+	store := createTestStore(t)
+	defer store.Close()
+
+	now := time.Now()
+	require.NoError(t, store.UpsertFlowRun("run-1", "flow-1", now))
+	require.NoError(t, store.UpsertFlowRun("run-2", "flow-2", now))
+	errs := []string{"", "short", "ééééééé long", "x"}
+	var events []NodeEventRecord
+	for i, e := range errs {
+		events = append(events, NodeEventRecord{RunID: "run-1", FlowID: "flow-1", NodeID: "n", NodeType: "t", Phase: "error",
+			Error: e, CreatedAt: now.Add(time.Duration(i) * time.Millisecond)})
+	}
+	events = append(events, NodeEventRecord{RunID: "run-2", FlowID: "flow-2", NodeID: "n", NodeType: "t", Phase: "success", CreatedAt: now})
+	require.NoError(t, store.InsertNodeEvents(events))
+
+	page, err := store.ListFlowRunEventsAfter("flow-1", "run-1", 0, 3, 6)
+	require.NoError(t, err)
+	require.Len(t, page, 3)
+	assert.Equal(t, []string{"", "short", "éééééé"}, []string{page[0].Error, page[1].Error, page[2].Error},
+		"errors cut to 6 characters, not bytes")
+	assert.Less(t, page[0].ID, page[1].ID)
+
+	page, err = store.ListFlowRunEventsAfter("flow-1", "run-1", page[2].ID, 3, 6)
+	require.NoError(t, err)
+	require.Len(t, page, 1)
+	assert.Equal(t, "x", page[0].Error)
+	assert.Equal(t, "run-1", page[0].RunID)
+
+	page, err = store.ListFlowRunEventsAfter("flow-2", "run-1", 0, 3, 6)
+	require.NoError(t, err)
+	assert.Empty(t, page, "not through another flow")
+
+	n, err := store.CountFlowRunEvents("flow-1", "run-1")
+	require.NoError(t, err)
+	assert.Equal(t, 4, n)
+	n, err = store.CountFlowRunEvents("flow-2", "run-1")
+	require.NoError(t, err)
+	assert.Zero(t, n)
+}

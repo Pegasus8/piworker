@@ -93,3 +93,31 @@ func (s *SQLiteStore) ListFlowRunsBefore(flowID, beforeRunID string, limit int) 
 	}
 	return runs, nil
 }
+
+// ListFlowRunEventsAfter returns up to limit of a run's node events that
+// come after the event afterID (0: from the first), in execution order,
+// each error cut to its first maxErrorChars characters, and only if the run
+// belongs to flowID. The read views page through a run with it, so a run of
+// any size costs them one bounded page at a time.
+func (s *SQLiteStore) ListFlowRunEventsAfter(flowID, runID string, afterID int64, limit, maxErrorChars int) ([]NodeEventRecord, error) {
+	return s.queryNodeEvents(`
+		SELECT id, run_id, flow_id, node_id, node_type, phase, msg_id, duration_ms, substr(error, 1, ?), created_at
+		FROM node_events
+		WHERE run_id = ? AND flow_id = ? AND id > ?
+		ORDER BY id ASC
+		LIMIT ?
+	`, maxErrorChars, runID, flowID, afterID, limit)
+}
+
+// CountFlowRunEvents returns the number of a run's node events (0 for a run
+// of another flow).
+func (s *SQLiteStore) CountFlowRunEvents(flowID, runID string) (int, error) {
+	if s.isClosed() {
+		return 0, ErrDatabaseClosed
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM node_events WHERE run_id = ? AND flow_id = ?`, runID, flowID).Scan(&n); err != nil {
+		return 0, fmt.Errorf("failed to count node events: %w", err)
+	}
+	return n, nil
+}

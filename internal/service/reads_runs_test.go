@@ -353,3 +353,82 @@ func TestReadsRedactLiteralSensitiveConfig(t *testing.T) {
 	// visible value keeps the same reference.
 	assert.Equal(t, "copy of "+redactedMark+", see {{secret.API_KEY}}", view.Nodes[4].Config["name"])
 }
+
+// countingHistory counts what the run views read of the run history.
+type countingHistory struct {
+	*storage.SQLiteStore
+	rows, longestError int
+}
+
+func (h *countingHistory) ListFlowRunEventsAfter(flowID, runID string, afterID int64, limit, maxErrorChars int) ([]storage.NodeEventRecord, error) {
+	events, err := h.SQLiteStore.ListFlowRunEventsAfter(flowID, runID, afterID, limit, maxErrorChars)
+	h.rows += len(events)
+	for _, e := range events {
+		h.longestError = max(h.longestError, len(e.Error))
+	}
+	return events, err
+}
+
+// GetRun reads a bounded part of a run, however many events it has and
+// however long their errors: the events it can show (a page at a time)
+// with their errors cut in storage, and the count of all of them.
+func TestGetRunReadsABoundedPartOfTheRun(t *testing.T) {
+	history := &countingHistory{}
+	e := newReadsEnv(t, func(o *ReadsOptions) { o.History = history })
+	history.SQLiteStore = e.store
+	f := e.save(manualFlow("huge"))
+
+	var events []storage.NodeEventRecord
+	for i := range 1500 {
+		events = append(events, storage.NodeEventRecord{NodeID: fmt.Sprintf("n%d", i), NodeType: "action-log", Phase: "error",
+			Error: strings.Repeat("x", 3*maxStoredErrorChars)})
+	}
+	e.addRun(f.ID, "long-errors", "", 0, time.Second, "error", events...)
+	run, err := e.reads.GetRun(context.Background(), EditorActor(), f.ID, "long-errors")
+	require.NoError(t, err)
+	assert.Equal(t, 1500, run.TotalEvents)
+	assert.True(t, run.Truncated)
+	assert.LessOrEqual(t, history.rows, len(run.Events)+runEventsPage, "only the pages the view needs are read")
+	assert.LessOrEqual(t, history.longestError, maxStoredErrorChars+1, "errors are cut in storage")
+
+	events = events[:0]
+	for i := range 3000 {
+		events = append(events, storage.NodeEventRecord{NodeID: fmt.Sprintf("n%d", i), NodeType: "action-log", Phase: "success"})
+	}
+	e.addRun(f.ID, "many-events", "", time.Minute, time.Second, "success", events...)
+	history.rows = 0
+	run, err = e.reads.GetRun(context.Background(), EditorActor(), f.ID, "many-events")
+	require.NoError(t, err)
+	assert.Equal(t, 3000, run.TotalEvents)
+	assert.True(t, run.Truncated)
+	assert.Less(t, len(run.Events), 3000)
+	assert.LessOrEqual(t, history.rows, len(run.Events)+runEventsPage)
+	assert.Equal(t, "n0", run.Events[0].NodeID)
+	assert.Equal(t, fmt.Sprintf("n%d", len(run.Events)-1), run.Events[len(run.Events)-1].NodeID, "in order, none skipped")
+}
+
+// A secret straddling the storage cut of a long error is not recognized
+// by the redactor; the text before it can shrink under redaction until the
+// secret's first part would be shown, so a cut error loses its last bytes
+// (as many as the longest redacted form) after redaction.
+func TestGetRunHidesASecretCutInStorage(t *testing.T) {
+	e := newReadsEnv(t)
+	long := strings.Repeat("L", 64)
+	const straddling = "PREFIXabcd-and-the-rest-of-the-secret"
+	require.NoError(t, e.secrets.Set("LONG", long))
+	require.NoError(t, e.secrets.Set("STRADDLING", straddling))
+	f := e.save(manualFlow("cut"))
+	// 120 long secrets (shrinking by 54 bytes each), filler, then the
+	// straddling secret starting 10 characters before the cut.
+	head := strings.Repeat(long, 120)
+	msg := head + strings.Repeat("-", maxStoredErrorChars-len(head)-10) + straddling
+	e.addRun(f.ID, "run-1", "", 0, time.Second, "error",
+		storage.NodeEventRecord{NodeID: "n", NodeType: "action-log", Phase: "error", Error: msg})
+
+	run, err := e.reads.GetRun(context.Background(), readsAgent(storage.ScopeRead), f.ID, "run-1")
+	require.NoError(t, err)
+	shown := run.Events[0].Error
+	assert.NotContains(t, shown, "PREFIX")
+	assert.True(t, strings.HasPrefix(shown, redactedMark), shown)
+	assert.True(t, strings.HasSuffix(shown, truncatedMark), shown)
+}

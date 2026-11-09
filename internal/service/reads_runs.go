@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Pegasus8/piworker/internal/storage"
 )
@@ -22,6 +23,12 @@ const (
 	maxRunViewBytes = 64 << 10
 	// maxActorTokenBytes bounds a token name shown as a run's actor.
 	maxActorTokenBytes = 128
+	// runEventsPage is how many events GetRun reads at a time, until its
+	// budget is spent, so a run of any size costs a bounded read.
+	runEventsPage = 64
+	// maxStoredErrorChars bounds the characters of a recorded error GetRun
+	// reads (storage cuts longer ones), well above what it shows.
+	maxStoredErrorChars = 8 << 10
 )
 
 // Who started a run (RunSummary.Actor).
@@ -148,43 +155,62 @@ func (r *Reads) GetRun(ctx context.Context, actor Actor, flowID, runID string) (
 	if err != nil {
 		return RunView{}, fmt.Errorf("get run: %w", err)
 	}
-	events, err := r.history.ListFlowRunEvents(flowID, runID)
+	total, err := r.history.CountFlowRunEvents(flowID, runID)
 	if err != nil {
-		return RunView{}, fmt.Errorf("get run events: %w", err)
+		return RunView{}, fmt.Errorf("count run events: %w", err)
 	}
-	red := r.redactor(r.sensitiveValues(f)...)
+	values := append(r.secretValues(), r.sensitiveValues(f)...)
+	red := valuesRedactor(values)
 	// What GetFlow hides of the flow's settings, redacted from the errors
-	// (built for the first one).
+	// (built for the first one), and the longest text either redactor
+	// matches.
 	var hidden *secretRedactor
+	var longest int
 	errorText := func(s string) string {
 		if s == "" {
 			return ""
 		}
 		if hidden == nil {
-			h := valuesRedactor(r.hiddenValues(f))
-			hidden = &h
+			hiddenValues := r.hiddenValues(f)
+			h := valuesRedactor(hiddenValues)
+			hidden, longest = &h, longestForm(values, hiddenValues)
 		}
-		return recordedText(red, *hidden, s, maxRunFieldBytes)
+		return recordedText(red, *hidden, s, maxRunFieldBytes, longest)
 	}
-	view := RunView{RunSummary: runSummary(red, *run), Events: []RunEvent{}, TotalEvents: len(events)}
+	view := RunView{RunSummary: runSummary(red, *run), Events: []RunEvent{}}
 	budget := maxRunViewBytes
-	for _, e := range events {
-		ev := RunEvent{
-			NodeID:     capText(red.text(e.NodeID), maxViewIDBytes),
-			NodeType:   capText(red.text(e.NodeType), maxViewIDBytes),
-			Phase:      e.Phase,
-			DurationMs: e.DurationMs,
-			Error:      errorText(e.Error),
-			At:         e.CreatedAt.UTC(),
+	var after int64
+pages:
+	for {
+		events, err := r.history.ListFlowRunEventsAfter(flowID, runID, after, runEventsPage, maxStoredErrorChars+1)
+		if err != nil {
+			return RunView{}, fmt.Errorf("get run events: %w", err)
 		}
-		data, err := marshalNoEscape(ev)
-		if err != nil || len(data) > budget {
-			view.Truncated = true
+		for _, e := range events {
+			after = e.ID
+			ev := RunEvent{
+				NodeID:     capText(red.text(e.NodeID), maxViewIDBytes),
+				NodeType:   capText(red.text(e.NodeType), maxViewIDBytes),
+				Phase:      e.Phase,
+				DurationMs: e.DurationMs,
+				Error:      errorText(e.Error),
+				At:         e.CreatedAt.UTC(),
+			}
+			data, err := marshalNoEscape(ev)
+			if err != nil || len(data) > budget {
+				view.Truncated = true
+				break pages
+			}
+			budget -= len(data)
+			view.Events = append(view.Events, ev)
+		}
+		if len(events) < runEventsPage {
 			break
 		}
-		budget -= len(data)
-		view.Events = append(view.Events, ev)
 	}
+	// Events recorded after the count (a running run) are counted too.
+	view.TotalEvents = max(total, len(view.Events))
+	view.Truncated = view.Truncated || len(view.Events) < view.TotalEvents
 	return view, nil
 }
 
@@ -227,8 +253,36 @@ func runActorOf(actor string) (kind, token string) {
 // (hideURLsInText), then what GetFlow hides of the flow's settings redacted
 // (hidden), bounded to limit bytes. URLs are hidden before the settings are
 // redacted, so an error keeps the scheme and host of the URL it names.
-func recordedText(red, hidden secretRedactor, s string, limit int) string {
-	return cutText(hidden.text(hideURLsInText(red.text(s))), limit)
+//
+// A text longer than maxStoredErrorChars was cut in storage: a value to
+// redact may straddle the cut, and its first part, which the redactors do
+// not recognize, would end the text, within the shown bytes once redaction
+// shrank what precedes it. Such a text therefore loses its last unsafeTail
+// bytes (the longest text the redactors match) after redaction, and is
+// marked truncated.
+func recordedText(red, hidden secretRedactor, s string, limit, unsafeTail int) string {
+	cut := utf8.RuneCountInString(s) > maxStoredErrorChars
+	if cut {
+		s = runePrefix(s, maxStoredErrorChars)
+	}
+	out := hidden.text(hideURLsInText(red.text(s)))
+	if !cut {
+		return cutText(out, limit)
+	}
+	out = utf8Prefix(out, max(0, len(out)-unsafeTail))
+	const tail = "…" + truncatedMark
+	return utf8Prefix(out, limit-len(tail)) + tail
+}
+
+// runePrefix is the first n runes of s.
+func runePrefix(s string, n int) string {
+	for i := range s {
+		if n == 0 {
+			return s[:i]
+		}
+		n--
+	}
+	return s
 }
 
 func unknownRun(runID string) *ToolError {

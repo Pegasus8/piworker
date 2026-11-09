@@ -54,7 +54,10 @@ type FlowSource interface {
 type RunHistory interface {
 	ListFlowRunsBefore(flowID, beforeRunID string, limit int) ([]storage.FlowRun, error)
 	GetFlowRun(flowID, runID string) (*storage.FlowRun, error)
-	ListFlowRunEvents(flowID, runID string) ([]storage.NodeEventRecord, error)
+	// ListFlowRunEventsAfter pages through a run's events, errors cut to
+	// maxErrorChars characters; CountFlowRunEvents counts them.
+	ListFlowRunEventsAfter(flowID, runID string, afterID int64, limit, maxErrorChars int) ([]storage.NodeEventRecord, error)
+	CountFlowRunEvents(flowID, runID string) (int, error)
 }
 
 // ReadRuntimes is what the read views need from the runtime manager
