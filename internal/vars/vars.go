@@ -117,10 +117,11 @@ type storeKey struct{}
 
 // WithStore supplies an isolated global variable store for a sandboxed
 // execution (node test, dry-run): every node lookup of a global variable goes
-// through FromContext. A nil store is ignored.
+// through FromContext. A nil store means an empty one (isolation fails
+// closed: never the real store).
 func WithStore(ctx context.Context, store *Store) context.Context {
 	if store == nil {
-		return ctx
+		store = NewStore()
 	}
 	return context.WithValue(ctx, storeKey{}, store)
 }

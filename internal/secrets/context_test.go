@@ -14,8 +14,19 @@ func TestFromContextDefaultsToDefaultStore(t *testing.T) {
 	assert.Same(t, DefaultStore, FromContext(context.Background()))
 	//nolint:staticcheck // a nil context must not panic
 	assert.Same(t, DefaultStore, FromContext(nil))
-	assert.Same(t, DefaultStore, FromContext(WithStore(context.Background(), nil)),
-		"a nil store is no store")
+}
+
+// TestWithNilStoreFailsClosed: asking for an isolated store with a nil one
+// yields an empty store, never the process-wide one.
+func TestWithNilStoreFailsClosed(t *testing.T) {
+	require.NoError(t, DefaultStore.Set("ctx_nil_canary", "real-value"))
+	t.Cleanup(func() { _ = DefaultStore.Delete("ctx_nil_canary") })
+
+	got := FromContext(WithStore(context.Background(), nil))
+	require.NotNil(t, got)
+	assert.NotSame(t, DefaultStore, got)
+	_, ok := got.Get("ctx_nil_canary")
+	assert.False(t, ok, "the store is empty")
 }
 
 // TestWithStoreIsolatesLookups: a store carried by the context replaces the

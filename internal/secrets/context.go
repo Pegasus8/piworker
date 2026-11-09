@@ -8,10 +8,10 @@ type storeKey struct{}
 // DefaultStore. The builtin nodes resolve every {{secret.NAME}} through the
 // context they are given (FromContext), so a sandboxed execution such as a
 // dry-run passes an empty store and never sees the real values. A nil store
-// is ignored.
+// means an empty one (isolation fails closed: never the real store).
 func WithStore(ctx context.Context, store *Store) context.Context {
 	if store == nil {
-		return ctx
+		store = NewStore()
 	}
 	return context.WithValue(ctx, storeKey{}, store)
 }
