@@ -52,3 +52,31 @@ func TestRestoreKeepsPreviouslyAcceptedFlowsRunning(t *testing.T) {
 	assert.Equal(t, 400, w.Code, w.Body.String())
 	assert.Contains(t, w.Body.String(), "nodes[0].config.interval")
 }
+
+// A redeploy that failed after an agent's draft was saved as version 2
+// leaves the flow stopped with its running intent and the marker naming
+// version 1: the restore at startup runs version 2, so it records version 2
+// as deployed by whoever saved it (the agent's token), not the editor of
+// version 1. A marker that names the restored version is kept.
+func TestRestoreAttributesAVersionTheMarkerDoesNotName(t *testing.T) {
+	app := newTestApp(t, false)
+	f := flow.NewFlow("restored")
+	f.AddNode(*flow.NewNode("trigger-manual", flow.NodeCategoryInput))
+	require.NoError(t, app.store.CreateFlow(f))
+	require.NoError(t, app.store.RecordDeployment(f.ID, storage.Deployment{Version: 1, ActorKind: storage.VersionActorEditor}))
+	f.Description = "the agent's change"
+	v, err := app.store.UpdateFlowVersioned(f, 1, storage.VersionMeta{ActorKind: storage.VersionActorAgent, TokenID: "tok", TokenName: "claude"})
+	require.NoError(t, err)
+	require.Equal(t, 2, v)
+	require.NoError(t, app.store.UpdateFlowState(f.ID, flow.FlowStateRunning))
+
+	restoreRunningFlows(app.store, app.manager)
+
+	d, err := app.store.GetDeployment(f.ID)
+	require.NoError(t, err)
+	require.NotNil(t, d)
+	assert.Equal(t, 2, d.Version)
+	assert.Equal(t, storage.VersionActorAgent, d.ActorKind)
+	assert.Equal(t, "tok", d.TokenID)
+	assert.Equal(t, "claude", d.TokenName)
+}

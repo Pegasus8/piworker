@@ -718,6 +718,9 @@ func restoreRunningFlows(store *storage.SQLiteStore, manager *flow.RuntimeManage
 				Str("flowName", f.Name).
 				Msg("Flow restored successfully")
 			restored++
+			if err := markRestored(store, f); err != nil {
+				log.Error().Err(err).Str("flowID", f.ID).Msg("Failed to record who deployed the restored version")
+			}
 		}
 	}
 
@@ -725,6 +728,27 @@ func restoreRunningFlows(store *storage.SQLiteStore, manager *flow.RuntimeManage
 		Int("restored", restored).
 		Int("failed", failed).
 		Msg("Flow restoration complete")
+}
+
+// markRestored keeps the deployment marker of a restored flow true (H6): a
+// restore is not a new deployment, so a marker that names the restored
+// version is kept; one that names another version (a redeploy that failed
+// after a save left the running intent on the newer version, such as an
+// agent's draft) is replaced by the version's own author, who saved it to
+// run. A flow without stored versions keeps its marker.
+func markRestored(store *storage.SQLiteStore, f *flow.Flow) error {
+	d, err := store.GetDeployment(f.ID)
+	if err != nil || (d != nil && d.Version == f.Version) {
+		return err
+	}
+	v, err := store.GetFlowVersion(f.ID, f.Version)
+	if errors.Is(err, storage.ErrFlowVersionNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return store.RecordDeployment(f.ID, storage.Deployment{Version: f.Version, ActorKind: v.ActorKind, TokenID: v.TokenID, TokenName: v.TokenName})
 }
 
 // ensureDefaultAdmin optionally bootstraps the first user from explicit credentials.

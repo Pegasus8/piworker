@@ -1271,7 +1271,11 @@ stopping, or a generic conflict. `service.DeployActor{Kind, TokenID, TokenName}`
 `actor.DeployActor()` (the editor, or the agent's token). Every successful
 deploy records the marker, the editor's (`changeRunning`, toggle) as actor
 `editor` and the agent's as `agent` with the token (H6); restoring running
-flows at startup keeps the existing marker. The editor's own requests and
+flows at startup keeps a marker that names the restored version, and
+replaces one that names another version (a redeploy that failed after a
+save — an agent's draft — left the running intent on the newer version)
+with that version's author from its `VersionMeta` (`markRestored` in
+`main.go`), so the marker and the versions dialog say what runs. The editor's own requests and
 the interface share one implementation (`startLocked`/`stopLocked` in
 `internal/api/flows_lifecycle.go`): `changeRunning` is a thin wrapper, so
 there is no second lifecycle. A marker that cannot be recorded undoes the
@@ -1638,7 +1642,8 @@ get real secrets. H5 a version saved with a `DraftID` requires a real
 pending draft and closes it in the same transaction (no `DecideFlowDraft`
 afterwards); an agent applying another token's draft gets `not_found`. H6
 `RecordDeployment` on every successful deploy (editor and agent; a restore
-keeps the marker); flow list and view carry `version`, `deployment`,
+keeps the marker when it names the restored version, else attributes the
+restored version to its author); flow list and view carry `version`, `deployment`,
 `agentChanged`. H7 alerts carry `before`/`after` only for `AgentVisible`,
 non-`Sensitive` properties; the editor's full values come from the field
 diffs (`Sensitive` as `<hidden>`); disabled nodes count as absent for
