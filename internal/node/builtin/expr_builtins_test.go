@@ -128,7 +128,7 @@ func TestEvalExprSandboxChargesDerivedData(t *testing.T) {
 		"split":      {src: `let s = repeat("a,", 60000); len(map(1..300, split(s, ",")))`},
 		"splitAfter": {src: `let s = repeat("a,", 60000); len(map(1..300, splitAfter(s, ",")))`},
 		"fromBase64": {src: `len(map(1..2000, fromBase64(payload.b64)))`},
-		"fromJSON":   {src: `len(map(1..2000, fromJSON(payload.json)))`},
+		"fromJSON":   {src: `len(map(1..2000, fromJSON(payload.json)))`, budget: 1 << 20},
 		"keys":       {src: pairs + `len(map(1..300, keys(m)))`},
 		"values":     {src: pairs + `len(map(1..300, values(m)))`},
 		"toPairs":    {src: pairs + `len(map(1..300, toPairs(m)))`},
@@ -154,7 +154,10 @@ func TestEvalExprSandboxChargesDerivedData(t *testing.T) {
 			runtime.ReadMemStats(&stats[1])
 			require.Error(t, err)
 			assert.ErrorIs(t, err, node.ErrSandboxLimit)
-			assert.Less(t, time.Since(start), 3*time.Second)
+			// The bound catches a runaway evaluation (uniq ran for hours),
+			// not slowness: under -race on a CI runner busy with the other
+			// packages a case takes about three times as long as alone.
+			assert.Less(t, time.Since(start), 10*time.Second)
 			assert.Less(t, stats[1].TotalAlloc-stats[0].TotalAlloc, uint64(256<<20), "allocations stay bounded")
 		})
 	}
