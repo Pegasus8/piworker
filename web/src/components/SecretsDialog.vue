@@ -127,10 +127,14 @@ async function remove(name: string) {
                 :aria-describedby="newValueShort ? 'secret-value-short' : undefined" />
             </div>
           </div>
-          <p v-if="newValueShort" id="secret-value-short" class="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
-            <component :is="notice.icon" class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            <span><strong>{{ notice.label }}:</strong> {{ notice.text }}</span>
-          </p>
+          <!-- Always present, filled only while the value is short: a live
+               region announces the hint when it appears, not only on focus. -->
+          <div id="secret-value-short" aria-live="polite">
+            <p v-if="newValueShort" class="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+              <component :is="notice.icon" class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span><strong>{{ notice.label }}:</strong> {{ notice.text }}</span>
+            </p>
+          </div>
           <Button size="sm" class="w-full" :disabled="pending || !newName.trim() || !newValue" @click="add">
             <Plus class="mr-2 h-4 w-4" /> Add secret
           </Button>

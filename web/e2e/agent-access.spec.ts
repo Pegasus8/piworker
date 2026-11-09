@@ -373,12 +373,19 @@ test('the deploy levels explain the guessing residual and count the short secret
   const marks = dialog.getByText('Short value:', { exact: false })
   await expect(marks).toHaveCount(1)
   await expect(dialog).toContainText('An agent could confirm a guess of it (see Agents). Use 16 random characters or more.')
-  // A short value is flagged while typed; replacing it clears the mark.
+  // A short value is flagged while typed; replacing it clears the mark. The
+  // hint sits in a polite live region that exists before it is filled, so
+  // a screen reader announces it as it appears, not only on focus.
+  const hint = dialog.locator('#secret-value-short')
+  await expect(hint).toHaveAttribute('aria-live', 'polite')
+  await expect(hint).toHaveText('')
   await dialog.getByLabel('Secret name').fill('door_pin')
   await dialog.getByLabel('Secret value').fill('1234')
+  await expect(hint).toContainText('Short value:')
   await expect(dialog.getByLabel('Secret value')).toHaveAccessibleDescription(/Short value/)
   await dialog.getByLabel('Secret value').fill('a much longer passphrase')
   await expect(dialog.getByLabel('Secret value')).not.toHaveAccessibleDescription(/Short value/)
+  await expect(hint).toHaveText('')
   await dialog.getByRole('button', { name: 'Add secret' }).click()
   await expect(marks).toHaveCount(0)
   await dialog.getByRole('button', { name: 'Done' }).click()
