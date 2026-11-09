@@ -103,7 +103,7 @@ hidden settings (fixed issue texts, no alert values).
     and the Agents page counts them. Credentials belong in secrets: typed
     into settings they are hidden the same way but never checked. Admins
     should keep guessable passwords and identifiers out of the hidden
-    settings of flows agents may deploy or read the runs of.
+    settings of flows whose runs agents may read.
 - Open, undecided (action item 3): the same comparison reaches agents
   outside that decision, at every `agent_deploy` level (`off` included)
   and without `author`:

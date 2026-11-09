@@ -422,18 +422,17 @@ Shared by REST and MCP (thin adapters):
   (`Tools.Call` above, with its residual). The views keep comparing
   because stored flows and real runs hold real secret values that only
   comparison catches (resolved references, variables, `$env`, node
-  outputs). The residual is mitigated
-  by warnings: `GET /api/secrets` answers `{secrets: [{name, short}],
-  shortBelow}`, `short` for a value of fewer than
-  `secrets.ShortValueRunes` (16) runes, never a value or a length; the
-  editor's secrets dialog marks short secrets (and a short value as it is
-  typed, in a live region) with an icon and words and asks for random
-  values, and the Agents page explains the residual at every level, says
-  what `low` and `all` add, and counts the short secrets (read with the
-  page, not polled). Nothing checks credentials typed into `Sensitive`
-  settings, which belong in secrets, or hidden settings, which should
-  hold no guessable passwords or identifiers in flows agents may deploy
-  or read the runs of.
+  outputs). The residual is mitigated by warnings: `GET /api/secrets`
+  answers `{secrets: [{name, short}], shortBelow}`, `short` for a value
+  of fewer than `secrets.ShortValueRunes` (16) runes, never a value or a
+  length; the editor's secrets dialog marks short secrets (and a short
+  value as it is typed, in a live region) with an icon and words and asks
+  for random values, and the Agents page explains the residual at every
+  level, says what `low` and `all` add, and counts the short secrets
+  (read with the page, not polled). Nothing checks credentials typed into
+  `Sensitive` settings, which belong in secrets, or hidden settings,
+  which should hold no guessable passwords or identifiers in flows whose
+  runs agents may read.
 - Drafts/dry-run (phase 3), deploy policy (agent deploy).
 - REST twin: `POST /api/flows/{id}/call/{nodeId}` (editor "Test tool").
 
