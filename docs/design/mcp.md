@@ -104,6 +104,11 @@ func RegenerateCA(dir string) error
   hostname, `hostname.local`, current interface IPs (re-read lazily), and any
   IP-literal Host (rebinding needs a hostname). Port stripped, case-insensitive.
   403 on mismatch. Compose files set `PIWORKER_ALLOWED_HOSTS`.
+- CORS fails closed (ADR-0004): only the `cors_origins` entries get
+  cross-origin, credentialed access (and pass the request guard's and
+  `/mcp`'s Origin checks); the default is empty, since the editor is
+  same-origin (the Vite dev proxy keeps the browser's Host, so it is too),
+  and an empty list never means `*`.
 - What anyone who can connect can make the server keep or write is bounded:
   both listeners cap the request line and headers at 64 KiB (431 above;
   Go's default is 1 MiB); the HTTP metrics label methods with a fixed set

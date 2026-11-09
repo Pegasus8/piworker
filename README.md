@@ -231,7 +231,9 @@ bun run dev
 # UI running at http://localhost:3000
 ```
 
-Open http://localhost:3000 - the frontend proxies API calls to the backend.
+Open http://localhost:3000 - the frontend proxies API calls to the backend,
+keeping the browser's Host, so the API treats the editor as same-origin and
+needs no `cors_origins` entry.
 
 ### Docker Development
 
@@ -620,7 +622,7 @@ webhooks_http = true    # serve /webhooks/ over plain HTTP on http_addr
 db = "piworker.db"
 auth = true
 session_secure = false  # only for tls.mode = "off" behind an HTTPS proxy
-cors_origins = ["http://localhost:3000", "http://localhost:8080"]
+cors_origins = []       # other origins allowed cross-origin access; empty: none
 allowed_hosts = []      # extra Host names, see "Host names" below
 
 [tls]
@@ -795,7 +797,7 @@ export PIWORKER_DB=/var/lib/piworker/data.db
 export PIWORKER_DEBUG=true
 export PIWORKER_AUTH=true
 export PIWORKER_SESSION_SECURE=false # true only with TLS off behind an HTTPS proxy
-export PIWORKER_CORS_ORIGINS=http://localhost:3000,http://localhost:8080
+export PIWORKER_CORS_ORIGINS=https://dashboard.example  # empty: no other origin
 export PIWORKER_ALLOWED_HOSTS=piworker.example.com,backend
 export PIWORKER_ADMIN_USER=admin
 export PIWORKER_ADMIN_PASS=...
@@ -818,6 +820,9 @@ they require a signed-in session.
 Write requests to `/api/` must come from the editor
 even when authentication is disabled: they need the `X-PiWorker-Request: 1`
 header, a same-origin or `cors_origins` Origin, and a JSON body.
+`cors_origins` is empty by default: the editor is served from the same origin
+and needs no CORS. Only the origins it lists get cross-origin (credentialed)
+access; an empty list allows no other origin, never any origin.
 
 ### Host names (DNS rebinding protection)
 
@@ -835,10 +840,11 @@ every 30 seconds. Add any other name you use (a DNS name, a reverse proxy's
 name, the Docker host's name) with `allowed_hosts` in the TOML file,
 `PIWORKER_ALLOWED_HOSTS` (comma-separated) or `-allowed-hosts`. Webhooks
 (`/webhooks/`) and the CA certificate download (`/piworker-ca.crt`) accept any
-name, because external devices call them. The Compose files set
-`PIWORKER_ALLOWED_HOSTS` (`backend` for the Vite proxy in development;
-`raspberrypi,raspberrypi.local` by default in production, override it with
-your host's name).
+name, because external devices call them. The production Compose file sets
+`PIWORKER_ALLOWED_HOSTS` (`raspberrypi,raspberrypi.local` by default, override
+it with your host's name). In development the Vite proxy passes on the Host the
+browser used, so the API sees the editor as same-origin; list any name other
+than localhost or an address you open the dev server by.
 
 ### Sessions and account recovery
 

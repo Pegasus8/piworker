@@ -58,7 +58,7 @@ var (
 	dbPath         = flag.String("db", "piworker.db", "SQLite database path")
 	debug          = flag.Bool("debug", false, "Enable debug logging")
 	authEnabled    = flag.Bool("auth", true, "Enable session authentication (env: PIWORKER_AUTH)")
-	allowedOrigins = flag.String("cors-origins", "http://localhost:3000,http://localhost:8080", "Comma-separated list of allowed CORS origins")
+	allowedOrigins = flag.String("cors-origins", "", "Comma-separated origins allowed cross-origin, credentialed access, e.g. http://localhost:3000 for the Vite dev server; empty allows none (env: PIWORKER_CORS_ORIGINS)")
 	allowedHosts   = flag.String("allowed-hosts", "", "Comma-separated extra Host names accepted besides localhost, the hostname, hostname.local and IPs (env: PIWORKER_ALLOWED_HOSTS)")
 	adminUser      = flag.String("admin-user", "", "Default admin username (env: PIWORKER_ADMIN_USER)")
 	adminPass      = flag.String("admin-pass", "", "Default admin password (env: PIWORKER_ADMIN_PASS)")
@@ -594,8 +594,11 @@ func setupLogging(debugMode bool) {
 	zerolog.DefaultContextLogger = &log.Logger
 }
 
-// makeCorsMiddleware creates a CORS middleware with the given allowed origins.
-// If no origins are provided, it defaults to allowing any origin (not recommended for production).
+// makeCorsMiddleware creates a CORS middleware that grants cross-origin,
+// credentialed access to the allowed origins only, echoing the request's
+// origin. It fails closed (ADR-0004): no origins means no cross-origin
+// access, never "*" (an empty cors_origins once let any web page read the
+// API of a Pi with authentication off).
 func makeCorsMiddleware(allowedOrigins []string) mux.MiddlewareFunc {
 	// Create a set for fast lookup
 	originSet := make(map[string]bool)
@@ -607,23 +610,10 @@ func makeCorsMiddleware(allowedOrigins []string) mux.MiddlewareFunc {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
 
-			// Decide the allowed origin. With no allowlist we fall back to "*"
-			// (development mode); otherwise we echo a specific allowlisted origin.
-			allowOrigin := ""
-			if len(allowedOrigins) == 0 {
-				allowOrigin = "*"
-			} else if originSet[origin] {
-				allowOrigin = origin
+			if origin != "" && originSet[origin] {
 				w.Header().Set("Vary", "Origin")
-			}
-
-			if allowOrigin != "" {
-				w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
-				// Credentials may ONLY be combined with a specific origin, never
-				// with the "*" wildcard (the classic CORS misconfiguration).
-				if allowOrigin != "*" {
-					w.Header().Set("Access-Control-Allow-Credentials", "true")
-				}
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
 
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")

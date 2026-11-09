@@ -34,8 +34,11 @@ auth = true
 # cookies Secure; it does not enable TLS. Forwarded headers are not trusted.
 session_secure = false
 
-# Allowed CORS origins (credentials are only sent for specific allowlisted origins).
-cors_origins = ["http://localhost:3000", "http://localhost:8080"]
+# Other origins (scheme://host:port) allowed cross-origin, credentialed access
+# to the API, e.g. ["https://dashboard.example"]. The editor is served from the
+# same origin and needs none, nor does the Vite dev server's proxy. Empty (the
+# default) allows no other origin; it never means "any".
+cors_origins = []
 
 # Extra host names accepted in the Host header of /api, /mcp and the web UI
 # (protects against DNS rebinding). localhost, this machine's hostname,
