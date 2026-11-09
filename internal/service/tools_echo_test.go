@@ -116,21 +116,27 @@ func echoConfig(over map[string]any) map[string]any {
 	return cfg
 }
 
-// guesses are arguments carrying a secret's value (or not) in every form
-// the redactor matches.
-func guesses() []map[string]any {
-	return []map[string]any{
-		{"text": "1111"},
-		{"text": "4820"},
-		{"text": doorPin},
-		{"text": "4819 4820 " + doorPin + " 4822"},
-		{"n": float64(4820)},
-		{"n": float64(4821)},
-		{"text": "value: " + canary},
-		{"text": url.QueryEscape(canary)},
-		{"text": url.PathEscape(canary)},
-		{"text": base64.StdEncoding.EncodeToString([]byte(canary))},
-		{"text": base64.URLEncoding.EncodeToString([]byte("user:" + canary))},
+// echoCase is an argument and whether it carries a secret's value.
+type echoCase struct {
+	args   map[string]any
+	secret bool
+}
+
+// echoCases carry a secret's value (or not) in every form the redactor
+// matches.
+func echoCases() []echoCase {
+	return []echoCase{
+		{map[string]any{"text": "1111"}, false},
+		{map[string]any{"text": "4820"}, false},
+		{map[string]any{"text": doorPin}, true},
+		{map[string]any{"text": "4819 4820 " + doorPin + " 4822"}, true},
+		{map[string]any{"n": float64(4820)}, false},
+		{map[string]any{"n": float64(4821)}, true},
+		{map[string]any{"text": "value: " + canary}, true},
+		{map[string]any{"text": url.QueryEscape(canary)}, true},
+		{map[string]any{"text": url.PathEscape(canary)}, true},
+		{map[string]any{"text": base64.StdEncoding.EncodeToString([]byte(canary))}, true},
+		{map[string]any{"text": base64.URLEncoding.EncodeToString([]byte("user:" + canary))}, true},
 	}
 }
 
@@ -141,48 +147,59 @@ func jsonOf(t *testing.T, v any) string {
 	return string(data)
 }
 
-// What an agent sends comes back as it sent it, even when it equals a
-// secret's value in any form the redactor matches: otherwise an echoing
-// tool would confirm guesses of a PIN, one call (or many guesses per call)
-// at a time (ADR-0021).
-func TestAgentEchoNeverConfirmsASecret(t *testing.T) {
+// A tool result is redacted of every known secret whoever sent it, the
+// agent included: leaving out what an agent sent would show a secret the
+// flow outputs of its own to an agent that sends candidates
+// (TestToolResultsNeverDependOnTheArgumentsSent). What this leaves open, and
+// what this test pins so the docs stay true: a granted tool that repeats its
+// arguments shows an agent with only the call scope whether a guess comes
+// back as "<redacted>", many guesses per call (ADR-0021, action item 3;
+// docs/design/mcp.md §6). The Secrets dialog marks the short values this
+// makes guessable.
+func TestEchoingToolRedactsWhatTheAgentSent(t *testing.T) {
 	e := newEnv(t)
 	require.NoError(t, e.secrets.Set("door_pin", doorPin))
 	require.NoError(t, e.secrets.Set("api_key", canary))
 	info := e.deploy(fan(echoConfig(nil), echo()))
 	agent := e.agent(storage.NewAPIToken{Grants: grant(info)})
 
-	for _, args := range guesses() {
-		res, err := e.call(agent, info, args)
+	for _, c := range echoCases() {
+		res, err := e.call(agent, info, c.args)
 		require.NoError(t, err)
 		e.waitIdle(info)
 		require.Equal(t, flow.CallStatusCompleted, res.Status, "%+v", res)
-		assert.JSONEq(t, jsonOf(t, args), string(res.Result), "%v", args)
+		if c.secret {
+			assert.Contains(t, string(res.Result), redactedMark, "%v", c.args)
+			assert.NotContains(t, string(res.Result), doorPin, "%v", c.args)
+			assert.NotContains(t, string(res.Result), canary, "%v", c.args)
+		} else {
+			assert.JSONEq(t, jsonOf(t, c.args), string(res.Result), "%v", c.args)
+		}
 
 		got, err := e.tools.Result(context.Background(), agent, res.RunID)
 		require.NoError(t, err)
-		assert.JSONEq(t, jsonOf(t, args), string(got.Result), "%v", args)
+		assert.Equal(t, string(res.Result), string(got.Result), "%v", c.args)
 	}
 }
 
-// An error that quotes the agent's argument is not an oracle either.
-func TestAgentErrorEchoNeverConfirmsASecret(t *testing.T) {
+// An error that quotes the agent's argument is redacted the same way.
+func TestErrorEchoRedactsWhatTheAgentSent(t *testing.T) {
 	e := newEnv(t)
 	require.NoError(t, e.secrets.Set("door_pin", doorPin))
 	info := e.deploy(fan(echoConfig(nil), step{id: "fail", typ: echoFailNodeType, config: map[string]any{"message": "jammed: "}}))
 	agent := e.agent(storage.NewAPIToken{Grants: grant(info)})
 
-	for _, guess := range []string{"4820", doorPin} {
+	for guess, want := range map[string]string{"4820": "jammed: 4820", doorPin: "jammed: <redacted>"} {
 		res, err := e.call(agent, info, map[string]any{"text": guess})
 		require.NoError(t, err)
 		e.waitIdle(info)
 		require.NotNil(t, res.Error, "%+v", res)
-		assert.Equal(t, "jammed: "+guess, res.Error.Message)
+		assert.Equal(t, want, res.Error.Message)
 	}
 }
 
-// An approved confirm:admin call follows the same rule.
-func TestApprovedEchoNeverConfirmsASecret(t *testing.T) {
+// So is the result stored on an approved confirm:admin call.
+func TestApprovedEchoRedactsWhatTheAgentSent(t *testing.T) {
 	e := newEnv(t)
 	require.NoError(t, e.secrets.Set("door_pin", doorPin))
 	info := e.deploy(fan(echoConfig(map[string]any{"confirm": "admin"}), echo()))
@@ -198,15 +215,13 @@ func TestApprovedEchoNeverConfirmsASecret(t *testing.T) {
 
 	got, err := e.tools.Result(context.Background(), agent, res.RunID)
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"text":"`+doorPin+`"}`, string(got.Result))
+	assert.JSONEq(t, `{"text":"<redacted>"}`, string(got.Result))
 }
 
-// What the flow outputs of its own (here a value equal to a secret) is still
-// redacted for agents, in results and in errors, unless the agent sent that
-// secret's value itself: then it already holds it. That residual (a flow
-// that both echoes the argument and outputs the same secret, or derives a
-// secret's value from the arguments) is documented in docs/design/mcp.md §6.
-func TestAgentResultsStillRedactWhatTheFlowOutputs(t *testing.T) {
+// What the flow outputs of its own (here a value equal to a secret) is
+// redacted for agents, in results and in errors, also when the agent sent
+// that secret's value itself, and for the editor.
+func TestAgentResultsRedactWhatTheFlowOutputs(t *testing.T) {
 	e := newEnv(t)
 	require.NoError(t, e.secrets.Set("door_pin", doorPin))
 	f := chain(echoConfig(nil), step{id: "emit", typ: emitNodeType, config: map[string]any{"value": "pin " + doorPin}}, echo())
@@ -225,13 +240,11 @@ func TestAgentResultsStillRedactWhatTheFlowOutputs(t *testing.T) {
 	require.NotNil(t, res.Error)
 	assert.Equal(t, "pin <redacted> rejected for hello", res.Error.Message)
 
-	// The residual: the agent sent the value, so it is not redacted.
 	res, err = e.call(agent, info, map[string]any{"text": doorPin})
 	require.NoError(t, err)
 	e.waitIdle(info)
-	assert.JSONEq(t, `{"text":"`+doorPin+`","emitted":"pin `+doorPin+`"}`, string(res.Result))
+	assert.JSONEq(t, `{"text":"<redacted>","emitted":"pin <redacted>"}`, string(res.Result))
 
-	// The editor (the admin) still gets every secret redacted.
 	res, err = e.call(EditorActor(), info, map[string]any{"text": doorPin})
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"text":"<redacted>","emitted":"pin <redacted>"}`, string(res.Result))

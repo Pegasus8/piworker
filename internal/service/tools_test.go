@@ -670,11 +670,8 @@ func TestRefusedStartDoesNotStartTheCooldown(t *testing.T) {
 	assert.Equal(t, flow.CallStatusCompleted, res.Status)
 }
 
-// The editor's results are redacted of every known secret, in every form.
-// An agent's are not redacted of what it sent itself (it gets its text back
-// unchanged, so a result never confirms a guess: ADR-0021,
-// TestAgentEchoNeverConfirmsASecret); what the flow outputs of its own is
-// (TestAgentResultsStillRedactWhatTheFlowOutputs).
+// Results are redacted of every known secret, in every form, for the editor
+// and agents alike (TestToolResultsNeverDependOnTheArgumentsSent).
 func TestRedactionCanaries(t *testing.T) {
 	e := newEnv(t)
 	require.NoError(t, e.secrets.Set("api_key", canary))
@@ -696,7 +693,8 @@ func TestRedactionCanaries(t *testing.T) {
 		res, err = e.call(agent, info, map[string]any{"text": "value: " + leak})
 		require.NoError(t, err, name)
 		e.waitIdle(info)
-		assert.JSONEq(t, jsonOf(t, map[string]any{"text": "value: " + leak}), string(res.Result), "agent: %s", name)
+		assert.NotContains(t, string(res.Result), leak, "agent: %s", name)
+		assert.Contains(t, string(res.Result), redactedMark, "agent: %s", name)
 	}
 
 	// A node error carrying the secret (and a credential-bearing URL).

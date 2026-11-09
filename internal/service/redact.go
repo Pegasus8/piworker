@@ -49,7 +49,10 @@ func newSecretRedactor(src SecretSource) secretRedactor {
 		if !ok || len(v) < minSecretLength {
 			continue
 		}
-		for _, p := range matchedForms(v) {
+		add(v)
+		add(url.QueryEscape(v))
+		add(url.PathEscape(v))
+		for _, p := range base64Forms(v) {
 			add(p)
 		}
 	}
@@ -64,94 +67,6 @@ func newSecretRedactor(src SecretSource) secretRedactor {
 		pairs = append(pairs, p, redactedMark)
 	}
 	return secretRedactor{r: strings.NewReplacer(pairs...)}
-}
-
-// matchedForms returns the forms of a secret value v the redactor matches
-// (those shorter than minSecretLength are not matched): literal,
-// URL-encoded (query and path) and base64 (base64Forms).
-func matchedForms(v string) []string {
-	return append([]string{v, url.QueryEscape(v), url.PathEscape(v)}, base64Forms(v)...)
-}
-
-// unsentSecrets is src without the secrets an agent sent itself: those of
-// which a form the redactor matches (matchedForms) appears in one of sent
-// (the strings, object keys and numbers of its arguments, sentTexts). An
-// agent's tool results are redacted with it, so what it sent comes back as
-// it sent it, and whether a result shows "<redacted>" never confirms a
-// guess (ADR-0021): a right guess and a wrong one are echoed alike, and a
-// secret the flow outputs of its own is still redacted unless the agent
-// sent its value.
-func unsentSecrets(src SecretSource, sent []string) SecretSource {
-	if src == nil {
-		return nil
-	}
-	var out valueList
-	for _, name := range src.Names() {
-		v, ok := src.Get(name)
-		if !ok || len(v) < minSecretLength {
-			continue
-		}
-		if !sentAny(matchedForms(v), sent) {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
-// sentAny reports whether a form (of at least minSecretLength bytes)
-// appears in one of sent.
-func sentAny(forms, sent []string) bool {
-	for _, f := range forms {
-		if len(f) < minSecretLength {
-			continue
-		}
-		for _, s := range sent {
-			if strings.Contains(s, f) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// sentTexts lists the texts of an agent's arguments as a result can repeat
-// them: every string, object key and number (in its JSON form, which is
-// what a reply shows), at any depth.
-func sentTexts(args map[string]any) []string {
-	if len(args) == 0 {
-		return nil
-	}
-	data, err := marshalNoEscape(args)
-	if err != nil {
-		return nil
-	}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber()
-	var v any
-	if err := dec.Decode(&v); err != nil {
-		return nil
-	}
-	var out []string
-	var walk func(any)
-	walk = func(v any) {
-		switch x := v.(type) {
-		case string:
-			out = append(out, x)
-		case json.Number:
-			out = append(out, x.String())
-		case []any:
-			for _, e := range x {
-				walk(e)
-			}
-		case map[string]any:
-			for k, e := range x {
-				out = append(out, k)
-				walk(e)
-			}
-		}
-	}
-	walk(v)
-	return out
 }
 
 // base64Forms returns, for each alphabet and each of the three byte
