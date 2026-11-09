@@ -746,9 +746,11 @@ Database's DSN, and the username/password fields of Email, MQTT Publish and MQTT
 Subscribe. These references resolve when the node uses them (every Telegram
 message, Notify request and e-mail; the first Database query and the MQTT
 connection), so a rotated secret applies without a redeploy, except to a
-Database or MQTT connection that is already open. A missing secret fails the
-Telegram, Notify or Database node; in the optional Email and MQTT credentials
-it resolves to an empty string.
+Database or MQTT connection that is already open. A flow whose Telegram bot
+token, Notify URL or Database DSN names a secret that does not exist is refused
+at deploy (and such a node fails if the secret is deleted later); in the
+optional Email and MQTT credentials a missing secret resolves to an empty
+string.
 
 Two places have further rules:
 
