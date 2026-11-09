@@ -42,7 +42,9 @@ const (
 	// adding it, disabling one as removing it).
 	AlertDestinationChanged = "destination_changed"
 	// AlertDynamicDestination: a new or changed Destination value holds a
-	// template other than {{secret.NAME}} references.
+	// template other than {{secret.NAME}} references; or such an approved
+	// value's node runs with something upstream of it changed (what feeds
+	// it decides where it sends).
 	AlertDynamicDestination = "dynamic_destination"
 	// AlertNewHost: a host in a URL or host Destination value appears
 	// nowhere in the base's (enabled nodes).
@@ -597,6 +599,7 @@ func diffAlerts(report DiffReport, next *Flow, baseByKey, nextByKey map[string]*
 	alertedHosts := map[string]bool{}
 	alertedSecrets := map[string]bool{}
 	credAlerted := map[string]bool{} // node keys with a credentialed_request_changed alert
+	dynAlerted := map[string]bool{}  // node keys with a dynamic_destination alert
 	for _, d := range nextOrder {
 		b := paired[d.key]
 		if d.n.Enabled && instanceRisk(d.n, reg) == node.RiskPrivileged &&
@@ -646,6 +649,7 @@ func diffAlerts(report DiffReport, next *Flow, baseByKey, nextByKey map[string]*
 			}
 			if declared && p.Destination {
 				if changed && hasDynamicTemplate(nv) {
+					dynAlerted[d.key] = true
 					add(d.order, values(Alert{Kind: AlertDynamicDestination, NodeID: d.n.ID, Path: path,
 						Message: fmt.Sprintf("node %s (%s) takes its destination (%s) from message data or variables", d.n.ID, d.n.Type, key)}, false, true))
 				}
@@ -713,9 +717,11 @@ func diffAlerts(report DiffReport, next *Flow, baseByKey, nextByKey map[string]*
 	}
 
 	// So do changes upstream of it, and what its response returns to an
-	// agent; global variables are shared state (diff_vars.go).
+	// agent; a destination taking message data goes where what feeds it
+	// says; global variables are shared state (diff_vars.go).
 	g := newVarGraph(next, paired, nextOrder, report.Connections.Added)
 	credentialedFlowAlerts(g, nextOrder, credAlerted, add)
+	dynamicDestinationAlerts(g, nextOrder, dynAlerted, add)
 	globalVariableAlerts(g, nextOrder, add)
 
 	sort.SliceStable(list, func(i, j int) bool {

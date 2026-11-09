@@ -44,6 +44,28 @@ func mqttDoorFlow() *flow.Flow {
 	return f
 }
 
+// Audit finding F9: the admin approved a publish whose topic takes the
+// device from the message, with the broker password. A transform inserted
+// upstream steers it to any device (a lock) with the admin's credentials;
+// the low level refuses that as it refuses rewriting the topic.
+func TestLowDeployRefusesSteeringADynamicDestination(t *testing.T) {
+	e := newAuthEnv(t)
+	require.NoError(t, e.secrets.Set("mqtt_pw", "broker-password"))
+	f := flow.NewFlow("lights")
+	addNode(f, "start", "trigger-manual", nil)
+	addNode(f, "pub", "action-mqtt", map[string]any{"broker": "tcp://192.168.1.10:1883",
+		"topic": "zigbee2mqtt/{{payload.device}}/set", "payload": "{{payload.cmd}}", "password": "{{secret.mqtt_pw}}"})
+	connect(f, "start", "pub")
+	base := e.create(f)
+	e.lowRefusal(base, []flow.Op{
+		{Op: flow.OpAddNode, Node: &flow.OpNode{ID: "inject", Type: "process-transform",
+			Config: map[string]any{"expression": `{device: "front_door_lock", cmd: "UNLOCK"}`}}},
+		{Op: flow.OpDisconnect, SourceNode: "start", SourcePort: "output", TargetNode: "pub", TargetPort: "input"},
+		{Op: flow.OpConnect, SourceNode: "start", SourcePort: "output", TargetNode: "inject", TargetPort: "input"},
+		{Op: flow.OpConnect, SourceNode: "inject", SourcePort: "output", TargetNode: "pub", TargetPort: "input"},
+	}, flow.AlertDynamicDestination)
+}
+
 // Audit finding F8: an MQTT subscriber removed and added again under the
 // same ID as a retained publisher, with the same broker, topic and
 // password, publishes forged state with the admin's credentials where the

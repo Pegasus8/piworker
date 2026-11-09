@@ -927,7 +927,13 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   `privileged_node_added` (an enabled node is privileged where the base had
   no enabled privileged node with its ID), `destination_changed` (also on
   added and removed nodes), `dynamic_destination` (a new or changed
-  Destination value with a template other than secret references),
+  Destination value with a template other than secret references; also, on
+  a running node that ran in the base with such a value — a topic
+  `zigbee2mqtt/{{payload.device}}/set`, a URL path — when anything
+  upstream of it changed, as for `credentialed_request_changed` below: where
+  it sends follows what feeds it, credentials or not; one alert per node,
+  at its first such property; message content on a fixed destination is
+  not a destination),
   `new_host` (the host of a URL or host Destination value that the base
   never uses; only the host is shown), `secret_added`, `secret_moved` (a
   secret the base uses, referenced at a new node and property),
