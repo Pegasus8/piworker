@@ -421,3 +421,88 @@ func TestConcurrentVerifyAndRevoke(t *testing.T) {
 		}
 	}
 }
+
+// Epoch reports the tokens epoch the verifier last read, so caches built
+// from verified tokens (the per-token MCP servers) notice changes that do not
+// show in a token's own info, such as the agent deploy level.
+func TestEpochReportsTheLastReadEpoch(t *testing.T) {
+	v, cs, clock := newVerifier(t)
+	_, raw := createToken(t, cs.SQLiteStore, storage.NewAPIToken{})
+	_, err := v.Verify(raw)
+	require.NoError(t, err)
+	before := v.Epoch()
+	want, err := cs.TokensEpoch()
+	require.NoError(t, err)
+	assert.Equal(t, want, before)
+
+	require.NoError(t, cs.SetAgentDeployLevel(storage.AgentDeployLow)) // bumps the epoch
+	_, err = v.Verify(raw)
+	require.NoError(t, err)
+	assert.Equal(t, before, v.Epoch(), "re-read only after the interval")
+	clock.Advance(DefaultEpochInterval)
+	_, err = v.Verify(raw)
+	require.NoError(t, err)
+	assert.Greater(t, v.Epoch(), before)
+}
+
+// VerifyCached answers from the cache only: a token not cached, or not
+// matching the cached secret, is a miss without any store access, so a
+// caller may use it for clients it limits for failed lookups. A cached
+// token still follows revocations: the epoch is re-read when due (at most
+// once per interval, only for a cached token) and evictions apply.
+func TestVerifyCached(t *testing.T) {
+	v, cs, clock := newVerifier(t)
+	tok, raw := createToken(t, cs.SQLiteStore, storage.NewAPIToken{Name: "desk"})
+	_, other := createToken(t, cs.SQLiteStore, storage.NewAPIToken{})
+
+	for _, r := range []string{raw, "garbage", "pwk_" + tok.ID + "_" + strings.Repeat("a", 52)} {
+		_, ok, err := v.VerifyCached(r)
+		require.NoError(t, err)
+		assert.False(t, ok, r)
+	}
+	assert.Zero(t, cs.gets.Load()+cs.epochs.Load()+cs.touches.Load(), "a miss reads nothing")
+
+	want, err := v.Verify(raw)
+	require.NoError(t, err)
+	gets, epochs := cs.gets.Load(), cs.epochs.Load()
+	info, ok, err := v.VerifyCached(raw)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, want, info)
+	_, ok, err = v.VerifyCached("pwk_" + tok.ID + "_" + strings.Repeat("a", 52))
+	require.NoError(t, err)
+	assert.False(t, ok, "another secret for a cached id")
+	assert.Equal(t, gets, cs.gets.Load(), "never looks a token up")
+	assert.Equal(t, epochs, cs.epochs.Load(), "the epoch is not due yet")
+
+	// A revocation by another process shows once the epoch is due.
+	_, err = v.Verify(other)
+	require.NoError(t, err)
+	require.NoError(t, cs.SQLiteStore.RevokeAPIToken(tok.ID, t0))
+	clock.Advance(DefaultEpochInterval)
+	_, ok, err = v.VerifyCached(raw)
+	require.NoError(t, err)
+	assert.False(t, ok, "the epoch moved: the cache was cleared")
+	assert.Equal(t, epochs+1, cs.epochs.Load())
+	assert.Equal(t, gets+1, cs.gets.Load(), "only Verify(other) looked a token up")
+
+	// Without the epoch it fails closed.
+	_, err = v.Verify(other)
+	require.NoError(t, err)
+	clock.Advance(DefaultEpochInterval)
+	cs.failEpoch = errors.New("disk on fire")
+	_, ok, err = v.VerifyCached(other)
+	require.Error(t, err)
+	assert.False(t, ok)
+	cs.failEpoch = nil
+
+	// Evicted and expired tokens are misses.
+	_, err = v.Verify(other)
+	require.NoError(t, err)
+	_, ok, _ = v.VerifyCached(other)
+	require.True(t, ok)
+	clock.Advance(storage.DefaultAPITokenLifetime)
+	_, ok, err = v.VerifyCached(other)
+	require.NoError(t, err)
+	assert.False(t, ok, "expired")
+}

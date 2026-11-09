@@ -18,6 +18,7 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/api"
 	"github.com/Pegasus8/piworker/internal/config"
+	"github.com/Pegasus8/piworker/internal/mcpserver"
 	"github.com/Pegasus8/piworker/internal/tlsca"
 	"github.com/Pegasus8/piworker/internal/webhook"
 	"github.com/gorilla/mux"
@@ -161,8 +162,10 @@ func (s *serverSet) all() []*http.Server {
 
 // redirectHandler answers the plain-HTTP listener: everything is
 // 308-redirected to HTTPS (keeping method and body), except the CA download,
-// GET/HEAD /api/health (so health checks need no CA) and, when webhooksHTTP is
-// set, webhooks.
+// GET/HEAD /api/health (so health checks need no CA), webhooks when
+// webhooksHTTP is set, and /mcp, which is refused with the HTTPS URL so an
+// agent configured with http:// does not keep sending its token in clear
+// text through the redirect.
 func redirectHandler(httpsPort string, app http.Handler, webhooksHTTP bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// The router may clean dot segments, so decide on the cleaned path.
@@ -184,6 +187,10 @@ func redirectHandler(httpsPort string, app http.Handler, webhooksHTTP bool) http
 		authority := net.JoinHostPort(host, httpsPort)
 		if httpsPort == "443" {
 			authority = strings.TrimSuffix(net.JoinHostPort(host, "0"), ":0")
+		}
+		if clean == mcpserver.Path || strings.HasPrefix(clean, mcpserver.Path+"/") {
+			mcpserver.RefusePlainHTTP(w, r, "https://"+authority+mcpserver.Path, log.Logger)
+			return
 		}
 		http.Redirect(w, r, "https://"+authority+r.URL.RequestURI(), http.StatusPermanentRedirect)
 	})

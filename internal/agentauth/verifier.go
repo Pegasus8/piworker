@@ -152,30 +152,13 @@ func (v *TokenVerifier) Verify(raw string) (TokenInfo, error) {
 	}
 	sum := sha256.Sum256([]byte(secret))
 
-	v.mu.Lock()
-	if e := v.cache[id]; e != nil {
-		if subtle.ConstantTimeCompare(sum[:], e.secretHash[:]) != 1 {
-			v.mu.Unlock()
-			return TokenInfo{}, ErrInvalidToken
-		}
-		if !now.Before(e.info.ExpiresAt) {
-			delete(v.cache, id)
-			v.mu.Unlock()
-			return TokenInfo{}, ErrInvalidToken
-		}
-		info := e.info.clone()
-		touch := now.Sub(e.lastTouched) >= v.touchInterval
-		if touch {
-			e.lastTouched = now
-		}
-		v.mu.Unlock()
-		if touch {
-			v.touch(id, now)
-		}
+	info, found, gen := v.fromCache(id, sum, now)
+	switch found {
+	case cacheValid:
 		return info, nil
+	case cacheInvalid:
+		return TokenInfo{}, ErrInvalidToken
 	}
-	gen := v.gen
-	v.mu.Unlock()
 
 	tok, err := v.store.GetAPIToken(id)
 	if errors.Is(err, storage.ErrAPITokenNotFound) {
@@ -214,6 +197,73 @@ func (v *TokenVerifier) Verify(raw string) (TokenInfo, error) {
 		v.touch(id, now)
 	}
 	return entry.info.clone(), nil
+}
+
+// VerifyCached is Verify answered from the cache alone: ok is true only for
+// a cached token with this secret that is still valid. Anything else (a
+// token never verified, evicted or expired, another secret, a malformed
+// one) is a miss, with ok false and no store access, so callers may use it
+// for clients they limit for failed lookups. A cached token still follows
+// revocations: the tokens epoch is re-read when due, at most once per
+// interval across all callers (an error then is a store failure, not a
+// miss), and last_used_at is recorded as by Verify.
+func (v *TokenVerifier) VerifyCached(raw string) (info TokenInfo, ok bool, err error) {
+	id, secret, parsed := storage.ParseAPIToken(raw)
+	if !parsed {
+		return TokenInfo{}, false, nil
+	}
+	sum := sha256.Sum256([]byte(secret))
+	v.mu.Lock()
+	e := v.cache[id]
+	cached := e != nil && subtle.ConstantTimeCompare(sum[:], e.secretHash[:]) == 1
+	v.mu.Unlock()
+	if !cached {
+		return TokenInfo{}, false, nil
+	}
+	now := v.now()
+	if err := v.refreshEpoch(now); err != nil {
+		return TokenInfo{}, false, fmt.Errorf("agentauth: cannot check token revocations: %w", err)
+	}
+	info, found, _ := v.fromCache(id, sum, now)
+	return info, found == cacheValid, nil
+}
+
+// Outcomes of a cache lookup.
+const (
+	cacheMiss    = iota // not cached: look the token up
+	cacheValid          // cached and valid
+	cacheInvalid        // cached with another secret, or expired (evicted)
+)
+
+// fromCache looks a token up in the cache, recording its use when due. gen
+// is the cache generation a miss was read at.
+func (v *TokenVerifier) fromCache(id string, sum [sha256.Size]byte, now time.Time) (info TokenInfo, found int, gen uint64) {
+	v.mu.Lock()
+	e := v.cache[id]
+	if e == nil {
+		gen = v.gen
+		v.mu.Unlock()
+		return TokenInfo{}, cacheMiss, gen
+	}
+	if subtle.ConstantTimeCompare(sum[:], e.secretHash[:]) != 1 {
+		v.mu.Unlock()
+		return TokenInfo{}, cacheInvalid, 0
+	}
+	if !now.Before(e.info.ExpiresAt) {
+		delete(v.cache, id)
+		v.mu.Unlock()
+		return TokenInfo{}, cacheInvalid, 0
+	}
+	info = e.info.clone()
+	touch := now.Sub(e.lastTouched) >= v.touchInterval
+	if touch {
+		e.lastTouched = now
+	}
+	v.mu.Unlock()
+	if touch {
+		v.touch(id, now)
+	}
+	return info, cacheValid, 0
 }
 
 // refreshEpoch re-reads the tokens epoch when due and clears the cache when it
@@ -266,6 +316,16 @@ func (v *TokenVerifier) touch(id string, now time.Time) {
 	if err := v.store.TouchAPITokenLastUsed(id, now); err != nil {
 		v.log.Warn().Err(err).Str("tokenId", id).Msg("Cannot record agent token use")
 	}
+}
+
+// Epoch returns the tokens epoch as last read by Verify (0 before the first
+// read). It changes, at most one epoch interval late, after every revocation,
+// grant change or agent deploy level change made by any process, so callers
+// can key caches built from verified tokens on it.
+func (v *TokenVerifier) Epoch() int64 {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.epoch
 }
 
 // Evict drops one cached token, e.g. after its grants changed.

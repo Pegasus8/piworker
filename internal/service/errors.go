@@ -34,6 +34,8 @@ var (
 	// ErrUnavailable: the call cannot be served now (the flow stopped, or the
 	// service lacks what the call needs).
 	ErrUnavailable = errors.New("unavailable")
+	// ErrFlowNotFound: no stored flow with that ID (read views).
+	ErrFlowNotFound = errors.New("unknown flow")
 )
 
 // ToolError is a refused call.
@@ -58,7 +60,7 @@ func (e *ToolError) Unwrap() error { return e.Kind }
 
 // Code is a stable short name of the kind ("not_found", "forbidden",
 // "reconfirm_required", "invalid_arguments", "busy", "cooldown",
-// "run_not_found", "unavailable").
+// "run_not_found", "unavailable", "flow_not_found").
 func (e *ToolError) Code() string { return errorCode(e.Kind) }
 
 func errorCode(kind error) string {
@@ -79,6 +81,8 @@ func errorCode(kind error) string {
 		return "run_not_found"
 	case ErrUnavailable:
 		return "unavailable"
+	case ErrFlowNotFound:
+		return "flow_not_found"
 	}
 	return "failed"
 }

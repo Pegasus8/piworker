@@ -53,7 +53,9 @@ an MCP client node (`action-mcp-call`, deferred to its own design).
   - `http_addr` (default `:8080`, empty disables) serves plain HTTP that
     **308-redirects** everything to HTTPS, except `/webhooks/` (served directly
     when `webhooks_http = true`, the default, because many devices cannot trust
-    a custom CA), `/piworker-ca.crt` and GET/HEAD `/api/health`.
+    a custom CA), `/piworker-ca.crt` and GET/HEAD `/api/health`. `/mcp` there
+    is answered 400 with the HTTPS URL, never redirected: a client following
+    the redirect would keep sending its Bearer token in clear text.
 - `GET /piworker-ca.crt` (public, both listeners): the CA certificate (PEM body
   served as `application/x-x509-ca-cert`, so Firefox, iOS and Android offer
   their CA-import flow; 404 without a local CA). `GET /api/tls` (authenticated): mode, CA SHA-256
@@ -294,7 +296,57 @@ Shared by REST and MCP (thin adapters):
   `approval_required`), result size cap (`max_result_bytes`, `truncated`), redaction of known secret
   values (literal, URL-encoded, base64) and URLs (`urlWithoutSecrets`).
 - `Tools.Result(actor, runID)`: only the actor that started the run.
-- Read views (phase 2), drafts/dry-run (phase 3), deploy policy (agent deploy).
+- Read views (phase 2), `service.Reads`, for the editor and tokens with the
+  `read` scope (others: `forbidden`); JSON with camelCase fields, bounded
+  (each view's JSON at most 64 KiB besides the limits below), in a
+  deterministic order:
+  - `ListFlows`: the newest 200 flows that fit (`total`, `truncated`) with id, name,
+    state (`running`, `stopped`, or `failed`: meant to run but not running),
+    node count, tool names (at most 20, `toolCount`) and the latest run.
+  - `GetFlow`: nodes (id, type, type name, enabled, position, type risk,
+    config), connections and the running tools (risk, annotations,
+    fingerprint, confirm, timeout); at most 200 nodes, 400 connections and
+    100 tools, the structure first (nodes, connections, tools, each in
+    order while they fit), then the node configs in node order while they
+    fit (`configOmitted`; `truncated`). Config redaction is
+    default-deny: a property is shown only when its schema marks it
+    `AgentVisible` and not `Sensitive`; every other present value,
+    undeclared properties, every property of an unknown type, and whole
+    nested values under a hidden property become `"<redacted>"` (the
+    sentinel drafts read as "keep the base value", §10). A shown value is
+    cut to 8 KiB.
+  - `ListRuns(flowId, limit ≤ 100, before)` newest first (`nextBefore` is the
+    next page's cursor; a page that would exceed 64 KiB ends early) and
+    `GetRun(flowId, runId)`: status, actor
+    (`trigger`, `editor`, or `agent` with the token's name), timings,
+    counts, and the node events in order (node, type, phase, duration,
+    error ≤ 2 KiB, the run ≤ 64 KiB). `GetRun` reads a bounded part of a
+    run: its events 64 at a time until the budget is spent, each error cut
+    to 8 Ki characters in storage (a cut error also loses, after redaction,
+    as many bytes as the longest redacted form, so a secret straddling the
+    cut is never half shown), and the total from a count. The recorder stores no payloads, so
+    there are no payload previews; events never carry node config. A run is
+    read only through its own flow (`run_not_found`).
+  - `SystemStatus`: version, platform, uptime, running/total flows, tools,
+    `max_inflight`, `max_result_bytes`, the agent deploy level and, best
+    effort on Linux, free disk of the data directory, memory and CPU
+    temperature (omitted when unknown); no host names, addresses or paths.
+  - `DiagnoseFlowPrompt` / `DiagnoseFlow`: the `diagnose_flow` prompt text,
+    which points to the read tools and inlines only the flow's quoted ID and
+    name.
+  Known secret values (literal, URL-encoded, base64, JSON- or Go-escaped)
+  are redacted from every view, as are credentials typed literally into a
+  flow's `Sensitive` properties (in every view of that flow: its summary in
+  `ListFlows`, `GetFlow`, `ListRuns`, `GetRun` and the prompt). URLs in
+  recorded errors and flow names are cut after their host
+  (`scheme://host/<redacted>`): a credential may sit in the userinfo, the
+  query or the path (Telegram bot, Discord and Slack webhook URLs). Recorded
+  errors also lose what `GetFlow` hides of the run's flow: the values of its
+  hidden settings, split around `{{…}}` templates, whole, as words and as the
+  path segments, query values and userinfo of their URLs (parts under 8
+  bytes are kept, but a URL password of 4). An unknown flow is
+  `flow_not_found`.
+- Drafts/dry-run (phase 3), deploy policy (agent deploy).
 - REST twin: `POST /api/flows/{id}/call/{nodeId}` (editor "Test tool").
 
 ## 7. Tokens
@@ -340,29 +392,143 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 
 ## 8. `/mcp` endpoint — `internal/mcpserver`
 
-- SDK: `github.com/modelcontextprotocol/go-sdk` pinned exactly.
-  `mcp.NewStreamableHTTPHandler(getServer, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, DisableLocalhostProtection: true, MaxRequestBodyBytes: …, PropagateRequestCancellation: true})`.
-- Capabilities: tools and prompts with `listChanged: false`;
-  `subscriptions/listen` rejected; `cacheScope: private`, short `ttlMs`.
-- `getServer(r)` builds (and caches by token id + tools snapshot version +
-  token epoch) a per-token `*mcp.Server` with only permitted tools, inside
-  `recover()` so one bad tool is skipped.
+- SDK: `github.com/modelcontextprotocol/go-sdk` pinned exactly (v1.8.0).
+  `mcp.NewStreamableHTTPHandler(getServer, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, DisableLocalhostProtection: true, MaxRequestBodyBytes: 1 MiB, PropagateRequestCancellation: true})`
+  (1 MiB: arguments are at most 64 KiB in practice; the SDK default of 4 MiB
+  is too much for a Pi under a flood of bodies).
+- Protocol versions: 2026-07-28 (sessionless, `server/discover`),
+  2025-11-25 and 2025-06-18 (`initialize`); others are refused. The legacy
+  handshake asked for 2026-07-28 settles on 2025-11-25 (SDK behaviour). Every
+  request but `initialize` must carry `Mcp-Protocol-Version` (the SDK would
+  serve a request without it as 2025-03-26) and JSON-RPC batches are refused
+  (none of these versions allows them; a batch would also carry many calls
+  past the per-token rate limit): both 400, JSON-RPC `-32600`, before the
+  SDK sees the request.
+- Capabilities: tools and prompts with `listChanged: false` (always
+  advertised, even when empty); `subscriptions/listen` is answered with
+  JSON-RPC `-32601` before the SDK sees it; list and discover results carry
+  `cacheScope: private`, `ttlMs: 5000`.
+- `getServer(r)` builds a per-token `*mcp.Server` holding only what the token
+  may use now: the flow tools `service.Tools.List(actor)` returns (exactly
+  Call's permission rules, without suspending changed grants), plus the
+  built-in tools and prompts of its scopes. Each tool is built inside
+  `recover()` so one bad tool is skipped and logged; a skipped tool is not
+  listed and its calls are answered `not_found` without running it. Servers are cached by
+  (token id, tools snapshot version, tokens epoch, hash of the token's scopes,
+  flags and grants), one per token, at most 32 (least recently used dropped
+  first), so a redeploy, a grant change or an `agent_deploy` change shows on
+  the next request; a revoked token gets 401.
+- Flow tools use the low-level `Server.AddTool` with the canonical input
+  schema (`toolschema` `JSON()`), title, description, explicit annotations
+  (all four hints), the output schema when set and
+  `_meta["anthropic/requiresUserInteraction"]` when required. Arguments are
+  validated by `service.Tools.Call`, not by the SDK; arguments that are not a
+  JSON object (which the service cannot take) are refused by the endpoint as
+  `invalid_arguments` and counted in `mcp_rejections` like the service's own
+  refusals. Calls of names the server does not hold go to the service as
+  well, so a tool the token has no grant for (including a privileged tool
+  covered only by `all_tools`) gets exactly the `not_found` result (and
+  audit) of an unknown name. A hidden tool the token does hold a grant for
+  gets Call's answer instead: `reconfirm_required` while its fingerprint
+  differs from the grant's or the grant is suspended, `forbidden` when it is
+  privileged and the token lacks the `privileged` flag (the admin granted it
+  to that token, so its existence is no secret and the answer says what to
+  do). Names outside the tool-name syntax (1 to 128 of `[A-Za-z0-9_.-]`)
+  and tools the server could not build are answered `not_found` by the
+  endpoint itself (not audited), shortened.
+- Built-in tools register as `StaticTool{Name (pw_…), Title, Description,
+  InputSchema (closed toolschema subset), OutputSchema, Annotations, Scope,
+  Handler(ctx, service.Actor, args)}`; prompts as `StaticPrompt{Prompt, Scope,
+  Handler}`. Tool arguments are validated before the handler runs; a prompt
+  handler checks its own. A prompt's refusal (`*service.ToolError`) is
+  JSON-RPC `-32602` with its message, any other failure `-32603` without
+  details (logged).
+- Read tools (`mcpserver.ReadTools(*service.Reads)`, scope read; main wires
+  them): `pw_list_flows{}`, `pw_get_flow{flowId}`,
+  `pw_list_runs{flowId, limit?, before?}` (`limit` 1–100, default 20;
+  `before` is the previous page's `nextBefore`), `pw_get_run{flowId,
+  runId}` and `pw_system_status{}`. Ids are 1 to 256 characters without
+  control characters (`^[^\x00-\x1f\x7f-\x9f]{1,256}$`): PiWorker generates
+  UUIDs, but older versions let clients choose a flow's id (any text), the
+  views list ids up to 256 bytes, and an id only reaches parameterised
+  queries. Annotations: read-only,
+  idempotent, not destructive, closed world. Each result is the §6 view as
+  structured content plus its JSON as the text block; the output schemas
+  describe the views (open objects, every always-present field required,
+  no formats or type unions, kept in step with the Go types by a test).
+  The views' refusals are `isError` results (`flow_not_found`,
+  `run_not_found`; `forbidden` cannot occur, the tools are only served to
+  the read scope). The views are bounded by their own limits (§6: each
+  view's JSON is at most 64 KiB, so a result, which carries it twice, stays
+  within what clients accept from a tool), not by `max_result_bytes`, which
+  caps flow replies. Every read of an agent is audited like a tool call
+  (`service.Reads`, `ReadsOptions.Audit`): an `mcp_audit` row with the
+  token, the tool name (`prompt:diagnose_flow` for the prompt), the flow
+  and run it named, its arguments (secrets redacted), the outcome
+  (`completed`, `flow_not_found`, `run_not_found`, `forbidden`, `failed`)
+  and its duration; arguments refused by a built-in tool's schema are
+  counted in `mcp_rejections` (`invalid_arguments`). `pw_get_result` is not
+  audited again: it returns the result of a call of the same token, which
+  was.
+  Prompt `diagnose_flow{flowId}` (scope read, `mcpserver.ReadPrompts`): one
+  user message with the §6 text; a missing, malformed or extra argument and
+  an unknown flow are `-32602`.
 - Middleware (in order): loopback check when TLS is off and `lan_access` is
-  false → 403; Host allowlist; Origin must be allowlisted if present; write
-  deadline extended to 35 s; own Bearer verifier (401 +
-  `WWW-Authenticate: Bearer`, own failure limiter); per-token token bucket
-  (30/min, burst 10); scope check.
+  false → 403; Host allowlist (also router-wide); Origin, if present, must be
+  this server (scheme, host and port; both schemes without TLS) with an
+  allowed host, or an allowed origin (`cors_origins`) → 403; write deadline
+  extended to 35 s; own Bearer verifier (cookies and query tokens ignored;
+  401 + `WWW-Authenticate: Bearer realm="piworker"` and a JSON body; 503 when
+  the token store cannot be read; tokens never logged) with its own
+  per-client failure limiter (10 failures a minute per IP, IPv6 per /64, then
+  429 + `Retry-After`): every token lookup in the store reserves a unit of the
+  client's budget first and gives it back unless the token was bad, so
+  concurrent guesses cannot all pass; tokens the verifier already holds in its
+  cache (`VerifyCached`, no lookup) are served even while their client is
+  limited, so a client sharing the address cannot lock out known agents;
+  per-token token bucket (30/min, burst 10 → 429 +
+  `Retry-After`); scope check (call or read, or the scope of a registered
+  built-in tool or prompt; a `tools/call` needs the call scope → 403, unless
+  it names a built-in tool of a scope the token holds: to a token, a
+  built-in tool of a scope it lacks is an unknown name, neither listed nor
+  callable, and calling it gets the `not_found` result of any unknown name). The scope check parses the body strictly, like
+  the SDK (case-sensitive names; duplicate names → 400, JSON-RPC `-32700`).
+- `/mcp` is outside `/api`: the ADR-0002 request guard and CSRF do not apply
+  (Bearer only; the router never allows `Authorization` in a CORS preflight).
 - Mounted at `/mcp` without method restriction, before the webui catch-all;
-  `/.well-known/*` returns JSON 404. Disabled → JSON 404.
+  `/.well-known/*` returns JSON 404. Disabled → JSON 404. With TLS on, the
+  plain-HTTP listener answers `/mcp` with 400 and the HTTPS URL (no
+  redirect) and logs the token id, so the admin can revoke a token sent in
+  clear text.
 - `mcp.enabled = true` with auth disabled is a startup error.
-- Tools: dynamic tools + `pw_get_result` (call); `pw_list_flows`,
+- The MCP audit is pruned at start and hourly (30 days, at most 50 000 rows;
+  privileged calls are never evicted early).
+- Tools: dynamic tools + `pw_get_result{runId}` (call; waits up to 10 s for a
+  running call); `pw_list_flows`,
   `pw_get_flow`, `pw_list_runs`, `pw_get_run`, `pw_system_status`, prompt
   `diagnose_flow` (read); `pw_search_node_types`, `pw_get_node_type`,
   `pw_list_secret_names`, `pw_validate_flow`, `pw_test_node`, `pw_dry_run`,
   `pw_save_draft`, `pw_get_draft_status`, prompt `build_flow` (author);
   `pw_deploy_draft`, `pw_stop_flow`, `pw_start_flow` (deploy, policy-gated).
-- Tool errors are `isError: true` results; protocol errors only for protocol
-  problems. Validation errors list `{pointer, message}`.
+- Results: a completed call's structured content is its reply (wrapped as
+  `{"result": …}` unless it is a JSON object), with the JSON as a text block.
+  Every other outcome is an envelope `{status, runId, error?, message?,
+  durationMs?}` (`error`: `{code, message, issues?, retryAfterMs?, nodeId?,
+  nodeType?}`); `_meta` carries `piworker/status` and `piworker/runId`.
+  Tool errors are `isError: true` results (service refusals, flow errors,
+  rejected, expired, `approval_required`); protocol errors only for protocol
+  problems. An `isError` result carries its envelope as the text block only,
+  never as structured content: clients validate structured content against
+  the tool's output schema even on errors (the reference TypeScript SDK
+  turns a mismatch into a protocol error), also against a schema listed
+  before the tool was hidden or changed (e.g. `reconfirm_required` after a
+  redeploy), so the agent would never see the refusal. `pw_get_result` follows the same rule for a decided call, but
+  answers a call still pending (`running`, `approval_required`) as a
+  non-error result: fetching worked, and the agent is to ask again later.
+  A handler that panics is recovered: a tool call gets a `failed` result, any
+  other method JSON-RPC `-32603`. Validation errors list `{pointer, message}`. With an output
+  schema, outcomes that cannot match it are `isError` too, and a reply that
+  does not match it is reported as `output_schema_mismatch`.
 
 ## 9. Approvals (`confirm: admin`) and audit
 
@@ -385,7 +551,8 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   (`ErrTooManyPendingApprovals` → `busy`); tool-call arguments are deleted on
   expiry; decided approvals are kept 30 days.
 - Table `mcp_audit(ts, token_id, token_name, tool, flow_id, run_id,
-  args_sha256, args_preview, outcome, dur_ms)`; async batched writes; retention
+  args_sha256, args_preview, outcome, dur_ms)`, one row per agent tool call
+  and per agent read (§8); async batched writes; retention
   30 days by time; rejections (`busy`, cooldown, invalid args) stored as
   per-token per-minute counters (`mcp_rejections`); privileged calls never
   evicted early. The audit API pages by `id` (most recently recorded first).

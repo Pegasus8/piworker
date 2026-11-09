@@ -27,6 +27,9 @@ const (
 	DefaultPerTokenInflight = 2
 	// maxErrorMessageBytes bounds a CallError message shown to callers.
 	maxErrorMessageBytes = 1024
+	// maxAuditToolBytes bounds the audited tool name (tool names are at
+	// most 128 ASCII characters; an unknown one may be anything).
+	maxAuditToolBytes = 128
 )
 
 // Runtimes is what the service needs from the flow runtime manager
@@ -280,14 +283,33 @@ func (t *Tools) resolve(ref ToolRef) (flow.ToolInfo, *flow.FlowRuntime, error) {
 	return flow.ToolInfo{}, nil, notFound
 }
 
-// authorize applies the permission rules of ADR-0010 to an agent.
+// authorize applies the permission rules of ADR-0010 to an agent, and
+// suspends a grant whose tool changed since it was granted.
 func (t *Tools) authorize(actor Actor, info flow.ToolInfo) error {
+	changed, err := access(actor, info)
+	if changed {
+		t.suspendGrant(actor.TokenID, info)
+	}
+	return err
+}
+
+// checkAccess is authorize without side effects: nil when actor may call
+// info now.
+func (t *Tools) checkAccess(actor Actor, info flow.ToolInfo) error {
+	_, err := access(actor, info)
+	return err
+}
+
+// access decides whether actor may call info (nil) or why not. changed is
+// set when the actor's grant names an older version of the tool (its
+// fingerprint differs), which authorize suspends.
+func access(actor Actor, info flow.ToolInfo) (changed bool, err error) {
 	switch actor.Kind {
 	case ActorEditor:
-		return nil
+		return false, nil
 	case ActorAgent:
 	default:
-		return toolError(ErrPermissionDenied, "unknown caller")
+		return false, toolError(ErrPermissionDenied, "unknown caller")
 	}
 	privileged := info.Risk == node.RiskPrivileged
 	var g *storage.TokenGrant
@@ -299,27 +321,26 @@ func (t *Tools) authorize(actor Actor, info flow.ToolInfo) error {
 	}
 	if g == nil && !(actor.AllTools && !privileged) {
 		// Tools an agent may not call are hidden, like unknown ones.
-		return toolError(ErrToolNotFound, fmt.Sprintf("unknown tool %q", info.ToolName))
+		return false, toolError(ErrToolNotFound, fmt.Sprintf("unknown tool %q", info.ToolName))
 	}
 	if !actor.HasScope(storage.ScopeCall) {
-		return toolError(ErrPermissionDenied, "this token does not have the call scope")
+		return false, toolError(ErrPermissionDenied, "this token does not have the call scope")
 	}
 	if privileged && !actor.Privileged {
-		return toolError(ErrPermissionDenied, fmt.Sprintf("tool %q is privileged and this token may not call privileged tools", info.ToolName))
+		return false, toolError(ErrPermissionDenied, fmt.Sprintf("tool %q is privileged and this token may not call privileged tools", info.ToolName))
 	}
 	if g == nil {
-		return nil // all_tools
+		return false, nil // all_tools
 	}
 	reconfirm := toolError(ErrReconfirmRequired, fmt.Sprintf(
 		"tool %q changed since it was granted to this token; ask the admin to re-confirm the grant in PiWorker (Settings, Agent tokens)", info.ToolName))
 	if g.Suspended {
-		return reconfirm
+		return false, reconfirm
 	}
 	if g.Fingerprint != info.Fingerprint {
-		t.suspendGrant(actor.TokenID, info)
-		return reconfirm
+		return true, reconfirm
 	}
-	return nil
+	return false, nil
 }
 
 // suspendGrant suspends the token's grant for info while its fingerprint
@@ -477,7 +498,7 @@ func (t *Tools) record(actor Actor, ref ToolRef, info *flow.ToolInfo, args map[s
 		TS:        start,
 		TokenID:   actor.TokenID,
 		TokenName: actor.TokenName,
-		Tool:      ref.String(),
+		Tool:      capText(ref.String(), maxAuditToolBytes), // the name an agent sent
 		FlowID:    ref.FlowID,
 		RunID:     res.RunID,
 		DurMs:     t.now().Sub(start).Milliseconds(),
