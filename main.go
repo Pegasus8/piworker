@@ -391,7 +391,8 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 		MaxResultBytes: cfg.MCP.MaxResultBytes,
 		Logger:         log.Logger,
 	})
-	// What agents with the read scope may observe (redacted, bounded).
+	// What agents with the read scope may observe (redacted, bounded,
+	// audited).
 	services.reads = service.NewReads(service.ReadsOptions{
 		Flows:    store,
 		History:  store,
@@ -402,6 +403,7 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 		Version:  version,
 		DataDir:  filepath.Dir(cfg.DBPath),
 		MCP:      cfg.MCP,
+		Audit:    services.audit,
 	})
 
 	if users != nil {

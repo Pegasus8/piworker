@@ -25,13 +25,14 @@ type ReadService interface {
 	DiagnoseFlow(ctx context.Context, actor service.Actor, flowID string) (string, error)
 }
 
-// Names of the read tools and prompt (scope read).
+// Names of the read tools and prompt (scope read); the read views audit
+// agent reads under the tools' names.
 const (
-	ListFlowsTool      = "pw_list_flows"
-	GetFlowTool        = "pw_get_flow"
-	ListRunsTool       = "pw_list_runs"
-	GetRunTool         = "pw_get_run"
-	SystemStatusTool   = "pw_system_status"
+	ListFlowsTool      = service.ReadToolListFlows
+	GetFlowTool        = service.ReadToolGetFlow
+	ListRunsTool       = service.ReadToolListRuns
+	GetRunTool         = service.ReadToolGetRun
+	SystemStatusTool   = service.ReadToolSystemStatus
 	DiagnoseFlowPrompt = "diagnose_flow"
 )
 

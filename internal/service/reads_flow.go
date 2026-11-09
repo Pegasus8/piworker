@@ -85,7 +85,8 @@ type ToolView struct {
 // maxReadViewBytes: the structure first (nodes without their configs, then
 // connections, then tools, each in order while they fit), then the node
 // configs in node order while they fit (the others are omitted).
-func (r *Reads) GetFlow(ctx context.Context, actor Actor, flowID string) (FlowView, error) {
+func (r *Reads) GetFlow(ctx context.Context, actor Actor, flowID string) (_ FlowView, err error) {
+	defer r.audited(actor, ReadToolGetFlow, readArgs{FlowID: flowID}, r.now())(&err)
 	if err := r.authorize(ctx, actor); err != nil {
 		return FlowView{}, err
 	}

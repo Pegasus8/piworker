@@ -27,7 +27,8 @@ Report: the most likely cause, the evidence (run IDs, node IDs and the errors, q
 
 // DiagnoseFlow returns the diagnose_flow prompt for a stored flow, whose
 // name is shown as the read views show it (secrets redacted).
-func (r *Reads) DiagnoseFlow(ctx context.Context, actor Actor, flowID string) (string, error) {
+func (r *Reads) DiagnoseFlow(ctx context.Context, actor Actor, flowID string) (_ string, err error) {
+	defer r.audited(actor, ReadPromptDiagnoseFlow, readArgs{FlowID: flowID}, r.now())(&err)
 	if err := r.authorize(ctx, actor); err != nil {
 		return "", err
 	}

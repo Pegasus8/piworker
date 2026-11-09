@@ -110,7 +110,9 @@ type ReadsOptions struct {
 	// Host probes host health for SystemStatus (default: what Linux shows
 	// cheaply; nothing elsewhere).
 	Host func(dataDir string) HostStatus
-	Now  func() time.Time
+	// Audit records the reads of agents (nil: not audited).
+	Audit *AuditWriter
+	Now   func() time.Time
 }
 
 // Reads builds the read views for agents (MCP read tools) and the editor.
@@ -122,6 +124,7 @@ type Reads struct {
 	registry NodeTypes
 	secrets  SecretSource
 	settings AgentSettings
+	audit    *AuditWriter
 	now      func() time.Time
 
 	version   string
@@ -140,6 +143,7 @@ func NewReads(opts ReadsOptions) *Reads {
 		registry: opts.Registry,
 		secrets:  opts.Secrets,
 		settings: opts.Settings,
+		audit:    opts.Audit,
 		now:      opts.Now,
 
 		version:   opts.Version,
@@ -222,7 +226,8 @@ type RunPointer struct {
 // ListFlows lists the stored flows (newest first, capped at maxListedFlows
 // and to the ones whose JSON fits in maxReadViewBytes), with their state,
 // size, published tools and latest run.
-func (r *Reads) ListFlows(ctx context.Context, actor Actor) (FlowList, error) {
+func (r *Reads) ListFlows(ctx context.Context, actor Actor) (_ FlowList, err error) {
+	defer r.audited(actor, ReadToolListFlows, readArgs{}, r.now())(&err)
 	if err := r.authorize(ctx, actor); err != nil {
 		return FlowList{}, err
 	}

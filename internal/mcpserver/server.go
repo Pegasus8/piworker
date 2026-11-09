@@ -214,9 +214,7 @@ func (h *Handler) callFlowTool(ctx context.Context, actor service.Actor, name st
 	if refusal != nil {
 		// The service takes an object, so it cannot refuse these itself:
 		// counted here as it counts its invalid_arguments refusals.
-		if h.rejections != nil {
-			h.rejections.Reject(actor.TokenID, refusal.Code(), h.now())
-		}
+		h.reject(actor, refusal)
 		return errorResult(refusal)
 	}
 	res, err := h.tools.Call(ctx, actor, service.ToolByName(name), args)
@@ -244,11 +242,15 @@ func (h *Handler) addStaticTool(srv *mcp.Server, actor service.Actor, st *static
 
 func (h *Handler) callStaticTool(ctx context.Context, actor service.Actor, st *staticTool, raw json.RawMessage) *mcp.CallToolResult {
 	args, refusal := decodeArgs(raw)
-	if refusal != nil {
-		return errorResult(refusal)
+	if refusal == nil {
+		if issues := st.schema.Validate(args); len(issues) > 0 {
+			refusal = invalidArguments(issues)
+		}
 	}
-	if issues := st.schema.Validate(args); len(issues) > 0 {
-		return errorResult(invalidArguments(issues))
+	if refusal != nil {
+		// Counted like the tool service's invalid_arguments refusals.
+		h.reject(actor, refusal)
+		return errorResult(refusal)
 	}
 	res, err := st.Handler(ctx, actor, args)
 	if err != nil {
@@ -260,6 +262,14 @@ func (h *Handler) callStaticTool(ctx context.Context, actor service.Actor, st *s
 		return errorResult(fmt.Errorf("tool %s returned no result", st.Name))
 	}
 	return withoutStructuredError(res)
+}
+
+// reject counts a refusal of the endpoint's own in the audit's per-token
+// counters.
+func (h *Handler) reject(actor service.Actor, refusal *service.ToolError) {
+	if h.rejections != nil {
+		h.rejections.Reject(actor.TokenID, refusal.Code(), h.now())
+	}
 }
 
 // toolNamePattern is the syntax of every tool name (trigger-tool's, and

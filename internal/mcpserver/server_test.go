@@ -355,6 +355,25 @@ func TestStaticTools(t *testing.T) {
 	assert.EqualValues(t, 2, e.tools.calls.Load())
 }
 
+// A built-in tool's arguments outside its schema are refused before its
+// handler runs, and counted like the tool service's invalid_arguments
+// rejections (the audit's per-token counters).
+func TestStaticToolRefusalsAreCounted(t *testing.T) {
+	rejections := &fakeRejections{}
+	e := newTestEnv(t, func(o *Options) {
+		o.StaticTools = []StaticTool{echoTool()}
+		o.Rejections = rejections
+	})
+	for _, args := range []string{`{"word":"ha"}`, `[1]`, `{}`} {
+		res, body := called(t, e, readToken, "pw_echo", args)
+		assert.Equal(t, true, res["isError"], args)
+		assert.Equal(t, "invalid_arguments", errorCode(body), args)
+	}
+	called(t, e, readToken, "pw_echo", `{"word":"hi"}`)
+	want := "readreadreadread invalid_arguments " + t0.Format(time.RFC3339)
+	assert.Equal(t, []string{want, want, want}, rejections.seen)
+}
+
 // An isError result a built-in tool's handler builds itself also reaches
 // the client without structured content (the tool's output schema would
 // not describe it).

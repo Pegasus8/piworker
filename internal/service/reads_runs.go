@@ -99,7 +99,8 @@ type RunEvent struct {
 // set, is the ID of a run of the flow, and the page starts after it (use
 // RunList.NextBefore). A page whose JSON would exceed maxReadViewBytes ends
 // early, its NextBefore continuing after its last run.
-func (r *Reads) ListRuns(ctx context.Context, actor Actor, flowID string, limit int, before string) (RunList, error) {
+func (r *Reads) ListRuns(ctx context.Context, actor Actor, flowID string, limit int, before string) (_ RunList, err error) {
+	defer r.audited(actor, ReadToolListRuns, readArgs{FlowID: flowID, Limit: limit, Before: before}, r.now())(&err)
 	if err := r.authorize(ctx, actor); err != nil {
 		return RunList{}, err
 	}
@@ -147,7 +148,8 @@ func (r *Reads) ListRuns(ctx context.Context, actor Actor, flowID string, limit 
 // order, errors redacted and bounded, the whole JSON within
 // maxReadViewBytes). A
 // run of another flow is unknown.
-func (r *Reads) GetRun(ctx context.Context, actor Actor, flowID, runID string) (RunView, error) {
+func (r *Reads) GetRun(ctx context.Context, actor Actor, flowID, runID string) (_ RunView, err error) {
+	defer r.audited(actor, ReadToolGetRun, readArgs{FlowID: flowID, RunID: runID}, r.now())(&err)
 	if err := r.authorize(ctx, actor); err != nil {
 		return RunView{}, err
 	}

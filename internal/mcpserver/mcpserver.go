@@ -94,9 +94,10 @@ type Options struct {
 	Tools ToolService
 	// Tokens verifies Bearer tokens (required).
 	Tokens TokenVerifier
-	// Rejections counts the flow tool calls the endpoint refuses itself
-	// (arguments that are not a JSON object), like the tool service counts
-	// its own refusals; nil counts nothing.
+	// Rejections counts the tool calls the endpoint refuses itself (flow
+	// tool arguments that are not a JSON object, built-in tool arguments
+	// outside the tool's schema), like the tool service counts its own
+	// refusals; nil counts nothing.
 	Rejections RejectionCounter
 	// StaticTools and Prompts are the built-in tools and prompts besides
 	// pw_get_result, which is always present.

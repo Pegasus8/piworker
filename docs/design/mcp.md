@@ -461,7 +461,15 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   the read scope). The views are bounded by their own limits (§6: each
   view's JSON is at most 64 KiB, so a result, which carries it twice, stays
   within what clients accept from a tool), not by `max_result_bytes`, which
-  caps flow replies. Read calls are not audited.
+  caps flow replies. Every read of an agent is audited like a tool call
+  (`service.Reads`, `ReadsOptions.Audit`): an `mcp_audit` row with the
+  token, the tool name (`prompt:diagnose_flow` for the prompt), the flow
+  and run it named, its arguments (secrets redacted), the outcome
+  (`completed`, `flow_not_found`, `run_not_found`, `forbidden`, `failed`)
+  and its duration; arguments refused by a built-in tool's schema are
+  counted in `mcp_rejections` (`invalid_arguments`). `pw_get_result` is not
+  audited again: it returns the result of a call of the same token, which
+  was.
   Prompt `diagnose_flow{flowId}` (scope read, `mcpserver.ReadPrompts`): one
   user message with the §6 text; a missing, malformed or extra argument and
   an unknown flow are `-32602`.
@@ -543,7 +551,8 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   (`ErrTooManyPendingApprovals` → `busy`); tool-call arguments are deleted on
   expiry; decided approvals are kept 30 days.
 - Table `mcp_audit(ts, token_id, token_name, tool, flow_id, run_id,
-  args_sha256, args_preview, outcome, dur_ms)`; async batched writes; retention
+  args_sha256, args_preview, outcome, dur_ms)`, one row per agent tool call
+  and per agent read (§8); async batched writes; retention
   30 days by time; rejections (`busy`, cooldown, invalid args) stored as
   per-token per-minute counters (`mcp_rejections`); privileged calls never
   evicted early. The audit API pages by `id` (most recently recorded first).

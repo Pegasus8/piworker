@@ -71,7 +71,8 @@ type MemoryStatus struct {
 // SystemStatus shows the server's version, uptime, flows and tools, the MCP
 // limits, the agent deploy level and, best effort, the data directory's free
 // disk, memory and CPU temperature.
-func (r *Reads) SystemStatus(ctx context.Context, actor Actor) (SystemStatusView, error) {
+func (r *Reads) SystemStatus(ctx context.Context, actor Actor) (_ SystemStatusView, err error) {
+	defer r.audited(actor, ReadToolSystemStatus, readArgs{}, r.now())(&err)
 	if err := r.authorize(ctx, actor); err != nil {
 		return SystemStatusView{}, err
 	}

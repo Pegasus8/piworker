@@ -763,6 +763,43 @@ func TestMCPReadToolsEndToEnd(t *testing.T) {
 	assert.Equal(t, strings.ReplaceAll(hiddenErr.Error(), "diagnose_flow", "X"), strings.ReplaceAll(unknownErr.Error(), "diagnose_flows", "X"))
 }
 
+// Reads through /mcp are audited with the token, the read, the flow it
+// named and the outcome; refused arguments are counted.
+func TestMCPReadsAreAudited(t *testing.T) {
+	app := newMCPApp(t, true)
+	garage := app.deployTool(t, "garage", nil)
+	tok, raw := app.token(t, "reader", []string{storage.ScopeRead})
+	session, err := app.connect(t, raw, "")
+	require.NoError(t, err)
+	require.False(t, callTool(t, session, "pw_get_flow", map[string]any{"flowId": garage.FlowID}).IsError)
+	require.True(t, callTool(t, session, "pw_get_run", map[string]any{"flowId": garage.FlowID, "runId": "no-such-run"}).IsError)
+	require.True(t, callTool(t, session, "pw_get_flow", map[string]any{"flowId": garage.FlowID, "extra": 1}).IsError)
+	_, err = session.GetPrompt(context.Background(), &mcp.GetPromptParams{Name: "diagnose_flow", Arguments: map[string]string{"flowId": garage.FlowID}})
+	require.NoError(t, err)
+
+	type row struct{ tool, flowID, runID, outcome string }
+	want := []row{
+		{"prompt:diagnose_flow", garage.FlowID, "", "completed"},
+		{"pw_get_run", garage.FlowID, "no-such-run", "run_not_found"},
+		{"pw_get_flow", garage.FlowID, "", "completed"},
+	}
+	assert.EventuallyWithT(t, func(c *assert.CollectT) {
+		rows, err := app.store.ListMCPAudit(storage.MCPAuditFilter{TokenID: tok.ID})
+		if !assert.NoError(c, err) {
+			return
+		}
+		var got []row
+		for _, r := range rows {
+			got = append(got, row{r.Tool, r.FlowID, r.RunID, r.Outcome})
+		}
+		assert.Equal(c, want, got)
+		rejections, err := app.store.ListMCPRejections(storage.MCPAuditFilter{TokenID: tok.ID})
+		if assert.NoError(c, err) && assert.Len(c, rejections, 1) {
+			assert.Equal(c, "invalid_arguments", rejections[0].Reason)
+		}
+	}, 10*time.Second, 100*time.Millisecond)
+}
+
 // The answer of pw_get_flow for a flow at every bound (nodes, connections,
 // id lengths, config values) stays small enough for clients that cap tool
 // output: the view's JSON, its text block, is at most 64 KiB, and the
