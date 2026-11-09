@@ -763,6 +763,34 @@ func TestMCPReadToolsEndToEnd(t *testing.T) {
 	assert.Equal(t, strings.ReplaceAll(hiddenErr.Error(), "diagnose_flow", "X"), strings.ReplaceAll(unknownErr.Error(), "diagnose_flows", "X"))
 }
 
+// A flow saved by an older version with a client-chosen id (spaces, '/',
+// non-ASCII) is listed and can be read back with the id the list shows.
+func TestMCPReadsLegacyFlowIDs(t *testing.T) {
+	app := newMCPApp(t, true)
+	f := flow.NewFlow("Legacy")
+	f.ID = "my flow/é"
+	n := flow.NewNode("trigger-manual", flow.NodeCategoryInput)
+	n.ID = "trigger"
+	f.AddNode(*n)
+	require.NoError(t, app.store.CreateFlow(f))
+	_, raw := app.token(t, "reader", []string{storage.ScopeRead})
+	session, err := app.connect(t, raw, "")
+	require.NoError(t, err)
+
+	listed := structured(t, callTool(t, session, "pw_list_flows", nil))["flows"].([]any)
+	require.Len(t, listed, 1)
+	id := listed[0].(map[string]any)["id"].(string)
+	assert.Equal(t, f.ID, id)
+	view := callTool(t, session, "pw_get_flow", map[string]any{"flowId": id})
+	require.False(t, view.IsError, "%v", view.Content)
+	assert.Equal(t, "Legacy", structured(t, view)["name"])
+	runs := callTool(t, session, "pw_list_runs", map[string]any{"flowId": id})
+	require.False(t, runs.IsError, "%v", runs.Content)
+	prompt, err := session.GetPrompt(context.Background(), &mcp.GetPromptParams{Name: "diagnose_flow", Arguments: map[string]string{"flowId": id}})
+	require.NoError(t, err)
+	assert.Contains(t, prompt.Messages[0].Content.(*mcp.TextContent).Text, `"my flow/\u00e9"`)
+}
+
 // diagnose_flow returns instructions that use the read tools, for a flow
 // the token may read.
 func TestMCPDiagnoseFlowPrompt(t *testing.T) {

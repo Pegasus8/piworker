@@ -35,10 +35,15 @@ const (
 	DiagnoseFlowPrompt = "diagnose_flow"
 )
 
-// idPattern is the syntax of the flow and run ids the read tools take:
-// PiWorker's ids are UUIDs or names of letters, digits, '-' and '_' (a few
-// more id characters are accepted for flows saved by older versions).
-const idPattern = `^[A-Za-z0-9_.:-]{1,128}$`
+// idPattern is the syntax of the flow and run ids the read tools take: 1 to
+// maxIDLength characters without control characters (C0, DEL, C1). PiWorker
+// generates UUIDs, but older versions let clients choose a flow's id (any
+// text: spaces, '/', non-ASCII), and the views list ids up to this length;
+// an id only reaches parameterised queries.
+const (
+	idPattern   = `^[^\x00-\x1f\x7f-\x9f]{1,256}$`
+	maxIDLength = 256
+)
 
 var idSyntax = regexp.MustCompile(idPattern)
 
@@ -48,9 +53,11 @@ var readAnnotations = flow.Annotations{ReadOnlyHint: true, DestructiveHint: fals
 
 // Input schemas of the read tools (closed toolschema subset).
 const (
-	flowIDProperty = `"flowId":{"type":"string","pattern":"` + idPattern + `","maxLength":128,` +
+	flowIDProperty = `"flowId":{"type":"string","pattern":` + idPatternJSON + `,"maxLength":256,` +
 		`"description":"The flow's id, from pw_list_flows."}`
-	noArguments = `{"type":"object","properties":{}}`
+	// idPatternJSON is idPattern as a JSON string.
+	idPatternJSON = `"^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$"`
+	noArguments   = `{"type":"object","properties":{}}`
 )
 
 // ReadTools returns the read tools (scope read) serving reads:
@@ -96,7 +103,7 @@ func ReadTools(reads ReadService) []StaticTool {
 				"nextBefore of this page as before.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{` + flowIDProperty + `,` +
 				`"limit":{"type":"integer","minimum":1,"maximum":100,"description":"Runs per page, 1 to 100 (default 20)."},` +
-				`"before":{"type":"string","pattern":"` + idPattern + `","maxLength":128,` +
+				`"before":{"type":"string","pattern":` + idPatternJSON + `,"maxLength":256,` +
 				`"description":"List the runs older than this run id (the nextBefore of the previous page)."}},` +
 				`"required":["flowId"]}`),
 			OutputSchema: json.RawMessage(runListSchema),
@@ -113,7 +120,7 @@ func ReadTools(reads ReadService) []StaticTool {
 			Description: "Shows one recorded run of a flow with its node executions in order: node, type, phase, " +
 				"duration and error. Payloads are not recorded.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{` + flowIDProperty + `,` +
-				`"runId":{"type":"string","pattern":"` + idPattern + `","maxLength":128,` +
+				`"runId":{"type":"string","pattern":` + idPatternJSON + `,"maxLength":256,` +
 				`"description":"The run's id, from pw_list_runs."}},"required":["flowId","runId"]}`),
 			OutputSchema: json.RawMessage(runViewSchema),
 			Annotations:  readAnnotations,
@@ -186,7 +193,7 @@ func checkPromptArgs(args map[string]string, ids ...string) error {
 		}
 		if !idSyntax.MatchString(v) {
 			return &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: fmt.Sprintf(
-				"the argument %q must be 1 to 128 letters, digits or '_', '-', '.', ':'", id)}
+				"the argument %q must be 1 to %d characters without control characters", id, maxIDLength)}
 		}
 	}
 	return nil

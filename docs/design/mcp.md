@@ -432,8 +432,11 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   them): `pw_list_flows{}`, `pw_get_flow{flowId}`,
   `pw_list_runs{flowId, limit?, before?}` (`limit` 1–100, default 20;
   `before` is the previous page's `nextBefore`), `pw_get_run{flowId,
-  runId}` and `pw_system_status{}`. Ids match `^[A-Za-z0-9_.:-]{1,128}$`
-  (UUIDs, and the ids older versions allowed). Annotations: read-only,
+  runId}` and `pw_system_status{}`. Ids are 1 to 256 characters without
+  control characters (`^[^\x00-\x1f\x7f-\x9f]{1,256}$`): PiWorker generates
+  UUIDs, but older versions let clients choose a flow's id (any text), the
+  views list ids up to 256 bytes, and an id only reaches parameterised
+  queries. Annotations: read-only,
   idempotent, not destructive, closed world. Each result is the §6 view as
   structured content plus its JSON as the text block; the output schemas
   describe the views (open objects, every always-present field required,
