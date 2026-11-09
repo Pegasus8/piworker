@@ -28,9 +28,32 @@ func shapeOf(t *testing.T, res *mcp.CallToolResult) shape {
 	require.Len(t, res.Content, 1)
 	text, ok := res.Content[0].(*mcp.TextContent)
 	require.True(t, ok, "a text block")
+	if res.StructuredContent == nil {
+		return shape{isError: res.IsError, text: text.Text}
+	}
 	structured, err := json.Marshal(res.StructuredContent)
 	require.NoError(t, err)
 	return shape{isError: res.IsError, structured: string(structured), text: text.Text}
+}
+
+// checkShape checks a result against want: an error carries its envelope
+// (want.structured) as its text block only, without structured content
+// (clients validate structured content against the tool's output schema
+// even on errors); any other result carries it as structured content and,
+// unless want.text says otherwise, as its text block too.
+func checkShape(t *testing.T, want, got shape) {
+	t.Helper()
+	assert.Equal(t, want.isError, got.isError)
+	if want.text == "" {
+		want.text = want.structured
+	}
+	if want.isError {
+		assert.Empty(t, got.structured, "an isError result carries no structured content")
+		assert.JSONEq(t, want.structured, got.text)
+		return
+	}
+	assert.JSONEq(t, want.structured, got.structured)
+	assert.JSONEq(t, want.text, got.text)
 }
 
 func toolErr(kind error, msg string) *service.ToolError {
@@ -86,13 +109,7 @@ func TestCallResultMapping(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := shapeOf(t, callResult(tc.res, tc.err, nil))
-			assert.Equal(t, tc.want.isError, got.isError)
-			assert.JSONEq(t, tc.want.structured, got.structured)
-			if tc.want.text == "" {
-				tc.want.text = tc.want.structured // the text block repeats the envelope
-			}
-			assert.JSONEq(t, tc.want.text, got.text)
+			checkShape(t, tc.want, shapeOf(t, callResult(tc.res, tc.err, nil)))
 		})
 	}
 }
@@ -127,7 +144,8 @@ func TestCallResultWithAnOutputSchema(t *testing.T) {
 		Result json.RawMessage `json:"result"`
 		Error  struct{ Code string }
 	}
-	require.NoError(t, json.Unmarshal([]byte(bad.structured), &env))
+	assert.Empty(t, bad.structured, "an isError result carries no structured content")
+	require.NoError(t, json.Unmarshal([]byte(bad.text), &env))
 	assert.Equal(t, "completed", env.Status)
 	assert.Equal(t, "r1", env.RunID)
 	assert.Equal(t, "output_schema_mismatch", env.Error.Code)
@@ -136,6 +154,7 @@ func TestCallResultWithAnOutputSchema(t *testing.T) {
 	for _, status := range []flow.CallStatus{flow.CallStatusRunning, flow.CallStatusCompletedNoReply} {
 		got := shapeOf(t, callResult(flow.CallResult{Status: status, RunID: "r1"}, nil, out))
 		assert.True(t, got.isError, status)
+		assert.Empty(t, got.structured, status)
 	}
 }
 
@@ -164,10 +183,7 @@ func TestFetchedResultMapping(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := shapeOf(t, fetchedResult(tc.res, tc.err))
-			assert.Equal(t, tc.isError, got.isError)
-			assert.JSONEq(t, tc.want, got.structured)
-			assert.JSONEq(t, tc.want, got.text)
+			checkShape(t, shape{isError: tc.isError, structured: tc.want}, shapeOf(t, fetchedResult(tc.res, tc.err)))
 		})
 	}
 }

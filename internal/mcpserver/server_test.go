@@ -40,8 +40,26 @@ func called(t *testing.T, e *testEnv, raw, name, args string) (result map[string
 	t.Helper()
 	res, rpcErr := rpcResult(t, e.serve(withToken(rpc(callBody(name, args)), raw)))
 	require.Nil(t, rpcErr, "tool outcomes are results, never JSON-RPC errors")
-	structured, _ = res["structuredContent"].(map[string]any)
-	return res, structured
+	return res, resultBody(t, res)
+}
+
+// resultBody is what a tools/call result says: its structured content or,
+// for an isError result, the JSON envelope of its text block. An isError
+// result never carries structured content: clients validate structured
+// content against the tool's output schema even on errors (and against a
+// schema they listed earlier for a tool since hidden or changed).
+func resultBody(t *testing.T, res map[string]any) map[string]any {
+	t.Helper()
+	if res["isError"] != true {
+		structured, _ := res["structuredContent"].(map[string]any)
+		return structured
+	}
+	require.NotContains(t, res, "structuredContent", "an isError result carries no structured content")
+	content, _ := res["content"].([]any)
+	require.Len(t, content, 1)
+	var env map[string]any
+	require.NoError(t, json.Unmarshal([]byte(content[0].(map[string]any)["text"].(string)), &env))
+	return env
 }
 
 func errorCode(structured map[string]any) string {
@@ -337,6 +355,23 @@ func TestStaticTools(t *testing.T) {
 	assert.EqualValues(t, 2, e.tools.calls.Load())
 }
 
+// An isError result a built-in tool's handler builds itself also reaches
+// the client without structured content (the tool's output schema would
+// not describe it).
+func TestStaticToolErrorResultsCarryNoStructuredContent(t *testing.T) {
+	st := echoTool()
+	st.OutputSchema = json.RawMessage(`{"type":"object","required":["word"],"properties":{"word":{"type":"string"}}}`)
+	st.Handler = func(context.Context, service.Actor, map[string]any) (*mcp.CallToolResult, error) {
+		res, err := StructuredResult(map[string]any{"status": "error", "error": map[string]any{"code": "x"}})
+		res.IsError = true
+		return res, err
+	}
+	e := newTestEnv(t, func(o *Options) { o.StaticTools = []StaticTool{st} })
+	res, body := called(t, e, readToken, "pw_echo", `{"word":"hi"}`)
+	assert.Equal(t, true, res["isError"])
+	assert.Equal(t, "x", errorCode(body), "the text block keeps the envelope")
+}
+
 func TestStaticToolRegistrationIsChecked(t *testing.T) {
 	base := func() Options {
 		return Options{Tools: &fakeTools{}, Tokens: newFakeVerifier()}
@@ -544,8 +579,7 @@ func TestImpossibleToolNamesAreUnknown(t *testing.T) {
 		res, rpcErr := rpcResult(t, w)
 		require.Nil(t, rpcErr)
 		assert.Equal(t, true, res["isError"])
-		structured, _ := res["structuredContent"].(map[string]any)
-		assert.Equal(t, "not_found", errorCode(structured))
+		assert.Equal(t, "not_found", errorCode(resultBody(t, res)))
 		assert.Less(t, w.Body.Len(), 2048, "the name is echoed shortened")
 	}
 	assert.Zero(t, e.tools.calls.Load())

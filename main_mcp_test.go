@@ -154,14 +154,27 @@ func callTool(t *testing.T, s *mcp.ClientSession, name string, args any) *mcp.Ca
 	defer cancel()
 	res, err := s.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
 	require.NoError(t, err, "tool outcomes are results, not protocol errors")
+	if res.IsError {
+		// Clients validate structured content against the tool's output
+		// schema even on errors: an error carries its envelope as text.
+		assert.Nil(t, res.StructuredContent, "%s: an isError result carries no structured content", name)
+	}
 	return res
 }
 
-// structured decodes a result's structured content.
+// structured decodes what a result says: its structured content, or the
+// JSON envelope in the text block of an isError result.
 func structured(t *testing.T, res *mcp.CallToolResult) map[string]any {
 	t.Helper()
-	data, err := json.Marshal(res.StructuredContent)
-	require.NoError(t, err)
+	var data []byte
+	if res.IsError && res.StructuredContent == nil {
+		require.Len(t, res.Content, 1)
+		data = []byte(res.Content[0].(*mcp.TextContent).Text)
+	} else {
+		var err error
+		data, err = json.Marshal(res.StructuredContent)
+		require.NoError(t, err)
+	}
 	var m map[string]any
 	require.NoError(t, json.Unmarshal(data, &m))
 	return m
@@ -559,7 +572,9 @@ func TestMCPNonObjectArgumentsAreCounted(t *testing.T) {
 	tok, raw := app.token(t, "laptop", []string{storage.ScopeCall}, garage)
 	resp, body := app.post(t, raw, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"garage","arguments":[1]}}`, at0618)
 	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
-	assert.Contains(t, string(body), `"invalid_arguments"`)
+	assert.Contains(t, string(body), `\"code\":\"invalid_arguments\"`, "the envelope, in the text block")
+	assert.Contains(t, string(body), `"isError":true`)
+	assert.NotContains(t, string(body), `"structuredContent"`, "an isError result carries no structured content")
 	assert.Eventually(t, func() bool {
 		rows, err := app.store.ListMCPRejections(storage.MCPAuditFilter{})
 		require.NoError(t, err)

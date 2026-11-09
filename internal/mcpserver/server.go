@@ -259,7 +259,7 @@ func (h *Handler) callStaticTool(ctx context.Context, actor service.Actor, st *s
 		h.log.Error().Str("tool", st.Name).Msg("Built-in MCP tool returned no result")
 		return errorResult(fmt.Errorf("tool %s returned no result", st.Name))
 	}
-	return res
+	return withoutStructuredError(res)
 }
 
 // toolNamePattern is the syntax of every tool name (trigger-tool's, and

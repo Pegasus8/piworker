@@ -88,10 +88,11 @@ func (o *outputSchema) validate(structured json.RawMessage) error {
 
 // callResult maps the outcome of service.Tools.Call to an MCP result. A
 // completed call's structured content is its reply (wrapped as {"result": …}
-// unless it is a JSON object); every other outcome is an envelope. Refusals,
-// flow errors and approval_required are errors (isError), never JSON-RPC
-// errors. out is the tool's output schema, if any: outcomes that cannot
-// conform to it are errors too.
+// unless it is a JSON object); every other outcome is an envelope, the
+// structured content of non-errors and the text block of all. Refusals,
+// flow errors and approval_required are errors (isError, without
+// structured content), never JSON-RPC errors. out is the tool's output
+// schema, if any: outcomes that cannot conform to it are errors too.
 func callResult(res flow.CallResult, err error, out *outputSchema) *mcp.CallToolResult {
 	if err != nil && res.RunID == "" {
 		return errorResult(err)
@@ -101,11 +102,9 @@ func callResult(res flow.CallResult, err error, out *outputSchema) *mcp.CallTool
 		res.Status = flow.CallStatusRunning
 	}
 	if res.Status != flow.CallStatusCompleted {
-		r := envelopeResult(outcome(res), isFailure(res.Status))
-		if out != nil {
-			r.IsError = true // the envelope does not match the tool's output schema
-		}
-		return withRun(r, res)
+		// With an output schema every such outcome is an error: the
+		// envelope does not match the schema.
+		return withRun(envelopeResult(outcome(res), isFailure(res.Status) || out != nil), res)
 	}
 	structured := reply(res.Result)
 	if out != nil {
@@ -194,17 +193,33 @@ func isFailure(s flow.CallStatus) bool {
 	return false
 }
 
+// envelopeResult is a result carrying env: as its text block and, unless it
+// is an error, as its structured content (see withoutStructuredError).
 func envelopeResult(env envelope, isError bool) *mcp.CallToolResult {
 	data, err := marshalNoEscape(env)
 	if err != nil {
 		data = []byte(`{"status":"error","error":{"code":"failed","message":"the result cannot be encoded"}}`)
 		isError = true
 	}
-	return &mcp.CallToolResult{
+	return withoutStructuredError(&mcp.CallToolResult{
 		Content:           []mcp.Content{&mcp.TextContent{Text: string(data)}},
 		StructuredContent: json.RawMessage(data),
 		IsError:           isError,
+	})
+}
+
+// withoutStructuredError drops the structured content of an isError
+// result, which keeps its envelope in the text block (and its outcome in
+// _meta). Clients validate structured content against the tool's output
+// schema even on errors (the reference TypeScript SDK refuses the whole
+// result when it does not match), including a schema listed before the
+// tool was hidden or changed, so an error envelope there would turn a
+// refusal the agent should read into a protocol error.
+func withoutStructuredError(r *mcp.CallToolResult) *mcp.CallToolResult {
+	if r != nil && r.IsError {
+		r.StructuredContent = nil
 	}
+	return r
 }
 
 func withRun(r *mcp.CallToolResult, res flow.CallResult) *mcp.CallToolResult {

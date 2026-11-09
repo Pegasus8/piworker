@@ -489,7 +489,12 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   nodeType?}`); `_meta` carries `piworker/status` and `piworker/runId`.
   Tool errors are `isError: true` results (service refusals, flow errors,
   rejected, expired, `approval_required`); protocol errors only for protocol
-  problems. `pw_get_result` follows the same rule for a decided call, but
+  problems. An `isError` result carries its envelope as the text block only,
+  never as structured content: clients validate structured content against
+  the tool's output schema even on errors (the reference TypeScript SDK
+  turns a mismatch into a protocol error), also against a schema listed
+  before the tool was hidden or changed (e.g. `reconfirm_required` after a
+  redeploy), so the agent would never see the refusal. `pw_get_result` follows the same rule for a decided call, but
   answers a call still pending (`running`, `approval_required`) as a
   non-error result: fetching worked, and the agent is to ask again later.
   A handler that panics is recovered: a tool call gets a `failed` result, any
