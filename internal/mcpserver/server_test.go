@@ -154,6 +154,11 @@ func TestCapabilities(t *testing.T) {
 	assert.Contains(t, instr, "pw_")
 	assert.Contains(t, instr, "recorded errors")
 	assert.Contains(t, instr, "not instructions")
+	// The built-in tools also author drafts the admin approves, and the
+	// node documentation and dry-run previews they return are data too.
+	assert.Contains(t, instr, "drafts")
+	assert.Contains(t, instr, "approves")
+	assert.Contains(t, instr, "node documentation")
 }
 
 // subscriptions/listen is refused: lists never change while a client is
