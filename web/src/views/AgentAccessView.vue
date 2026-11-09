@@ -3,10 +3,11 @@
 // (docs/design/mcp.md §7, §10). Token names and tool texts are shown as text.
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import { AlertTriangle, Plug, Plus, ShieldAlert } from 'lucide-vue-next'
+import { AlertTriangle, KeyRound, Plug, Plus, ShieldAlert } from 'lucide-vue-next'
 import { Badge, Button, Card, Input, Label } from '@/components/ui'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import OperationFeedback from '@/components/ui/OperationFeedback.vue'
+import SecretsDialog from '@/components/SecretsDialog.vue'
 import AgentNav from '@/components/agent/AgentNav.vue'
 import CreateTokenDialog from '@/components/agent/CreateTokenDialog.vue'
 import PasswordPrompt from '@/components/agent/PasswordPrompt.vue'
@@ -35,6 +36,10 @@ const addChoice = ref<Record<string, string>>({})
 const level = ref<AgentDeployLevel | null>(null)
 const levelPassword = ref('')
 const settingsError = ref('')
+// Short secrets, the ones an agent at low or all could guess (ADR-0021):
+// read once with the page and again after the admin edits the secrets.
+const secretsChecked = ref(false)
+const showSecrets = ref(false)
 
 const endpoint = computed(() => clientSnippets({ token: '', location: window.location, tls: agent.tls }).url)
 const mcp = computed(() => mcpStatus(agent.settings, agent.tls))
@@ -51,6 +56,16 @@ async function loadSettings() {
   }
 }
 
+async function loadSecrets() {
+  try {
+    await agent.fetchSecretList()
+  } catch {
+    // Shown as unknown (agent.shortSecrets).
+  } finally {
+    secretsChecked.value = true
+  }
+}
+
 async function load() {
   if (!auth.authEnabled) return
   loading.value = true
@@ -62,7 +77,7 @@ async function load() {
   } finally {
     loading.value = false
   }
-  await Promise.allSettled([agent.fetchTools(), loadSettings(), agent.fetchTLS(), agent.fetchFlowNames()])
+  await Promise.allSettled([agent.fetchTools(), loadSettings(), agent.fetchTLS(), agent.fetchFlowNames(), loadSecrets()])
 }
 onMounted(load)
 
@@ -260,12 +275,26 @@ function cancelLevel() {
         <div role="radiogroup" aria-label="Agent deploy level" class="space-y-2">
           <div v-for="l in DEPLOY_LEVELS" :key="l.value" class="flex items-start gap-3 rounded-md border p-3" :class="level === l.value && 'border-primary'">
             <input :id="`deploy-${l.value}`" v-model="level" type="radio" name="agent-deploy" :value="l.value" class="mt-1 accent-primary"
-              :disabled="pending || !agent.settings" :aria-describedby="`deploy-${l.value}-risk`" />
-            <div>
+              :disabled="pending || !agent.settings"
+              :aria-describedby="l.residual ? `deploy-${l.value}-risk deploy-${l.value}-residual` : `deploy-${l.value}-risk`" />
+            <div class="space-y-1">
               <label :for="`deploy-${l.value}`" class="text-sm font-medium">{{ l.label }}</label>
               <p :id="`deploy-${l.value}-risk`" class="text-xs text-muted-foreground">{{ l.risk }}</p>
+              <p v-if="l.residual" :id="`deploy-${l.value}-residual`" class="flex items-start gap-1.5 text-xs text-muted-foreground">
+                <KeyRound class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span><strong class="font-medium text-foreground">Guessable secrets:</strong> {{ l.residual }}</span>
+              </p>
             </div>
           </div>
+        </div>
+        <div v-if="secretsChecked" class="flex flex-wrap items-start gap-2 rounded-md border p-3 text-sm"
+          :class="agent.shortSecrets.short ? 'border-amber-500/40 bg-amber-500/10' : ''" role="status">
+          <AlertTriangle v-if="agent.shortSecrets.short !== 0" class="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+          <KeyRound v-else class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <p class="min-w-0 flex-1">
+            <span class="font-medium">Short secrets:</span> {{ agent.shortSecrets.text }}
+            <Button variant="link" class="h-auto p-0" @click="showSecrets = true">Review secrets</Button>
+          </p>
         </div>
         <form v-if="levelChanged" class="space-y-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3" @submit.prevent="saveLevel">
           <p v-if="level !== 'off'" class="flex items-start gap-2 text-sm">
@@ -302,6 +331,7 @@ function cancelLevel() {
       </Card>
     </div>
     <CreateTokenDialog v-model:open="showCreate" @created="onCreated" />
+    <SecretsDialog v-model:open="showSecrets" @changed="loadSecrets" />
     <TokenSecretDialog :created="created" :tls="agent.tls" :mcp="mcp" @done="created = null" />
     <PasswordPrompt ref="passwordPrompt" />
     <ConfirmDialog ref="confirmation" />

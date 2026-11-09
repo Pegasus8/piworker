@@ -174,7 +174,20 @@ export const EXPIRY_OPTIONS: ExpiryOption[] = [
   { days: 365, label: '1 year' }
 ]
 
-export interface DeployLevelOption { value: AgentDeployLevel; label: string; risk: string }
+export interface DeployLevelOption {
+  value: AgentDeployLevel
+  label: string
+  risk: string
+  /** The guessing residual of the read views, for levels that let agents deploy. */
+  residual?: string
+}
+
+/**
+ * The read views hide known secret values by comparison, so an agent that
+ * can put its own text in a flow version or a run and read it back can
+ * confirm a guess (ADR-0021, docs/design/mcp.md §6).
+ */
+const GUESSING_RESIDUAL = 'An agent whose token also has the author and read scopes can save a guess of a secret\'s value in a flow it deploys, or in a run\'s output, and read it back: the read views hide known secret values, so a hidden guess is a right one. Only short values can be guessed this way. Credentials typed into a setting are hidden the same way: store them as secrets, where short ones are marked.'
 
 /** Agent deploy levels with the risk the admin accepts (docs/design/mcp.md §10). */
 export const DEPLOY_LEVELS: DeployLevelOption[] = [
@@ -186,12 +199,14 @@ export const DEPLOY_LEVELS: DeployLevelOption[] = [
   {
     value: 'low',
     label: 'Low-risk flows',
-    risk: 'Agents with the deploy scope may deploy, start and stop flows, and deploy their own drafts, when the resulting flow is at most external risk (HTTP, MQTT, e-mail, Telegram, notifications) and, compared with the version you last approved, adds no privileged node, changes no recipient or destination, reaches no new host, adds or moves no secret reference, turns on no risk switch, uses no credential for a different request, changes no setting of how often it runs, and changes nothing a global variable receives or a tool reads from one.'
+    risk: 'Agents with the deploy scope may deploy, start and stop flows, and deploy their own drafts, when the resulting flow is at most external risk (HTTP, MQTT, e-mail, Telegram, notifications) and, compared with the version you last approved, adds no privileged node, changes no recipient or destination, reaches no new host, adds or moves no secret reference, turns on no risk switch, uses no credential for a different request, changes no setting of how often it runs, and changes nothing a global variable receives or a tool reads from one.',
+    residual: GUESSING_RESIDUAL
   },
   {
     value: 'all',
     label: 'All flows',
-    risk: 'Agents with the deploy scope may deploy, start and stop any flow, including privileged ones that run commands, write files, query databases or switch GPIO and I2C devices. A leaked token or a misled agent could take over this device.'
+    risk: 'Agents with the deploy scope may deploy, start and stop any flow, including privileged ones that run commands, write files, query databases or switch GPIO and I2C devices. A leaked token or a misled agent could take over this device.',
+    residual: GUESSING_RESIDUAL
   }
 ]
 

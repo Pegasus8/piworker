@@ -447,3 +447,15 @@ test('deploy levels describe their risk', () => {
     expect(low.risk).toContain(words)
   }
 })
+
+test('the levels that let agents deploy explain the guessing residual of the read views', () => {
+  expect(DEPLOY_LEVELS.find(l => l.value === 'off')!.residual).toBeUndefined()
+  for (const value of ['low', 'all'] as const) {
+    const residual = DEPLOY_LEVELS.find(l => l.value === value)!.residual!
+    // Who (author and read scopes besides deploy), how (save a guess, read
+    // it back hidden), what is at stake (short values only) and what to do.
+    for (const words of ['author and read scopes', 'guess', 'hide', 'short values', 'typed into a setting', 'as secrets']) {
+      expect(residual).toContain(words)
+    }
+  }
+})

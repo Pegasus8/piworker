@@ -7,6 +7,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { apiClient, useApi } from '@/composables/useApi'
 import { createVisibilityPoller, type Poller, type PollerOptions } from '@/lib/poller'
+import { shortSecretsSummary, type SecretList } from '@/lib/secrets'
 import {
   auditParams,
   buildCreateTokenRequest,
@@ -91,6 +92,9 @@ export const useAgentStore = defineStore('agent', () => {
   const auditFilters = ref<AuditFilters>({})
   const flowNames = ref<Record<string, string>>({})
   const tls = ref<SnippetTLS | null>(null)
+  /** The secrets' names and short marks (null: not read, or unreadable). */
+  const secretList = ref<SecretList | null>(null)
+  const shortSecrets = computed(() => shortSecretsSummary(secretList.value))
 
   const activeTokens = computed(() => tokens.value.filter(t => t.status === 'active'))
   const toolIndex = computed(() => new Map(tools.value.map(t => [toolKey(t.flowId, t.triggerNodeId), t])))
@@ -289,14 +293,26 @@ export const useAgentStore = defineStore('agent', () => {
     tls.value = { mode: info.mode, caFingerprint: info.caFingerprint }
   })
 
+  // Which secrets are short, for the agent deploy level's residual risk
+  // (ADR-0021). Read when the page loads or the admin edits the secrets,
+  // never polled; a list that cannot be read is unknown, not the last one.
+  async function fetchSecretList() {
+    try {
+      secretList.value = await useApi().getSecrets()
+    } catch (e) {
+      secretList.value = null
+      throw e
+    }
+  }
+
   return {
     tokens, tools, toolsError, settings, approvals, pendingCount, pendingDrafts, recentDecisions, agentApiAvailable,
-    audit, rejections, rejectionsTruncated, auditHasMore, auditFilters, flowNames, tls,
+    audit, rejections, rejectionsTruncated, auditHasMore, auditFilters, flowNames, tls, secretList, shortSecrets,
     activeTokens, toolFor,
     fetchTokens, createToken, revokeToken, revokeAllTokens, updateGrant,
     fetchTools, fetchSettings, saveSettings,
     fetchApprovals, refreshPendingCount, decide, watchApprovals,
     fetchAudit, loadMoreAudit,
-    fetchFlowNames, fetchTLS
+    fetchFlowNames, fetchTLS, fetchSecretList
   }
 })

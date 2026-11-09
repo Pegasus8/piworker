@@ -27,7 +27,8 @@ const apiClient = {
 }
 const legacy = {
   getFlows: async () => [{ id: 'f1', name: 'Garage' }, { id: 'f2', name: 'Lights' }],
-  getTLSInfo: async () => ({ mode: 'auto', caFingerprint: 'SHA256:AB', sans: [], notAfter: null, caCertUrl: '/piworker-ca.crt' })
+  getTLSInfo: async () => ({ mode: 'auto', caFingerprint: 'SHA256:AB', sans: [], notAfter: null, caCertUrl: '/piworker-ca.crt' }),
+  getSecrets: async (): Promise<unknown> => ({ secrets: [], shortBelow: 16 })
 }
 mock.module('../src/composables/useApi', () => ({ apiClient, useApi: () => legacy }))
 const { useAgentStore } = await import('../src/stores/agent')
@@ -184,6 +185,33 @@ test('reads of the settings and TLS details in flight are shared by the views as
     expect(store.settings).toBeNull()
   } finally {
     legacy.getTLSInfo = realTLS
+  }
+})
+
+test('the secrets are checked for short values once per page load, unknown when unreadable', async () => {
+  const realSecrets = legacy.getSecrets
+  let reads = 0
+  legacy.getSecrets = async () => {
+    reads++
+    return { secrets: [{ name: 'pin', short: true }, { name: 'door', short: true }, { name: 'api_key', short: false }], shortBelow: 16 }
+  }
+  try {
+    const store = useAgentStore()
+    expect(store.secretList).toBeNull()
+    expect(store.shortSecrets).toEqual({ short: null, text: 'Could not check the secrets for short values.' })
+    await store.fetchSecretList()
+    expect(reads).toBe(1)
+    expect(store.shortSecrets).toEqual({ short: 2, text: '2 of 3 secrets are short (fewer than 16 characters): an agent could guess them.' })
+    // Nothing polls it: the count changes only when the page asks again.
+    await new Promise(r => setTimeout(r, 20))
+    expect(reads).toBe(1)
+    // A list that cannot be read again is unknown, not the last one seen.
+    legacy.getSecrets = async () => { throw httpError(500, 'Failed to read secrets') }
+    await expect(store.fetchSecretList()).rejects.toThrow('Failed to read secrets')
+    expect(store.secretList).toBeNull()
+    expect(store.shortSecrets.short).toBeNull()
+  } finally {
+    legacy.getSecrets = realSecrets
   }
 })
 
