@@ -263,12 +263,12 @@ func (a *Authoring) GetDraftDetail(ctx context.Context, actor Actor, draftID str
 		Diff:         flow.Diff(base, proposed, a.registry),
 		Flow:         hideSensitiveLiterals(a.registry, shown),
 	}
-	var was flow.Flow // what the name and description replace (empty: new)
+	wasName, wasDescription := "", "" // what they replace (an empty flow's: new)
 	if base != nil {
-		was = *base
+		wasName, wasDescription = base.Name, base.Description
 	}
-	detail.NameChange = textChange(was.Name, proposed.Name)
-	detail.DescriptionChange = textChange(was.Description, proposed.Description)
+	detail.NameChange = textChange(wasName, proposed.Name)
+	detail.DescriptionChange = textChange(wasDescription, proposed.Description)
 	if current != nil && a.lifecycle != nil {
 		// Advisory, so no lock: ApproveDraft reads it again under it.
 		detail.Running = a.lifecycle.Running(current.ID)
