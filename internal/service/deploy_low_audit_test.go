@@ -108,6 +108,40 @@ func TestLowDeployRefusesRewiringATool(t *testing.T) {
 	}
 }
 
+// Audit finding F2: at the low level an agent may not deploy a node that
+// reads variables or message metadata, or what a credential returned: its
+// errors and which nodes run come back through pw_get_run.
+func TestLowDeployRefusesNodesReadingProtectedData(t *testing.T) {
+	heartbeat := func() *flow.Flow {
+		f := flow.NewFlow("heartbeat")
+		addNode(f, "tick", "trigger-interval", map[string]any{"interval": 60000})
+		addNode(f, "log", "action-log", map[string]any{"message": "tick"})
+		connect(f, "tick", "log")
+		return f
+	}
+	peek := func(from, expression string) []flow.Op {
+		return []flow.Op{
+			{Op: flow.OpAddNode, Node: &flow.OpNode{ID: "peek", Type: "process-transform", Config: map[string]any{"expression": expression}}},
+			{Op: flow.OpConnect, SourceNode: from, SourcePort: "output", TargetNode: "peek", TargetPort: "input"},
+		}
+	}
+	cases := map[string]struct {
+		base func() *flow.Flow
+		ops  []flow.Op
+	}{
+		"global variables":     {base: heartbeat, ops: peek("tick", "duration(toJSON(vars))")},
+		"a hidden expression":  {base: lightsFlow, ops: peek("calc", `duration(join(split(meta.expression, ""), "."))`)},
+		"a credential's reply": {base: lightsFlow, ops: peek("call", `int(join(split(toJSON(payload), ""), "."))`)},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := newAuthEnv(t)
+			base := e.create(tc.base())
+			e.lowRefusal(base, tc.ops, flow.AlertDataReadChanged)
+		})
+	}
+}
+
 // Audit finding F9: the admin approved a publish whose topic takes the
 // device from the message, with the broker password. A transform inserted
 // upstream steers it to any device (a lock) with the admin's credentials;

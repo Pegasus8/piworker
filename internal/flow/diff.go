@@ -75,9 +75,11 @@ const (
 )
 
 var alertRank = map[string]int{
-	// The global variable alerts (diff_vars.go) and the tool path alert
-	// (diff_tools.go) follow the field alerts.
+	// The global variable alerts (diff_vars.go), the tool path alert
+	// (diff_tools.go) and the data read alert (diff_reads.go) follow the
+	// field alerts.
 	AlertGlobalVariableWrite: 11, AlertGlobalVariableRead: 12, AlertToolPathChanged: 13,
+	AlertDataReadChanged: 14,
 
 	AlertRiskRaised: 0, AlertPrivilegedNodeAdded: 1, AlertDestinationChanged: 2, AlertDynamicDestination: 3,
 	AlertNewHost: 4, AlertSecretAdded: 5, AlertSecretMoved: 6, AlertRiskSwitchOn: 7, AlertSensitiveLiteral: 8,
@@ -726,6 +728,9 @@ func diffAlerts(report DiffReport, base, next *Flow, baseByKey, nextByKey map[st
 	globalVariableAlerts(g, nextOrder, add)
 	// What a published tool runs is the admin's (diff_tools.go).
 	toolPathAlerts(g, newVarGraph(base, nil, baseOrder, nil), nextOrder, paired, add)
+	// What a changed node reads could come back through the flow's runs
+	// (diff_reads.go).
+	dataReadAlerts(g, nextOrder, add)
 
 	sort.SliceStable(list, func(i, j int) bool {
 		x, y := list[i], list[j]

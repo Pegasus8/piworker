@@ -989,8 +989,18 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   admin's: a `confirm: none` tool wired to the action behind a `confirm:
   admin` tool would run it without approval while its grant and
   fingerprint stay valid; one alert per tool, naming only node IDs and
-  types). The two global variable alerts and the tool path alert are
-  listed after the field alerts.
+  types), `data_read_changed` (`internal/flow/diff_reads.go`, ADR-0022: a
+  running node added, enabled, retyped or reconfigured, or that gained an
+  input, reads variables of any scope or message metadata — config text
+  naming `vars`, `flowVars`, `meta` or `$env`, or a `get-var`: the nodes
+  before it record their settings in `meta`, an HTTP URL, an expression, a
+  topic — or runs downstream, through connections or flow variables, of a
+  running node that uses a credential or reads variables: the flow's runs
+  are visible to agents, and such a node could hand what it read back
+  through an error it raises on purpose or through which nodes run; one
+  alert per node, naming only node IDs and types). The two global
+  variable alerts, the tool path alert and the data read alert are listed
+  after the field alerts.
   The rate alert covers the settings whose purpose is the rate; connections,
   filter conditions and thresholds also change how many messages reach a
   node, as they change what the messages hold, and raise no rate alert.
@@ -1206,7 +1216,8 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   how often a flow that reaches out fires: `rate_changed`, no change to what
   a global variable receives or to a tool path that reads global variables:
   `global_variable_write`, `global_variable_read`, nor to what a published
-  tool runs: `tool_path_changed`, ADR-0022), `all`
+  tool runs: `tool_path_changed`, no changed node reading what agents may
+  not read: `data_read_changed`, ADR-0022), `all`
   (any flow, including privileged). Changing it needs password step-up and
   shows the risk text; tokens need the `deploy` scope (only grantable when
   not `off`). Every agent deploy is audited, marked "deployed by agent" in
@@ -1535,8 +1546,10 @@ toggling a running flow on records nothing (it deploys nothing). A
   `new_host`, `secret_added`, `secret_moved`, `risk_switch_on`,
   `sensitive_literal`, `credentialed_request_changed` (H1), `rate_changed`,
   `global_variable_write` (shared state other flows read),
-  `global_variable_read` (shared state a tool would return) and
-  `tool_path_changed` (what a published tool runs, ADR-0022) — refused
+  `global_variable_read` (shared state a tool would return),
+  `tool_path_changed` (what a published tool runs) and
+  `data_read_changed` (what a changed node reads could come back through
+  the runs; both ADR-0022) — refused
   with `forbidden` listing the kinds, never values; `all` → any flow. With
   `draftId` the agent's own pending draft of `flowId` (another token's:
   `not_found`; stale: `conflict`) is evaluated, saved with
