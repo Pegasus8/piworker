@@ -331,12 +331,14 @@ type routerOption func(*mux.Router)
 
 // appServices are the long-lived services buildApp creates besides the
 // router: the tool service shared by REST and MCP, the read views of the
-// MCP read tools, and the MCP audit writer that must be flushed on
-// shutdown.
+// MCP read tools, agent authoring and deploy (drafts, dry-runs, the
+// agent_deploy policy) over the editor's lifecycle path, and the MCP audit
+// writer that must be flushed on shutdown.
 type appServices struct {
-	tools *service.Tools
-	reads *service.Reads
-	audit *service.AuditWriter
+	tools     *service.Tools
+	reads     *service.Reads
+	authoring *service.Authoring
+	audit     *service.AuditWriter
 }
 
 // buildRouter wires middleware and every HTTP route. users is nil when
@@ -433,6 +435,24 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 	// Register handlers
 	flowsHandler := api.NewFlowsHandler(store, runtimeManager, registry, log.Logger)
 	flowsHandler.RegisterRoutes(router)
+	// Agent authoring and deploy save and deploy through the editor's
+	// lifecycle path (one lock, the restart intent, the deployment marker).
+	services.authoring = service.NewAuthoring(service.AuthoringOptions{
+		Store:         store,
+		Lifecycle:     flowsHandler,
+		Registry:      registry,
+		Secrets:       secrets.DefaultStore,
+		Audit:         services.audit,
+		AuthorEnabled: cfg.MCP.AuthorEnabled,
+		Logger:        log.Logger,
+	})
+	drafts := api.NewDraftsHandler(services.authoring, log.Logger)
+	if users != nil {
+		// Drafts exist only with agent tokens, hence with authentication.
+		drafts.RegisterRoutes(router)
+	} else {
+		drafts.RegisterVersionRoutes(router)
+	}
 	// The editor's "Test tool" (REST twin of an MCP tool call).
 	api.NewToolCallHandler(services.tools, log.Logger).RegisterRoutes(router)
 
