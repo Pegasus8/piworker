@@ -74,7 +74,7 @@ edits (any edit on a tool's path, any new node reading variables).
   variables of any scope or message metadata (config text naming `vars`,
   `flowVars`, `meta` or `$env`; a `get-var`), or runs downstream of a node
   that uses a credential or reads variables. One alert per node.
-- **`low` refuses both**, after ADR-0019's twelve kinds
+- **`low` refuses both**, after ADR-0019's thirteen kinds
   (`service.LowDeployRefusedAlerts`).
 - **Retyped nodes** count as removed and added in the alerts (a node is
   paired with its base node only when both have the same type; base secret

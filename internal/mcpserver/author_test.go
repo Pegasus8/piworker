@@ -319,7 +319,7 @@ func TestAuthorAndDeployToolAnnotations(t *testing.T) {
 	// The deploy tools tell agents every kind of change the low level
 	// refuses (service.LowDeployRefusedAlerts), so a refusal is no surprise.
 	for _, name := range deployToolNames {
-		for _, words := range []string{"privileged node", "destination", "host", "secret reference", "risk switch",
+		for _, words := range []string{"raise its risk", "privileged node", "destination", "host", "secret reference", "risk switch",
 			"credentialed request", "rate", "global variable"} {
 			assert.Contains(t, tools[name]["description"], words, name)
 		}

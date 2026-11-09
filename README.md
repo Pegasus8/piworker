@@ -627,7 +627,8 @@ stop flows. The scope can only be granted while the level is not off.
 - **Low-risk flows**: agents may deploy, start and stop flows, and deploy
   their own drafts without your review, when the flow's risk is at most
   `external` (no commands, files, databases, GPIO or I2C) and, compared with
-  the version you last approved, it adds no privileged node, changes no
+  the version you last approved, it does not raise the flow's risk (a flow
+  you approved as safe stays safe), adds no privileged node, changes no
   recipient or destination (nor anything feeding a destination built from
   message data), reaches no new host, adds or moves no secret reference,
   turns on no risk switch, adds no typed credential, uses no credential for

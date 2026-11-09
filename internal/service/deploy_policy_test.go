@@ -129,6 +129,24 @@ func TestLowDeployPolicy(t *testing.T) {
 	}
 }
 
+// A flow the admin approved as safe never reaches out: at the low level an
+// agent may not make it external (ADR-0019 lists risk_raised among the
+// refused kinds), even towards a destination nothing else in it uses.
+func TestLowDeployRefusesARiskRaise(t *testing.T) {
+	e := newAuthEnv(t)
+	e.setLevel(storage.AgentDeployLow)
+	base := e.create(safeFlow())
+	agent := e.deployer()
+	e.agentVersion(base.ID, agent, func(f *flow.Flow) {
+		addNode(f, "call", "action-http", map[string]any{"url": "https://api.example.com/hook", "method": "POST"})
+		connect(f, "calc", "call")
+	})
+	_, err := e.a.Deploy(t.Context(), agent, DeployRequest{FlowID: base.ID})
+	te := requireKind(t, err, ErrPermissionDenied)
+	assert.Contains(t, te.Message, "(risk_raised, ", "listed first, in flow.Diff's order")
+	assert.False(t, e.running(base.ID), "nothing deployed")
+}
+
 // Global variables are shared state other flows read for their URLs,
 // commands and conditions: at the low level an agent may not change what a
 // running set-var writes there (the reviewer's case: a new interval-driven

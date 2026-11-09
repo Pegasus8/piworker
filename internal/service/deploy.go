@@ -146,18 +146,21 @@ func (d DeployActor) Deployment(version int) storage.Deployment {
 }
 
 // lowDeployRefusedAlerts are the alert kinds (flow.Diff against the last
-// admin-approved version) that the low agent_deploy level refuses: the
-// contract's eight, credentialed_request_changed (hand-off H1),
-// rate_changed (how often a flow that reaches out fires or is let through),
-// global_variable_write (what a running set-var writes to a global variable,
-// which other flows read for their URLs, commands and conditions, changed),
+// admin-approved version) that the low agent_deploy level refuses, in
+// flow.Diff's order. ADR-0019's thirteen: risk_raised (a flow the admin
+// approved as safe made external), the contract's eight,
+// credentialed_request_changed (hand-off H1), rate_changed (how often a
+// flow that reaches out fires or is let through), global_variable_write
+// (what a running set-var writes to a global variable, which other flows
+// read for their URLs, commands and conditions, changed) and
 // global_variable_read (a changed tool path reads global variables, whose
-// values would go back to the agent calling the tool), and, ADR-0022,
+// values would go back to the agent calling the tool). ADR-0022's two:
 // tool_path_changed (what a published tool runs changed: its grant,
 // fingerprint and confirm mode would stay) and data_read_changed (a changed
 // node reads variables, metadata or what a credential returned, which the
 // flow's runs could hand back to the agent).
 var lowDeployRefusedAlerts = []string{
+	flow.AlertRiskRaised,
 	flow.AlertPrivilegedNodeAdded,
 	flow.AlertDestinationChanged,
 	flow.AlertDynamicDestination,
@@ -175,8 +178,8 @@ var lowDeployRefusedAlerts = []string{
 }
 
 // LowDeployRefusedAlerts returns the alert kinds the low agent_deploy level
-// refuses, in flow.Diff's order. risk_raised is not among them: the level
-// bounds the risk itself (at most external).
+// refuses, in flow.Diff's order. The level also bounds the risk itself (at
+// most external).
 func LowDeployRefusedAlerts() []string { return slices.Clone(lowDeployRefusedAlerts) }
 
 // DeployRequest is an agent's deploy (pw_deploy_flow).

@@ -1392,7 +1392,8 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   and the list offers to open it for review.
 - **Agent deploy (opt-in risk).** Setting `agent_deploy`: `off` (default),
   `low` (agent may deploy/start/stop flows and approve its own drafts when the
-  resulting flow's risk is ≤ external, no recipient/destination changes vs the
+  resulting flow's risk is ≤ external and not above the last admin-approved
+  version's (`risk_raised`), no recipient/destination changes vs the
   last admin-approved version, no new secrets references, no change to what
   an approved credential is used for: `credentialed_request_changed`, nor to
   how often a flow that reaches out fires: `rate_changed`, no change to what
@@ -1738,6 +1739,7 @@ toggling a running flow on records nothing (it deploys nothing). A
   when `flow.Risk` of the flow that would run (Stop: the current one) is at
   most `external` and `flow.Diff(last admin-approved version or an empty
   flow, candidate)` raises none of `service.LowDeployRefusedAlerts()`:
+  `risk_raised` (a flow approved as safe made external),
   `privileged_node_added`, `destination_changed`, `dynamic_destination`,
   `new_host`, `secret_added`, `secret_moved`, `risk_switch_on`,
   `sensitive_literal`, `credentialed_request_changed` (H1), `rate_changed`,

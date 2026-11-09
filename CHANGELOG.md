@@ -107,7 +107,8 @@ version. The version number and release date have not been selected.
   the opt-in **agent deploy** level, changed with the password: `off`
   (default), `low` or `all`. `low` deploys, stops and applies an agent's
   own drafts only for flows of at most `external` risk that, compared with
-  the version the admin last approved, change no destination or host, no
+  the version the admin last approved, raise no risk, change no destination
+  or host, no
   secret reference, risk switch, typed credential, credentialed request,
   rate, global variable, published tool or node reading variables or
   credentialed responses; refusals name the kinds of change, never values.

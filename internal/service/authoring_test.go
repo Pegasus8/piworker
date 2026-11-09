@@ -15,22 +15,21 @@ import (
 // The SQLite store is what authoring and agent deploy run on.
 var _ AuthoringStore = (*storage.SQLiteStore)(nil)
 
-// The low agent_deploy level refuses the contract's eight alert kinds,
-// credentialed_request_changed (H1), rate_changed (a trigger made to fire
-// more often spends the approved credentials as surely as a new
-// destination) and the global variable alerts; risk_raised is bounded by
-// the level's risk cap instead.
+// The low agent_deploy level refuses ADR-0019's thirteen alert kinds
+// (risk_raised, the contract's eight, credentialed_request_changed (H1),
+// rate_changed (a trigger made to fire more often spends the approved
+// credentials as surely as a new destination) and the global variable
+// alerts) and ADR-0022's two, in flow.Diff's order.
 func TestLowDeployRefusedAlerts(t *testing.T) {
 	assert.Equal(t, []string{
-		flow.AlertPrivilegedNodeAdded, flow.AlertDestinationChanged, flow.AlertDynamicDestination,
+		flow.AlertRiskRaised, flow.AlertPrivilegedNodeAdded, flow.AlertDestinationChanged, flow.AlertDynamicDestination,
 		flow.AlertNewHost, flow.AlertSecretAdded, flow.AlertSecretMoved, flow.AlertRiskSwitchOn,
 		flow.AlertSensitiveLiteral, flow.AlertCredentialedRequestChanged, flow.AlertRateChanged,
 		flow.AlertGlobalVariableWrite, flow.AlertGlobalVariableRead, flow.AlertToolPathChanged, flow.AlertDataReadChanged,
 	}, LowDeployRefusedAlerts())
-	assert.NotContains(t, LowDeployRefusedAlerts(), flow.AlertRiskRaised)
 	kinds := LowDeployRefusedAlerts()
 	kinds[0] = "changed"
-	assert.Equal(t, flow.AlertPrivilegedNodeAdded, LowDeployRefusedAlerts()[0], "a copy")
+	assert.Equal(t, flow.AlertRiskRaised, LowDeployRefusedAlerts()[0], "a copy")
 }
 
 func TestNewAuthoringDefaults(t *testing.T) {
