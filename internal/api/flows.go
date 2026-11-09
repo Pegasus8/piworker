@@ -96,10 +96,23 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 
 // writeError writes an error response.
 func writeError(w http.ResponseWriter, status int, message string) {
+	writeErrorData(w, status, message, nil)
+}
+
+// writeErrorData writes an error response that also carries data the client
+// needs to recover (e.g. the current version after a stale save).
+func writeErrorData(w http.ResponseWriter, status int, message string, data any) {
 	writeJSON(w, status, APIResponse{
 		Success: false,
 		Error:   message,
+		Data:    data,
 	})
+}
+
+// VersionConflictData is the data of a 409 from a save whose version is not
+// the stored one.
+type VersionConflictData struct {
+	CurrentVersion int `json:"currentVersion"`
 }
 
 // writeSuccess writes a success response.
@@ -346,7 +359,24 @@ func (h *FlowsHandler) UpdateFlow(w http.ResponseWriter, r *http.Request) {
 	// above), so never persist a "running" state coming from the request body.
 	f.State = flow.FlowStateInactive
 
-	if err := h.store.UpdateFlow(&f); err != nil {
+	// The version the editor loaded, when sent, must still be the stored one:
+	// a save never silently overwrites a definition it did not see (an agent
+	// change, another tab). Absent (0) skips the check, for scripts.
+	expected := f.Version
+	if _, err := h.store.UpdateFlowVersioned(&f, expected, storage.VersionMeta{
+		ActorKind: storage.VersionActorEditor, AdminApproved: true,
+	}); err != nil {
+		var conflict *storage.VersionConflictError
+		if errors.As(err, &conflict) {
+			writeErrorData(w, http.StatusConflict,
+				"The flow was changed since you loaded it; reload it to see the current version",
+				VersionConflictData{CurrentVersion: conflict.Current})
+			return
+		}
+		if errors.Is(err, storage.ErrFlowNotFound) {
+			writeError(w, http.StatusNotFound, "Flow not found")
+			return
+		}
 		h.logger.Error().Err(err).Str("flowID", id).Msg("Failed to update flow")
 		writeError(w, http.StatusInternalServerError, "Failed to update flow")
 		return
@@ -465,8 +495,9 @@ func (h *FlowsHandler) changeRunning(w http.ResponseWriter, r *http.Request, wan
 				return
 			}
 		}
+		// State changes are not new versions of the definition.
 		f.State = flow.FlowStateRunning
-		if err := h.store.UpdateFlow(f); err != nil {
+		if err := h.store.UpdateFlowState(id, f.State); err != nil {
 			// A newly started flow must not continue after a failed deployment response.
 			if !running {
 				if rollbackErr := h.manager.Undeploy(id); rollbackErr != nil {
@@ -480,14 +511,14 @@ func (h *FlowsHandler) changeRunning(w http.ResponseWriter, r *http.Request, wan
 		oldState := f.State
 		f.State = flow.FlowStateInactive
 		// Persist stop intent first: if storage is unavailable, leave execution alone.
-		if err := h.store.UpdateFlow(f); err != nil {
+		if err := h.store.UpdateFlowState(id, f.State); err != nil {
 			writeError(w, http.StatusInternalServerError, "Failed to persist flow state")
 			return
 		}
 		if exists {
 			if err := h.manager.Undeploy(id); err != nil {
 				f.State = oldState
-				if rollbackErr := h.store.UpdateFlow(f); rollbackErr != nil {
+				if rollbackErr := h.store.UpdateFlowState(id, f.State); rollbackErr != nil {
 					h.logger.Error().Err(rollbackErr).Msg("Failed to restore flow state")
 				}
 				writeError(w, http.StatusInternalServerError, "Failed to stop flow")

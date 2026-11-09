@@ -102,8 +102,12 @@ type Flow struct {
 	Connections []Connection           `json:"connections"`
 	State       FlowState              `json:"state"`
 	Variables   map[string]interface{} `json:"variables,omitempty"` // Legacy definition metadata; runtime variables use the scoped variable store.
-	CreatedAt   time.Time              `json:"createdAt"`
-	UpdatedAt   time.Time              `json:"updatedAt"`
+	// Version counts the saved definitions of the flow (1 when created). It
+	// is server-controlled: storage assigns it on every definition change
+	// (not on state changes) and ignores any value a client or agent sends.
+	Version   int       `json:"version"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 
 	mu sync.RWMutex `json:"-"` // Protects concurrent access to fields
 }
