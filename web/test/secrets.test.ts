@@ -57,8 +57,8 @@ test('a short secret is marked with an icon and words, never color alone', () =>
   const notice = shortSecretNotice(16)
   expect(notice.icon).toBe(AlertTriangle)
   expect(notice.label).toBe('Short value')
-  // At every agent deploy level (a granted tool that repeats its arguments
-  // needs only the call scope), and length alone is not enough: random.
+  // At every agent deploy level (an error a run records of what the agent
+  // sent needs only the read scope), and length alone is not enough: random.
   expect(notice.text).toBe('An agent could confirm a guess of it (see Agents). Use 16 random characters or more.')
   expect(notice.text).not.toContain('deploy')
   expect(shortSecretNotice(20).text).toContain('Use 20 random characters or more.')

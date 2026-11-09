@@ -352,9 +352,9 @@ test('the deploy levels explain the guessing residual and count the short secret
   const requests = await mockServer(page, opts)
   await page.goto('/agents')
   const level = page.getByRole('radiogroup', { name: 'Agent deploy level' })
-  // At every level, off included: a call-scope token and a granted tool
-  // that repeats its arguments are enough.
-  await expect(level).toHaveAccessibleDescription(/with the call scope, from a granted tool that repeats its arguments/)
+  // At every level, off included: a read-scope token and an error a run
+  // records of what it sent are enough.
+  await expect(level).toHaveAccessibleDescription(/with the read scope, from an error a run records of what it sent/)
   await expect(page.getByText('Guessable secrets, at every level:')).toBeVisible()
   // What low and all add, next to them only.
   for (const name of ['Low-risk flows', 'All flows']) {
