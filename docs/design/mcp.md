@@ -1031,7 +1031,17 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   author, so they are agent-safe at the source: `before`/`after` hold a
   property's values only when agents may read it (AgentVisible and not
   Sensitive), and otherwise only risks, hosts, secret names and risk-switch
-  booleans.
+  booleans. `flow.DiffWith(base, next, registry, DiffOptions{Written})` is
+  `Diff` whose alerts never compare what the agent wrote with what it may
+  not read (ADR-0021, F10): a written setting agents may not read counts as
+  changed whatever the base holds (in the field alerts and in every "node
+  changed" of the upstream, tool-path and data-read rules), and a written
+  value's hosts and secret names count as known only when a base setting
+  agents may read uses them (`new_host`, `secret_added`, `secret_moved`;
+  hosts and secrets are alerted once each, separately for written
+  values). `SaveDraft` passes what the agent wrote, and the low level's
+  verdict on a draft every setting it did not keep; the editor's views use
+  `Diff`.
 - Dry-run (`flow.DryRun`, behind `pw_dry_run`). The flow is first linted
   (`flow.LintContext` with the caller's secret store, on the flow as it
   would run, after `Redact`: the one validation path, ADR-0007); its issues
@@ -1458,6 +1468,13 @@ toggling a running flow on records nothing (it deploys nothing). A
     either, H7); `before` values (the base's) are redacted as the read
     views redact them, other `after` values are what the agent wrote or may
     read. URLs are cut past their host and each message is at most 2 KiB.
+    Which alerts are raised never depends on how what the agent wrote
+    compares with what it may not read (`flow.DiffWith`): a written hidden
+    URL, body or expression is a change even when it equals the admin's,
+    and a host or secret name the agent writes is new unless a setting it
+    may read uses it, so neither a guess of a value nor of the hosts and
+    secrets of hidden settings is confirmed; the low level's verdict on a
+    draft follows the same rule.
     Open: the read views (§6) still redact known values from a stored
     flow, which includes what an agent wrote once a version holds it (an
     approved draft, or one it deployed itself at `low` or `all`); closing

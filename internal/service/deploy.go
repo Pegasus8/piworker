@@ -466,14 +466,21 @@ func (a *Authoring) evaluateDeploy(ctx context.Context, level storage.AgentDeplo
 		if stop {
 			verb = "stops"
 		}
-		if err := a.lowPolicy(flowID, plan.candidate, plan.risk, verb, "this flow"); err != nil {
+		// A draft's settings that the agent did not keep are its own: the
+		// verdict never compares them with what it may not read (ADR-0021).
+		var opts flow.DiffOptions
+		if plan.draft != nil {
+			withheld := a.draftWithheld(plan.draft.KeptJSON, plan.candidate)
+			opts.Written = func(id, prop string) bool { return !withheld[propKey{id, prop}] }
+		}
+		if err := a.lowPolicy(flowID, plan.candidate, plan.risk, verb, "this flow", opts); err != nil {
 			return nil, err
 		}
 		if plan.draft != nil {
 			// A draft replaces the current version (and restarts a running
 			// flow): what the level may not stop, it may not replace.
 			if err := a.lowPolicy(flowID, current, flow.Risk(current, a.registry), "replaces",
-				"the current version, which the draft would replace,"); err != nil {
+				"the current version, which the draft would replace,", flow.DiffOptions{}); err != nil {
 				return nil, err
 			}
 		}
@@ -486,8 +493,8 @@ func (a *Authoring) evaluateDeploy(ctx context.Context, level storage.AgentDeplo
 // most and its diff with the version the admin last approved (an empty flow
 // when none) raises none of LowDeployRefusedAlerts. The refusal lists the
 // alert kinds, never values; verb and subject word it ("deploys", "this
-// flow").
-func (a *Authoring) lowPolicy(flowID string, f *flow.Flow, risk node.Risk, verb, subject string) error {
+// flow"); opts says which settings of f the agent wrote (a draft's).
+func (a *Authoring) lowPolicy(flowID string, f *flow.Flow, risk node.Risk, verb, subject string, opts flow.DiffOptions) error {
 	var reasons []string
 	if risk != node.RiskSafe && risk != node.RiskExternal {
 		reasons = append(reasons, fmt.Sprintf("it %s flows of risk external at most, and %s is %s", verb, subject, risk))
@@ -501,7 +508,7 @@ func (a *Authoring) lowPolicy(flowID string, f *flow.Flow, risk node.Risk, verb,
 		base = approved.Flow
 	}
 	found := map[string]bool{}
-	for _, al := range flow.Diff(base, f, a.registry).Alerts {
+	for _, al := range flow.DiffWith(base, f, a.registry, opts).Alerts {
 		found[al.Kind] = true
 	}
 	var kinds []string

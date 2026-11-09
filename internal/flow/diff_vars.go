@@ -252,7 +252,8 @@ func readsGlobalVariables(n *Node) bool {
 }
 
 // nodeChange describes how running node d differs from its base node b (nil:
-// none): "is new", "was enabled", "changed" ("" when it is the same).
+// none): "is new", "was enabled", "changed" ("" when it is the same). A
+// setting the agent wrote and may not read counts as changed (forced).
 func nodeChange(d, b *diffNode) string {
 	switch {
 	case b == nil:
@@ -263,7 +264,7 @@ func nodeChange(d, b *diffNode) string {
 		return "changed"
 	}
 	for _, key := range configKeys(b, d) {
-		if !sameValue(b.n.Config[key], d.n.Config[key]) {
+		if d.forced(key) || !sameValue(b.n.Config[key], d.n.Config[key]) {
 			return "changed"
 		}
 	}
