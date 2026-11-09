@@ -212,7 +212,7 @@ func (t *Tools) call(ctx context.Context, actor Actor, ref ToolRef, args map[str
 		return flow.CallResult{}, callError(err)
 	}
 	done := rt.RunDone(res.RunID)
-	view := resultView{agent: actor.isAgent(), flow: rt.Flow()}
+	view := newResultView(actor, rt, args)
 	res = t.finish(view, res)
 	running := res.Status == flow.CallStatusRunning
 	t.results.put(res.RunID, &callRecord{
@@ -443,10 +443,21 @@ func callError(err error) error {
 }
 
 // resultView decides how a call's results are shown to its caller: whether
-// it is an agent, and the flow that ran (the runtime's).
+// it is an agent, the flow that ran (the runtime's) and, for an agent, the
+// texts of the arguments it sent (sentTexts).
 type resultView struct {
 	agent bool
 	flow  *flow.Flow
+	sent  []string
+}
+
+// newResultView is the view of a call of actor with args on rt.
+func newResultView(actor Actor, rt *flow.FlowRuntime, args map[string]any) resultView {
+	v := resultView{agent: actor.isAgent(), flow: rt.Flow()}
+	if v.agent {
+		v.sent = sentTexts(args)
+	}
+	return v
 }
 
 // withheldErrorMessage replaces, for agents, the error of a node holding
@@ -460,10 +471,16 @@ const withheldErrorMessage = "the node failed; its error is not shown because it
 // finish redacts known secrets (and the URLs in errors past their host, as
 // the read views do: a credential may sit in the userinfo, the query or the
 // path, like Telegram bot and webhook tokens) and caps the result size. An
-// agent gets the error of a node holding settings it may not read as
-// withheldErrorMessage.
+// agent's results are not redacted of the secrets it sent itself
+// (unsentSecrets: what it sent comes back as sent, so a result never
+// confirms a guess), and it gets the error of a node holding settings it
+// may not read as withheldErrorMessage.
 func (t *Tools) finish(view resultView, res flow.CallResult) flow.CallResult {
-	red := newSecretRedactor(t.secrets)
+	src := t.secrets
+	if view.agent {
+		src = unsentSecrets(src, view.sent)
+	}
+	red := newSecretRedactor(src)
 	if len(res.Result) > 0 {
 		res.Result = capResult(red.json(res.Result), t.maxResultBytes)
 	}

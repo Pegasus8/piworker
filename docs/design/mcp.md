@@ -305,9 +305,21 @@ Shared by REST and MCP (thin adapters):
   replaced by a fixed text, keeping `nodeId` and `nodeType`. Which errors
   are withheld depends on which settings the node holds, never on their
   values; the admin sees the error in the flow's activity, and the
-  editor's own calls get it as recorded. This applies to every path a
-  result reaches an agent: the call, `pw_get_result` and the result stored
-  on an approved `confirm: admin` call.
+  editor's own calls get it as recorded. Nor does an agent's result confirm
+  a guess (ADR-0021): it is redacted only of the secrets the agent did not
+  send itself, i.e. those none of whose redacted forms (literal,
+  URL-encoded, base64) appears in a string, object key or number of its
+  arguments. What it sent comes back as sent, a right guess and a wrong one
+  alike (also many guesses in one argument), while a secret the flow
+  outputs of its own is still redacted. Residual: a flow that both repeats
+  the argument and outputs the same secret, or that derives a secret's
+  value from the arguments (joining two of them, arithmetic), shows that
+  secret unredacted exactly when the agent's text holds it or makes the
+  flow compute it; closing it would need to know which output came from
+  the agent, which a flow's output does not record. The editor's results
+  are redacted of every known secret. This applies to every path a result
+  reaches an agent: the call, `pw_get_result` and the result stored on an
+  approved `confirm: admin` call.
 - `Tools.Result(actor, runID)`: only the actor that started the run.
 - Read views (phase 2), `service.Reads`, for the editor and tokens with the
   `read` scope (others: `forbidden`); JSON with camelCase fields, bounded
