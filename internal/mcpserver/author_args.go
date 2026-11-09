@@ -221,6 +221,16 @@ func opIssues(ops []any) []toolschema.Issue {
 				issues = append(issues, toolschema.Issue{Pointer: at + "/" + name, Message: "missing required property"})
 			}
 		}
+		// Settings an op sets are what a view showed too: nothing it cut or
+		// partly hid ("<redacted>" as a whole setting keeps the stored
+		// value, as in a whole flow).
+		cfg, cfgAt := objectArg(op, "config"), at+"/config"
+		if kind == flow.OpAddNode {
+			cfg, cfgAt = objectArg(objectArg(op, "node"), "config"), at+"/node/config"
+		}
+		for _, key := range sortedKeys(cfg) {
+			issues = viewValueIssues(issues, cfg[key], cfgAt+"/"+escapePointer(shorten(key, 64)), true, flowForDraft)
+		}
 		switch kind {
 		case flow.OpUpdateNode:
 			if op["config"] == nil && op["enabled"] == nil && op["position"] == nil {
@@ -269,7 +279,7 @@ func flowIssues(f map[string]any, at string, use flowUse) []toolschema.Issue {
 		}
 		cfg, _ := n["config"].(map[string]any)
 		for _, key := range sortedKeys(cfg) {
-			issues = viewValueIssues(issues, cfg[key], ptr+"/config/"+escapePointer(key), true, use)
+			issues = viewValueIssues(issues, cfg[key], ptr+"/config/"+escapePointer(shorten(key, 64)), true, use)
 		}
 	}
 	return issues

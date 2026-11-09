@@ -608,7 +608,8 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
     a node's `configOmitted: true`, a setting (or a string or key inside one)
     that is `"<truncated>"` or ends with `"…<truncated>"`, and a
     `"<redacted>"` that is not a whole setting (inside a value, a key, the
-    flow's name or description). A whole setting `"<redacted>"` keeps the
+    flow's name or description); the settings add_node and update_node set
+    are checked the same way. A whole setting `"<redacted>"` keeps the
     stored value with flowId (the service resolves it; without flowId it
     reports `unresolved_redaction`); in pw_dry_run's inline flow, which has
     no stored values, it is refused (dry-run by flowId or draftId instead),

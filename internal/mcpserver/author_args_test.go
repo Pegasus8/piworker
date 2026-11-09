@@ -87,6 +87,8 @@ func TestAuthorAndDeployArgumentsAreValidated(t *testing.T) {
 		{"pw_validate_flow", `{"flow":{"nodes":[{"id":"a","type":"x","config":{"list":["ok",{"k":"x<redacted>"}]}}]}}`, "/flow/nodes/0/config/list/1/k"},
 		{"pw_validate_flow", `{"flow":{"nodes":[{"id":"a","type":"x","config":{"headers":{"<redacted>":"v"}}}]}}`, "/flow/nodes/0/config/headers/<redacted>"},
 		{"pw_validate_flow", `{"flow":{"nodes":[],"name":"Garage <redacted>"}}`, "/flow/name"},
+		{"pw_validate_flow", `{"flowId":"f1","ops":[{"op":"update_node","nodeId":"a","config":{"url":"https://x.example/…<truncated>"}}]}`, "/ops/0/config/url"},
+		{"pw_validate_flow", `{"flowId":"f1","ops":[{"op":"add_node","node":{"type":"x","config":{"h":{"k":"a<redacted>"}}}}]}`, "/ops/0/node/config/h/k"},
 		// What a view left out cannot be sent back as if it were the flow.
 		{"pw_validate_flow", `{"flow":{"nodes":[],"truncated":true}}`, "/flow/truncated"},
 		{"pw_validate_flow", `{"flow":{"nodes":[{"id":"a","type":"x","configOmitted":true}]}}`, "/flow/nodes/0/configOmitted"},
