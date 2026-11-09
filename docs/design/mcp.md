@@ -426,7 +426,9 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   2026-07-28 it answers `-32601` itself, HTTP 404).
 - Capabilities: tools and prompts with `listChanged: false` (always
   advertised, even when empty); `subscriptions/listen` is answered with
-  JSON-RPC `-32601` before the SDK sees it; list and discover results carry
+  JSON-RPC `-32601` before the SDK sees it (HTTP 404 from 2026-07-28, as
+  SEP-2575 requires and the SDK answers its own; 200 before); list and
+  discover results carry
   `cacheScope: private`, `ttlMs: 5000`.
 - `getServer(r)` builds a per-token `*mcp.Server` holding only what the token
   may use now: the flow tools `service.Tools.List(actor)` returns (exactly

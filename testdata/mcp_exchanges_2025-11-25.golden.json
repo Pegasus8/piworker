@@ -1532,12 +1532,37 @@
     }
   },
   {
-    "name": "pw_deploy_flow at agent deploy low: a destination change is refused",
+    "name": "subscriptions/listen: lists never change",
     "headers": {
       "Mcp-Protocol-Version": "2025-11-25"
     },
     "request": {
       "id": 20,
+      "jsonrpc": "2.0",
+      "method": "subscriptions/listen",
+      "params": {
+        "notifications": {
+          "toolsListChanged": true
+        }
+      }
+    },
+    "status": 200,
+    "response": {
+      "error": {
+        "code": -32601,
+        "message": "subscriptions/listen is not supported: PiWorker's lists do not change while a client is connected (listChanged is false)"
+      },
+      "id": 20,
+      "jsonrpc": "2.0"
+    }
+  },
+  {
+    "name": "pw_deploy_flow at agent deploy low: a destination change is refused",
+    "headers": {
+      "Mcp-Protocol-Version": "2025-11-25"
+    },
+    "request": {
+      "id": 21,
       "jsonrpc": "2.0",
       "method": "tools/call",
       "params": {
@@ -1550,7 +1575,7 @@
     },
     "status": 200,
     "response": {
-      "id": 20,
+      "id": 21,
       "jsonrpc": "2.0",
       "result": {
         "_meta": {

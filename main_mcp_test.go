@@ -806,6 +806,8 @@ func TestMCPProtocolGolden(t *testing.T) {
 				map[string]any{"name": "diagnose_flow", "arguments": map[string]any{}})
 			g.send(t, token(), "ping", "ping", nil)
 			g.send(t, token(), "unknown method", "flows/list", nil)
+			g.send(t, token(), "subscriptions/listen: lists never change", "subscriptions/listen",
+				map[string]any{"notifications": map[string]any{"toolsListChanged": true}})
 
 			require.NoError(t, app.store.SetAgentDeployLevel(storage.AgentDeployLow))
 			g.call(t, deployer, "pw_deploy_flow at agent deploy low: a destination change is refused", "pw_deploy_flow",

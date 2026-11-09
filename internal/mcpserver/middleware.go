@@ -347,7 +347,12 @@ func (h *Handler) checkMessage(w http.ResponseWriter, r *http.Request, actor ser
 		writeRPCError(w, http.StatusOK, m.ID, jsonrpc.CodeMethodNotFound, fmt.Sprintf("method not found: %q", shorten(method, maxToolNameLength)))
 		return false
 	case method == "subscriptions/listen":
-		writeRPCError(w, http.StatusOK, m.ID, jsonrpc.CodeMethodNotFound,
+		// From 2026-07-28 a method that is not found is HTTP 404 (SEP-2575).
+		status := http.StatusOK
+		if version >= sessionlessVersion {
+			status = http.StatusNotFound
+		}
+		writeRPCError(w, status, m.ID, jsonrpc.CodeMethodNotFound,
 			"subscriptions/listen is not supported: PiWorker's lists do not change while a client is connected (listChanged is false)")
 		return false
 	case method == "tools/call":

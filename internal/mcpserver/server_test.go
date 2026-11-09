@@ -163,12 +163,19 @@ func TestCapabilities(t *testing.T) {
 
 // subscriptions/listen is refused: lists never change while a client is
 // connected (listChanged is false).
+// From 2026-07-28 a method that is not found is answered HTTP 404
+// (SEP-2575), as the SDK answers its own.
 func TestSubscriptionsListenIsRejected(t *testing.T) {
 	e := newTestEnv(t)
 	body := `{"jsonrpc":"2.0","id":7,"method":"subscriptions/listen","params":{"notifications":{"toolsListChanged":true}}}`
 	_, rpcErr := rpcResult(t, e.serve(withToken(rpc(body), callToken)))
 	require.NotNil(t, rpcErr)
 	assert.EqualValues(t, -32601, rpcErr["code"])
+
+	listen := rpc2026(t, "subscriptions/listen", map[string]any{"notifications": map[string]any{"toolsListChanged": true}})
+	id, code, _ := rpcRefusal(t, e.serve(withToken(listen, callToken)), http.StatusNotFound)
+	assert.EqualValues(t, 9, id)
+	assert.EqualValues(t, -32601, code)
 }
 
 // A tool call goes to the tool service with the token's actor, the tool's

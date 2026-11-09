@@ -1864,6 +1864,40 @@
     }
   },
   {
+    "name": "subscriptions/listen: lists never change",
+    "headers": {
+      "Mcp-Method": "subscriptions/listen",
+      "Mcp-Protocol-Version": "2026-07-28"
+    },
+    "request": {
+      "id": 21,
+      "jsonrpc": "2.0",
+      "method": "subscriptions/listen",
+      "params": {
+        "_meta": {
+          "io.modelcontextprotocol/clientCapabilities": {},
+          "io.modelcontextprotocol/clientInfo": {
+            "name": "golden",
+            "version": "1"
+          },
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28"
+        },
+        "notifications": {
+          "toolsListChanged": true
+        }
+      }
+    },
+    "status": 404,
+    "response": {
+      "error": {
+        "code": -32601,
+        "message": "subscriptions/listen is not supported: PiWorker's lists do not change while a client is connected (listChanged is false)"
+      },
+      "id": 21,
+      "jsonrpc": "2.0"
+    }
+  },
+  {
     "name": "pw_deploy_flow at agent deploy low: a destination change is refused",
     "headers": {
       "Mcp-Method": "tools/call",
@@ -1871,7 +1905,7 @@
       "Mcp-Protocol-Version": "2026-07-28"
     },
     "request": {
-      "id": 21,
+      "id": 22,
       "jsonrpc": "2.0",
       "method": "tools/call",
       "params": {
@@ -1892,7 +1926,7 @@
     },
     "status": 200,
     "response": {
-      "id": 21,
+      "id": 22,
       "jsonrpc": "2.0",
       "result": {
         "_meta": {
