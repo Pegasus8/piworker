@@ -1406,6 +1406,10 @@ toggling a running flow on records nothing (it deploys nothing). A
     either, H7); `before` values (the base's) are redacted as the read
     views redact them, other `after` values are what the agent wrote or may
     read. URLs are cut past their host and each message is at most 2 KiB.
+    Open: the read views (§6) still redact known values from a stored
+    flow, which includes what an agent wrote once a version holds it (an
+    approved draft, or one it deployed itself at `low` or `all`); closing
+    that needs per-setting provenance across versions.
     Storage errors map to `conflict` (the base moved meanwhile),
     `flow_not_found`, `forbidden` (the 21st pending draft, a revoked token)
     and `invalid_arguments` (too large to store). A new flow's draft has no
