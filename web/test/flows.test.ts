@@ -6,9 +6,17 @@ mock.module('../src/stores/nodeTypes', () => ({
 }))
 const apiMock: {
   getFlow: (id: string) => Promise<unknown>
+  getFlows: () => Promise<any[]>
   updateFlow: (id: string, flow: any) => Promise<any>
   deployFlow: (id: string, version?: number) => Promise<boolean>
-} = { getFlow: async () => ({}), updateFlow: async (_id, flow) => flow, deployFlow: async () => true }
+  toggleFlow: (id: string, enabled: boolean, version?: number) => Promise<boolean>
+  getFlowVersions: (id: string, limit?: number) => Promise<any>
+  rollbackFlow: (id: string) => Promise<any>
+} = {
+  getFlow: async () => ({}), getFlows: async () => [], updateFlow: async (_id, flow) => flow, deployFlow: async () => true,
+  toggleFlow: async (_id, enabled) => enabled, getFlowVersions: async () => ({ current: 1, lastAdminApproved: 1, versions: [] }),
+  rollbackFlow: async () => ({ flowId: 'a', version: 2, deployed: false })
+}
 mock.module('../src/composables/useApi', () => ({ useApi: () => apiMock }))
 const { useFlowsStore, FlowVersionConflictError } = await import('../src/stores/flows')
 
@@ -186,4 +194,100 @@ test('a stale deploy reports the current version and deploys nothing', async () 
   expect((caught as InstanceType<typeof FlowVersionConflictError>).currentVersion).toBe(4)
   expect(store.currentFlow?.running).toBeFalsy()
   expect(store.isDeploying).toBe(false)
+})
+
+const listItem = (id: string, over: Record<string, unknown> = {}) => ({
+  id, name: id, state: 'inactive', running: false, nodeCount: 1, createdAt: '', updatedAt: '', version: 3,
+  deployment: { version: 2, actorKind: 'agent', tokenName: 'laptop', deployedAt: '2026-11-08T12:00:00Z' }, agentChanged: true, ...over
+})
+
+test('turning a flow on from the list sends the version the list shows; an editor deploy replaces the agent marker', async () => {
+  setActivePinia(createPinia())
+  const store = useFlowsStore()
+  apiMock.getFlows = async () => [listItem('a')]
+  const calls: Array<[string, boolean, number | undefined]> = []
+  apiMock.toggleFlow = async (id, enabled, version) => { calls.push([id, enabled, version]); return enabled }
+  await store.fetchFlows()
+
+  await store.toggleFlow('a', true)
+  expect(calls).toEqual([['a', true, 3]])
+  expect(store.flows[0].running).toBe(true)
+  expect(store.flows[0].deployment).toMatchObject({ actorKind: 'editor', version: 3 })
+
+  // Stopping keeps the marker (it names the last deployment) and sends no version.
+  await store.toggleFlow('a', false)
+  expect(calls[1]).toEqual(['a', false, undefined])
+  expect(store.flows[0].deployment).toMatchObject({ actorKind: 'editor' })
+})
+
+test('turning on a flow saved since the list loaded is a version conflict, not a deploy', async () => {
+  setActivePinia(createPinia())
+  const store = useFlowsStore()
+  apiMock.getFlows = async () => [listItem('a')]
+  apiMock.toggleFlow = async () => {
+    throw httpError(409, { success: false, error: 'The flow was changed since you loaded it', data: { currentVersion: 4 } })
+  }
+  await store.fetchFlows()
+
+  let caught: unknown
+  try { await store.toggleFlow('a', true) } catch (e) { caught = e }
+
+  expect(caught).toBeInstanceOf(FlowVersionConflictError)
+  expect((caught as InstanceType<typeof FlowVersionConflictError>).currentVersion).toBe(4)
+  expect(store.flows[0].running).toBe(false)
+  expect(store.flows[0].deployment).toMatchObject({ actorKind: 'agent' })
+})
+
+test('an editor save is a version you approved: the agent change mark clears, the deployment stays', async () => {
+  setActivePinia(createPinia())
+  const store = useFlowsStore()
+  const deployment = { version: 3, actorKind: 'agent', tokenName: 'laptop', deployedAt: '2026-11-08T12:00:00Z' }
+  apiMock.getFlow = async () => ({ ...backendFlow('a'), version: 3, deployment, agentChanged: true })
+  apiMock.getFlows = async () => [listItem('a')]
+  apiMock.updateFlow = async (_id, flow) => ({ ...flow, version: 4 })
+  await store.fetchFlows()
+  await store.fetchFlow('a')
+  store.isDirty = true
+
+  await store.saveFlow()
+
+  expect(store.currentFlow?.agentChanged).toBe(false)
+  expect(store.currentFlow?.deployment).toEqual(deployment)
+  expect(store.flows[0]).toMatchObject({ version: 4, agentChanged: false })
+})
+
+test('the version history of a flow is read through the API', async () => {
+  setActivePinia(createPinia())
+  const store = useFlowsStore()
+  let asked: [string, number | undefined] | null = null
+  apiMock.getFlowVersions = async (id, limit) => { asked = [id, limit]; return { current: 5, lastAdminApproved: 3, versions: [] } }
+  const list = await store.fetchVersions('a')
+  expect(asked!).toEqual(['a', 50])
+  expect(list.lastAdminApproved).toBe(3)
+})
+
+test('rolling back updates the list, and reloads the flow the editor shows', async () => {
+  setActivePinia(createPinia())
+  const store = useFlowsStore()
+  apiMock.getFlows = async () => [listItem('a', { running: true, state: 'running' }), listItem('b')]
+  let loads = 0
+  apiMock.getFlow = async () => { loads++; return { ...backendFlow('a'), version: loads > 1 ? 6 : 5, agentChanged: loads === 1 } }
+  apiMock.rollbackFlow = async (id) => ({ flowId: id, version: 6, deployed: true })
+  await store.fetchFlows()
+  await store.fetchFlow('a')
+
+  const result = await store.rollbackFlow('a')
+
+  expect(result).toEqual({ flowId: 'a', version: 6, deployed: true })
+  expect(store.flows[0]).toMatchObject({ version: 6, agentChanged: false, running: true })
+  expect(store.flows[0].deployment).toMatchObject({ actorKind: 'editor', version: 6 })
+  expect(loads).toBe(2)
+  expect(store.currentFlow?.version).toBe(6)
+  expect(store.isDirty).toBe(false)
+
+  // A failed redeploy leaves the flow stopped (its running intent kept: failed).
+  apiMock.rollbackFlow = async (id) => ({ flowId: id, version: 4, deployed: false, deployError: { status: 400, message: 'bad' } })
+  await store.rollbackFlow('b')
+  expect(store.flows[1]).toMatchObject({ version: 4, agentChanged: false, running: false })
+  expect(loads).toBe(2)
 })

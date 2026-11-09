@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Flow, FlowNode, FlowEdge, FlowListItem, NodeCategory } from '@/types'
+import type { Flow, FlowNode, FlowEdge, FlowListItem, NodeCategory, VersionList } from '@/types'
+import type { ApplyResult } from '@/lib/drafts'
 import { useApi } from '@/composables/useApi'
 import { ports, validConnection } from '@/lib/ports'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
@@ -218,9 +219,12 @@ export const useFlowsStore = defineStore('flows', () => {
       } catch (e) {
         throw versionConflict(e) ?? e
       }
-      // The update response carries the flow but not its live running state;
-      // preserve it so the editor's deploy/stop toggle stays accurate.
+      // The update response carries the flow but not its live running state
+      // or its marks; preserve them so the editor's deploy/stop toggle stays
+      // accurate. An editor save is a version the admin approved.
       updatedFlow.running = prevRunning
+      updatedFlow.deployment = currentFlow.value.deployment ?? null
+      updatedFlow.agentChanged = false
       currentFlow.value = updatedFlow
       isDirty.value = false
 
@@ -233,6 +237,8 @@ export const useFlowsStore = defineStore('flows', () => {
           description: updatedFlow.description,
           state: updatedFlow.state,
           nodeCount: updatedFlow.nodes.length,
+          version: updatedFlow.version,
+          agentChanged: false,
           updatedAt: updatedFlow.updatedAt
         }
       }
@@ -267,7 +273,18 @@ export const useFlowsStore = defineStore('flows', () => {
     loading.value = true
     error.value = null
     try {
-      const running = await api.toggleFlow(id, enabled)
+      // Turning a flow on sends the version the list shows: the server
+      // refuses (409) to deploy another one saved since (an approved draft,
+      // an agent's version) instead of running what nobody saw.
+      const item = flows.value.find(f => f.id === id)
+      const wasRunning = item?.running ?? false
+      let running: boolean
+      try {
+        running = await api.toggleFlow(id, enabled, enabled ? item?.version : undefined)
+      } catch (e) {
+        throw versionConflict(e) ?? e
+      }
+      if (running && !wasRunning) markEditorDeployment(id, item?.version)
       applyRunningState(id, running)
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to toggle flow'
@@ -294,6 +311,7 @@ export const useFlowsStore = defineStore('flows', () => {
       } catch (e) {
         throw versionConflict(e) ?? e
       }
+      if (running) markEditorDeployment(flowId, version ?? flows.value.find(f => f.id === flowId)?.version)
       applyRunningState(flowId, running)
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to deploy flow'
@@ -318,6 +336,48 @@ export const useFlowsStore = defineStore('flows', () => {
     } finally {
       isStopping.value = false
     }
+  }
+
+  // A deploy from the editor replaces the last deployment marker (the server
+  // records it as the editor's); stopping keeps it.
+  function markEditorDeployment(flowId: string, version: number | undefined) {
+    const mark = { version: version ?? 0, actorKind: 'editor', deployedAt: new Date().toISOString() }
+    if (currentFlow.value?.id === flowId) currentFlow.value.deployment = { ...mark }
+    const item = flows.value.find(f => f.id === flowId)
+    if (item) item.deployment = { ...mark }
+  }
+
+  // Version history (newest first) and rollback to the version the admin
+  // last approved (docs/design/mcp.md §10).
+  async function fetchVersions(id: string, limit = 50): Promise<VersionList> {
+    return api.getFlowVersions(id, limit)
+  }
+
+  // Rolling back saves the version the admin last approved as a new version
+  // and redeploys a running flow. The flow the editor shows is reloaded (the
+  // caller confirms discarding unsaved changes first).
+  async function rollbackFlow(id: string): Promise<ApplyResult> {
+    const result = await api.rollbackFlow(id)
+    const item = flows.value.find(f => f.id === id)
+    if (item) {
+      item.version = result.version
+      item.agentChanged = false
+      if (result.deployed) {
+        item.running = true
+        item.state = 'running'
+      } else if (result.deployError) {
+        // The redeploy failed after the old instance stopped: the flow is
+        // stopped, its running intent kept.
+        item.running = false
+        item.state = 'failed'
+      }
+    }
+    if (result.deployed) markEditorDeployment(id, result.version)
+    if (currentFlow.value?.id === id) {
+      isDirty.value = false
+      await fetchFlow(id)
+    }
+    return result
   }
 
   // Apply the running state returned by deploy/stop directly to local state,
@@ -446,6 +506,8 @@ export const useFlowsStore = defineStore('flows', () => {
     toggleFlow,
     deployFlow,
     stopFlow,
+    fetchVersions,
+    rollbackFlow,
     resetCurrentFlow,
     initNewFlow,
 
