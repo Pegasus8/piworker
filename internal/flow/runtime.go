@@ -225,6 +225,32 @@ func WithNodeContext(wrap func(context.Context) context.Context) RuntimeOption {
 	}
 }
 
+// withoutMetrics keeps the runtime's executions, errors, retries and drops
+// out of the process-wide Prometheus metrics: a dry-run's private runtime
+// must not show up on the operator's dashboards and alerts.
+func withoutMetrics() RuntimeOption {
+	return func(r *FlowRuntime) {
+		r.noMetrics = true
+	}
+}
+
+// withRouteGate asks gate before each message a trigger or a node emits is
+// routed, with the number of copies routing makes of it (one per target);
+// when gate returns false the message is not routed (and not counted in its
+// run). The dry-run bounds its work with it. gate runs on the emitting
+// node's goroutine and must not block.
+func withRouteGate(gate func(msg *types.Message, copies int) bool) RuntimeOption {
+	return func(r *FlowRuntime) {
+		r.routeGate = gate
+	}
+}
+
+// routeAllowed asks the route gate, if any, whether msg may be routed as
+// copies messages.
+func (r *FlowRuntime) routeAllowed(msg *types.Message, copies int) bool {
+	return r.routeGate == nil || copies <= 0 || r.routeGate(msg, copies)
+}
+
 // WithLogger sets a custom logger for the runtime.
 func WithLogger(logger zerolog.Logger) RuntimeOption {
 	return func(r *FlowRuntime) {
@@ -379,9 +405,13 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 			active = append(active, c)
 		}
 	}
-	rt.router = NewMessageRouter(active, rt.logger, WithDropHandler(func(m RoutedMessage) {
+	routerOpts := []RouterOption{WithDropHandler(func(m RoutedMessage) {
 		rt.releaseDropped(m, "routing timed out (the flow is overloaded)")
-	}))
+	})}
+	if rt.noMetrics {
+		routerOpts = append(routerOpts, withoutRouterMetrics())
+	}
+	rt.router = NewMessageRouter(active, rt.logger, routerOpts...)
 
 	return rt, nil
 }
@@ -498,7 +528,12 @@ func (r *FlowRuntime) startSeeder(nodeID string) chan *types.Message {
 					return
 				}
 				corrID := r.ensureCorrelationID(msg)
-				if n := r.targetCount(nodeID, msg.SourcePort); n > 0 {
+				n := r.targetCount(nodeID, msg.SourcePort)
+				if !r.routeAllowed(msg, n) {
+					r.calls.runFinished(corrID)
+					continue
+				}
+				if n > 0 {
 					r.runAdd(corrID, n)
 				} else {
 					// Nothing will execute for this run: it is already over.
@@ -644,7 +679,7 @@ func (r *FlowRuntime) dispatch() {
 				r.logger.Error().
 					Str("nodeID", routedMsg.TargetNode).
 					Msg("Target node not found or disabled; dropping message")
-				metrics.IncrementMessagesDropped()
+				r.countDrop()
 				r.releaseDropped(routedMsg, "the node is not running (not found or disabled)")
 				continue
 			}
@@ -656,10 +691,17 @@ func (r *FlowRuntime) dispatch() {
 					Str("msgID", routedMsg.Message.ID).
 					Int("queueLimit", r.queueLimit).
 					Msg("Node queue full; dropping message")
-				metrics.IncrementMessagesDropped()
+				r.countDrop()
 				r.releaseDropped(routedMsg, fmt.Sprintf("its queue is full (limit %d)", r.queueLimit))
 			}
 		}
+	}
+}
+
+// countDrop counts a dropped message in the process-wide metrics.
+func (r *FlowRuntime) countDrop() {
+	if !r.noMetrics {
+		metrics.IncrementMessagesDropped()
 	}
 }
 
@@ -810,7 +852,9 @@ func (r *FlowRuntime) executeNodeInSlot(routedMsg RoutedMessage, slot *semSlot) 
 				Str("nodeType", flowNode.Type).
 				Bytes("stack", debug.Stack()).
 				Msg("Recovered from panic during node execution")
-			metrics.RecordNodeError(flowNode.Type)
+			if !r.noMetrics {
+				metrics.RecordNodeError(flowNode.Type)
+			}
 			panicErr := fmt.Errorf("panic: %v", rec)
 			if r.observer != nil {
 				ev := baseEvent
@@ -848,8 +892,10 @@ func (r *FlowRuntime) executeNodeInSlot(routedMsg RoutedMessage, slot *semSlot) 
 	duration := time.Since(startTime)
 
 	// Record metrics
-	metrics.RecordNodeExecution(flowNode.Type, duration.Seconds())
-	metrics.RecordMessageProcessed(flowNode.Type, err == nil)
+	if !r.noMetrics {
+		metrics.RecordNodeExecution(flowNode.Type, duration.Seconds())
+		metrics.RecordMessageProcessed(flowNode.Type, err == nil)
+	}
 
 	// Emit the terminal event (success/error) with timing and, on success, the
 	// outputs (used to attribute process-debug output to its canvas node).
@@ -867,7 +913,9 @@ func (r *FlowRuntime) executeNodeInSlot(routedMsg RoutedMessage, slot *semSlot) 
 	}
 
 	if err != nil {
-		metrics.RecordNodeError(flowNode.Type)
+		if !r.noMetrics {
+			metrics.RecordNodeError(flowNode.Type)
+		}
 		r.calls.nodeError(correlationID, routedMsg.TargetNode, flowNode.Type, err)
 		logger.Error().
 			Err(err).
@@ -919,7 +967,11 @@ func (r *FlowRuntime) executeNodeInSlot(routedMsg RoutedMessage, slot *semSlot) 
 
 		// Count this output's downstream children into the run BEFORE routing them,
 		// so the counter reflects the pending work before any child can finish.
-		r.runAdd(childCorr, r.targetCount(routedMsg.TargetNode, output.SourcePort))
+		copies := r.targetCount(routedMsg.TargetNode, output.SourcePort)
+		if !r.routeAllowed(output, copies) {
+			continue
+		}
+		r.runAdd(childCorr, copies)
 		r.router.Route(routedMsg.TargetNode, output)
 	}
 }
@@ -969,7 +1021,9 @@ func (r *FlowRuntime) executeNodeWithRetry(nodeInstance node.Node, routedMsg Rou
 		}
 
 		// Record retry metric
-		metrics.RecordNodeRetry(flowNode.Type)
+		if !r.noMetrics {
+			metrics.RecordNodeRetry(flowNode.Type)
+		}
 
 		logger.Warn().
 			Err(err).
