@@ -31,6 +31,7 @@ const (
 type callRecord struct {
 	owner   string // Actor.key of the caller
 	rt      *flow.FlowRuntime
+	view    resultView      // how the caller sees the results
 	result  flow.CallResult // redacted and capped
 	final   bool
 	expires time.Time

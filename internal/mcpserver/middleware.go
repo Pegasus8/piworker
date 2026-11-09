@@ -168,13 +168,15 @@ func extendWriteDeadline(d time.Duration, next http.Handler) http.Handler {
 
 // authenticate accepts only Bearer agent tokens (cookies and query
 // parameters are ignored). Token lookups in the store are limited per client
-// address: each takes one unit of the client's failure budget before it
-// starts (so concurrent lookups cannot all pass a check before any fails)
-// and gives it back unless the token was bad. A client out of budget gets
-// 429 before its token is looked up, but tokens the verifier holds in its
-// cache are served without a lookup, so a client sharing the address (an
-// IPv6 /64, every loopback client) cannot lock out known agents. Tokens are
-// never logged.
+// address: each takes one unit of a failure budget before it starts (so
+// concurrent lookups cannot all pass a check before any fails) and gives it
+// back unless the token was bad. A client out of budget gets 429 before its
+// token is looked up. Tokens the verifier holds in its cache are served
+// without a lookup, and a token whose id names a real token draws on a
+// budget of its own for that address (failureKey), so a client sharing the
+// address (an IPv6 /64, every client behind a local reverse proxy) cannot
+// lock out agents, even after a restart or an epoch change emptied the
+// cache. Tokens are never logged.
 func (h *Handler) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, ok := bearerToken(r)
@@ -204,7 +206,8 @@ func (h *Handler) authenticate(next http.Handler) http.Handler {
 // itself (429, 401); an error is a store failure.
 func (h *Handler) lookUp(w http.ResponseWriter, r *http.Request, raw string) (info agentauth.TokenInfo, ok bool, err error) {
 	client := clientKey(r.RemoteAddr)
-	if reserved, retry := h.failures.take(client); !reserved {
+	budget := h.failureKey(client, raw)
+	if reserved, retry := h.failures.take(budget); !reserved {
 		setRetryAfter(w, retry)
 		writeJSONError(w, http.StatusTooManyRequests, "Too many failed authentications from this address; retry later")
 		return agentauth.TokenInfo{}, false, nil
@@ -220,8 +223,32 @@ func (h *Handler) lookUp(w http.ResponseWriter, r *http.Request, raw string) (in
 		writeJSONError(w, http.StatusUnauthorized, "The agent token is invalid, expired or revoked")
 		return agentauth.TokenInfo{}, false, nil
 	}
-	h.failures.refund(client) // not a bad token
+	h.failures.refund(budget) // not a bad token
 	return info, err == nil, err
+}
+
+// failureKey is the failure budget a lookup of raw from client draws on.
+// Token secrets are 256 bits, so the budget does not stop guessing: it
+// bounds the store reads and log lines of bad tokens. Made-up and malformed
+// tokens share the client's budget, 10 a minute however many ids they name.
+// A token whose id names a real token (KnownID, read without a lookup) has
+// a budget of its own for that client, so what others send from the
+// client's address never holds back a real token's lookups; wrong secrets
+// for that id are limited to that id and address.
+func (h *Handler) failureKey(client, raw string) string {
+	id, _, parsed := storage.ParseAPIToken(raw)
+	if !parsed {
+		return client
+	}
+	known, err := h.tokens.KnownID(id)
+	if err != nil {
+		h.log.Error().Err(err).Msg("Cannot list agent tokens")
+		return client
+	}
+	if !known {
+		return client
+	}
+	return client + " " + id
 }
 
 // verified is the authenticated caller of a request.
@@ -323,6 +350,15 @@ func (h *Handler) checkMessage(w http.ResponseWriter, r *http.Request, actor ser
 	if isBatch(body) {
 		writeRPCError(w, http.StatusBadRequest, nil, jsonrpc.CodeInvalidRequest,
 			"JSON-RPC batching is not supported: send one message per request")
+		return false
+	}
+	if why := scanMessage(body); why != "" {
+		// Before anything decodes it (this parse included): counted, like
+		// the refusals of tool arguments, as the token's.
+		if h.rejections != nil {
+			h.rejections.Reject(actor.TokenID, rejectedTooLarge, h.now())
+		}
+		writeRPCError(w, http.StatusRequestEntityTooLarge, nil, jsonrpc.CodeInvalidRequest, "Request too large: "+why)
 		return false
 	}
 	if isScalarJSON(body) {

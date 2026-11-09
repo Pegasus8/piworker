@@ -50,7 +50,9 @@ const (
 	// at 256 characters unless the admin raises maxLength, and approvals
 	// refuse arguments over 64 KiB), and batches are refused, so 1 MiB
 	// leaves room for long strings while keeping a Pi's memory safe from a
-	// flood of large bodies (the SDK's default is 4 MiB).
+	// flood of large bodies (the SDK's default is 4 MiB). What decoding a
+	// body costs is bounded apart (MaxMessageValues, MaxMessageDepth,
+	// MaxMetaBytes).
 	DefaultMaxRequestBodyBytes = 1 << 20
 	// DefaultWriteDeadline covers the longest tool timeout (30 s) plus
 	// margin; the server's WriteTimeout (15 s) would cut slow calls.
@@ -80,6 +82,10 @@ type TokenVerifier interface {
 	// VerifyCached accepts a token from the verifier's cache alone, never
 	// looking one up in the store (ok false: not decided).
 	VerifyCached(raw string) (info agentauth.TokenInfo, ok bool, err error)
+	// KnownID reports whether id names a real (active) token, without
+	// reading a token, so the failure limiter can keep real tokens apart
+	// from made-up ones.
+	KnownID(id string) (bool, error)
 	Epoch() int64
 }
 

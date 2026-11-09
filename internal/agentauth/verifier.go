@@ -50,6 +50,7 @@ const (
 // Store is the token persistence the verifier needs (*storage.SQLiteStore).
 type Store interface {
 	GetAPIToken(id string) (*storage.APIToken, error)
+	ListAPITokens() ([]storage.APIToken, error)
 	TokensEpoch() (int64, error)
 	TouchAPITokenLastUsed(id string, now time.Time) error
 	RevokeAPIToken(id string, now time.Time) error
@@ -120,6 +121,12 @@ type TokenVerifier struct {
 
 	// refreshMu serializes epoch reads.
 	refreshMu sync.Mutex
+
+	// idsMu guards the ids of the active tokens as last listed (KnownID).
+	idsMu    sync.Mutex
+	ids      map[string]bool
+	idsAt    time.Time
+	idsReady bool
 }
 
 // NewTokenVerifier returns a verifier backed by store.
@@ -316,6 +323,38 @@ func (v *TokenVerifier) touch(id string, now time.Time) {
 	if err := v.store.TouchAPITokenLastUsed(id, now); err != nil {
 		v.log.Warn().Err(err).Str("tokenId", id).Msg("Cannot record agent token use")
 	}
+}
+
+// KnownID reports whether id names a token that was active (neither
+// revoked nor expired) when the verifier last listed the tokens. It reads
+// no token, so callers that limit lookups of unknown ids per client address
+// can tell a real token, which a client sharing the address must never be
+// able to lock out, from made-up ones. The list is read on the first call
+// and again when asked about an id it does not hold once an epoch interval
+// has passed since the last read: a token created since is known within an
+// interval, and made-up ids cost at most one store read an interval,
+// however many are sent. Ids that stopped being active stay known until
+// the next read (a lookup then fails as for any bad token). An error is a
+// store failure.
+func (v *TokenVerifier) KnownID(id string) (bool, error) {
+	v.idsMu.Lock()
+	defer v.idsMu.Unlock()
+	now := v.now()
+	if v.idsReady && (v.ids[id] || (now.Sub(v.idsAt) < v.epochInterval && !now.Before(v.idsAt))) {
+		return v.ids[id], nil
+	}
+	tokens, err := v.store.ListAPITokens()
+	if err != nil {
+		return false, fmt.Errorf("agentauth: cannot list tokens: %w", err)
+	}
+	ids := make(map[string]bool, len(tokens))
+	for i := range tokens {
+		if tokens[i].Active(now) {
+			ids[tokens[i].ID] = true
+		}
+	}
+	v.ids, v.idsAt, v.idsReady = ids, now, true
+	return ids[id], nil
 }
 
 // Epoch returns the tokens epoch as last read by Verify (0 before the first

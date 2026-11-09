@@ -296,7 +296,30 @@ Shared by REST and MCP (thin adapters):
   `approval_required`), result size cap (`max_result_bytes`, `truncated`), redaction of known secret
   values (literal, URL-encoded, base64) and, in error messages, of URLs past
   their host (`scheme://host/<redacted>`, the read views' rule: Telegram bot
-  and webhook tokens sit in the path).
+  and webhook tokens sit in the path). An agent never gets the error of a
+  node holding a setting it may not read (Sensitive, not `AgentVisible`,
+  undeclared, or of a type without a schema: what `GetFlow` shows as
+  `"<redacted>"`): node errors quote their settings (expr-lang quotes the
+  whole expression of a transform, filter or switch; file and command
+  errors their paths), so the message is withheld whole (ADR-0021) and
+  replaced by a fixed text, keeping `nodeId` and `nodeType`. Which errors
+  are withheld depends on which settings the node holds, never on their
+  values; the admin sees the error in the flow's activity, and the
+  editor's own calls get it as recorded. Nor does an agent's result confirm
+  a guess (ADR-0021): it is redacted only of the secrets the agent did not
+  send itself, i.e. those none of whose redacted forms (literal,
+  URL-encoded, base64) appears in a string, object key or number of its
+  arguments. What it sent comes back as sent, a right guess and a wrong one
+  alike (also many guesses in one argument), while a secret the flow
+  outputs of its own is still redacted. Residual: a flow that both repeats
+  the argument and outputs the same secret, or that derives a secret's
+  value from the arguments (joining two of them, arithmetic), shows that
+  secret unredacted exactly when the agent's text holds it or makes the
+  flow compute it; closing it would need to know which output came from
+  the agent, which a flow's output does not record. The editor's results
+  are redacted of every known secret. This applies to every path a result
+  reaches an agent: the call, `pw_get_result` and the result stored on an
+  approved `confirm: admin` call.
 - `Tools.Result(actor, runID)`: only the actor that started the run.
 - Read views (phase 2), `service.Reads`, for the editor and tokens with the
   `read` scope (others: `forbidden`); JSON with camelCase fields, bounded
@@ -414,6 +437,9 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   `agent_deploy` also bumps it so cached per-token MCP servers are rebuilt.
 - In-memory cache of verified tokens; evicted on revoke; a `tokens_epoch`
   setting re-checked every 5 s covers revocations from other processes.
+  The verifier also keeps the ids of the active tokens (`KnownID`, for the
+  `/mcp` failure limiter, §8), listed on first use and again when asked
+  about an id it does not hold, at most once per epoch interval.
 - Recovery-code redemption and password change revoke all tokens (password
   change: unless "keep agent tokens" is ticked), in the server process.
 - API (cookie): `GET/POST /api/agent/tokens`, `DELETE /api/agent/tokens/{id}`,
@@ -448,7 +474,21 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 - SDK: `github.com/modelcontextprotocol/go-sdk` pinned exactly (v1.8.0).
   `mcp.NewStreamableHTTPHandler(getServer, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, DisableLocalhostProtection: true, MaxRequestBodyBytes: 1 MiB, PropagateRequestCancellation: true})`
   (1 MiB: arguments are at most 64 KiB in practice; the SDK default of 4 MiB
-  is too much for a Pi under a flood of bodies).
+  is too much for a Pi under a flood of bodies). The body limit bounds
+  bytes, not what decoding costs: a decoded value costs from a few dozen
+  bytes to a few hundred (`{}` becomes a Go map), each time the SDK or the
+  endpoint decodes it (the SDK decodes `params._meta` twice on every
+  request, and a call's arguments once more before the tool sees them), so
+  one token's burst of 1 MiB messages of `{}` cost over 600 MiB. Before
+  anything decodes a POST, the endpoint reads its tokens in place
+  (`jsontext`, no decoding) and refuses with 413, JSON-RPC `-32600` (id
+  null), a message of more than 32 768 values and member names
+  (`MaxMessageValues`; the largest flow the author tools take, 200 nodes
+  and 400 connections with their settings, needs about a third), nested
+  deeper than 64 levels, or whose `params._meta` exceeds 8 KiB (progress
+  tokens and client hints); the refusal is counted in `mcp_rejections`
+  (`request_too_large`) for the token. A burst of the largest messages
+  accepted then peaks at a few dozen MiB of heap.
 - Protocol versions: 2026-07-28 (sessionless, `server/discover`),
   2025-11-25 and 2025-06-18 (`initialize`); others are refused. The legacy
   handshake asked for 2026-07-28 settles on 2025-11-25 (SDK behaviour). Every
@@ -588,11 +628,24 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   401 + `WWW-Authenticate: Bearer realm="piworker"` and a JSON body; 503 when
   the token store cannot be read; tokens never logged) with its own
   per-client failure limiter (10 failures a minute per IP, IPv6 per /64, then
-  429 + `Retry-After`): every token lookup in the store reserves a unit of the
-  client's budget first and gives it back unless the token was bad, so
-  concurrent guesses cannot all pass; tokens the verifier already holds in its
-  cache (`VerifyCached`, no lookup) are served even while their client is
-  limited, so a client sharing the address cannot lock out known agents;
+  429 + `Retry-After`): every token lookup in the store reserves a unit of a
+  budget first and gives it back unless the token was bad, so concurrent
+  lookups cannot all pass. Token secrets are 256 bits, so the limiter does
+  not stop guessing: it bounds the store reads and log lines of bad tokens,
+  and must never let a client lock out the agents sharing its address
+  (every client behind a local HTTPS reverse proxy is 127.0.0.1, IPv6
+  clients share a /64). Tokens the verifier holds in its cache
+  (`VerifyCached`, no lookup) are served whatever their client's budget;
+  a well-formed token whose id names a real token (`KnownID`: the ids of the
+  active tokens, listed without reading a token, again when asked about an
+  unknown id at most once per epoch interval, so a new token is known
+  within 5 s) draws on a budget of its own for that address, so agents
+  are looked up even after a restart or an epoch change (a revocation, a
+  grant change) emptied the cache; made-up and malformed tokens share the
+  address's budget. Residuals: wrong secrets for a real token's id (shown
+  in the editor and the logs) hold back that token's lookups from the
+  sender's address, and a token used less than 5 s after its creation from
+  a limited address may get 429 once;
   per-token token bucket (30/min, burst 10 → 429 +
   `Retry-After`); scope check (call or read, or the scope of a registered
   built-in tool or prompt that the settings serve now — author with
@@ -605,9 +658,11 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   the SDK (case-sensitive names; a body that is not JSON or has duplicate
   names → 400, JSON-RPC `-32700`; JSON that is not an object or an array →
   400, `-32600`, id null; a method that is not a string → 400, `-32600`,
-  with the request's id). Params of the wrong shape (not an object, a name that is not a
-  string) are the SDK's to refuse (`-32602` with the request's id); the
-  scope check reads such a call as one of an unknown tool.
+  with the request's id), after the bounds on its values, nesting and
+  `_meta` (above, 413). Params of the wrong shape (not an object, a name
+  that is not a string) are the SDK's to refuse (`-32602` with the
+  request's id); the scope check reads such a call as one of an unknown
+  tool.
 - `/mcp` is outside `/api`: the ADR-0002 request guard and CSRF do not apply
   (Bearer only; the router never allows `Authorization` in a CORS preflight).
 - Mounted at `/mcp` without method restriction, before the webui catch-all;
