@@ -276,7 +276,7 @@ type ToolInfo struct {
     OutputSchema json.RawMessage
     Risk         node.Risk
     Annotations  Annotations
-    Fingerprint  string // sha256(risk, annotations, inputSchema, confirm)
+    Fingerprint  string // sha256(risk, annotations, inputSchema, confirm, reaches)
     Confirm      string
     Timeout      time.Duration
     MaxConcurrent int
@@ -369,8 +369,18 @@ Shared by REST and MCP (thin adapters):
   errors also lose what `GetFlow` hides of the run's flow: the values of its
   hidden settings, split around `{{…}}` templates, whole, as words and as the
   path segments, query values and userinfo of their URLs (parts under 8
-  bytes are kept, but a URL password of 4). An unknown flow is
-  `flow_not_found`.
+  bytes are kept, but a URL password of 4). Agents see a run's recorded
+  errors only when the run is of a version the admin approved and deployed
+  (ADR-0022): it started in a later second than the flow's current
+  deployment marker (stamped in seconds), and the version the marker names
+  is admin-approved. Any other run's errors — an agent's deployment at
+  `low` or `all`, a run before the current deployment, a flow without a
+  marker or whose version was pruned — read as a fixed text naming why;
+  phases, nodes and timings are shown. A node an agent deployed could
+  otherwise raise an error on purpose to hand back what it read
+  (variables, metadata, a credential's response), and redaction by value
+  cannot stop an encoded copy. The editor sees every error. An unknown
+  flow is `flow_not_found`.
   Hiding by comparison leaves a guessing oracle (ADR-0021): an agent that
   can put its own text where a view shows it and read it back learns
   whether the text holds a known value (`"<redacted>"`): a secret's value,
@@ -382,21 +392,23 @@ Shared by REST and MCP (thin adapters):
   Accepted (action item 2): `author` and `read` with the agent's text in a
   stored version, either one it deploys from its own draft (`deploy` at
   `low` or `all`, no approval per round) or a draft the admin approves
-  (any level): a visible setting or the flow's name, or an error a run of
-  it records. Over such a version the agent's later drafts read a guess
-  back with `author` alone (alert `before` values are redacted by
-  comparison, and a kept setting whose stored value holds a known value
-  is withheld, `"<redacted>"` in `GetDraft`, §10). Open, awaiting a
-  decision (action item 3), at every level, `off` included: `call` and a
-  granted tool whose reply or error repeats its arguments (`Tools.finish`
-  compares results and errors with secret values); `call` and `read`, a
-  granted tool whose flow records an error that repeats an argument; and
-  `read` with a webhook (one without a token answers anyone on the
-  network) or MQTT topic the agent reaches another way, of a flow whose
-  node records an error that repeats the input. The views and tool
-  results keep comparing because stored flows, real runs and tool results
-  hold real secret values that only comparison catches (resolved
-  references, variables, `$env`, node outputs). The residual is mitigated
+  (any level): a visible setting or the flow's name, or, once the admin
+  deploys the approved draft, an error a run of it records (the run
+  errors of an agent's own deployment are withheld, above). Over such a
+  version the agent's later drafts read a guess back with `author` alone
+  (alert `before` values are redacted by comparison, and a kept setting
+  whose stored value holds a known value is withheld, `"<redacted>"` in
+  `GetDraft`, §10). Open, awaiting a decision (action item 3), at every
+  level, `off` included: `call` and `read`, a granted tool whose flow
+  records an error that repeats an argument; and `read` with a webhook
+  (one without a token answers anyone on the network) or MQTT topic the
+  agent reaches another way, of a flow whose node records an error that
+  repeats the input. A granted tool's own reply or error is not one: an
+  agent's tool result is redacted only of the secrets it did not send
+  (`Tools.Call` above, with its residual). The views keep comparing
+  because stored flows and real runs hold real secret values that only
+  comparison catches (resolved references, variables, `$env`, node
+  outputs). The residual is mitigated
   by warnings: `GET /api/secrets` answers `{secrets: [{name, short}],
   shortBelow}`, `short` for a value of fewer than
   `secrets.ShortValueRunes` (16) runes, never a value or a length; the
@@ -422,10 +434,15 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   can only be granted when agent deploy is enabled (§10). The `privileged`
   flag (default false) is needed to call privileged tools.
 - Grants bind to `(flowID, triggerNodeID, fingerprint)`. A redeploy that
-  changes the fingerprint (risk, annotations, input schema or confirm mode)
-  suspends the grant until the admin re-confirms: any change, not only a higher
-  risk or a wider schema, since whether a schema is wider cannot be decided
-  reliably. `all_tools` never includes privileged tools. An approved
+  changes the fingerprint (risk, annotations, input schema, confirm mode, or
+  the ID and type of a node above `safe` the tool reaches — through
+  connections or the flow variables it sets: a tool repointed to another
+  action of the same type, or wired to one more, is another tool, ADR-0022;
+  the reached nodes' settings are not part of it, since agents see the
+  fingerprint and a hash of a setting they may not read would confirm
+  guesses of it) suspends the grant until the admin re-confirms: any
+  change, not only a higher risk or a wider schema, since whether a schema
+  is wider cannot be decided reliably. `all_tools` never includes privileged tools. An approved
   `confirm: admin` call runs only if the tool still has the name and
   fingerprint recorded with the request (§9).
 - Created only from the editor (cookie + CSRF) with **password step-up**;
@@ -978,7 +995,11 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   agents, so a node's messages never quote the value of a setting the read
   views hide (Sensitive, not AgentVisible, undeclared or schemaless), raw or
   as `%q`, `%+q`, JSON or `CheckConfig`'s cut-off quote (a short Sensitive
-  value hides the whole message). Issues are ordered deterministically:
+  value hides the whole message). The quoted forms of a node's hidden values
+  are built once per node, each distinct form once, and only forms no
+  longer than a message are looked for in it, so the cost grows with the
+  issues plus the hidden leaves, not with their product (an agent's flow
+  can hold hundreds of thousands of leaves). Issues are ordered deterministically:
   flow-level first, then nodes and connections in definition order; within
   one location by path, errors first, code, message. Paths: `/nodes`,
   `/nodes/{nodeId}`, `/nodes/{nodeId}/config/{prop}`, `/connections/{id}`
@@ -1039,7 +1060,13 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   `privileged_node_added` (an enabled node is privileged where the base had
   no enabled privileged node with its ID), `destination_changed` (also on
   added and removed nodes), `dynamic_destination` (a new or changed
-  Destination value with a template other than secret references),
+  Destination value with a template other than secret references; also, on
+  a running node that ran in the base with such a value — a topic
+  `zigbee2mqtt/{{payload.device}}/set`, a URL path — when anything
+  upstream of it changed, as for `credentialed_request_changed` below: where
+  it sends follows what feeds it, credentials or not; one alert per node,
+  at its first such property; message content on a fixed destination is
+  not a destination),
   `new_host` (the host of a URL or host Destination value that the base
   never uses; only the host is shown), `secret_added`, `secret_moved` (a
   secret the base uses, referenced at a new node and property),
@@ -1080,8 +1107,28 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   (a `get-var` whose scope is not `flow`, or config text naming `vars`,
   `flowVars` or `$env`: it errs on the side of yes) and changed: a node of
   it added, enabled or reconfigured, or a connection into one added; one
-  alert per tool). The two global variable alerts are
-  listed after the field alerts.
+  alert per tool), `tool_path_changed` (`internal/flow/diff_tools.go`,
+  ADR-0022: what a running `trigger-tool` runs changed — its path, the
+  running part its trigger reaches through connections and flow variables
+  together with everything that feeds that part, had a node added,
+  enabled, retyped or reconfigured, a node leave it, or a connection into
+  it added or removed, compared with the base's path of the same trigger;
+  a trigger new or enabled here counts as changed; a published tool is the
+  admin's: a `confirm: none` tool wired to the action behind a `confirm:
+  admin` tool would run it without approval while its grant and
+  fingerprint stay valid; one alert per tool, naming only node IDs and
+  types), `data_read_changed` (`internal/flow/diff_reads.go`, ADR-0022: a
+  running node added, enabled, retyped or reconfigured, or that gained an
+  input, reads variables of any scope or message metadata — config text
+  naming `vars`, `flowVars`, `meta` or `$env`, or a `get-var`: the nodes
+  before it record their settings in `meta`, an HTTP URL, an expression, a
+  topic — or runs downstream, through connections or flow variables, of a
+  running node that uses a credential or reads variables: the flow's runs
+  are visible to agents, and such a node could hand what it read back
+  through an error it raises on purpose or through which nodes run; one
+  alert per node, naming only node IDs and types). The two global
+  variable alerts, the tool path alert and the data read alert are listed
+  after the field alerts.
   The rate alert covers the settings whose purpose is the rate; connections,
   filter conditions and thresholds also change how many messages reach a
   node, as they change what the messages hold, and raise no rate alert.
@@ -1090,14 +1137,29 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   alerts of adding it, disabling one those of removing it; changing or
   removing a node that is disabled raises none). Nodes are paired by ID and,
   for a repeated ID, by occurrence, so a duplicate shows as an added node
-  with its alerts. Values of Sensitive properties (and every value of an
+  with its alerts. The alerts compare a node with its base node only when
+  both have the same type: a node retyped under the same ID (an MQTT
+  subscriber removed and added again as a retained publisher with the same
+  broker, topic and password; a manual trigger turned into an interval)
+  raises the alerts of removing the one and adding the other, and its
+  secret references count as moved. Values of Sensitive properties (and every value of an
   unregistered type) read as `<hidden>` in the field diffs unless they are
   exactly a secret reference, whose name is shown. The node and field diffs
   are for the editor; alerts are stored with the draft and returned to its
   author, so they are agent-safe at the source: `before`/`after` hold a
   property's values only when agents may read it (AgentVisible and not
   Sensitive), and otherwise only risks, hosts, secret names and risk-switch
-  booleans.
+  booleans. `flow.DiffWith(base, next, registry, DiffOptions{Written})` is
+  `Diff` whose alerts never compare what the agent wrote with what it may
+  not read (ADR-0021, F10): a written setting agents may not read counts as
+  changed whatever the base holds (in the field alerts and in every "node
+  changed" of the upstream, tool-path and data-read rules), and a written
+  value's hosts and secret names count as known only when a base setting
+  agents may read uses them (`new_host`, `secret_added`, `secret_moved`;
+  hosts and secrets are alerted once each, separately for written
+  values). `SaveDraft` passes what the agent wrote, and the low level's
+  verdict on a draft every setting it did not keep; the editor's views use
+  `Diff`.
 - Dry-run (`flow.DryRun`, behind `pw_dry_run`). The flow is first linted
   (`flow.LintContext` with the caller's secret store, on the flow as it
   would run, after `Redact`: the one validation path, ADR-0007); its issues
@@ -1291,7 +1353,9 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   an approved credential is used for: `credentialed_request_changed`, nor to
   how often a flow that reaches out fires: `rate_changed`, no change to what
   a global variable receives or to a tool path that reads global variables:
-  `global_variable_write`, `global_variable_read`), `all`
+  `global_variable_write`, `global_variable_read`, nor to what a published
+  tool runs: `tool_path_changed`, no changed node reading what agents may
+  not read: `data_read_changed`, ADR-0022), `all`
   (any flow, including privileged). Changing it needs password step-up and
   shows the risk text, the guessing residual (at every level, and what
   `low` and `all` add) and how many secrets are short (§6); tokens need
@@ -1523,6 +1587,13 @@ toggling a running flow on records nothing (it deploys nothing). A
     either, H7); `before` values (the base's) are redacted as the read
     views redact them, other `after` values are what the agent wrote or may
     read. URLs are cut past their host and each message is at most 2 KiB.
+    Which alerts are raised never depends on how what the agent wrote
+    compares with what it may not read (`flow.DiffWith`): a written hidden
+    URL, body or expression is a change even when it equals the admin's,
+    and a host or secret name the agent writes is new unless a setting it
+    may read uses it, so neither a guess of a value nor of the hosts and
+    secrets of hidden settings is confirmed; the low level's verdict on a
+    draft follows the same rule.
     Open, accepted (ADR-0021): the read views (§6) still hide known
     values in a stored flow and its runs by comparison, including in what
     an agent wrote once a version holds it (one it deployed itself at
@@ -1626,8 +1697,11 @@ toggling a running flow on records nothing (it deploys nothing). A
   `privileged_node_added`, `destination_changed`, `dynamic_destination`,
   `new_host`, `secret_added`, `secret_moved`, `risk_switch_on`,
   `sensitive_literal`, `credentialed_request_changed` (H1), `rate_changed`,
-  `global_variable_write` (shared state other flows read) and
-  `global_variable_read` (shared state a tool would return) — refused
+  `global_variable_write` (shared state other flows read),
+  `global_variable_read` (shared state a tool would return),
+  `tool_path_changed` (what a published tool runs) and
+  `data_read_changed` (what a changed node reads could come back through
+  the runs; both ADR-0022) — refused
   with `forbidden` listing the kinds, never values; `all` → any flow. With
   `draftId` the agent's own pending draft of `flowId` (another token's:
   `not_found`; stale: `conflict`) is evaluated, saved with

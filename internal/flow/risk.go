@@ -100,8 +100,10 @@ type ToolInfo struct {
 	Risk                                                node.Risk
 	Annotations                                         Annotations
 	// Fingerprint is "sha256:<hex>" over the canonical JSON of the risk, the
-	// annotations, the advertised input schema and the confirm mode: grants
-	// bind to it, so any change of what the tool may do changes it.
+	// annotations, the advertised input schema, the confirm mode and the ID
+	// and type of every node above safe the tool reaches (ADR-0022; never
+	// their settings, which agents may not read): grants and approvals bind
+	// to it, so any change of what the tool may do changes it.
 	Fingerprint   string
 	Confirm       string
 	Timeout       time.Duration
@@ -304,6 +306,8 @@ type toolAnalysis struct {
 	risk     node.Risk
 	readOnly bool
 	issues   *issueSet
+	// reaches holds "ID\x00type" of the nodes above safe the tool reaches.
+	reaches map[string]bool
 }
 
 // raise lifts the tool's risk to r. A risk that is not one of the declared
@@ -343,7 +347,14 @@ func (a *toolAnalysis) visit(idx int, n *Node, reg *node.Registry, direct bool) 
 	}
 	// The node's own risk, with the instance escalations Risk applies to
 	// whole flows (dynamic destinations, RiskSwitch properties turned on).
-	a.raise(instanceRisk(n, reg))
+	r := instanceRisk(n, reg)
+	a.raise(r)
+	if r != node.RiskSafe {
+		if a.reaches == nil {
+			a.reaches = map[string]bool{}
+		}
+		a.reaches[n.ID+"\x00"+n.Type] = true
+	}
 	cfg := n.Config
 
 	switch n.Type {
@@ -437,7 +448,7 @@ func (a *toolAnalysis) info(flowID, nodeID string) ToolInfo {
 		OutputSchema:  a.spec.OutputSchema,
 		Risk:          a.risk,
 		Annotations:   ann,
-		Fingerprint:   toolFingerprint(a.risk, ann, a.spec.InputSchema.JSON(), confirm),
+		Fingerprint:   toolFingerprint(a.risk, ann, a.spec.InputSchema.JSON(), confirm, a.reached()),
 		Confirm:       confirm,
 		Timeout:       a.spec.Timeout,
 		MaxConcurrent: a.spec.EffectiveMaxConcurrent(ann.ReadOnlyHint),
@@ -445,15 +456,37 @@ func (a *toolAnalysis) info(flowID, nodeID string) ToolInfo {
 	}
 }
 
-// toolFingerprint hashes the canonical JSON of what a grant approves.
-func toolFingerprint(risk node.Risk, ann Annotations, schema json.RawMessage, confirm string) string {
+// reached lists the nodes above safe the tool reaches, each as [ID, type],
+// sorted.
+func (a *toolAnalysis) reached() [][2]string {
+	out := make([][2]string, 0, len(a.reaches))
+	for k := range a.reaches {
+		id, typ, _ := strings.Cut(k, "\x00")
+		out = append(out, [2]string{id, typ})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i][0] != out[j][0] {
+			return out[i][0] < out[j][0]
+		}
+		return out[i][1] < out[j][1]
+	})
+	return out
+}
+
+// toolFingerprint hashes the canonical JSON of what a grant approves:
+// reaches names the nodes above safe the tool reaches ([ID, type], sorted),
+// so a tool repointed to another action, or wired to one more, is another
+// tool (ADR-0022). Their settings stay out: agents see fingerprints, and a
+// hash of a setting they may not read would confirm guesses of it.
+func toolFingerprint(risk node.Risk, ann Annotations, schema json.RawMessage, confirm string, reaches [][2]string) string {
 	// Fields in alphabetical order; schema is already canonical.
 	data, err := json.Marshal(struct {
 		Annotations Annotations     `json:"annotations"`
 		Confirm     string          `json:"confirm"`
 		InputSchema json.RawMessage `json:"inputSchema"`
+		Reaches     [][2]string     `json:"reaches"`
 		Risk        node.Risk       `json:"risk"`
-	}{ann, confirm, schema, risk})
+	}{ann, confirm, schema, reaches, risk})
 	if err != nil {
 		// Only an invalid schema document could fail; never match a grant.
 		data = []byte("invalid:" + err.Error())

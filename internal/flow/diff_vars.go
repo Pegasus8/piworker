@@ -35,6 +35,7 @@ type varGraph struct {
 	fedBy     map[string][]*diffNode // source ID → the running nodes it connects to
 	newInput  map[string]bool        // target IDs of added connections between running nodes
 	added     []Connection           // the added connections between running nodes
+	conns     []Connection           // the connections between running nodes
 	// flowWriters are the running set-vars of scope flow; flowReaders the
 	// running nodes that read flow variables.
 	flowWriters, flowReaders []*diffNode
@@ -59,6 +60,7 @@ func newVarGraph(next *Flow, baseByKey map[string]*diffNode, nextOrder []*diffNo
 	}
 	for _, c := range next.Connections {
 		if src, dst := g.running[c.SourceNode], g.running[c.TargetNode]; src != nil && dst != nil {
+			g.conns = append(g.conns, c)
 			g.feeds[c.TargetNode] = append(g.feeds[c.TargetNode], src)
 			g.fedBy[c.SourceNode] = append(g.fedBy[c.SourceNode], dst)
 		}
@@ -250,7 +252,8 @@ func readsGlobalVariables(n *Node) bool {
 }
 
 // nodeChange describes how running node d differs from its base node b (nil:
-// none): "is new", "was enabled", "changed" ("" when it is the same).
+// none): "is new", "was enabled", "changed" ("" when it is the same). A
+// setting the agent wrote and may not read counts as changed (forced).
 func nodeChange(d, b *diffNode) string {
 	switch {
 	case b == nil:
@@ -261,7 +264,7 @@ func nodeChange(d, b *diffNode) string {
 		return "changed"
 	}
 	for _, key := range configKeys(b, d) {
-		if !sameValue(b.n.Config[key], d.n.Config[key]) {
+		if d.forced(key) || !sameValue(b.n.Config[key], d.n.Config[key]) {
 			return "changed"
 		}
 	}
@@ -299,6 +302,43 @@ func credentialedFlowAlerts(g *varGraph, nextOrder []*diffNode, alerted map[stri
 					d.n.ID, d.n.Type, why)})
 		}
 	}
+}
+
+// dynamicDestinationAlerts adds AlertDynamicDestination for running nodes
+// that ran in the base (same type) with a Destination value taking message
+// data or variables (a topic "zigbee2mqtt/{{payload.device}}/set", a URL
+// path), when they have no such alert yet (alerted, by node key) and
+// anything that feeds them changed: where they send follows what feeds
+// them, so a change upstream steers the approved destination as surely as
+// writing it, with the admin's credentials or not. Message content on a
+// fixed destination is not a destination.
+func dynamicDestinationAlerts(g *varGraph, nextOrder []*diffNode, alerted map[string]bool, add func(order int, a Alert)) {
+	for _, d := range nextOrder {
+		if d.live() == nil || alerted[d.key] || g.baseByKey[d.key].live() == nil {
+			continue
+		}
+		prop := d.dynamicDestination()
+		if prop == "" {
+			continue
+		}
+		if why := g.upstreamChange(d); why != "" {
+			alerted[d.key] = true
+			add(d.order, Alert{Kind: AlertDynamicDestination, NodeID: d.n.ID, Path: "config." + prop,
+				Message: fmt.Sprintf("node %s (%s) takes its destination (%s) from message data or variables, and what feeds it may change: %s",
+					d.n.ID, d.n.Type, prop, why)})
+		}
+	}
+}
+
+// dynamicDestination returns the first (by name) Destination property of d
+// whose value holds a template other than secret references ("" when none).
+func (d *diffNode) dynamicDestination() string {
+	for _, key := range configKeys(d) {
+		if p, ok := d.prop(key); ok && p.Destination && hasDynamicTemplate(d.n.Config[key]) {
+			return key
+		}
+	}
+	return ""
 }
 
 // responseChange describes how what running node c returns to an agent may

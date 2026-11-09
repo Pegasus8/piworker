@@ -307,28 +307,84 @@ type hiddenForm struct {
 // CheckConfig's cut-off prefix). Lint messages are shown to agents, and with
 // ops or a redacted draft they cover the admin's nodes too.
 func hideValues(msg string, reg *node.Registry, n *Node) string {
+	return newValueHider(reg, n).hide(msg)
+}
+
+// valueHider hides the values of one node's hidden settings from messages
+// (hideValues). Its forms are built once per node, each distinct form once,
+// longest first: a node with many issues is not walked again for each one
+// (an agent's flow can hold hundreds of thousands of leaves).
+type valueHider struct {
+	forms []hiddenForm
+}
+
+func newValueHider(reg *node.Registry, n *Node) *valueHider {
+	h := &valueHider{}
 	if n == nil || len(n.Config) == 0 {
-		return msg
+		return h
 	}
 	var schema map[string]node.ConfigProperty
 	if info, ok := reg.Get(n.Type); ok && info.Config != nil {
 		schema = info.Config.Properties
 	}
-	var forms []hiddenForm
+	// A form is kept once per text, length class and sensitivity (what
+	// hide decides on); a value seen once is not expanded again.
+	type formKey struct {
+		text             string
+		short, sensitive bool
+	}
+	type valueKey struct {
+		value     string
+		sensitive bool
+	}
+	seenForm := map[formKey]bool{}
+	seenValue := map[valueKey]bool{}
 	for name, v := range n.Config {
 		p, declared := schema[name]
 		if declared && p.AgentVisible && !p.Sensitive {
 			continue
 		}
 		for _, value := range appendLeafStrings(nil, v) {
+			if seenValue[valueKey{value, p.Sensitive}] {
+				continue
+			}
+			seenValue[valueKey{value, p.Sensitive}] = true
 			for _, text := range quotedForms(value) {
-				forms = append(forms, hiddenForm{text: text, value: value, sensitive: p.Sensitive})
+				k := formKey{text, len(value) < minHiddenLength, p.Sensitive}
+				if text == "" || seenForm[k] {
+					continue
+				}
+				seenForm[k] = true
+				h.forms = append(h.forms, hiddenForm{text: text, value: value, sensitive: p.Sensitive})
 			}
 		}
 	}
-	sort.SliceStable(forms, func(a, b int) bool { return len(forms[a].text) > len(forms[b].text) })
-	for _, f := range forms {
-		if f.text == "" || !strings.Contains(msg, f.text) {
+	// Longest first; for one text a short Sensitive value (which hides the
+	// whole message) first; then by text, so the result is deterministic.
+	sort.Slice(h.forms, func(a, b int) bool {
+		x, y := h.forms[a], h.forms[b]
+		if len(x.text) != len(y.text) {
+			return len(x.text) > len(y.text)
+		}
+		if x.text != y.text {
+			return x.text < y.text
+		}
+		xs, ys := x.sensitive && len(x.value) < minHiddenLength, y.sensitive && len(y.value) < minHiddenLength
+		if xs != ys {
+			return xs
+		}
+		return len(x.value) < len(y.value)
+	})
+	return h
+}
+
+// hide removes the node's hidden values from msg.
+func (h *valueHider) hide(msg string) string {
+	// Forms longer than the message cannot occur in it (the forms are
+	// sorted longest first).
+	start := sort.Search(len(h.forms), func(i int) bool { return len(h.forms[i].text) <= len(msg) })
+	for _, f := range h.forms[start:] {
+		if !strings.Contains(msg, f.text) {
 			continue
 		}
 		if len(f.value) < minHiddenLength {
@@ -650,10 +706,16 @@ func lintIssues(f *Flow, reg *node.Registry, fds []finding) []Issue {
 	}
 	seen := map[Issue]bool{}
 	list := make([]keyed, 0, len(fds))
+	hiders := map[int]*valueHider{} // by node index, built once each
 	for _, fd := range fds {
 		msg := fd.msg
 		if fd.node >= 0 && fd.node < len(f.Nodes) {
-			msg = hideValues(msg, reg, &f.Nodes[fd.node])
+			h := hiders[fd.node]
+			if h == nil {
+				h = newValueHider(reg, &f.Nodes[fd.node])
+				hiders[fd.node] = h
+			}
+			msg = h.hide(msg)
 		}
 		k := keyed{issue: Issue{Path: fd.pointerPath(f), Code: fd.code, Severity: fd.sev, Message: msg}}
 		switch {

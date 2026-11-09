@@ -50,6 +50,7 @@ func TestGetRunHidesTheURLsOfARealNodeError(t *testing.T) {
 	httpN.Config = cfg
 	f.AddNode(*httpN)
 	e.save(f)
+	e.approvedDeployment(f.ID)
 	e.addRun(f.ID, "run-1", "", 0, time.Second, "error",
 		storage.NodeEventRecord{NodeID: "http", NodeType: "action-http", Phase: "error", Error: recorded})
 
@@ -109,6 +110,7 @@ func TestGetRunRedactsHiddenSettingsFromRecordedText(t *testing.T) {
 	add("mq", "action-mqtt", map[string]any{"broker": "tcp://mqttuser:Brk9pw@broker.local:1883", "topic": "home/door",
 		"password": "{{secret.MQTT}}"})
 	e.save(f)
+	e.approvedDeployment(f.ID)
 
 	errs := []string{
 		"telegram: 404 Not Found for /bot123456:AAHtelegramTok3n/sendMessage",

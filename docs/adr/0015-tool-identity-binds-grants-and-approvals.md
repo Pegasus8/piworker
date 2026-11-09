@@ -1,6 +1,6 @@
 # ADR-0015: Bind grants and approvals to the tool's identity
 
-**Status:** Accepted
+**Status:** Accepted (what the fingerprint covers amended by ADR-0022)
 **Date:** 2026-11-08
 **Deciders:** maintainer
 **Supersedes:** ADR-0010 (only the grant suspension rule)

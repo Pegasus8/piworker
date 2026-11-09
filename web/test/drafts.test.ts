@@ -50,7 +50,7 @@ const detail = (over: Partial<DraftDetail> = {}): DraftDetail => ({
 test('every alert kind the server raises has its own icon, label and plain explanation', () => {
   const kinds = ['risk_raised', 'privileged_node_added', 'destination_changed', 'dynamic_destination', 'new_host',
     'secret_added', 'secret_moved', 'risk_switch_on', 'sensitive_literal', 'credentialed_request_changed',
-    'rate_changed', 'global_variable_write', 'global_variable_read']
+    'rate_changed', 'global_variable_write', 'global_variable_read', 'tool_path_changed', 'data_read_changed']
   expect(Object.keys(ALERT_KINDS).sort()).toEqual([...kinds].sort())
   const icons = new Set<string>()
   const labels = new Set<string>()
@@ -70,6 +70,8 @@ test('every alert kind the server raises has its own icon, label and plain expla
   expect(alertKind('rate_changed')).toMatchObject({ icon: 'Gauge', label: 'Rate changed' })
   expect(alertKind('global_variable_write')).toMatchObject({ icon: 'DatabaseZap', label: 'Global variable written' })
   expect(alertKind('global_variable_read')).toMatchObject({ icon: 'Eye', label: 'Global variable read by a tool' })
+  expect(alertKind('tool_path_changed')).toMatchObject({ icon: 'Route', label: 'Tool changed' })
+  expect(alertKind('data_read_changed')).toMatchObject({ icon: 'ScanEye', label: 'Protected data read' })
   // Every icon name resolves to its own component, not the fallback.
   for (const kind of kinds) expect(draftIcon(alertKind(kind).icon)).not.toBe(draftIcon('no-such-icon'))
 })

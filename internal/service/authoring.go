@@ -356,7 +356,10 @@ func (a *Authoring) SaveDraft(ctx context.Context, actor Actor, in DraftInput) (
 			Message: fmt.Sprintf("the proposal has %d error(s) deploy would refuse; fix them and save again (pw_validate_flow lists them)", len(blocking))}
 	}
 	risk := flow.Risk(p.next, a.registry)
-	alerts := a.agentAlerts(p.base, withheld, flow.Diff(p.base, p.next, a.registry).Alerts)
+	// What the agent wrote is never compared with what it may not read
+	// (ADR-0021): its alerts follow what it sent.
+	written := flow.DiffOptions{Written: func(id, prop string) bool { return len(p.wrote[propKey{id, prop}]) > 0 }}
+	alerts := a.agentAlerts(p.base, withheld, flow.DiffWith(p.base, p.next, a.registry, written).Alerts)
 	baseVersion := 0
 	if p.base != nil {
 		baseVersion = p.base.Version

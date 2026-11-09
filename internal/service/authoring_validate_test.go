@@ -1,6 +1,7 @@
 package service
 
 import (
+	"runtime"
 	"testing"
 
 	"github.com/Pegasus8/piworker/internal/flow"
@@ -98,4 +99,30 @@ func TestValidateForTheEditor(t *testing.T) {
 
 	_, err = e.a.Validate(t.Context(), e.token(storage.ScopeRead), ValidateRequest{Flow: f})
 	requireKind(t, err, ErrPermissionDenied)
+}
+
+// An author token's pw_validate_flow of one 480 KB flow (ten mistyped
+// settings on a node with 240,000 hidden leaves) used to allocate 3.7 GB:
+// Lint hid the node's settings from each issue again.
+func TestValidateCostIsBounded(t *testing.T) {
+	e := newAuthEnv(t)
+	agent := e.token(storage.ScopeAuthor)
+	leaves := make([]any, 240_000)
+	for i := range leaves {
+		leaves[i] = 1.0
+	}
+	cfg := map[string]any{"zz": leaves, "url": 1.0, "method": 1.0, "headers": 1.0, "body": 1.0, "bodyType": 1.0,
+		"outputMode": 1.0, "timeout": "x", "maxResponseSize": "x", "allowPrivate": "x", "retryable": "x"}
+	f := safeFlow()
+	addNode(f, "big", "action-http", cfg)
+	connect(f, "calc", "big")
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	res, err := e.a.Validate(t.Context(), agent, ValidateRequest{Flow: f})
+	runtime.ReadMemStats(&after)
+	require.NoError(t, err)
+	assert.False(t, res.Valid)
+	alloc := after.TotalAlloc - before.TotalAlloc
+	assert.Less(t, alloc, uint64(400<<20), "Validate allocated %d MiB", alloc>>20)
 }

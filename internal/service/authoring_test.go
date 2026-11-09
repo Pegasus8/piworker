@@ -25,7 +25,7 @@ func TestLowDeployRefusedAlerts(t *testing.T) {
 		flow.AlertPrivilegedNodeAdded, flow.AlertDestinationChanged, flow.AlertDynamicDestination,
 		flow.AlertNewHost, flow.AlertSecretAdded, flow.AlertSecretMoved, flow.AlertRiskSwitchOn,
 		flow.AlertSensitiveLiteral, flow.AlertCredentialedRequestChanged, flow.AlertRateChanged,
-		flow.AlertGlobalVariableWrite, flow.AlertGlobalVariableRead,
+		flow.AlertGlobalVariableWrite, flow.AlertGlobalVariableRead, flow.AlertToolPathChanged, flow.AlertDataReadChanged,
 	}, LowDeployRefusedAlerts())
 	assert.NotContains(t, LowDeployRefusedAlerts(), flow.AlertRiskRaised)
 	kinds := LowDeployRefusedAlerts()
