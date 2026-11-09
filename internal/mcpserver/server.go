@@ -143,7 +143,11 @@ func (h *Handler) buildServer(actor service.Actor, tools []flow.ToolInfo) *mcp.S
 	for _, p := range h.prompts {
 		if actor.HasScope(p.Scope) {
 			srv.AddPrompt(p.Prompt, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-				return p.Handler(ctx, actor, req.Params.Arguments)
+				res, err := p.Handler(ctx, actor, req.Params.Arguments)
+				if err != nil {
+					return nil, h.promptError(err, p.Prompt.Name, actor)
+				}
+				return res, nil
 			})
 		}
 	}
@@ -333,6 +337,26 @@ func (h *Handler) recoverPanics(actor service.Actor) mcp.Middleware {
 			return next(ctx, method, req)
 		}
 	}
+}
+
+// promptError maps a prompt handler's failure to the JSON-RPC error the
+// agent gets (prompts have no error results): a refusal (*service.ToolError)
+// is invalid params with its message, a *jsonrpc.Error is kept, anything
+// else is logged and answered as an internal error without details (the
+// SDK would send its text).
+func (h *Handler) promptError(err error, prompt string, actor service.Actor) error {
+	var te *service.ToolError
+	var rpcErr *jsonrpc.Error
+	switch {
+	case errors.As(err, &te):
+		return &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: te.Error()}
+	case errors.As(err, &rpcErr):
+		return rpcErr
+	}
+	if isInternal(err) {
+		h.log.Error().Err(err).Str("prompt", prompt).Str("tokenId", actor.TokenID).Msg("MCP prompt failed")
+	}
+	return &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "internal error; see the PiWorker log"}
 }
 
 // errHandlerPanicked is the (internal) failure of a call whose handler

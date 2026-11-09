@@ -51,6 +51,10 @@ type StaticTool struct {
 type StaticToolHandler func(ctx context.Context, actor service.Actor, args map[string]any) (*mcp.CallToolResult, error)
 
 // StaticPrompt is a built-in prompt, advertised to tokens holding Scope.
+// Handler checks its own arguments. A returned *service.ToolError becomes a
+// JSON-RPC invalid-params error with its message, a *jsonrpc.Error is sent
+// as it is, and any other error is logged and answered as an internal error
+// without details.
 type StaticPrompt struct {
 	Prompt  *mcp.Prompt
 	Scope   string

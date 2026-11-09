@@ -388,6 +388,36 @@ func TestStaticPrompts(t *testing.T) {
 	assert.Equal(t, "reader asks about f1", msg["content"].(map[string]any)["text"])
 }
 
+// A prompt's refusal (a *service.ToolError) is a JSON-RPC invalid-params
+// error with its message; any other failure is logged and answered as an
+// internal error without details.
+func TestStaticPromptErrors(t *testing.T) {
+	prompt := StaticPrompt{
+		Prompt: &mcp.Prompt{Name: "diagnose", Description: "Diagnose a flow"},
+		Scope:  storage.ScopeRead,
+		Handler: func(_ context.Context, _ service.Actor, args map[string]string) (*mcp.GetPromptResult, error) {
+			if args["flowId"] == "gone" {
+				return nil, &service.ToolError{Kind: service.ErrFlowNotFound, Message: `unknown flow "gone"`}
+			}
+			return nil, errors.New("database is locked at /var/lib/piworker/piworker.db")
+		},
+	}
+	e := newTestEnv(t, func(o *Options) { o.Prompts = []StaticPrompt{prompt} })
+	get := func(flowID string) map[string]any {
+		_, rpcErr := rpcResult(t, e.serve(withToken(rpc(`{"jsonrpc":"2.0","id":6,"method":"prompts/get","params":{"name":"diagnose","arguments":{"flowId":"`+flowID+`"}}}`), readToken)))
+		require.NotNil(t, rpcErr)
+		return rpcErr
+	}
+	refused := get("gone")
+	assert.EqualValues(t, -32602, refused["code"])
+	assert.Equal(t, `unknown flow "gone"`, refused["message"])
+
+	failed := get("f1")
+	assert.EqualValues(t, -32603, failed["code"])
+	assert.NotContains(t, fmt.Sprint(failed), "database")
+	assert.Contains(t, e.logs.String(), "database is locked")
+}
+
 // One tool that cannot be built is skipped and logged; the others are
 // served.
 func TestABadToolIsSkipped(t *testing.T) {
