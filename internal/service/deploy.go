@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/flow"
@@ -276,8 +278,231 @@ func FlowMarksOf(store MarksStore, f *flow.Flow) (FlowMarks, error) {
 // deployed) (H3). Lifecycle refusals map through LifecycleError.ToolError.
 // Every attempt is audited (privileged when the flow is) and a deploy is
 // recorded as the agent's deployment.
-func (a *Authoring) Deploy(ctx context.Context, actor Actor, req DeployRequest) (DeployResult, error) {
-	return DeployResult{}, notImplemented("deploy")
+func (a *Authoring) Deploy(ctx context.Context, actor Actor, req DeployRequest) (_ DeployResult, err error) {
+	args := &authorArgs{FlowID: req.FlowID, DraftID: req.DraftID}
+	var privileged bool
+	defer a.audited(actor, DeployToolDeployFlow, args, a.now(), &privileged)(&err)
+	level, err := a.authorizeDeploy(ctx, actor)
+	if err != nil {
+		return DeployResult{}, err
+	}
+	plan, err := a.evaluateDeploy(ctx, level, actor, req.FlowID, req.DraftID, false)
+	if err != nil {
+		return DeployResult{}, err
+	}
+	privileged = plan.risk == node.RiskPrivileged
+	var res DeployResult
+	err = a.lifecycle.WithLock(ctx, func(l LockedLifecycle) error {
+		if err := a.recheckDeploy(actor, plan); err != nil {
+			return err
+		}
+		running := l.Running(plan.flowID)
+		saved := 0
+		if plan.draft != nil {
+			v, err := a.store.UpdateFlowVersioned(plan.candidate, plan.version, storage.VersionMeta{
+				ActorKind: storage.VersionActorAgent, TokenID: actor.TokenID, TokenName: actor.TokenName,
+				DraftID: plan.draft.ID, Note: fmt.Sprintf("draft %s deployed by agent %s", plan.draft.ID, actor.TokenName),
+			})
+			if err != nil {
+				return applyError(err, plan.draft.ID)
+			}
+			saved = v
+		} else if running {
+			return toolError(ErrConflict, "the flow is already running: stop it first, or deploy a draft of it (which restarts it)")
+		}
+		version, err := l.Deploy(ctx, plan.flowID, actor.DeployActor(), running)
+		if err != nil {
+			return deployRefusal(err, saved)
+		}
+		res = DeployResult{FlowID: plan.flowID, Version: version, Running: true, Risk: plan.risk}
+		return nil
+	})
+	if err != nil {
+		return DeployResult{}, err
+	}
+	return res, nil
+}
+
+// authorizeDeploy lets agents whose token has the deploy scope deploy and
+// stop flows while agent_deploy is above off, and returns the level. The
+// editor deploys through its own pages.
+func (a *Authoring) authorizeDeploy(ctx context.Context, actor Actor) (storage.AgentDeployLevel, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	switch {
+	case actor.Kind == ActorEditor:
+		return "", toolError(ErrPermissionDenied, "the editor deploys and stops flows through its own pages")
+	case !actor.isAgent():
+		return "", toolError(ErrPermissionDenied, "unknown caller")
+	case !actor.HasScope(storage.ScopeDeploy):
+		return "", toolError(ErrPermissionDenied, "this token does not have the deploy scope")
+	}
+	level, err := a.store.AgentDeployLevel()
+	if err != nil {
+		return "", fmt.Errorf("read the agent deploy level: %w", err)
+	}
+	if level == storage.AgentDeployOff {
+		return "", toolError(ErrPermissionDenied, "agent deploy is off: the admin deploys flows in the editor")
+	}
+	if a.lifecycle == nil {
+		return "", toolError(ErrUnavailable, "flows cannot be deployed now")
+	}
+	return level, nil
+}
+
+// deployPlan is what a deploy or stop evaluated: the policy's verdict holds
+// for exactly this version (and draft).
+type deployPlan struct {
+	flowID string
+	// version is the flow's current version when the policy was
+	// evaluated.
+	version int
+	level   storage.AgentDeployLevel
+	// draft and candidate: the draft to apply (nil: the current version)
+	// and the flow that would run.
+	draft     *storage.FlowDraft
+	candidate *flow.Flow
+	risk      node.Risk
+}
+
+// evaluateDeploy reads the flow that would run (the current version, or the
+// agent's own pending draft of it based on that version) and applies the
+// level: a deploy's flow is linted first (any error, undefined secrets
+// included: invalid_arguments with the issues); low allows a flow of risk
+// external at most whose changes since the version the admin last approved
+// raise none of LowDeployRefusedAlerts.
+func (a *Authoring) evaluateDeploy(ctx context.Context, level storage.AgentDeployLevel, actor Actor, flowID, draftID string, stop bool) (*deployPlan, error) {
+	if flowID == "" {
+		return nil, toolError(ErrInvalidArguments, "flowId is required")
+	}
+	current, err := a.loadFlow(flowID)
+	if err != nil {
+		return nil, err
+	}
+	plan := &deployPlan{flowID: flowID, version: current.Version, level: level, candidate: current}
+	if draftID != "" {
+		d, err := a.ownDraft(actor, draftID)
+		if err != nil {
+			return nil, err
+		}
+		switch {
+		case d.FlowID != flowID:
+			return nil, toolError(ErrInvalidArguments, fmt.Sprintf("draft %q is not a draft of flow %q (a new flow is approved by the admin)",
+				capText(draftID, maxViewIDBytes), capText(flowID, maxViewIDBytes)))
+		case d.Status != storage.DraftPending:
+			return nil, toolError(ErrConflict, fmt.Sprintf("the draft is no longer pending (%s)", d.Status))
+		case d.BaseVersion != current.Version:
+			return nil, staleBase(current.Version)
+		}
+		candidate, err := flow.FromJSON(d.Data)
+		if err != nil {
+			return nil, fmt.Errorf("decode draft %s: %w", d.ID, err)
+		}
+		candidate.ID = flowID
+		plan.draft, plan.candidate = d, candidate
+	}
+	if !stop {
+		issues := a.lint(ctx, plan.candidate)
+		if errs := errorIssues(issues); len(errs) > 0 {
+			return nil, &ToolError{Kind: ErrInvalidArguments, FlowIssues: agentIssues(a.proposalRedactor(plan.candidate), issues),
+				Message: fmt.Sprintf("the flow has %d error(s) deploy would refuse", len(errs))}
+		}
+	}
+	plan.risk = flow.Risk(plan.candidate, a.registry)
+	if level == storage.AgentDeployLow {
+		if err := a.lowPolicy(flowID, plan.candidate, plan.risk); err != nil {
+			return nil, err
+		}
+	}
+	return plan, nil
+}
+
+// lowPolicy is the low agent_deploy level: the flow that would run is of
+// risk external at most and its diff with the version the admin last
+// approved (an empty flow when none) raises none of LowDeployRefusedAlerts.
+// The refusal lists the alert kinds, never values.
+func (a *Authoring) lowPolicy(flowID string, candidate *flow.Flow, risk node.Risk) error {
+	var reasons []string
+	if risk != node.RiskSafe && risk != node.RiskExternal {
+		reasons = append(reasons, fmt.Sprintf("it deploys flows of risk external at most, and this flow is %s", risk))
+	}
+	approved, err := a.store.LastAdminApprovedVersion(flowID)
+	if err != nil {
+		return fmt.Errorf("get the last approved version: %w", err)
+	}
+	var base *flow.Flow
+	if approved != nil {
+		base = approved.Flow
+	}
+	found := map[string]bool{}
+	for _, al := range flow.Diff(base, candidate, a.registry).Alerts {
+		found[al.Kind] = true
+	}
+	var kinds []string
+	for _, kind := range lowDeployRefusedAlerts {
+		if found[kind] {
+			kinds = append(kinds, kind)
+		}
+	}
+	if len(kinds) > 0 {
+		reasons = append(reasons, fmt.Sprintf("since the version the admin last approved, this flow changed what only the admin may approve (%s)",
+			strings.Join(kinds, ", ")))
+	}
+	if len(reasons) > 0 {
+		return toolError(ErrPermissionDenied, "the agent deploy level is low: "+strings.Join(reasons, "; ")+"; the admin deploys it in the editor")
+	}
+	return nil
+}
+
+// recheckDeploy runs under the lifecycle lock right before a deploy or stop
+// (H3): the token is still active with the deploy scope, the level still
+// allows what was evaluated, and the flow is still at the evaluated version
+// (else conflict). Nothing is deployed otherwise.
+func (a *Authoring) recheckDeploy(actor Actor, plan *deployPlan) error {
+	tok, err := a.store.GetAPIToken(actor.TokenID)
+	if errors.Is(err, storage.ErrAPITokenNotFound) {
+		return toolError(ErrPermissionDenied, "this token is no longer valid")
+	}
+	if err != nil {
+		return fmt.Errorf("get token: %w", err)
+	}
+	if !tok.Active(a.now()) || !slices.Contains(tok.Scopes, storage.ScopeDeploy) {
+		return toolError(ErrPermissionDenied, "this token is no longer valid for deploying")
+	}
+	level, err := a.store.AgentDeployLevel()
+	if err != nil {
+		return fmt.Errorf("read the agent deploy level: %w", err)
+	}
+	if level == storage.AgentDeployOff || (level == storage.AgentDeployLow && plan.level != storage.AgentDeployLow) {
+		return toolError(ErrPermissionDenied, "the agent deploy level changed; ask again")
+	}
+	current, err := a.loadFlow(plan.flowID)
+	if err != nil {
+		return err
+	}
+	if current.Version != plan.version {
+		return staleBase(current.Version)
+	}
+	return nil
+}
+
+// deployRefusal maps a lifecycle refusal for agents; saved is the version a
+// draft was saved as before the deploy failed (0: none).
+func deployRefusal(err error, saved int) error {
+	var le *LifecycleError
+	if !errors.As(err, &le) {
+		return err
+	}
+	te := le.ToolError()
+	if te == nil {
+		return err
+	}
+	if saved > 0 {
+		te.Message = fmt.Sprintf("the draft was saved as version %d, but deploying it failed: %s", saved, te.Message)
+		te.CurrentVersion = saved
+	}
+	return te
 }
 
 // Stop stops a running flow for an agent with the deploy scope
@@ -286,8 +511,32 @@ func (a *Authoring) Deploy(ctx context.Context, actor Actor, req DeployRequest) 
 // against the last admin-approved version), through the lifecycle lock with
 // the same token re-check. A flow that is not running is a conflict.
 // Audited.
-func (a *Authoring) Stop(ctx context.Context, actor Actor, flowID string) (DeployResult, error) {
-	return DeployResult{}, notImplemented("stop")
+func (a *Authoring) Stop(ctx context.Context, actor Actor, flowID string) (_ DeployResult, err error) {
+	args := &authorArgs{FlowID: flowID}
+	var privileged bool
+	defer a.audited(actor, DeployToolStopFlow, args, a.now(), &privileged)(&err)
+	level, err := a.authorizeDeploy(ctx, actor)
+	if err != nil {
+		return DeployResult{}, err
+	}
+	plan, err := a.evaluateDeploy(ctx, level, actor, flowID, "", true)
+	if err != nil {
+		return DeployResult{}, err
+	}
+	privileged = plan.risk == node.RiskPrivileged
+	err = a.lifecycle.WithLock(ctx, func(l LockedLifecycle) error {
+		if err := a.recheckDeploy(actor, plan); err != nil {
+			return err
+		}
+		if err := l.Stop(ctx, flowID, actor.DeployActor()); err != nil {
+			return deployRefusal(err, 0)
+		}
+		return nil
+	})
+	if err != nil {
+		return DeployResult{}, err
+	}
+	return DeployResult{FlowID: flowID, Version: plan.version, Running: false, Risk: plan.risk}, nil
 }
 
 // Rollback restores, for the editor, the last admin-approved version of a
@@ -297,7 +546,47 @@ func (a *Authoring) Stop(ctx context.Context, actor Actor, flowID string) (Deplo
 // Conflict when the current version is already admin-approved or there is
 // none to restore. Agents: forbidden.
 func (a *Authoring) Rollback(ctx context.Context, actor Actor, flowID string) (ApplyResult, error) {
-	return ApplyResult{}, notImplemented("rollback")
+	if err := authorizeEditor(ctx, actor); err != nil {
+		return ApplyResult{}, err
+	}
+	if a.lifecycle == nil {
+		return ApplyResult{}, toolError(ErrUnavailable, "flows cannot be rolled back now")
+	}
+	var out ApplyResult
+	err := a.lifecycle.WithLock(ctx, func(l LockedLifecycle) error {
+		current, err := a.loadFlow(flowID)
+		if err != nil {
+			return err
+		}
+		approved, err := a.store.LastAdminApprovedVersion(flowID)
+		if err != nil {
+			return fmt.Errorf("get the last approved version: %w", err)
+		}
+		switch {
+		case approved == nil:
+			return toolError(ErrConflict, "no version of this flow was approved by the admin")
+		case approved.Version == current.Version:
+			return toolError(ErrConflict, "the current version is the one the admin last approved: nothing to roll back")
+		}
+		restored := approved.Flow
+		restored.ID = flowID
+		version, err := a.store.UpdateFlowVersioned(restored, current.Version, storage.VersionMeta{
+			ActorKind: storage.VersionActorEditor, AdminApproved: true, Note: fmt.Sprintf("rollback to v%d", approved.Version),
+		})
+		var conflict *storage.VersionConflictError
+		if errors.As(err, &conflict) {
+			return staleBase(conflict.Current)
+		}
+		if err != nil {
+			return fmt.Errorf("save rollback: %w", err)
+		}
+		out = ApplyResult{FlowID: flowID, Version: version}
+		if l.Running(flowID) {
+			out.Version, out.Deployed, out.DeployError = a.redeploy(ctx, l, flowID, version, true)
+		}
+		return nil
+	})
+	return out, err
 }
 
 // Versions lists, for the editor, a flow's versions newest first (limit 1 to
@@ -305,12 +594,49 @@ func (a *Authoring) Rollback(ctx context.Context, actor Actor, flowID string) (A
 // current and last admin-approved version, and which one the deployment
 // marker names. Agents: forbidden; an unknown flow: flow_not_found.
 func (a *Authoring) Versions(ctx context.Context, actor Actor, flowID string, limit int) (VersionList, error) {
-	return VersionList{}, notImplemented("versions")
+	if err := authorizeEditor(ctx, actor); err != nil {
+		return VersionList{}, err
+	}
+	current, err := a.loadFlow(flowID)
+	if err != nil {
+		return VersionList{}, err
+	}
+	if limit <= 0 {
+		limit = DefaultVersionListLimit
+	}
+	limit = min(limit, MaxVersionListLimit)
+	versions, err := a.store.ListFlowVersions(flowID, limit)
+	if err != nil {
+		return VersionList{}, fmt.Errorf("list flow versions: %w", err)
+	}
+	approved, err := a.store.LastAdminApprovedVersion(flowID)
+	if err != nil {
+		return VersionList{}, fmt.Errorf("get the last approved version: %w", err)
+	}
+	deployment, err := a.store.GetDeployment(flowID)
+	if err != nil {
+		return VersionList{}, fmt.Errorf("get deployment: %w", err)
+	}
+	out := VersionList{Current: current.Version, Versions: make([]VersionEntry, 0, len(versions))}
+	if approved != nil {
+		out.LastAdminApproved = approved.Version
+	}
+	for _, v := range versions {
+		out.Versions = append(out.Versions, VersionEntry{
+			Version: v.Version, ActorKind: v.ActorKind, TokenID: v.TokenID, TokenName: v.TokenName,
+			AdminApproved: v.AdminApproved, Note: v.Note, DraftID: v.DraftID, CreatedAt: v.CreatedAt,
+			Deployed: deployment != nil && deployment.Version == v.Version,
+		})
+	}
+	return out, nil
 }
 
 // Marks returns, for the editor, the marks of a stored flow: its deployment
 // marker and whether its current version (f.Version) is not admin-approved.
 // Agents: forbidden.
 func (a *Authoring) Marks(ctx context.Context, actor Actor, f *flow.Flow) (FlowMarks, error) {
-	return FlowMarks{}, notImplemented("marks")
+	if err := authorizeEditor(ctx, actor); err != nil {
+		return FlowMarks{}, err
+	}
+	return FlowMarksOf(a.store, f)
 }

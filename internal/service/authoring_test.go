@@ -1,7 +1,6 @@
 package service
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -36,29 +35,6 @@ func TestNewAuthoringDefaults(t *testing.T) {
 	assert.Same(t, node.DefaultRegistry, a.registry)
 	assert.NotNil(t, a.secrets)
 	assert.NotNil(t, a.now)
-}
-
-// Until the bodies are written every operation refuses with unavailable,
-// never pretending to have done something.
-func TestAuthoringSkeletonRefusesUnavailable(t *testing.T) {
-	a := NewAuthoring(AuthoringOptions{})
-	ctx := context.Background()
-	agent := Actor{Kind: ActorAgent, TokenID: "t1", TokenName: "claude", Scopes: []string{storage.ScopeAuthor, storage.ScopeDeploy}}
-	editor := EditorActor()
-	calls := map[string]func() error{
-		"Deploy":   func() error { _, err := a.Deploy(ctx, agent, DeployRequest{FlowID: "f1"}); return err },
-		"Stop":     func() error { _, err := a.Stop(ctx, agent, "f1"); return err },
-		"Rollback": func() error { _, err := a.Rollback(ctx, editor, "f1"); return err },
-		"Versions": func() error { _, err := a.Versions(ctx, editor, "f1", 0); return err },
-		"Marks":    func() error { _, err := a.Marks(ctx, editor, flow.NewFlow("f")); return err },
-	}
-	for name, call := range calls {
-		t.Run(name, func(t *testing.T) {
-			err := call()
-			te := requireKind(t, err, ErrUnavailable)
-			assert.Contains(t, te.Message, "not implemented yet")
-		})
-	}
 }
 
 // The JSON of the REST and MCP shapes is camelCase, as documented in

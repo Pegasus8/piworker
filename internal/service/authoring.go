@@ -158,12 +158,6 @@ func NewAuthoring(opts AuthoringOptions) *Authoring {
 	return a
 }
 
-// notImplemented is the refusal of an operation whose body is not written
-// yet.
-func notImplemented(op string) *ToolError {
-	return toolError(ErrUnavailable, op+": not implemented yet")
-}
-
 // ValidateRequest is what Validate checks (pw_validate_flow): a whole flow,
 // or with FlowID a proposal based on that flow's current version (ops, or a
 // whole flow whose "<redacted>" values keep the current ones), resolved
