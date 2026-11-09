@@ -228,11 +228,17 @@ func (r *Reads) ListFlows(ctx context.Context, actor Actor) (FlowList, error) {
 		}
 		return strings.Compare(a.ID, b.ID)
 	})
-	red := r.redactor()
+	base := r.redactor()
 	running := r.runningSet()
 	tools := r.toolsByFlow()
 	out := FlowList{Flows: make([]FlowSummary, 0, len(flows)), Total: total, Truncated: total > len(flows)}
 	for _, f := range flows {
+		// Like every view of a flow, its summary also redacts the
+		// credentials typed literally into its Sensitive settings.
+		red := base
+		if extra := r.sensitiveValues(f); len(extra) > 0 {
+			red = r.redactor(extra...)
+		}
 		s := FlowSummary{
 			ID:        capText(red.text(f.ID), maxViewIDBytes),
 			Name:      r.flowName(red, f.Name),

@@ -97,7 +97,8 @@ func (r *Reads) ListRuns(ctx context.Context, actor Actor, flowID string, limit 
 	if err := r.authorize(ctx, actor); err != nil {
 		return RunList{}, err
 	}
-	if _, err := r.loadFlow(flowID); err != nil {
+	f, err := r.loadFlow(flowID)
+	if err != nil {
 		return RunList{}, err
 	}
 	out := RunList{Runs: []RunSummary{}}
@@ -115,7 +116,7 @@ func (r *Reads) ListRuns(ctx context.Context, actor Actor, flowID string, limit 
 	if err != nil {
 		return RunList{}, fmt.Errorf("list runs: %w", err)
 	}
-	red := r.redactor()
+	red := r.redactor(r.sensitiveValues(f)...)
 	for i, run := range runs {
 		if i == limit {
 			out.NextBefore = out.Runs[limit-1].ID

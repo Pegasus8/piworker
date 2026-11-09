@@ -328,8 +328,15 @@ Shared by REST and MCP (thin adapters):
     name.
   Known secret values (literal, URL-encoded, base64, JSON- or Go-escaped)
   are redacted from every view, as are credentials typed literally into a
-  flow's `Sensitive` properties (in `GetFlow` and `GetRun`) and URL
-  credentials and queries in recorded errors. An unknown flow is
+  flow's `Sensitive` properties (in every view of that flow: its summary in
+  `ListFlows`, `GetFlow`, `ListRuns`, `GetRun` and the prompt). URLs in
+  recorded errors and flow names are cut after their host
+  (`scheme://host/<redacted>`): a credential may sit in the userinfo, the
+  query or the path (Telegram bot, Discord and Slack webhook URLs). Recorded
+  errors also lose what `GetFlow` hides of the run's flow: the values of its
+  hidden settings, split around `{{…}}` templates, whole, as words and as the
+  path segments, query values and userinfo of their URLs (parts under 8
+  bytes are kept, but a URL password of 4). An unknown flow is
   `flow_not_found`.
 - Drafts/dry-run (phase 3), deploy policy (agent deploy).
 - REST twin: `POST /api/flows/{id}/call/{nodeId}` (editor "Test tool").

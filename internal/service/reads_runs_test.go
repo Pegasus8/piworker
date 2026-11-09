@@ -297,7 +297,7 @@ func TestReadsRedactLiteralSensitiveConfig(t *testing.T) {
 	e := newReadsEnv(t)
 	const botToken = "123456:AAH-literalBotToken"
 	const headerCred = "literal-Header-Cred"
-	f := manualFlow("literal credentials")
+	f := manualFlow("Bot " + botToken)
 	tg := flow.NewNode("action-telegram", flow.NodeCategoryOutput)
 	tg.ID = "telegram"
 	tg.Config = map[string]any{"botToken": botToken, "chatId": "42", "message": "hi"}
@@ -314,10 +314,12 @@ func TestReadsRedactLiteralSensitiveConfig(t *testing.T) {
 	f.AddNode(*httpN)
 	f.AddNode(*debug)
 	e.save(f)
-	e.addRun(f.ID, "run-1", "", 0, time.Second, "error",
+	e.addRun(f.ID, "run-1", "token:bot "+headerCred, 0, time.Second, "error",
 		storage.NodeEventRecord{NodeID: "telegram", NodeType: "action-telegram", Phase: "error", Error: "unauthorized bot " + botToken + `; reply {"token":` + jsonString(botToken) + `}`},
 		storage.NodeEventRecord{NodeID: "http", NodeType: "action-http", Phase: "error", Error: "header Bearer " + headerCred + " rejected"},
 	)
+	// Another flow without these settings shows its name as it is.
+	plain := e.save(manualFlow("Plain"))
 
 	ctx := context.Background()
 	actor := readsAgent(storage.ScopeRead)
@@ -325,7 +327,14 @@ func TestReadsRedactLiteralSensitiveConfig(t *testing.T) {
 	require.NoError(t, err)
 	view, err := e.reads.GetFlow(ctx, actor, f.ID)
 	require.NoError(t, err)
-	for name, out := range map[string]string{"GetRun": leakText(t, run), "GetFlow": leakText(t, view)} {
+	flows, err := e.reads.ListFlows(ctx, actor)
+	require.NoError(t, err)
+	runs, err := e.reads.ListRuns(ctx, actor, f.ID, 10, "")
+	require.NoError(t, err)
+	prompt, err := e.reads.DiagnoseFlow(ctx, actor, f.ID)
+	require.NoError(t, err)
+	for name, out := range map[string]string{"GetRun": leakText(t, run), "GetFlow": leakText(t, view),
+		"ListFlows": leakText(t, flows), "ListRuns": leakText(t, runs), "DiagnoseFlow": prompt} {
 		for _, cred := range []string{botToken, headerCred} {
 			for form, text := range secretForms(cred) {
 				assert.NotContainsf(t, out, text, "%s leaked %q as %s", name, cred, form)
@@ -333,6 +342,13 @@ func TestReadsRedactLiteralSensitiveConfig(t *testing.T) {
 		}
 	}
 	assert.Contains(t, run.Events[0].Error, "unauthorized bot "+redactedMark)
+	names := map[string]string{}
+	for _, fs := range flows.Flows {
+		names[fs.ID] = fs.Name
+	}
+	assert.Equal(t, "Bot "+redactedMark, names[f.ID], "every view of the flow redacts its literal credentials")
+	assert.Equal(t, "Plain", names[plain.ID])
+	assert.Equal(t, "bot "+redactedMark, runs.Runs[0].ActorToken)
 	// Templated Sensitive values are references, not credentials: a
 	// visible value keeps the same reference.
 	assert.Equal(t, "copy of "+redactedMark+", see {{secret.API_KEY}}", view.Nodes[4].Config["name"])
