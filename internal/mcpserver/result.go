@@ -51,12 +51,17 @@ type envelope struct {
 }
 
 type errorInfo struct {
-	Code         string             `json:"code"`
-	Message      string             `json:"message"`
-	NodeID       string             `json:"nodeId,omitempty"`
-	NodeType     string             `json:"nodeType,omitempty"`
-	Issues       []toolschema.Issue `json:"issues,omitempty"`
-	RetryAfterMs int64              `json:"retryAfterMs,omitempty"`
+	Code     string             `json:"code"`
+	Message  string             `json:"message"`
+	NodeID   string             `json:"nodeId,omitempty"`
+	NodeType string             `json:"nodeType,omitempty"`
+	Issues   []toolschema.Issue `json:"issues,omitempty"`
+	// FlowIssues are a flow's Lint issues (authoring refusals).
+	FlowIssues []flow.Issue `json:"flowIssues,omitempty"`
+	// CurrentVersion is the flow's current version (a conflict on a stale
+	// base version).
+	CurrentVersion int   `json:"currentVersion,omitempty"`
+	RetryAfterMs   int64 `json:"retryAfterMs,omitempty"`
 }
 
 // outputSchema is a tool's resolved output schema: clients validate the
@@ -145,7 +150,8 @@ func errorResult(err error) *mcp.CallToolResult {
 	info := &errorInfo{Code: codeFailed, Message: msgFailed}
 	var te *service.ToolError
 	if errors.As(err, &te) {
-		info = &errorInfo{Code: te.Code(), Message: te.Error(), Issues: te.Issues, RetryAfterMs: te.RetryAfter.Milliseconds()}
+		info = &errorInfo{Code: te.Code(), Message: te.Error(), Issues: te.Issues, FlowIssues: te.FlowIssues,
+			CurrentVersion: te.CurrentVersion, RetryAfterMs: te.RetryAfter.Milliseconds()}
 	}
 	r := envelopeResult(envelope{Status: string(flow.CallStatusError), Error: info}, true)
 	r.Meta = mcp.Meta{metaStatus: string(flow.CallStatusError)}

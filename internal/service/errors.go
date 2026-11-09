@@ -4,6 +4,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/toolschema"
 )
 
@@ -34,16 +35,32 @@ var (
 	// ErrUnavailable: the call cannot be served now (the flow stopped, or the
 	// service lacks what the call needs).
 	ErrUnavailable = errors.New("unavailable")
-	// ErrFlowNotFound: no stored flow with that ID (read views).
+	// ErrFlowNotFound: no stored flow with that ID (read views, authoring,
+	// deploys).
 	ErrFlowNotFound = errors.New("unknown flow")
+	// ErrConflict: the request was based on a state that changed or does
+	// not allow it: a stale base version (ToolError.CurrentVersion says
+	// the current one), a draft no longer pending, a flow already running
+	// or not running, an exclusive resource another flow holds, nothing to
+	// roll back.
+	ErrConflict = errors.New("conflict")
 )
 
 // ToolError is a refused call.
 type ToolError struct {
-	Kind       error
-	Message    string
-	Issues     []toolschema.Issue
-	RetryAfter time.Duration
+	Kind    error
+	Message string
+	// Issues are the arguments' problems against a tool's input schema
+	// (invalid_arguments of tool calls and built-in tools).
+	Issues []toolschema.Issue
+	// FlowIssues are a flow's problems (flow.Lint; invalid_arguments of
+	// the authoring and deploy operations). Messages never quote hidden
+	// values.
+	FlowIssues []flow.Issue
+	// CurrentVersion is the flow's current version when a stale base
+	// version is the conflict (0: not that).
+	CurrentVersion int
+	RetryAfter     time.Duration
 }
 
 func toolError(kind error, msg string) *ToolError { return &ToolError{Kind: kind, Message: msg} }
@@ -60,7 +77,7 @@ func (e *ToolError) Unwrap() error { return e.Kind }
 
 // Code is a stable short name of the kind ("not_found", "forbidden",
 // "reconfirm_required", "invalid_arguments", "busy", "cooldown",
-// "run_not_found", "unavailable", "flow_not_found").
+// "run_not_found", "unavailable", "flow_not_found", "conflict").
 func (e *ToolError) Code() string { return errorCode(e.Kind) }
 
 func errorCode(kind error) string {
@@ -83,6 +100,8 @@ func errorCode(kind error) string {
 		return "unavailable"
 	case ErrFlowNotFound:
 		return "flow_not_found"
+	case ErrConflict:
+		return "conflict"
 	}
 	return "failed"
 }

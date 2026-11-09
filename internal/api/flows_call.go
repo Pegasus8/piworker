@@ -50,12 +50,16 @@ type ToolCallRequest struct {
 	Args map[string]any `json:"args"`
 }
 
-// ToolCallErrorData is the data of a refused call: the error kind's code,
-// the schema issues of invalid arguments, and how long a cooldown lasts.
+// ToolCallErrorData is the data of a refused service call (a tool call, and
+// the authoring and deploy operations): the error kind's code, the schema
+// issues of invalid arguments, a flow's Lint issues, the current version of
+// a stale base version, and how long a cooldown lasts.
 type ToolCallErrorData struct {
-	Code         string             `json:"code"`
-	Issues       []toolschema.Issue `json:"issues,omitempty"`
-	RetryAfterMs int64              `json:"retryAfterMs,omitempty"`
+	Code           string             `json:"code"`
+	Issues         []toolschema.Issue `json:"issues,omitempty"`
+	FlowIssues     []flow.Issue       `json:"flowIssues,omitempty"`
+	CurrentVersion int                `json:"currentVersion,omitempty"`
+	RetryAfterMs   int64              `json:"retryAfterMs,omitempty"`
 }
 
 // Call runs the tool of a trigger-tool node with the given arguments and
@@ -98,11 +102,11 @@ func (h *ToolCallHandler) writeCallError(w http.ResponseWriter, err error, flowI
 	}
 	status := http.StatusInternalServerError
 	switch te.Kind {
-	case service.ErrToolNotFound, service.ErrRunNotFound:
+	case service.ErrToolNotFound, service.ErrRunNotFound, service.ErrFlowNotFound:
 		status = http.StatusNotFound
 	case service.ErrPermissionDenied:
 		status = http.StatusForbidden
-	case service.ErrReconfirmRequired:
+	case service.ErrReconfirmRequired, service.ErrConflict:
 		status = http.StatusConflict
 	case service.ErrInvalidArguments:
 		status = http.StatusBadRequest
@@ -111,7 +115,8 @@ func (h *ToolCallHandler) writeCallError(w http.ResponseWriter, err error, flowI
 	case service.ErrUnavailable:
 		status = http.StatusServiceUnavailable
 	}
-	data := ToolCallErrorData{Code: te.Code(), Issues: te.Issues, RetryAfterMs: te.RetryAfter.Milliseconds()}
+	data := ToolCallErrorData{Code: te.Code(), Issues: te.Issues, FlowIssues: te.FlowIssues,
+		CurrentVersion: te.CurrentVersion, RetryAfterMs: te.RetryAfter.Milliseconds()}
 	if te.RetryAfter > 0 {
 		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(te.RetryAfter.Seconds()))))
 	}

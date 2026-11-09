@@ -86,6 +86,7 @@ func TestToolCallBodies(t *testing.T) {
 
 func TestToolCallErrorStatuses(t *testing.T) {
 	issues := []toolschema.Issue{{Pointer: "/door", Message: "must be one of left, right"}}
+	flowIssues := []flow.Issue{{Path: "/nodes/http", Code: flow.IssueInvalidConfig, Severity: flow.IssueError, Message: "url is required"}}
 	cases := []struct {
 		err    error
 		status int
@@ -98,6 +99,9 @@ func TestToolCallErrorStatuses(t *testing.T) {
 		{&service.ToolError{Kind: service.ErrBusy, Message: "busy"}, http.StatusTooManyRequests, "busy"},
 		{&service.ToolError{Kind: service.ErrCooldown, Message: "wait", RetryAfter: 1500 * time.Millisecond}, http.StatusTooManyRequests, "cooldown"},
 		{&service.ToolError{Kind: service.ErrUnavailable, Message: "stopped"}, http.StatusServiceUnavailable, "unavailable"},
+		{&service.ToolError{Kind: service.ErrConflict, Message: "changed", CurrentVersion: 4}, http.StatusConflict, "conflict"},
+		{&service.ToolError{Kind: service.ErrInvalidArguments, Message: "invalid flow", FlowIssues: flowIssues}, http.StatusBadRequest, "invalid_arguments"},
+		{&service.ToolError{Kind: service.ErrFlowNotFound, Message: "unknown flow"}, http.StatusNotFound, "flow_not_found"},
 		{errors.New("database exploded"), http.StatusInternalServerError, ""},
 	}
 	for _, tc := range cases {
@@ -108,9 +112,11 @@ func TestToolCallErrorStatuses(t *testing.T) {
 			Success bool   `json:"success"`
 			Error   string `json:"error"`
 			Data    struct {
-				Code         string             `json:"code"`
-				Issues       []toolschema.Issue `json:"issues"`
-				RetryAfterMs int64              `json:"retryAfterMs"`
+				Code           string             `json:"code"`
+				Issues         []toolschema.Issue `json:"issues"`
+				FlowIssues     []flow.Issue       `json:"flowIssues"`
+				CurrentVersion int                `json:"currentVersion"`
+				RetryAfterMs   int64              `json:"retryAfterMs"`
 			} `json:"data"`
 		}
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body), w.Body.String())
@@ -121,9 +127,11 @@ func TestToolCallErrorStatuses(t *testing.T) {
 			continue
 		}
 		assert.Equal(t, tc.err.Error(), body.Error)
-		if tc.code == "invalid_arguments" {
-			assert.Equal(t, issues, body.Data.Issues)
-		}
+		var te *service.ToolError
+		require.ErrorAs(t, tc.err, &te)
+		assert.Equal(t, te.Issues, body.Data.Issues)
+		assert.Equal(t, te.FlowIssues, body.Data.FlowIssues)
+		assert.Equal(t, te.CurrentVersion, body.Data.CurrentVersion)
 		if tc.code == "cooldown" {
 			assert.Equal(t, int64(1500), body.Data.RetryAfterMs)
 			assert.Equal(t, "2", w.Header().Get("Retry-After"), "rounded up to whole seconds")
