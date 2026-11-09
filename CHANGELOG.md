@@ -134,7 +134,9 @@ version. The version number and release date have not been selected.
 
 - New **Agents** pages: tokens and grants (created with your password, with
   ready-to-paste set-up for Claude Code and for Claude Desktop on macOS/Linux
-  and Windows), revoke one or all tokens, the agent deploy level (password),
+  and Windows), revoke one or all tokens, the agent deploy level (password;
+  it says what `low` still allows without review, such as changing an
+  approved flow's MQTT command, and that lowering the level undoes nothing),
   the approval queue with a badge and an app-wide notice, and the audit log
   with rejection totals. The pages show whether MCP is on.
 - Text from agents and flows is shown as plain text with hidden and

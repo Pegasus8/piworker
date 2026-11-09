@@ -180,6 +180,11 @@ export interface DeployLevelOption {
   risk: string
   /** What the level adds to the guessing residual (GUESSING_AT_EVERY_LEVEL). */
   residual?: string
+  /**
+   * What the level still allows without the admin's review, within its
+   * limits (README "Agent deploy", docs/design/mcp.md §10).
+   */
+  allows?: string
 }
 
 /**
@@ -206,8 +211,9 @@ export const DEPLOY_LEVELS: DeployLevelOption[] = [
   {
     value: 'low',
     label: 'Low-risk flows',
-    risk: 'Agents with the deploy scope may deploy, start and stop flows, and deploy their own drafts, when the resulting flow is at most external risk (HTTP, MQTT, e-mail, Telegram, notifications) and, compared with the version you last approved, adds no privileged node, changes no recipient or destination, reaches no new host, adds or moves no secret reference, turns on no risk switch, uses no credential for a different request, changes no setting of how often it runs, changes nothing a global variable receives or a tool reads from one, changes nothing a published tool runs, and adds or changes no node that reads variables or what a credential returned.',
-    residual: GUESSING_RESIDUAL
+    risk: 'Agents with the deploy scope may deploy, start and stop flows, and deploy their own drafts, when the resulting flow is at most external risk (HTTP, MQTT, e-mail, Telegram, notifications) and, compared with the version you last approved, does not raise the flow\'s risk, adds no privileged node, changes no recipient or destination, reaches no new host, adds or moves no secret reference, turns on no risk switch, uses no credential for a different request, changes no setting of how often it runs, changes nothing a global variable receives or a tool reads from one, changes nothing a published tool runs, and adds or changes no node that reads variables or what a credential returned.',
+    residual: GUESSING_RESIDUAL,
+    allows: 'Within those limits agents may still change, without your review, what approved flows send to the destinations you approved: an MQTT command (a lock\'s {"state":"LOCK"} turned into {"state":"UNLOCK"}, whether or not the broker needs a password), the text of a message, an HTTP body sent with no credential to a device\'s API. They may also change the conditions and processing of approved flows, and stop them. Keep device commands that matter in flows published as agent tools (what a tool runs cannot change at this level) or in HTTP requests that use a credential, or keep the level off. The nodes of a flow an agent deploys also run on data it cannot read, and which of its nodes run or fail, which the agent sees, can reveal bits of that data.'
   },
   {
     value: 'all',
@@ -216,6 +222,20 @@ export const DEPLOY_LEVELS: DeployLevelOption[] = [
     residual: GUESSING_RESIDUAL
   }
 ]
+
+/** Deploy levels from the most closed to the most open. */
+const LEVEL_ORDER: readonly AgentDeployLevel[] = ['off', 'low', 'all']
+
+/** Whether changing the agent deploy level from `from` to `to` lowers it. */
+export function lowersDeployLevel(from: AgentDeployLevel, to: AgentDeployLevel): boolean {
+  return LEVEL_ORDER.indexOf(to) < LEVEL_ORDER.indexOf(from)
+}
+
+/**
+ * Shown when the admin lowers the level: it stops new agent deploys but
+ * undoes none, so after an incident the admin knows where to look.
+ */
+export const LOWERING_KEEPS_DEPLOYED = 'Lowering the level undoes nothing agents already did: flows they deployed keep running, privileged ones included. Look for “Deployed by agent” and “Changed by agent” on the flows, then stop them or use History → Roll back to return to the version you last approved. Agents → Audit lists every agent deploy and stop.'
 
 export interface CreateTokenForm {
   name: string

@@ -16,7 +16,8 @@ import type { Feedback } from '@/composables/useFeedback'
 import { useAgentStore, apiErrorMessage, type GrantChange } from '@/stores/agent'
 import { useAuthStore } from '@/stores/auth'
 import {
-  DEPLOY_LEVELS, GUESSING_AT_EVERY_LEVEL, clientSnippets, formatDateTime, formatRelative, grantStatus, mcpStatus, toolKey,
+  DEPLOY_LEVELS, GUESSING_AT_EVERY_LEVEL, LOWERING_KEEPS_DEPLOYED, clientSnippets, formatDateTime, formatRelative, grantStatus,
+  lowersDeployLevel, mcpStatus, toolKey,
   type AgentDeployLevel, type AgentToken, type CreatedAgentToken, type TokenGrant
 } from '@/lib/agentAccess'
 
@@ -45,6 +46,8 @@ const showSecrets = ref(false)
 const endpoint = computed(() => clientSnippets({ token: '', location: window.location, tls: agent.tls }).url)
 const mcp = computed(() => mcpStatus(agent.settings, agent.tls))
 const levelChanged = computed(() => !!agent.settings && !!level.value && level.value !== agent.settings.agentDeploy)
+const levelLowered = computed(() => levelChanged.value && lowersDeployLevel(agent.settings!.agentDeploy, level.value!))
+const levelAllows = computed(() => DEPLOY_LEVELS.find(l => l.value === level.value)?.allows ?? '')
 watch(() => agent.settings?.agentDeploy, v => { level.value = v ?? null }, { immediate: true })
 const authorScope = computed(() => !agent.settings ? 'unknown' : agent.settings.authorEnabled ? 'enabled' : 'disabled')
 
@@ -281,10 +284,14 @@ function cancelLevel() {
           <div v-for="l in DEPLOY_LEVELS" :key="l.value" class="flex items-start gap-3 rounded-md border p-3" :class="level === l.value && 'border-primary'">
             <input :id="`deploy-${l.value}`" v-model="level" type="radio" name="agent-deploy" :value="l.value" class="mt-1 accent-primary"
               :disabled="pending || !agent.settings"
-              :aria-describedby="l.residual ? `deploy-${l.value}-risk deploy-${l.value}-residual` : `deploy-${l.value}-risk`" />
+              :aria-describedby="[`deploy-${l.value}-risk`, l.allows && `deploy-${l.value}-allows`, l.residual && `deploy-${l.value}-residual`].filter(Boolean).join(' ')" />
             <div class="space-y-1">
               <label :for="`deploy-${l.value}`" class="text-sm font-medium">{{ l.label }}</label>
               <p :id="`deploy-${l.value}-risk`" class="text-xs text-muted-foreground">{{ l.risk }}</p>
+              <p v-if="l.allows" :id="`deploy-${l.value}-allows`" class="flex items-start gap-1.5 text-xs text-muted-foreground">
+                <AlertTriangle class="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+                <span><strong class="font-medium text-foreground">Still allowed without your review:</strong> {{ l.allows }}</span>
+              </p>
               <p v-if="l.residual" :id="`deploy-${l.value}-residual`" class="flex items-start gap-1.5 text-xs text-muted-foreground">
                 <KeyRound class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                 <span><strong class="font-medium text-foreground">Guessable secrets, also:</strong> {{ l.residual }}</span>
@@ -307,6 +314,10 @@ function cancelLevel() {
             You accept this risk for every token with the deploy scope. Every agent deploy is recorded in the audit log.
           </p>
           <p v-else class="text-sm">Agents with the deploy scope lose the deploy tools; their tokens keep working otherwise.</p>
+          <p v-if="levelAllows" id="deploy-confirm-allows" class="text-sm">
+            <strong class="font-medium">Still allowed without your review:</strong> {{ levelAllows }}
+          </p>
+          <p v-if="levelLowered" id="deploy-confirm-lowered" class="text-sm">{{ LOWERING_KEEPS_DEPLOYED }}</p>
           <div class="space-y-1">
             <Label for="deploy-password">Password to change the level</Label>
             <Input id="deploy-password" v-model="levelPassword" type="password" autocomplete="current-password" :disabled="pending" />

@@ -347,6 +347,28 @@ test('the agent deploy level shows its risk and needs the password', async ({ pa
   await expect(page.getByRole('dialog', { name: 'New agent token' }).getByLabel('Deploy', { exact: true })).toBeEnabled()
 })
 
+test('the low level says what it still allows, and lowering a level says it undoes nothing', async ({ page }) => {
+  await mockServer(page)
+  await page.goto('/agents')
+  const level = page.getByRole('radiogroup', { name: 'Agent deploy level' })
+  // Next to the option and again where the password is asked for.
+  await expect(level.getByLabel('Low-risk flows')).toHaveAccessibleDescription(/Still allowed without your review: .*\{"state":"UNLOCK"\}/)
+  await level.getByLabel('Low-risk flows').check()
+  const form = page.locator('form').filter({ has: page.getByLabel('Password to change the level') })
+  await expect(form).toContainText('Still allowed without your review:')
+  await expect(form).toContainText('whether or not the broker needs a password')
+  await expect(form).not.toContainText('undoes nothing')
+  await page.getByLabel('Password to change the level').fill('right-password')
+  await page.getByRole('button', { name: 'Change agent deploy' }).click()
+  await expect(form).toHaveCount(0)
+  // Turning it off stops new agent deploys; what agents deployed keeps running.
+  await level.getByLabel('Off (recommended)').check()
+  await expect(form).toContainText('lose the deploy tools')
+  await expect(form).toContainText('Lowering the level undoes nothing agents already did: flows they deployed keep running')
+  await expect(form).toContainText('History → Roll back')
+  await expect(form).not.toContainText('Still allowed without your review:')
+})
+
 test('the deploy levels explain the guessing residual and count the short secrets', async ({ page }) => {
   const opts: MockOptions = { secrets: [{ name: 'api_key', short: false }, { name: 'door_pin', short: true }] }
   const requests = await mockServer(page, opts)

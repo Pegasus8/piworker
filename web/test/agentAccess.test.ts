@@ -22,6 +22,8 @@ import {
   EXPIRY_OPTIONS,
   DEPLOY_LEVELS,
   GUESSING_AT_EVERY_LEVEL,
+  LOWERING_KEEPS_DEPLOYED,
+  lowersDeployLevel,
   DESKTOP_CONFIG_PATHS,
   BRIDGE_COMMAND,
   DESKTOP_COMMAND_NOTE,
@@ -446,6 +448,40 @@ test('deploy levels describe their risk', () => {
   for (const words of ['privileged node', 'destination', 'new host', 'secret reference', 'risk switch',
     'credential', 'how often', 'global variable']) {
     expect(low.risk).toContain(words)
+  }
+})
+
+test('the low level says what it still allows without your review', () => {
+  const low = DEPLOY_LEVELS.find(l => l.value === 'low')!
+  expect(low.risk).toContain('raise the flow\'s risk')
+  // What an agent may still change in approved flows, with the example the
+  // admin can map to a device: an MQTT command (no Operation marker, so
+  // whether or not the broker has a password) and an HTTP body sent
+  // without a credential.
+  for (const words of ['without your review', 'what approved flows send', 'MQTT command', '{"state":"UNLOCK"}',
+    'whether or not the broker needs a password', 'HTTP body', 'no credential', 'conditions and processing', 'stop them',
+    'agent tools', 'off']) {
+    expect(low.allows).toContain(words)
+  }
+  // ADR-0022's residual: nodes run on data the agent may not see.
+  for (const words of ['cannot read', 'which of its nodes run or fail']) {
+    expect(low.allows).toContain(words)
+  }
+  expect(DEPLOY_LEVELS.find(l => l.value === 'off')!.allows).toBeUndefined()
+  expect(DEPLOY_LEVELS.find(l => l.value === 'all')!.allows).toBeUndefined()
+})
+
+test('lowering the level does not undo what agents deployed', () => {
+  expect(lowersDeployLevel('all', 'low')).toBe(true)
+  expect(lowersDeployLevel('all', 'off')).toBe(true)
+  expect(lowersDeployLevel('low', 'off')).toBe(true)
+  expect(lowersDeployLevel('off', 'low')).toBe(false)
+  expect(lowersDeployLevel('low', 'all')).toBe(false)
+  expect(lowersDeployLevel('low', 'low')).toBe(false)
+  // Where to look and how to undo it.
+  for (const words of ['keep running', 'privileged ones included', 'Deployed by agent', 'Changed by agent',
+    'History', 'Roll back', 'Audit']) {
+    expect(LOWERING_KEEPS_DEPLOYED).toContain(words)
   }
 })
 

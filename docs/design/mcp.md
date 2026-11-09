@@ -1401,12 +1401,27 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   `global_variable_write`, `global_variable_read`, nor to what a published
   tool runs: `tool_path_changed`, no changed node reading what agents may
   not read: `data_read_changed`, ADR-0022), `all`
-  (any flow, including privileged). Changing it needs password step-up and
-  shows the risk text, the guessing residual (at every level, and what
-  `low` and `all` add) and how many secrets are short (§6); tokens need
-  the `deploy` scope (only grantable when not `off`). Every agent deploy is
-  audited, marked "deployed by agent" in the editor, and the admin can
-  roll back to the last admin-approved version in one click.
+  (any flow, including privileged). What `low` still allows without review,
+  within those limits: changing what approved flows send to approved
+  destinations — a property that is not an Operation (an MQTT `payload`,
+  `{"state":"LOCK"}` turned into `{"state":"UNLOCK"}`, credentials or not;
+  a message's text), or an Operation of a node that uses no credential (an
+  HTTP body to an unauthenticated device API) — their conditions and
+  processing, and stopping them; and a node an agent deployed runs on data
+  the agent may not read, so which of its nodes run or fail can reveal bits
+  of it (ADR-0022). Changing it needs password step-up and shows the risk
+  text, what `low` still allows (next to the option and in the
+  confirmation, with the advice to keep device commands in agent tools or
+  credentialed HTTP requests), the guessing residual (at every level, and
+  what `low` and `all` add) and how many secrets are short (§6); lowering
+  it (`lowersDeployLevel`) also says that it undoes nothing (flows agents
+  deployed keep running, privileged ones included) and points to the
+  markers, History → Roll back and the audit. Tokens need the `deploy`
+  scope (only grantable when not `off`). Every agent deploy and stop is
+  audited; a deploy is marked "deployed by agent" in the editor, and the
+  admin can roll back to the last admin-approved version in one click. A
+  stop keeps the deployment marker and adds none: it shows in the audit
+  only.
 
 ### Service contract — authoring, drafts, agent deploy (`internal/service`)
 

@@ -643,11 +643,30 @@ stop flows. The scope can only be granted while the level is not off.
 
 At `low` you still accept that agents change, without review, what approved
 flows send to approved destinations, their conditions and processing, and
-whether they run, within those limits; at `low` and `all`, that an agent
-whose token also has the `author` and `read` scopes can confirm guesses of
-short or predictable secret values without your approval (see
-[Security notes](#security-notes)). Every agent deploy is audited and marked
-**Deployed by agent**.
+whether they run, within those limits. For example, an agent may turn an
+approved flow's MQTT command `{"state":"LOCK"}` into `{"state":"UNLOCK"}`
+(whether or not the broker needs a password), rewrite a message's text, or
+change an HTTP body sent with no credential to a device's API (a relay's
+RPC). Keep device commands that matter in flows published as agent tools
+(what a tool runs cannot change at `low`) or in HTTP requests that use a
+credential, or keep the level off. The nodes of a flow an agent deploys at
+`low` also run on data the agent cannot read (a trigger's payload, what a
+node computes from settings hidden from agents), and which of its nodes run
+or fail, which the agent sees in `pw_get_run`, can reveal bits of that data
+([ADR-0022](docs/adr/0022-low-keeps-tools-and-protected-data-the-admins.md)).
+At `low` and `all` you also accept that an agent whose token also has the
+`author` and `read` scopes can confirm guesses of short or predictable
+secret values without your approval (see
+[Security notes](#security-notes)). Every agent deploy and stop is audited
+(**Agents → Audit**); a deploy is also marked **Deployed by agent**, but a
+stop leaves no marker on the flow, so a flow an agent stopped shows only in
+the audit.
+
+Lowering the level (to `off`, or from `all` to `low`) stops new agent
+deploys and undoes none: flows agents deployed keep running, privileged ones
+included. Look for **Deployed by agent** and **Changed by agent** on the
+flows, then stop them or use **History → Roll back** to return to the
+version you last approved.
 
 ### Versions, markers and rollback
 
