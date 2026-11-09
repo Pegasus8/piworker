@@ -1176,9 +1176,14 @@ toggling a running flow on records nothing (it deploys nothing). A
     bump), the level re-read (`off`, or `low` when `all` was evaluated:
     `forbidden`) and the flow's version compared (`conflict` with
     `currentVersion`). A draft of another flow (or a new flow's draft) is
-    `invalid_arguments`, a decided one `conflict`. The refusal of the low
-    level names the risk ("this flow is privileged") and the alert kinds in
-    `LowDeployRefusedAlerts` order. A draft saved before its deploy failed
+    `invalid_arguments`, a decided one `conflict`. At `low` a draft's
+    deploy also applies the stop rule to the current version it replaces
+    (risk at most `external`, none of the refused alerts against the last
+    admin-approved version), running or not: what the level may not stop
+    it may not replace (say, with the privileged node removed). The refusal
+    of the low level names the risk ("this flow is privileged", "the
+    current version, which the draft would replace, is privileged") and the
+    alert kinds in `LowDeployRefusedAlerts` order. A draft saved before its deploy failed
     stays saved: the error says "the draft was saved as version N, but
     deploying it failed: …" with `currentVersion` N. The audit row (args:
     `flowId`, `draftId`, never the flow) is privileged when the flow that

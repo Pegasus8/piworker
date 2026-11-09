@@ -223,6 +223,63 @@ func TestLowDeployPolicyRisk(t *testing.T) {
 	assert.True(t, e.running(stored.ID))
 }
 
+// At the low level an agent may not stop a privileged flow, so it may not
+// replace one with a draft either (a draft's deploy restarts the flow): the
+// version a draft replaces must pass the stop rule too, running or not.
+func TestLowDeployMayNotReplaceAPrivilegedFlow(t *testing.T) {
+	privFlow := func() *flow.Flow {
+		f := safeFlow()
+		addNode(f, "cmd", "action-command", map[string]any{"command": "true"})
+		connect(f, "calc", "cmd")
+		return f
+	}
+	for _, running := range []bool{true, false} {
+		t.Run(map[bool]string{true: "running", false: "stopped"}[running], func(t *testing.T) {
+			e := newAuthEnv(t)
+			e.setLevel(storage.AgentDeployLow)
+			stored := e.create(privFlow())
+			if running {
+				require.NoError(t, e.life.WithLock(t.Context(), func(l LockedLifecycle) error {
+					_, err := l.Deploy(t.Context(), stored.ID, EditorActor().DeployActor(), false)
+					return err
+				}))
+			}
+			agent := e.deployer()
+			_, err := e.a.Stop(t.Context(), agent, stored.ID)
+			if running {
+				requireKind(t, err, ErrPermissionDenied)
+			}
+			reduced := e.draft(agent, DraftInput{FlowID: stored.ID, BaseVersion: 1, Ops: []flow.Op{{Op: flow.OpRemoveNode, NodeID: "cmd"}}})
+			assert.Equal(t, node.RiskSafe, reduced.Risk, "the draft itself is harmless")
+			_, err = e.a.Deploy(t.Context(), agent, DeployRequest{FlowID: stored.ID, DraftID: reduced.DraftID})
+			te := requireKind(t, err, ErrPermissionDenied)
+			assert.Contains(t, te.Message, "replace")
+			assert.Contains(t, te.Message, "privileged")
+			assert.Equal(t, running, e.running(stored.ID), "the admin's flow is untouched")
+			assert.Equal(t, 1, mustFlow(t, e, stored.ID).Version, "nothing saved")
+			d, err := e.store.GetFlowDraft(reduced.DraftID)
+			require.NoError(t, err)
+			assert.Equal(t, storage.DraftPending, d.Status, "the admin may still approve it")
+		})
+	}
+
+	// A flow the stop rule allows may be replaced: a running external flow
+	// restarts with the agent's draft.
+	e := newAuthEnv(t)
+	e.setLevel(storage.AgentDeployLow)
+	base := e.create(lightsFlow())
+	agent := e.deployer()
+	_, err := e.a.Deploy(t.Context(), agent, DeployRequest{FlowID: base.ID})
+	require.NoError(t, err)
+	change := e.draft(agent, DraftInput{FlowID: base.ID, BaseVersion: 1, Ops: []flow.Op{
+		{Op: flow.OpUpdateNode, NodeID: "calc", Config: map[string]any{"expression": "payload + 1"}},
+	}})
+	res, err := e.a.Deploy(t.Context(), agent, DeployRequest{FlowID: base.ID, DraftID: change.DraftID})
+	require.NoError(t, err)
+	assert.Equal(t, 2, res.Version)
+	assert.True(t, e.running(base.ID))
+}
+
 // The all level deploys any flow, privileged ones included; the audit marks
 // such a deploy privileged and the marker names the agent's token.
 func TestAllDeployPolicy(t *testing.T) {

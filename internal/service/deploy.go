@@ -438,21 +438,35 @@ func (a *Authoring) evaluateDeploy(ctx context.Context, level storage.AgentDeplo
 		}
 	}
 	if level == storage.AgentDeployLow {
-		if err := a.lowPolicy(flowID, plan.candidate, plan.risk); err != nil {
+		verb := "deploys"
+		if stop {
+			verb = "stops"
+		}
+		if err := a.lowPolicy(flowID, plan.candidate, plan.risk, verb, "this flow"); err != nil {
 			return plan, err
+		}
+		if plan.draft != nil {
+			// A draft replaces the current version (and restarts a running
+			// flow): what the level may not stop, it may not replace.
+			if err := a.lowPolicy(flowID, current, flow.Risk(current, a.registry), "replaces",
+				"the current version, which the draft would replace,"); err != nil {
+				return plan, err
+			}
 		}
 	}
 	return plan, nil
 }
 
-// lowPolicy is the low agent_deploy level: the flow that would run is of
-// risk external at most and its diff with the version the admin last
-// approved (an empty flow when none) raises none of LowDeployRefusedAlerts.
-// The refusal lists the alert kinds, never values.
-func (a *Authoring) lowPolicy(flowID string, candidate *flow.Flow, risk node.Risk) error {
+// lowPolicy is the low agent_deploy level for f, the flow that would run
+// (or, for a draft, also the current version it replaces): risk external at
+// most and its diff with the version the admin last approved (an empty flow
+// when none) raises none of LowDeployRefusedAlerts. The refusal lists the
+// alert kinds, never values; verb and subject word it ("deploys", "this
+// flow").
+func (a *Authoring) lowPolicy(flowID string, f *flow.Flow, risk node.Risk, verb, subject string) error {
 	var reasons []string
 	if risk != node.RiskSafe && risk != node.RiskExternal {
-		reasons = append(reasons, fmt.Sprintf("it deploys flows of risk external at most, and this flow is %s", risk))
+		reasons = append(reasons, fmt.Sprintf("it %s flows of risk external at most, and %s is %s", verb, subject, risk))
 	}
 	approved, err := a.store.LastAdminApprovedVersion(flowID)
 	if err != nil {
@@ -463,7 +477,7 @@ func (a *Authoring) lowPolicy(flowID string, candidate *flow.Flow, risk node.Ris
 		base = approved.Flow
 	}
 	found := map[string]bool{}
-	for _, al := range flow.Diff(base, candidate, a.registry).Alerts {
+	for _, al := range flow.Diff(base, f, a.registry).Alerts {
 		found[al.Kind] = true
 	}
 	var kinds []string
@@ -473,8 +487,8 @@ func (a *Authoring) lowPolicy(flowID string, candidate *flow.Flow, risk node.Ris
 		}
 	}
 	if len(kinds) > 0 {
-		reasons = append(reasons, fmt.Sprintf("since the version the admin last approved, this flow changed what only the admin may approve (%s)",
-			strings.Join(kinds, ", ")))
+		reasons = append(reasons, fmt.Sprintf("since the version the admin last approved, %s changed what only the admin may approve (%s)",
+			subject, strings.Join(kinds, ", ")))
 	}
 	if len(reasons) > 0 {
 		return toolError(ErrPermissionDenied, "the agent deploy level is low: "+strings.Join(reasons, "; ")+"; the admin deploys it in the editor")
