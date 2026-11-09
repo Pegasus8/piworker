@@ -29,6 +29,20 @@ func runawayPayload() []any {
 	return out
 }
 
+// stableGoroutines waits until the goroutine count stops changing.
+func stableGoroutines() int {
+	n := runtime.NumGoroutine()
+	for i := 0; i < 50; i++ {
+		time.Sleep(10 * time.Millisecond)
+		m := runtime.NumGoroutine()
+		if m == n {
+			return m
+		}
+		n = m
+	}
+	return n
+}
+
 // goroutinesSettleTo waits (up to 3 s) until at most want goroutines are left.
 func goroutinesSettleTo(want int) int {
 	deadline := time.Now().Add(3 * time.Second)
@@ -55,7 +69,7 @@ func waitFreeSandbox(t *testing.T) {
 // burning a core after the call, however many of them the flow holds.
 func TestDryRunStopsRunawayExpressions(t *testing.T) {
 	waitFreeSandbox(t)
-	before := goroutinesSettleTo(0)
+	before := stableGoroutines()
 	flow.SetDryRunTimeout(t, 300*time.Millisecond)
 	nodes := []dn{{"trig", "trigger-manual", nil}}
 	var conns []string

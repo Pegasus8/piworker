@@ -146,3 +146,24 @@ func TestTestNodeKeepsCallerConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, map[string]any{"expression": "payload", "nested": map[string]any{"a": 1}}, cfg)
 }
+
+// TestTestNodeBoundsExpressionWork: the reviewers' expressions — quadratic
+// string growth and doubling — fail quickly at the sandbox's data limits
+// instead of running on (or allocating gigabytes) after the call.
+func TestTestNodeBoundsExpressionWork(t *testing.T) {
+	waitFreeSandbox(t)
+	before := stableGoroutines()
+	for _, src := range []string{
+		`len(reduce(1..300000, #acc + "xxxxxxxxxx", ""))`,
+		`len(reduce(1..32, #acc + #acc, "x"))`,
+	} {
+		start := time.Now()
+		res, err := flow.TestNode(context.Background(), node.DefaultRegistry, "process-transform",
+			map[string]any{"expression": src}, nil)
+		require.NoError(t, err, src)
+		assert.Contains(t, res.Error, node.ErrSandboxLimit.Error(), src)
+		assert.False(t, res.TimedOut, src)
+		assert.Less(t, time.Since(start), 2*time.Second, src)
+	}
+	assert.LessOrEqual(t, goroutinesSettleTo(before), before)
+}
