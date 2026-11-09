@@ -886,33 +886,36 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   draft changed nothing), also told by the changes heading ("recomputed
   now") and the alerts' empty text; the risk before → after; the alerts,
   before any diff, each kind with its own icon and label
-  (`credentialed_request_changed` included), its location, the server's
-  message and `before`/`after` only when the alert carries them (H7). For a
-  hidden setting the alert points to the field diff only when that
-  comparison's node diff lists the setting; otherwise (a node disabled or
-  enabled, its setting unchanged) it shows the setting's value from the
-  proposed flow, or says it is not shown. Then the Lint issues; the per-node
-  diff (added, removed, changed; field before/after, `Sensitive` values as
-  "hidden" with a lock, `Destination` fields highlighted with an icon and
-  the word Destination, a node's alert kinds next to it, moves) and the
-  connection diff; "Compared with the version you last approved"
-  (`diffApproved`, with its own risk, alerts and diff); the proposed flow's
-  JSON on demand. Approving asks for confirmation repeating the risk and the
-  alerts; with `diffApproved` it states both comparisons (current version,
-  and the version last approved) and that approving also approves the
-  earlier agent changes, since the result becomes the baseline the `low`
-  level compares against. "Deploy now" is checked and locked when the flow
-  runs (it is always redeployed); rejecting takes an optional reason (≤ 500
-  characters) shown to the agent. After either decision (or a refusal) focus
-  moves to the outcome at the top of the page, scrolled into view, since the
-  decision section unmounts. Both are offered only while the draft is
-  pending; approving is disabled, with the reason, when the draft is out of
-  date or has blocking errors, or would deploy with `undefined_secret`
-  errors (the server's H2 rules; it remains the judge: a 400 lists its
-  `flowIssues`, a 409 reloads the draft). Every agent-supplied string
-  (names, notes, node IDs, values, messages, reasons) is rendered as text
-  through `AgentText`, with hidden characters revealed; color is never the
-  only signal (icons and words for states, risks and alerts).
+  (`credentialed_request_changed`, `rate_changed`, `global_variable_write`
+  and `global_variable_read` included; an unknown kind shows its name and
+  message), its location, the server's message and `before`/`after` only
+  when the alert carries them (H7). For a hidden setting the alert points to
+  the field diff only when that comparison's node diff lists the setting;
+  otherwise (a node disabled or enabled, its setting unchanged) it shows the
+  setting's value from the proposed flow, or says it is not shown. Then the
+  Lint issues; the name and description the draft changes (`nameChange`,
+  `descriptionChange`, as agent text); the per-node diff (added, removed,
+  changed; field before/after, `Sensitive` values as "hidden" with a lock,
+  `Destination` fields highlighted with an icon and the word Destination, a
+  node's alert kinds next to it, moves) and the connection diff; "Compared
+  with the version you last approved" (`diffApproved`, with its own risk,
+  alerts and diff); the proposed flow's JSON on demand. Approving asks for
+  confirmation repeating the risk and the alerts; with `diffApproved` it
+  states both comparisons (current version, and the version last approved)
+  and that approving also approves the earlier agent changes, since the
+  result becomes the baseline the `low` level compares against; it also
+  names a rename and a changed description. "Deploy now" is checked and
+  locked when the flow runs (it is always redeployed); rejecting takes an
+  optional reason (≤ 500 characters) shown to the agent. After either
+  decision (or a refusal) focus moves to the outcome at the top of the page,
+  scrolled into view, since the decision section unmounts. Both are offered
+  only while the draft is pending; approving is disabled, with the reason,
+  when the draft is out of date or has blocking errors, or would deploy with
+  `undefined_secret` errors (the server's H2 rules; it remains the judge: a
+  400 lists its `flowIssues`, a 409 reloads the draft). Every agent-supplied
+  string (names, notes, node IDs, values, messages, reasons) is rendered as
+  text through `AgentText`, with hidden characters revealed; color is never
+  the only signal (icons and words for states, risks and alerts).
 - **Markers and version history** (editor, H6). Flow cards and the editor
   header show "Deployed by agent <token>" ("Last deployed by …" when
   stopped) when the deployment marker's actor is an agent, and "Changed by
