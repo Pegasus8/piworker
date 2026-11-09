@@ -30,6 +30,14 @@ const (
 	DraftFilterAll = "all"
 )
 
+// Who applied an approved draft (FlowDraft.AppliedBy): the admin approving
+// it in the editor, or the agent deploying its own draft (agent_deploy low
+// or all), which nobody reviewed.
+const (
+	DraftApplierEditor = VersionActorEditor
+	DraftApplierAgent  = VersionActorAgent
+)
+
 // Reasons recorded when the system voids a pending draft.
 const (
 	DraftReasonTokenRevoked = "token revoked"
@@ -50,6 +58,12 @@ const (
 	MaxDraftReasonBytes = 2 << 10
 	// DraftRetention is how long decided drafts are kept.
 	DraftRetention = 30 * 24 * time.Hour
+	// MaxDecidedDraftsPerToken and MaxDecidedDrafts bound the decided
+	// drafts kept within DraftRetention, per author token and in all: an
+	// agent looping on save and deploy (each a decided draft of up to
+	// about 2 MiB) cannot fill the disk. The newest are kept.
+	MaxDecidedDraftsPerToken = 50
+	MaxDecidedDrafts         = 200
 	// DefaultDraftListLimit and MaxDraftListLimit bound listings.
 	DefaultDraftListLimit = 100
 	MaxDraftListLimit     = 500
@@ -93,6 +107,9 @@ type FlowDraft struct {
 	CreatedAt      time.Time       `json:"createdAt"`
 	DecidedAt      *time.Time      `json:"decidedAt,omitempty"`
 	AppliedVersion int             `json:"appliedVersion,omitempty"` // the version an approval saved
+	// AppliedBy is who applied an approved draft (DraftApplierEditor or
+	// DraftApplierAgent; "" when not applied).
+	AppliedBy string `json:"appliedBy,omitempty"`
 }
 
 // FlowDraftFilter selects drafts for ListFlowDrafts. Status is "" or
@@ -121,7 +138,8 @@ const flowDraftsSchema = `
 		reason            TEXT NOT NULL DEFAULT '',
 		created_at        INTEGER NOT NULL,
 		decided_at        INTEGER,
-		applied_version   INTEGER
+		applied_version   INTEGER,
+		applied_by        TEXT NOT NULL DEFAULT ''
 	);
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_flow_drafts_seq ON flow_drafts(seq);
 	CREATE INDEX IF NOT EXISTS idx_flow_drafts_token ON flow_drafts(author_token_id, status);
@@ -130,14 +148,32 @@ const flowDraftsSchema = `
 `
 
 // migrateFlowDrafts adds the columns newer versions need to an existing
-// flow_drafts table. It is idempotent.
+// flow_drafts table. It is idempotent. An approved draft from before
+// applied_by is attributed to whoever saved the version that names it (the
+// admin when none does).
 func migrateFlowDrafts(db *sql.DB) error {
-	has, err := historyHasColumn(db, "flow_drafts", "kept_json")
-	if err != nil || has {
-		return err
-	}
-	if _, err := db.Exec(`ALTER TABLE flow_drafts ADD COLUMN kept_json TEXT NOT NULL DEFAULT '[]'`); err != nil {
-		return fmt.Errorf("failed to add flow_drafts.kept_json: %w", err)
+	for _, col := range []struct{ name, ddl, fill string }{
+		{name: "kept_json", ddl: `ALTER TABLE flow_drafts ADD COLUMN kept_json TEXT NOT NULL DEFAULT '[]'`},
+		{name: "applied_by", ddl: `ALTER TABLE flow_drafts ADD COLUMN applied_by TEXT NOT NULL DEFAULT ''`,
+			fill: `UPDATE flow_drafts SET applied_by = COALESCE(
+				(SELECT v.actor_kind FROM flow_versions v WHERE v.draft_id = flow_drafts.id LIMIT 1), 'editor')
+				WHERE status = 'approved'`},
+	} {
+		has, err := historyHasColumn(db, "flow_drafts", col.name)
+		if err != nil {
+			return err
+		}
+		if has {
+			continue
+		}
+		if _, err := db.Exec(col.ddl); err != nil {
+			return fmt.Errorf("failed to add flow_drafts.%s: %w", col.name, err)
+		}
+		if col.fill != "" {
+			if _, err := db.Exec(col.fill); err != nil {
+				return fmt.Errorf("failed to fill flow_drafts.%s: %w", col.name, err)
+			}
+		}
 	}
 	return nil
 }
@@ -224,7 +260,9 @@ func validateNewDraft(d *FlowDraft) error {
 // the token has fewer than MaxPendingDraftsPerToken drafts waiting
 // (ErrDraftLimit) and, for an existing flow, that the flow exists
 // (ErrFlowNotFound) at BaseVersion (*VersionConflictError); it also prunes
-// decided drafts older than DraftRetention.
+// decided drafts older than DraftRetention, and the oldest decided drafts
+// beyond MaxDecidedDraftsPerToken of the author's and MaxDecidedDrafts in
+// all.
 func (s *SQLiteStore) CreateFlowDraft(d FlowDraft) (*FlowDraft, error) {
 	if s.isClosed() {
 		return nil, ErrDatabaseClosed
@@ -291,6 +329,16 @@ func (s *SQLiteStore) CreateFlowDraft(d FlowDraft) (*FlowDraft, error) {
 	if _, err := tx.Exec(`DELETE FROM flow_drafts WHERE status != ? AND decided_at < ?`, DraftPending, now.Add(-DraftRetention).Unix()); err != nil {
 		return nil, fmt.Errorf("failed to prune drafts: %w", err)
 	}
+	if _, err := tx.Exec(`DELETE FROM flow_drafts WHERE status != ? AND author_token_id = ? AND id NOT IN (
+			SELECT id FROM flow_drafts WHERE status != ? AND author_token_id = ? ORDER BY decided_at DESC, seq DESC LIMIT ?)`,
+		DraftPending, d.AuthorTokenID, DraftPending, d.AuthorTokenID, MaxDecidedDraftsPerToken); err != nil {
+		return nil, fmt.Errorf("failed to prune the token's drafts: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM flow_drafts WHERE status != ? AND id NOT IN (
+			SELECT id FROM flow_drafts WHERE status != ? ORDER BY decided_at DESC, seq DESC LIMIT ?)`,
+		DraftPending, DraftPending, MaxDecidedDrafts); err != nil {
+		return nil, fmt.Errorf("failed to prune drafts: %w", err)
+	}
 	_, err = tx.Exec(`
 		INSERT INTO flow_drafts (id, seq, flow_id, base_version, data, note, author_token_id, author_token_name,
 			status, risk, issues_json, alerts_json, kept_json, created_at)
@@ -321,7 +369,7 @@ func draftName(data json.RawMessage) string {
 
 func draftColumns(withData bool) string {
 	cols := `id, flow_id, base_version, COALESCE(json_extract(data, '$.name'), ''), note, author_token_id, author_token_name,
-		status, risk, issues_json, alerts_json, reason, created_at, decided_at, applied_version`
+		status, risk, issues_json, alerts_json, reason, created_at, decided_at, applied_version, applied_by`
 	if withData {
 		cols += `, data, kept_json`
 	}
@@ -339,7 +387,7 @@ func scanFlowDraft(row rowScanner, withData bool) (*FlowDraft, error) {
 		data, kept     string
 	)
 	dest := []any{&d.ID, &d.FlowID, &d.BaseVersion, &name, &d.Note, &d.AuthorTokenID, &d.AuthorTokenName,
-		&d.Status, &d.Risk, &issues, &alerts, &d.Reason, &created, &decided, &applied}
+		&d.Status, &d.Risk, &issues, &alerts, &d.Reason, &created, &decided, &applied, &d.AppliedBy}
 	if withData {
 		dest = append(dest, &data, &kept)
 	}
@@ -465,10 +513,14 @@ func (s *SQLiteStore) DecideFlowDraft(id, status, reason string, appliedVersion 
 	if appliedVersion > 0 {
 		applied = appliedVersion
 	}
+	appliedBy := ""
+	if status == DraftApproved {
+		appliedBy = DraftApplierEditor
+	}
 	res, err := s.db.Exec(`
-		UPDATE flow_drafts SET status = ?, reason = ?, decided_at = ?, applied_version = ?
+		UPDATE flow_drafts SET status = ?, reason = ?, decided_at = ?, applied_version = ?, applied_by = ?
 		WHERE id = ? AND status = ?
-	`, status, reason, time.Now().Unix(), applied, id, DraftPending)
+	`, status, reason, time.Now().Unix(), applied, appliedBy, id, DraftPending)
 	if err != nil {
 		return fmt.Errorf("failed to decide draft: %w", err)
 	}
@@ -501,7 +553,7 @@ func (s *SQLiteStore) CountPendingFlowDrafts() (int, error) {
 }
 
 // applyDraftTx closes the draft meta.DraftID (if any) as approved with
-// appliedVersion, inside tx: the transaction that saves its definition as
+// appliedVersion and applied by meta.ActorKind, inside tx: the transaction that saves its definition as
 // flowID ("" for a draft creating a new flow) on top of version base (0 for
 // a new flow). It fails, and the caller rolls back, when the draft is
 // unknown or, for an agent, another token's (ErrFlowDraftNotFound), not
@@ -545,13 +597,21 @@ func applyDraftTx(tx *sql.Tx, meta VersionMeta, flowID string, base, appliedVers
 		return ErrDraftTokenRevoked
 	}
 	if _, err := tx.Exec(`
-		UPDATE flow_drafts SET status = ?, reason = '', decided_at = ?, applied_version = ?,
+		UPDATE flow_drafts SET status = ?, reason = '', decided_at = ?, applied_version = ?, applied_by = ?,
 			flow_id = CASE WHEN flow_id = '' THEN ? ELSE flow_id END
 		WHERE id = ? AND status = ?
-	`, DraftApproved, now.Unix(), appliedVersion, createdID, meta.DraftID, DraftPending); err != nil {
+	`, DraftApproved, now.Unix(), appliedVersion, appliedBy(meta), createdID, meta.DraftID, DraftPending); err != nil {
 		return fmt.Errorf("failed to close the applied draft: %w", err)
 	}
 	return nil
+}
+
+// appliedBy is who applies a draft through a save with meta.
+func appliedBy(meta VersionMeta) string {
+	if meta.ActorKind == VersionActorAgent {
+		return DraftApplierAgent
+	}
+	return DraftApplierEditor
 }
 
 // voidPendingDrafts closes, as void with reason, the pending drafts that

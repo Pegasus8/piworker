@@ -628,3 +628,128 @@ func TestRevocationAndDraftApplicationAreAtomic(t *testing.T) {
 		}
 	}
 }
+
+// A draft records who applied it: the admin approving it in the editor, or
+// the agent deploying its own draft (agent_deploy low or all), which nobody
+// reviewed. Drafts not applied record nobody.
+func TestAppliedDraftsRecordWhoAppliedThem(t *testing.T) {
+	s, tok := newDraftFixture(t)
+	f := createTestFlow("base")
+	require.NoError(t, s.CreateFlow(f))
+
+	byAgent, err := s.CreateFlowDraft(draftFor(tok.ID, f.ID, 1))
+	require.NoError(t, err)
+	_, err = s.UpdateFlowVersioned(f, 1, VersionMeta{ActorKind: VersionActorAgent, TokenID: tok.ID, TokenName: "laptop", DraftID: byAgent.ID})
+	require.NoError(t, err)
+	got, err := s.GetFlowDraft(byAgent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, DraftApplierAgent, got.AppliedBy)
+
+	byEditor, err := s.CreateFlowDraft(draftFor(tok.ID, f.ID, 2))
+	require.NoError(t, err)
+	_, err = s.UpdateFlowVersioned(f, 2, VersionMeta{ActorKind: VersionActorEditor, AdminApproved: true, DraftID: byEditor.ID})
+	require.NoError(t, err)
+	listed, err := s.ListFlowDrafts(FlowDraftFilter{Status: DraftApproved}, 0, "")
+	require.NoError(t, err)
+	by := map[string]string{}
+	for _, d := range listed {
+		by[d.ID] = d.AppliedBy
+	}
+	assert.Equal(t, map[string]string{byAgent.ID: DraftApplierAgent, byEditor.ID: DraftApplierEditor}, by)
+
+	rejected, err := s.CreateFlowDraft(draftFor(tok.ID, f.ID, 3))
+	require.NoError(t, err)
+	require.NoError(t, s.DecideFlowDraft(rejected.ID, DraftRejected, "no", 0))
+	got, err = s.GetFlowDraft(rejected.ID)
+	require.NoError(t, err)
+	assert.Empty(t, got.AppliedBy)
+	data, err := json.Marshal(got)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "appliedBy")
+}
+
+// Databases whose flow_drafts table predates applied_by gain the column; an
+// approved draft is attributed to whoever saved the version it applied (the
+// admin when no version names it).
+func TestFlowDraftAppliedByMigration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "drafts.db")
+	old, err := sql.Open("sqlite3", path)
+	require.NoError(t, err)
+	_, err = old.Exec(`
+		CREATE TABLE flow_drafts (
+			id TEXT PRIMARY KEY, seq INTEGER NOT NULL, flow_id TEXT NOT NULL DEFAULT '',
+			base_version INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
+			author_token_id TEXT NOT NULL, author_token_name TEXT NOT NULL DEFAULT '', status TEXT NOT NULL,
+			risk TEXT NOT NULL DEFAULT '', issues_json TEXT NOT NULL DEFAULT '[]', alerts_json TEXT NOT NULL DEFAULT '[]',
+			kept_json TEXT NOT NULL DEFAULT '[]',
+			reason TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, decided_at INTEGER, applied_version INTEGER
+		);
+		CREATE TABLE flow_versions (
+			flow_id TEXT NOT NULL, version INTEGER NOT NULL, data TEXT NOT NULL, actor_kind TEXT NOT NULL,
+			token_id TEXT NOT NULL DEFAULT '', token_name TEXT NOT NULL DEFAULT '', admin_approved INTEGER NOT NULL DEFAULT 0,
+			note TEXT NOT NULL DEFAULT '', draft_id TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL,
+			PRIMARY KEY (flow_id, version)
+		);
+		INSERT INTO flow_versions (flow_id, version, data, actor_kind, draft_id, created_at) VALUES ('f', 2, '{}', 'agent', 'mine', 1);
+		INSERT INTO flow_drafts (id, seq, flow_id, base_version, data, author_token_id, status, created_at, decided_at, applied_version)
+			VALUES ('mine', 1, 'f', 1, '{"name":"n"}', 'tok', 'approved', 1, 2, 2),
+			       ('admins', 2, 'f', 1, '{"name":"n"}', 'tok', 'approved', 1, 2, 3),
+			       ('waiting', 3, 'f', 1, '{"name":"n"}', 'tok', 'pending', 1, NULL, NULL);
+	`)
+	require.NoError(t, err)
+	require.NoError(t, old.Close())
+	for i := range 2 { // the second open runs the migration again
+		store, err := NewSQLiteStore(path)
+		require.NoError(t, err, "open %d", i)
+		for id, want := range map[string]string{"mine": DraftApplierAgent, "admins": DraftApplierEditor, "waiting": ""} {
+			got, err := store.GetFlowDraft(id)
+			require.NoError(t, err)
+			assert.Equal(t, want, got.AppliedBy, id)
+		}
+		require.NoError(t, store.Close())
+	}
+}
+
+// Decided drafts are bounded by count too, so an agent looping on save and
+// deploy (each a decided draft of up to about 2 MiB) cannot fill the disk
+// within the retention: each token keeps its newest MaxDecidedDraftsPerToken
+// decided drafts and the table its newest MaxDecidedDrafts.
+func TestDecidedDraftsAreCappedByCount(t *testing.T) {
+	s, tok := newDraftFixture(t)
+	decide := func(tokenID string, n int) []string {
+		var ids []string
+		for range n {
+			d, err := s.CreateFlowDraft(draftFor(tokenID, "", 0))
+			require.NoError(t, err)
+			require.NoError(t, s.DecideFlowDraft(d.ID, DraftRejected, "", 0))
+			ids = append(ids, d.ID)
+		}
+		return ids
+	}
+	ids := decide(tok.ID, MaxDecidedDraftsPerToken+3)
+	pending, err := s.CreateFlowDraft(draftFor(tok.ID, "", 0))
+	require.NoError(t, err)
+	decided, err := s.ListFlowDrafts(FlowDraftFilter{Status: DraftFilterDecided, TokenID: tok.ID}, MaxDraftListLimit, "")
+	require.NoError(t, err)
+	assert.Len(t, decided, MaxDecidedDraftsPerToken)
+	for _, id := range ids[:3] {
+		_, err := s.GetFlowDraft(id)
+		require.ErrorIs(t, err, ErrFlowDraftNotFound, "the oldest go first")
+	}
+	_, err = s.GetFlowDraft(ids[len(ids)-1])
+	require.NoError(t, err)
+	_, err = s.GetFlowDraft(pending.ID)
+	require.NoError(t, err, "pending drafts wait for the admin")
+
+	// The whole table: tokens together keep at most MaxDecidedDrafts.
+	tokens := MaxDecidedDrafts/MaxDecidedDraftsPerToken + 1
+	for range tokens {
+		other, _ := newTestToken(t, s, NewAPIToken{Scopes: []string{ScopeAuthor}})
+		decide(other.ID, MaxDecidedDraftsPerToken)
+	}
+	_, err = s.CreateFlowDraft(draftFor(tok.ID, "", 0))
+	require.NoError(t, err)
+	all, err := s.ListFlowDrafts(FlowDraftFilter{Status: DraftFilterDecided}, MaxDraftListLimit, "")
+	require.NoError(t, err)
+	assert.Len(t, all, MaxDecidedDrafts)
+}
