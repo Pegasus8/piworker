@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"maps"
@@ -13,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -488,83 +490,303 @@ func TestMCPMounting(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
-// Golden shapes of the protocol: initialize (or server/discover) and
-// tools/list as raw JSON-RPC, for every protocol version /mcp negotiates.
+// updateGoldens rewrites the golden files under testdata instead of
+// comparing with them: a golden changes only when a test runs with -update,
+// and the change is reviewed as a diff of the file.
+var updateGoldens = flag.Bool("update", false, "rewrite the golden files under testdata instead of comparing with them")
+
+// assertGolden compares v, encoded as indented JSON (HTML characters kept as
+// they are), with the golden file at path; -update rewrites the file first.
+func assertGolden(t *testing.T, path string, v any) {
+	t.Helper()
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	require.NoError(t, enc.Encode(v))
+	if *updateGoldens {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, buf.Bytes(), 0o644))
+	}
+	want, err := os.ReadFile(path)
+	require.NoError(t, err, "go test -run '%s' -update creates %s", t.Name(), path)
+	assert.Equal(t, string(want), buf.String(), "%s: review the difference, then rewrite the file with -update", path)
+}
+
+// sharedToolsGolden pins the author and deploy tools as tools/list lists
+// them (the adapter's own golden, one source of truth): the exchange
+// goldens refer to it instead of repeating them.
+const sharedToolsGolden = "internal/mcpserver/testdata/tools_author_deploy.golden.json"
+
+// goldenClientInfo is the client the exchanges name.
+var goldenClientInfo = map[string]any{"name": "golden", "version": "1"}
+
+// Volatile values of an exchange: generated ids and durations (in text
+// blocks too, where quotes are escaped).
+var (
+	uuidPattern     = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+	durationPattern = regexp.MustCompile(`,\\*"durationMs\\*":\d+`)
+)
+
+// goldenExchange is one raw JSON-RPC exchange with /mcp as a golden file
+// pins it: the request's MCP headers and body (never its token) and the
+// answer's HTTP status and body (its content type when it is not JSON).
+type goldenExchange struct {
+	Name        string            `json:"name"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	Request     any               `json:"request"`
+	Status      int               `json:"status"`
+	ContentType string            `json:"contentType,omitempty"`
+	Response    any               `json:"response"`
+}
+
+// goldenTranscript sends raw JSON-RPC requests to /mcp over TLS as a client
+// of one protocol version sends them, and records the exchanges.
+type goldenTranscript struct {
+	app       mcpApp
+	version   string
+	lastID    int
+	ids       map[string]string          // generated id → its placeholder
+	shared    map[string]json.RawMessage // the tools sharedToolsGolden pins, by name
+	exchanges []goldenExchange
+}
+
+func newGoldenTranscript(t *testing.T, app mcpApp, version string) *goldenTranscript {
+	t.Helper()
+	data, err := os.ReadFile(filepath.FromSlash(sharedToolsGolden))
+	require.NoError(t, err)
+	var tools []json.RawMessage
+	require.NoError(t, json.Unmarshal(data, &tools))
+	shared := map[string]json.RawMessage{}
+	for _, tool := range tools {
+		var named struct{ Name string }
+		require.NoError(t, json.Unmarshal(tool, &named))
+		shared[named.Name] = tool
+	}
+	return &goldenTranscript{app: app, version: version, ids: map[string]string{}, shared: shared}
+}
+
+// send posts a request of method with params as the token raw, records the
+// exchange as step and returns the answer as it came. initialize is sent as
+// the legacy handshake (no version header); at 2026-07-28 every other
+// request carries the per-request _meta and the Mcp-Method header, and
+// Mcp-Name when it names a tool or a prompt.
+func (g *goldenTranscript) send(t *testing.T, raw, step, method string, params map[string]any) map[string]any {
+	t.Helper()
+	headers := map[string]string{}
+	if method != "initialize" {
+		headers["Mcp-Protocol-Version"] = g.version
+		if g.version >= "2026-07-28" {
+			params = maps.Clone(params)
+			if params == nil {
+				params = map[string]any{}
+			}
+			params["_meta"] = map[string]any{
+				"io.modelcontextprotocol/protocolVersion":    g.version,
+				"io.modelcontextprotocol/clientInfo":         goldenClientInfo,
+				"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+			}
+			headers["Mcp-Method"] = method
+			if name, ok := params["name"].(string); ok && (method == "tools/call" || method == "prompts/get") {
+				headers["Mcp-Name"] = name
+			}
+		}
+	}
+	g.lastID++
+	msg := map[string]any{"jsonrpc": "2.0", "id": g.lastID, "method": method}
+	if params != nil {
+		msg["params"] = params
+	}
+	body := mustJSON(t, msg)
+	resp, data := g.app.post(t, raw, string(body), headers)
+	ex := goldenExchange{Name: step, Headers: headers, Request: g.normalise(t, body), Status: resp.StatusCode}
+	var answer map[string]any
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		ex.ContentType, ex.Response = ct, string(data)
+	} else {
+		require.NoError(t, json.Unmarshal(data, &answer), "%s: %s", step, data)
+		ex.Response = g.normalise(t, data)
+	}
+	g.exchanges = append(g.exchanges, ex)
+	return answer
+}
+
+// call sends a tools/call of tool with args.
+func (g *goldenTranscript) call(t *testing.T, raw, step, tool string, args map[string]any) map[string]any {
+	t.Helper()
+	return g.send(t, raw, step, "tools/call", map[string]any{"name": tool, "arguments": args})
+}
+
+// normalise decodes a message with its volatile values replaced: generated
+// ids by placeholders numbered in order of appearance in the transcript (an
+// id reads the same everywhere, text blocks included) and durations
+// (absent when 0 ms) removed. The author and deploy tools of a tools/list
+// answer, once checked equal to sharedToolsGolden, refer to it.
+func (g *goldenTranscript) normalise(t *testing.T, data []byte) any {
+	t.Helper()
+	text := uuidPattern.ReplaceAllStringFunc(string(data), func(id string) string {
+		if _, ok := g.ids[id]; !ok {
+			g.ids[id] = fmt.Sprintf("<id-%d>", len(g.ids)+1)
+		}
+		return g.ids[id]
+	})
+	text = durationPattern.ReplaceAllString(text, "")
+	dec := json.NewDecoder(strings.NewReader(text))
+	dec.UseNumber()
+	var v any
+	require.NoError(t, dec.Decode(&v), text)
+	result, _ := v.(map[string]any)["result"].(map[string]any)
+	tools, _ := result["tools"].([]any)
+	for i, tool := range tools {
+		name, _ := tool.(map[string]any)["name"].(string)
+		if want, ok := g.shared[name]; ok &&
+			assert.JSONEq(t, string(want), string(mustJSON(t, tool)), "%s at %s differs from %s", name, g.version, sharedToolsGolden) {
+			tools[i] = map[string]any{"name": name, "sameAs": sharedToolsGolden}
+		}
+	}
+	return v
+}
+
+// goldenToolFlow stores and deploys flow id: trigger-tool "tool" (named
+// name, with cfg) → action-reply "reply", and returns the published tool.
+func goldenToolFlow(t *testing.T, app mcpApp, id, flowName, name string, cfg map[string]any) flow.ToolInfo {
+	t.Helper()
+	toolCfg := map[string]any{
+		"toolName":    name,
+		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"door": map[string]any{"type": "string", "enum": []any{"left", "right"}}}},
+	}
+	maps.Copy(toolCfg, cfg)
+	f := flow.NewFlow(flowName)
+	f.ID = id
+	f.AddNode(*newNode("tool", "trigger-tool", flow.NodeCategoryInput, toolCfg))
+	f.AddNode(*newNode("reply", "action-reply", flow.NodeCategoryOutput, nil))
+	f.AddConnection(*flow.NewConnection("tool", "output", "reply", "input"))
+	require.NoError(t, app.store.CreateFlow(f))
+	require.NoError(t, app.manager.Deploy(context.Background(), f))
+	_, tools := app.manager.Tools()
+	for _, ti := range tools {
+		if ti.ToolName == name {
+			return ti
+		}
+	}
+	t.Fatalf("tool %s is not published", name)
+	return flow.ToolInfo{}
+}
+
+// Golden raw JSON-RPC exchanges over the real router and TLS, for every
+// protocol version /mcp negotiates (testdata/mcp_exchanges_<version>.golden.json;
+// go test -run TestMCPProtocolGolden . -update rewrites them): the
+// handshake, tools/list of a token with every scope and the privileged flag
+// (author enabled, agent deploy all), flow tool calls (a reply, a tool
+// error, an approval), the read, author and deploy tools' answers and
+// refusals, prompts and protocol errors. Each version runs on its own app,
+// so the transcripts differ only where the protocol versions do.
 func TestMCPProtocolGolden(t *testing.T) {
+	everything := []string{storage.ScopeCall, storage.ScopeRead, storage.ScopeAuthor, storage.ScopeDeploy}
+	for _, version := range mcpserver.ProtocolVersions {
+		t.Run(version, func(t *testing.T) {
+			app := newAuthorApp(t, true, storage.AgentDeployAll)
+			garage := goldenToolFlow(t, app, "flow-garage", "Garage", "garage",
+				map[string]any{"title": "Garage door", "description": "Opens the left or right garage door and reports whether it moved."})
+			gate := goldenToolFlow(t, app, "flow-gate", "Gate", "gate",
+				map[string]any{"title": "Front gate", "description": "Opens the front gate once the admin approves.", "confirm": "admin"})
+			report := flow.NewFlow("Report")
+			report.ID = "flow-report"
+			report.AddNode(*manualNode("start"))
+			report.AddNode(*httpNode("http", map[string]any{"url": "https://api.example.com/report", "method": "POST"}))
+			report.AddConnection(*flow.NewConnection("start", "output", "http", "input"))
+			require.NoError(t, app.store.CreateFlow(report))
+			// The admin edits the report in the editor: version 2.
+			editor := app.editor(t)
+			stored := editorGet[struct {
+				Flow map[string]any `json:"flow"`
+			}](t, editor, "/api/flows/"+report.ID).Flow
+			stored["description"] = "Posts the daily report."
+			code, body := editor.do(t, http.MethodPut, "/api/flows/"+report.ID, stored)
+			require.Equal(t, http.StatusOK, code, string(body))
+
+			// Every request has a token of its own (each token may send 10
+			// requests at once), all alike: every scope, privileged, both
+			// tools granted.
+			token := func() string {
+				_, raw, err := app.store.CreateAPIToken(storage.NewAPIToken{Name: "agent", Scopes: everything, Privileged: true,
+					Grants: []storage.TokenGrant{
+						{FlowID: garage.FlowID, TriggerNodeID: garage.TriggerNodeID, Fingerprint: garage.Fingerprint},
+						{FlowID: gate.FlowID, TriggerNodeID: gate.TriggerNodeID, Fingerprint: gate.Fingerprint},
+					}}, time.Now())
+				require.NoError(t, err)
+				return raw
+			}
+			// A token drafts a change of the report's destination, which low
+			// refuses to deploy.
+			deployer := token()
+			session, err := app.connect(t, deployer, "")
+			require.NoError(t, err)
+			draft := callOK[service.DraftResult](t, agentSession{session: session}, "pw_save_draft", map[string]any{
+				"flowId": report.ID, "baseVersion": 2, "note": "Report to the new endpoint.",
+				"ops": []any{map[string]any{"op": "update_node", "nodeId": "http", "config": map[string]any{"url": "https://exfil.example.net/report"}}},
+			})
+
+			g := newGoldenTranscript(t, app, version)
+			initialize := map[string]any{"protocolVersion": version, "capabilities": map[string]any{}, "clientInfo": goldenClientInfo}
+			if version >= "2026-07-28" {
+				g.send(t, token(), "initialize asking for 2026-07-28 settles on the newest handshake version", "initialize", initialize)
+				g.send(t, token(), "server/discover", "server/discover", nil)
+			} else {
+				g.send(t, token(), "initialize", "initialize", initialize)
+			}
+			g.send(t, token(), "tools/list: every scope and the privileged flag, author enabled, agent deploy all", "tools/list", nil)
+
+			g.call(t, token(), "flow tool: completed", "garage", map[string]any{"door": "left"})
+			g.call(t, token(), "flow tool: arguments outside its schema", "garage", map[string]any{"door": "up"})
+			approver := token()
+			pending := g.call(t, approver, "confirm: admin: approval required", "gate", map[string]any{"door": "right"})
+			runID, _ := pending["result"].(map[string]any)["_meta"].(map[string]any)["piworker/runId"].(string)
+			require.NotEmpty(t, runID, "%v", pending)
+			g.call(t, approver, "pw_get_result: still waiting for the admin", "pw_get_result", map[string]any{"runId": runID})
+			code, body = editor.do(t, http.MethodPost, "/api/agent/approvals/"+runID+"/approve", nil)
+			require.Equal(t, http.StatusOK, code, string(body))
+			g.call(t, approver, "pw_get_result: completed once the admin approved", "pw_get_result", map[string]any{"runId": runID})
+
+			g.call(t, token(), "pw_list_flows", "pw_list_flows", map[string]any{})
+			invalid := agentChain("", agentNode("start", "trigger-manual", nil), agentNode("calc", "process-nope", nil),
+				agentNode("double", "process-transform", map[string]any{"expression": 42}))
+			invalid["nodes"] = append(invalid["nodes"].([]any), agentNode("double", "action-log", nil))
+			g.call(t, token(), "pw_validate_flow: a flow with issues", "pw_validate_flow", map[string]any{"flow": invalid})
+			g.call(t, token(), "pw_save_draft: a stale baseVersion", "pw_save_draft", map[string]any{
+				"flowId": report.ID, "baseVersion": 1, "note": "Report hourly.",
+				"ops": []any{map[string]any{"op": "update_node", "nodeId": "http", "config": map[string]any{"method": "PUT"}}},
+			})
+			g.call(t, token(), "built-in tool: arguments outside its schema", "pw_list_runs",
+				map[string]any{"flowId": garage.FlowID, "limit": 0, "page": 2})
+			g.call(t, token(), "unknown tool, with the call scope", "pw_no_such_tool", map[string]any{})
+
+			g.send(t, token(), "prompts/list", "prompts/list", nil)
+			g.send(t, token(), "prompts/get diagnose_flow", "prompts/get",
+				map[string]any{"name": "diagnose_flow", "arguments": map[string]any{"flowId": garage.FlowID}})
+			g.send(t, token(), "prompts/get author_flow", "prompts/get",
+				map[string]any{"name": "author_flow", "arguments": map[string]any{"goal": "Post the garage door's state to the report endpoint every hour."}})
+			g.send(t, token(), "prompts/get: invalid params", "prompts/get",
+				map[string]any{"name": "diagnose_flow", "arguments": map[string]any{}})
+			g.send(t, token(), "ping", "ping", nil)
+			g.send(t, token(), "unknown method", "flows/list", nil)
+
+			require.NoError(t, app.store.SetAgentDeployLevel(storage.AgentDeployLow))
+			g.call(t, deployer, "pw_deploy_flow at agent deploy low: a destination change is refused", "pw_deploy_flow",
+				map[string]any{"flowId": report.ID, "draftId": draft.DraftID})
+
+			assertGolden(t, filepath.Join("testdata", "mcp_exchanges_"+version+".golden.json"), g.exchanges)
+		})
+	}
+}
+
+// Versions /mcp does not negotiate are refused on the transport, and so are
+// requests without a version (which the SDK would serve as 2025-03-26) and
+// batches (which no negotiated version allows).
+func TestMCPRefusesOtherProtocolVersionsAndBatches(t *testing.T) {
 	app := newMCPApp(t, true)
 	garage := app.deployTool(t, "garage", nil)
 	_, raw := app.token(t, "laptop", []string{storage.ScopeCall}, garage)
-
-	const serverInfo = `{"name":"piworker","title":"PiWorker","version":"dev"}`
-	const tools = `[
-	  {"name":"garage","title":"Garage door",
-	   "description":"Opens the left or right garage door and reports whether it moved.",
-	   "inputSchema":{"type":"object","additionalProperties":false,
-	     "properties":{"door":{"type":"string","enum":["left","right"],"maxLength":256}}},
-	   "annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":false,"openWorldHint":false}},
-	  {"name":"pw_get_result","title":"Get the result of a tool call",
-	   "description":"Returns the result of an earlier tool call of this token that answered status \"running\" or \"approval_required\", by its runId. A running call is waited for up to 10 seconds; call again while the status is still \"running\" or \"approval_required\".",
-	   "inputSchema":{"type":"object","additionalProperties":false,"required":["runId"],
-	     "properties":{"runId":{"type":"string","minLength":1,"maxLength":128,"description":"The runId of the call, from its result."}}},
-	   "annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}}]`
-
-	// golden checks a 200 JSON answer against want, once the instructions
-	// (prose, checked for presence only) are removed.
-	golden := func(t *testing.T, resp *http.Response, body []byte, want string) {
-		t.Helper()
-		require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
-		assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
-		var msg map[string]any
-		require.NoError(t, json.Unmarshal(body, &msg), string(body))
-		if result, ok := msg["result"].(map[string]any); ok {
-			if instr, ok := result["instructions"]; ok {
-				assert.True(t, strings.HasPrefix(instr.(string), "PiWorker runs automations"), instr)
-				delete(result, "instructions")
-			}
-		}
-		got, err := json.Marshal(msg)
-		require.NoError(t, err)
-		assert.JSONEq(t, want, string(got))
-	}
-	initialize := func(version string) string {
-		return `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"` + version +
-			`","capabilities":{},"clientInfo":{"name":"golden","version":"1"}}}`
-	}
-
-	for _, version := range []string{"2025-06-18", "2025-11-25"} {
-		t.Run(version, func(t *testing.T) {
-			resp, body := app.post(t, raw, initialize(version), nil)
-			golden(t, resp, body, `{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"`+version+`",
-			  "capabilities":{"prompts":{},"tools":{}},"serverInfo":`+serverInfo+`}}`)
-			resp, body = app.post(t, raw, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`, map[string]string{"Mcp-Protocol-Version": version})
-			golden(t, resp, body, `{"jsonrpc":"2.0","id":2,"result":{"ttlMs":5000,"cacheScope":"private","tools":`+tools+`}}`)
-		})
-	}
-
-	t.Run("2026-07-28", func(t *testing.T) {
-		// The legacy handshake cannot negotiate into the sessionless
-		// protocol: it settles on the newest handshake version.
-		resp, body := app.post(t, raw, initialize("2026-07-28"), nil)
-		golden(t, resp, body, `{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25",
-		  "capabilities":{"prompts":{},"tools":{}},"serverInfo":`+serverInfo+`}}`)
-
-		meta := `"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",` +
-			`"io.modelcontextprotocol/clientInfo":{"name":"golden","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}`
-		headers := func(method string) map[string]string {
-			return map[string]string{"Mcp-Protocol-Version": "2026-07-28", "Mcp-Method": method}
-		}
-		resp, body = app.post(t, raw, `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{`+meta+`}}`, headers("server/discover"))
-		golden(t, resp, body, `{"jsonrpc":"2.0","id":1,"result":{"resultType":"complete",
-		  "_meta":{"io.modelcontextprotocol/serverInfo":`+serverInfo+`},"ttlMs":5000,"cacheScope":"private",
-		  "supportedVersions":["2026-07-28","2025-11-25","2025-06-18"],"capabilities":{"prompts":{},"tools":{}}}}`)
-		resp, body = app.post(t, raw, `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{`+meta+`}}`, headers("tools/list"))
-		golden(t, resp, body, `{"jsonrpc":"2.0","id":2,"result":{"resultType":"complete",
-		  "_meta":{"io.modelcontextprotocol/serverInfo":`+serverInfo+`},"ttlMs":5000,"cacheScope":"private","tools":`+tools+`}}`)
-	})
-
-	// Versions /mcp does not negotiate are refused on the transport, and so
-	// are requests without a version (which the SDK would serve as
-	// 2025-03-26) and batches (which no negotiated version allows).
 	resp, body := app.post(t, raw, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`, map[string]string{"Mcp-Protocol-Version": "2025-03-26"})
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, string(body))
 	resp, body = app.post(t, raw, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`, nil)
