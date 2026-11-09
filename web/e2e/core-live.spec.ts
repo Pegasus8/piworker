@@ -1,17 +1,18 @@
 import { test, expect } from '@playwright/test'
-import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { resolve, join } from 'node:path'
+import { join } from 'node:path'
+import { BUILD_TIMEOUT_MS, serverBinary } from './server-binary'
 let server: ChildProcess
 let directory: string
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('PIWORKER_')))
 // The API enforces its CSRF header on writes even with auth disabled.
 test.use({ extraHTTPHeaders: { 'X-PiWorker-Request': '1' } })
 test.beforeAll(async ({ request }) => {
+ test.setTimeout(BUILD_TIMEOUT_MS)
  directory = mkdtempSync(join(tmpdir(), 'piworker-core-'))
- const binary = join(directory, 'piworker')
- execFileSync('go', ['build', '-o', binary, '.'], { cwd: resolve(process.cwd(), '..'), env })
+ const binary = serverBinary(env)
  server = spawn(binary, ['-tls=off', '-auth=false', '-db', join(directory, 'core.db'), '-addr', '127.0.0.1:18095', '-cors-origins', 'http://127.0.0.1:18096'], { cwd: directory, env, stdio: 'ignore' })
  await expect.poll(async () => { try { return (await request.get('/api/health')).status() } catch { return 0 } }, { timeout: 15000 }).toBe(200)
 })
