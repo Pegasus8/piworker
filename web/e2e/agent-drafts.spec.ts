@@ -96,8 +96,9 @@ async function mockServer(page: Page, opts: MockOptions = {}) {
       case 'GET /flows': return ok({ flows: [
         { id: 'f1', name: 'Garage', state: flowRunning ? 'running' : 'inactive', nodes: [{}], version: versions.current, agentChanged: versions.current !== versions.lastAdminApproved,
           deployment: f1Deployment },
-        { id: 'f2', name: 'Lights', state: 'inactive', nodes: [], version: 1, agentChanged: false, deployment: null }
-      ], total: 2 })
+        { id: 'f2', name: 'Lights', state: 'inactive', nodes: [], version: 1, agentChanged: false, deployment: null },
+        { id: 'f3', name: 'Pump\u202Egnp', description: 'Waters the garden\u200B', state: 'inactive', nodes: [], version: 1, agentChanged: false, deployment: null }
+      ], total: 3 })
       case 'GET /flows/f1': return ok({
         flow: { id: 'f1', name: 'Garage', state: flowRunning ? 'running' : 'inactive', nodes: [{}], connections: [], version: versions.current,
           agentChanged: versions.current !== versions.lastAdminApproved, deployment: f1Deployment },
@@ -255,6 +256,13 @@ test('flows show agent markers, the history rolls back with confirmation, and a 
   await history.getByRole('button', { name: 'Close version history' }).click()
   await expect(card.getByText('Changed by agent')).toHaveCount(0)
   await expect(card.getByText('Deployed by agent laptop')).toHaveCount(0)
+
+  // Agents may name and describe flows: hidden characters are revealed in
+  // the card, the labels and the dialogs.
+  const pump = page.locator('.group').filter({ hasText: 'Pump' })
+  await expect(pump.getByText('Waters the garden\\u200B')).toBeVisible()
+  await expect(pump.getByRole('button', { name: 'Version history of Pump\\u202Egnp' })).toBeVisible()
+  await expect(pump.getByRole('switch', { name: 'Deploy Pump\\u202Egnp' })).toBeVisible()
 
   await page.getByRole('switch', { name: 'Deploy Lights' }).click()
   await expect.poll(() => last(requests, 'PATCH', '/flows/f2/toggle')?.body).toEqual({ enabled: true, version: 1 })

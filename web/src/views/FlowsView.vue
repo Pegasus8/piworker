@@ -6,6 +6,7 @@ import { useFlowsStore, FlowVersionConflictError } from '@/stores/flows'
 import { useAuthStore } from '@/stores/auth'
 import { useAgentStore } from '@/stores/agent'
 import { useApi } from '@/composables/useApi'
+import { visibleText } from '@/lib/agentAccess'
 import { Button, Card, Input, Switch, Badge } from '@/components/ui'
 import SecretsDialog from '@/components/SecretsDialog.vue'
 import FlowMarks from '@/components/agent/FlowMarks.vue'
@@ -114,7 +115,7 @@ async function toggleFlow(id: string, enabled: boolean) {
 // agent's version) deploys nothing: show the new version and offer to review
 // it in the editor first.
 async function offerReview(id: string, conflict: FlowVersionConflictError) {
-  const name = flowsStore.flows.find(flow => flow.id === id)?.name || 'This flow'
+  const name = visibleText(flowsStore.flows.find(flow => flow.id === id)?.name ?? '') || 'This flow'
   feedback.value = { kind: 'error', text: `Not deployed: “${name}” was changed since this list loaded (now version ${conflict.currentVersion}).` }
   await flowsStore.fetchFlows()
   if (await confirmation.value?.ask(
@@ -147,7 +148,7 @@ const agentsTarget = computed(() => agentStore.pendingCount ? '/agents/approvals
 
 async function deleteFlow(id: string) {
   if (pending.value) return
-  const name = flowsStore.flows.find(flow => flow.id === id)?.name || 'this flow'
+  const name = visibleText(flowsStore.flows.find(flow => flow.id === id)?.name ?? '') || 'this flow'
   if (!await confirmation.value?.ask('Delete flow?', `Delete “${name}” and its configuration? This cannot be undone.`, 'Delete flow')) return
   await run(() => flowsStore.deleteFlow(id), 'Flow deleted.', 'Could not delete the flow. Try again.')
   flowsStore.error = null
@@ -285,17 +286,18 @@ async function logout() {
             <!-- Header -->
             <div class="flex items-start justify-between gap-3">
               <div class="flex-1 min-w-0">
-                <!-- Agents may name flows (approved drafts): shown as text, hidden characters revealed. -->
+                <!-- Agents may name and describe flows (approved drafts): shown as
+                     text, hidden characters revealed, here and in every label. -->
                 <h3 class="font-semibold truncate"><AgentText :text="flow.name" /></h3>
                 <p
                   v-if="flow.description"
                   class="mt-1 text-sm text-muted-foreground line-clamp-2"
                 >
-                  {{ flow.description }}
+                  <AgentText :text="flow.description" />
                 </p>
               </div>
               <Switch
-                :disabled="pending" :aria-label="`${flow.running ? 'Stop' : 'Deploy'} ${flow.name}`"
+                :disabled="pending" :aria-label="`${flow.running ? 'Stop' : 'Deploy'} ${visibleText(flow.name)}`"
                 :model-value="flow.running"
                 @update:model-value="(v) => toggleFlow(flow.id, v)"
               />
@@ -346,7 +348,7 @@ async function logout() {
                 variant="ghost"
                 size="icon"
                 title="Version history"
-                :aria-label="`Version history of ${flow.name}`"
+                :aria-label="`Version history of ${visibleText(flow.name)}`"
                 @click="openHistory(flow)"
               >
                 <History class="h-4 w-4" />
