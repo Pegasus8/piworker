@@ -126,6 +126,43 @@ printed backup directory. To recover manually:
 A backup restores the state at its creation time, not changes made afterward.
 Automatic rollback does not undo external effects from running flows.
 
+## Agents: when one misbehaves
+
+If an AI agent did something you did not expect (a prompt injection, a
+leaked token, a wrong instruction), contain it first, then undo and review.
+Everything below happens in the editor (**Agents** in the navigation).
+
+1. **Revoke the token.** **Agents → Tokens → Revoke** on the token, or
+   **Revoke all** when you do not know which one. It needs no password and
+   takes effect at once: the token stops working on `/mcp`, its requests
+   waiting for approval are rejected and its pending drafts are voided.
+   Account recovery and a password change (unless you keep the tokens) also
+   revoke every token.
+2. **Turn agent deploy off.** Set **Agent deploy** to **Off** (needs your
+   password). This removes the deploy tools from every token but undoes
+   nothing: flows agents already deployed keep running, privileged ones
+   included. To shut agents out entirely, set `enabled = false` in the
+   `[mcp]` section and restart the service: `/mcp` then answers 404.
+3. **Undo what it changed.** On the flows list and in the editor, look for
+   **Deployed by agent** and **Changed by agent**. Stop a flow you do not
+   want running, or open **History → Roll back** to save the version you
+   last approved as the current one (a running flow is redeployed with it).
+   An agent's *stop* leaves no marker on the flow: a flow an agent stopped
+   shows only in the audit. Reject any draft still waiting under **Drafts**.
+4. **Read the audit.** **Agents → Audit** lists every call, read, draft,
+   deploy and stop of each token for 30 days (filter by token, tool, flow,
+   outcome and time), plus the calls refused as busy, cooling down or with
+   invalid arguments, counted per token. A flow's run history says which
+   runs an agent token started and which version they ran. Ordinary rows are
+   capped at the newest 50 000; a privileged tool's runs and approvals and a
+   privileged flow's deploys and stops are kept the full 30 days.
+5. **Rotate what it could reach.** Change the secrets used by flows the
+   token could call, read or deploy, short ones first (the **Agents** page
+   counts secrets under 16 characters: an agent can confirm guesses of
+   them), and the credentials of the services those flows reach.
+
+Then create a new token with only the tools and scopes the agent needs.
+
 ## Troubleshooting
 
 | Symptom | What to check |

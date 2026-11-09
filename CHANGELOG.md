@@ -75,8 +75,10 @@ version. The version number and release date have not been selected.
 - Agents use scoped tokens (`call`, `read`, `author`, `deploy`), shown once,
   90-day default expiry, accepted only on `/mcp`. Privileged tools need the
   token's privileged flag and are never covered by "all tools". Grants are
-  bound to the tool's fingerprint: any change to a tool suspends them until
-  re-confirmed. Account recovery revokes every token; a password change does
+  bound to the tool's fingerprint (its risk, annotations, input schema,
+  confirmation mode and the ID and type of every node above `safe` it
+  reaches): any such change, repointing a tool to another action included,
+  suspends them until re-confirmed, and its pending approvals run nothing. Account recovery revokes every token; a password change does
   too unless "keep agent tokens" is ticked.
 - Tools with `confirm: admin` wait for approval in the editor (15 minutes);
   an approval runs only the tool version that was requested and keeps its
@@ -157,6 +159,9 @@ version. The version number and release date have not been selected.
   **Changed by agent**. **History** lists a flow's versions and rolls back
   to the version you last approved. Saving or deploying a version that
   changed meanwhile offers to reload instead of overwriting it.
+- The [operations guide](docs/operations.md#agents-when-one-misbehaves) has
+  a runbook for a misbehaving agent: revoke, turn agent deploy off, roll
+  back, read the audit, rotate secrets.
 
 ### Security correction
 

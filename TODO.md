@@ -49,10 +49,17 @@ selector contextual de nombres están implementados. Queda como ampliación:
 
 - [x] Variables por flujo persistentes, selector de alcance, autocompletado y ayuda
   contextual en la UI. Las referencias globales existentes conservan su significado.
-- [ ] Incorporar referencias a secretos en credenciales HTTP, con pruebas de que
-  los valores no aparecen en payloads, previews ni mensajes de error.
-- [ ] Rechazar referencias a secretos inexistentes al desplegar, en lugar de
-  resolverlas a una cadena vacía, y mostrar qué flujos usan cada secreto.
+- [x] Incorporar referencias a secretos en credenciales HTTP, con pruebas de que
+  los valores no aparecen en payloads, previews ni mensajes de error
+  (`{{secret.NAME}}` en cabeceras y en el usuario/consulta de la URL; ver
+  [docs/design/mcp.md §3](docs/design/mcp.md)).
+- [x] Rechazar al desplegar referencias a secretos inexistentes en los ajustes
+  que no funcionan sin ellos (token de Telegram, URL de notificación, DSN de
+  base de datos: `node.SecretRequirer`, [ADR-0019](docs/adr/0019-lint-markers-and-change-alerts-define-low.md));
+  Lint las informa como `undefined_secret`.
+- [ ] En los demás ajustes, un secreto inexistente todavía se resuelve a una
+  cadena vacía sin aviso: rechazarlo o al menos avisar al desplegar.
+- [ ] Mostrar qué flujos usan cada secreto.
 - [ ] Evaluar cifrado de secretos en reposo con gestión y recuperación de claves.
   Actualmente SQLite guarda los valores sin cifrado propio de la aplicación.
 - [ ] Diseñar exportación/restauración explícita de variables globales, por flujo y secretos;

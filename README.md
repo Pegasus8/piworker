@@ -536,9 +536,14 @@ API, and expire after 90 days by default.
 - **Grants** name individual tools, or **all tools** for every published tool
   that is not privileged. Calling a privileged tool also needs the token's
   **privileged** flag.
-- A grant is bound to the tool's *fingerprint* (risk, annotations, input
-  schema, confirmation mode). Redeploying a tool with any change suspends its
-  grants until you re-confirm them ([ADR-0015](docs/adr/0015-tool-identity-binds-grants-and-approvals.md)).
+- A grant is bound to the tool's *fingerprint*: its risk, annotations, input
+  schema and confirmation mode, and which nodes above `safe` (commands, files,
+  HTTP, MQTT, e-mail…) it reaches, by ID and type, not their settings.
+  Redeploying a tool with any such change (repointing it to another action
+  or adding one counts) suspends its grants until you re-confirm them, and
+  its requests waiting for approval run nothing
+  ([ADR-0015](docs/adr/0015-tool-identity-binds-grants-and-approvals.md),
+  [ADR-0022](docs/adr/0022-low-keeps-tools-and-protected-data-the-admins.md)).
 - Revoking a token, or all of them at once, needs no password and takes effect
   immediately. Account recovery and password changes revoke every token
   (a password change can keep them on request).
@@ -755,6 +760,9 @@ so turn HTTPS on (`mode = "auto"`) to connect from other computers.
   [ADR-0023](docs/adr/0023-runs-record-the-version-they-ran.md)).
 - Client-side confirmations are a convenience, not a control: use
   `confirm: admin` for anything that needs your approval.
+- If an agent misbehaves, revoke its token, turn agent deploy off, roll back
+  what it changed and read the audit: see
+  [Agents: when one misbehaves](docs/operations.md#agents-when-one-misbehaves).
 
 ---
 
@@ -1204,8 +1212,18 @@ preserved during migration.
 | DELETE | `/api/flows/{id}` | Delete a flow |
 | POST | `/api/flows/{id}/deploy` | Deploy (start) a flow; optional `{"version": N}`, checked like a save |
 | POST | `/api/flows/{id}/stop` | Stop a running flow |
+| PATCH | `/api/flows/{id}/toggle` | Turn a flow on or off: `{"enabled": bool, "version": N}`; turning it on with a stale `version` is `409` (`currentVersion`) and deploys nothing |
 | GET | `/api/flows/{id}/versions` | Version history (`limit`), newest first |
 | POST | `/api/flows/{id}/rollback` | Restore the version last approved as a new version (`409` when there is none to restore) |
+
+### Variables and secrets
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/variables` | List global variables |
+| PUT, DELETE | `/api/variables/{name}` | Set (`{"value": …}`) or delete a global variable |
+| GET | `/api/secrets` | `{"secrets": [{"name", "short"}], "shortBelow": 16}`: names only, never values or lengths; `short` marks a value under `shortBelow` characters, which an agent could confirm a guess of |
+| PUT, DELETE | `/api/secrets/{name}` | Set (`{"value": "…"}`) or delete a secret |
 
 ### Node Types
 
