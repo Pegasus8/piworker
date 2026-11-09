@@ -58,7 +58,7 @@ var (
 	dbPath         = flag.String("db", "piworker.db", "SQLite database path")
 	debug          = flag.Bool("debug", false, "Enable debug logging")
 	authEnabled    = flag.Bool("auth", true, "Enable session authentication (env: PIWORKER_AUTH)")
-	allowedOrigins = flag.String("cors-origins", "http://localhost:3000,http://localhost:8080", "Comma-separated list of allowed CORS origins")
+	allowedOrigins = flag.String("cors-origins", "", "Comma-separated origins allowed cross-origin, credentialed access, e.g. http://localhost:3000 for the Vite dev server; empty allows none (env: PIWORKER_CORS_ORIGINS)")
 	allowedHosts   = flag.String("allowed-hosts", "", "Comma-separated extra Host names accepted besides localhost, the hostname, hostname.local and IPs (env: PIWORKER_ALLOWED_HOSTS)")
 	adminUser      = flag.String("admin-user", "", "Default admin username (env: PIWORKER_ADMIN_USER)")
 	adminPass      = flag.String("admin-pass", "", "Default admin password (env: PIWORKER_ADMIN_PASS)")
@@ -281,21 +281,28 @@ func runOfflineCommand(cfg config.Config) {
 	fmt.Printf("%s code (one use, expires in 30 minutes): %s\nEnter it on the PiWorker sign-in page.\n", purpose, code)
 }
 
+// maxHeaderBytes caps a request's line and headers on every listener: the
+// editor's and agents' requests need a few KiB (cookies, a bearer token).
+const maxHeaderBytes = 64 << 10
+
 // newHTTPServer builds the HTTP server. Every request context derives from a
 // base context that is cancelled as soon as Shutdown begins, so long-lived
 // requests that honour r.Context() (the SSE event stream) end promptly instead
 // of holding Shutdown until its timeout. Server errors go to zerolog, rate
-// limited, with handshake noise at debug level (serverErrorWriter).
+// limited, with handshake noise at debug level (serverErrorWriter). The
+// request line and headers are capped at maxHeaderBytes (Go's default is
+// 1 MiB), larger ones refused with 431 before any handler runs.
 func newHTTPServer(addr string, handler http.Handler) *http.Server {
 	baseCtx, cancelBase := context.WithCancel(context.Background())
 	srv := &http.Server{
-		Addr:         addr,
-		Handler:      handler,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
-		BaseContext:  func(net.Listener) context.Context { return baseCtx },
-		ErrorLog:     newServerErrorWriter(log.Logger, time.Now).logger(),
+		Addr:           addr,
+		Handler:        handler,
+		ReadTimeout:    15 * time.Second,
+		WriteTimeout:   15 * time.Second,
+		IdleTimeout:    60 * time.Second,
+		MaxHeaderBytes: maxHeaderBytes,
+		BaseContext:    func(net.Listener) context.Context { return baseCtx },
+		ErrorLog:       newServerErrorWriter(log.Logger, time.Now).logger(),
 	}
 	srv.RegisterOnShutdown(cancelBase)
 	return srv
@@ -587,8 +594,11 @@ func setupLogging(debugMode bool) {
 	zerolog.DefaultContextLogger = &log.Logger
 }
 
-// makeCorsMiddleware creates a CORS middleware with the given allowed origins.
-// If no origins are provided, it defaults to allowing any origin (not recommended for production).
+// makeCorsMiddleware creates a CORS middleware that grants cross-origin,
+// credentialed access to the allowed origins only, echoing the request's
+// origin. It fails closed (ADR-0004): no origins means no cross-origin
+// access, never "*" (an empty cors_origins once let any web page read the
+// API of a Pi with authentication off).
 func makeCorsMiddleware(allowedOrigins []string) mux.MiddlewareFunc {
 	// Create a set for fast lookup
 	originSet := make(map[string]bool)
@@ -600,23 +610,10 @@ func makeCorsMiddleware(allowedOrigins []string) mux.MiddlewareFunc {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
 
-			// Decide the allowed origin. With no allowlist we fall back to "*"
-			// (development mode); otherwise we echo a specific allowlisted origin.
-			allowOrigin := ""
-			if len(allowedOrigins) == 0 {
-				allowOrigin = "*"
-			} else if originSet[origin] {
-				allowOrigin = origin
+			if origin != "" && originSet[origin] {
 				w.Header().Set("Vary", "Origin")
-			}
-
-			if allowOrigin != "" {
-				w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
-				// Credentials may ONLY be combined with a specific origin, never
-				// with the "*" wildcard (the classic CORS misconfiguration).
-				if allowOrigin != "*" {
-					w.Header().Set("Access-Control-Allow-Credentials", "true")
-				}
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
 
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")

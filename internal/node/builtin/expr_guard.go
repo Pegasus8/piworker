@@ -23,11 +23,19 @@ import (
 //     calls __pw_tick, which stops the evaluation once its context ends, so a
 //     timed-out evaluation does not keep burning a core in the background;
 //   - every "+" whose operands may be strings goes through __pw_add, and the
-//     string-growing builtins (repeat, join, replace, toJSON, string,
-//     toBase64) through guarded versions: in a sandbox (node.SandboxFrom)
-//     each result is sized before it exists and charged to the sandbox
-//     (per-value cap and budget), so an expression cannot build gigabytes of
-//     text; outside one they compute exactly what the builtins compute.
+//     builtins that build data through guarded versions (guardedBuiltins).
+//     In a sandbox (node.SandboxFrom) the string-growing ones (repeat, join,
+//     replace, toJSON, string, toBase64) and the array-building ones
+//     (concat, flatten) size their result before it exists, and the ones
+//     whose result is at most a few times their input (upper, lower,
+//     split, splitAfter, fromBase64, fromJSON, keys, values, toPairs, uniq)
+//     charge it once it exists, to the sandbox (per-value cap and budget),
+//     so an expression cannot build gigabytes of data; outside one they
+//     compute what the builtins compute;
+//   - in every flow, the builtins the VM charges to its memory budget only
+//     after they built their result (repeat, concat, flatten) are checked
+//     against that budget before they run, and uniq, which is quadratic,
+//     checks the evaluation's context as it goes.
 //
 // The guard of one evaluation is the env value exprGuardName; compileExpr
 // rewrites the program to pass it to these functions.
@@ -42,9 +50,10 @@ type exprGuard struct {
 	done <-chan struct{} // the evaluation's context
 	ctx  context.Context
 	sb   *node.Sandbox // nil outside a sandbox
-	// repeatBytes emulates the VM's memory budget for repeat, which the VM
-	// charges only for its builtin (the guarded one replaces it).
-	repeatBytes uint
+	// vmMemory emulates the VM's memory budget for the builtins it charges
+	// to it (repeat, concat, flatten): the VM charges only its own
+	// builtins, after they ran, and the guarded ones replace them.
+	vmMemory uint
 }
 
 func newExprGuard(ctx context.Context, sb *node.Sandbox) *exprGuard {
@@ -134,16 +143,33 @@ func guardedAdd(params ...any) (any, error) {
 	return runtime.Add(a, b), nil
 }
 
-// guardedBuiltins replace the string-growing builtins: each is called with
-// the guard first, sizes its result before computing it, then runs the real
+// guardedBuiltins replace the builtins that build data: each is called with
+// the guard first, bounds its result (builtinGuard), then runs the real
 // builtin.
 var guardedBuiltins = map[string]func(params ...any) (any, error){
-	"repeat":   guardBuiltin("repeat", repeatSize),
-	"join":     guardBuiltin("join", joinSize),
-	"replace":  guardBuiltin("replace", replaceSize),
-	"toJSON":   guardBuiltin("toJSON", indentedJSONSize),
-	"string":   guardBuiltin("string", valueSize),
-	"toBase64": guardBuiltin("toBase64", base64Size),
+	// Strings that may be far larger than their arguments.
+	"repeat":   guardBuiltin("repeat", builtinGuard{size: repeatSize, vmUnits: repeatSize}),
+	"join":     guardBuiltin("join", builtinGuard{size: joinSize}),
+	"replace":  guardBuiltin("replace", builtinGuard{size: replaceSize}),
+	"toJSON":   guardBuiltin("toJSON", builtinGuard{size: indentedJSONSize}),
+	"string":   guardBuiltin("string", builtinGuard{size: valueSize}),
+	"toBase64": guardBuiltin("toBase64", builtinGuard{size: base64Size}),
+	// Arrays that may be far larger than their arguments (copies of one
+	// array, arrays nesting the same array): items the VM charges only
+	// once they exist.
+	"concat":  guardBuiltin("concat", builtinGuard{size: concatSize, vmUnits: concatItems}),
+	"flatten": guardBuiltin("flatten", builtinGuard{size: valueSize, vmUnits: flattenItems}),
+	// Data at most a few times the size of its input.
+	"upper":      guardBuiltin("upper", builtinGuard{}),
+	"lower":      guardBuiltin("lower", builtinGuard{}),
+	"split":      guardBuiltin("split", builtinGuard{}),
+	"splitAfter": guardBuiltin("splitAfter", builtinGuard{}),
+	"fromBase64": guardBuiltin("fromBase64", builtinGuard{}),
+	"fromJSON":   guardBuiltin("fromJSON", builtinGuard{}),
+	"keys":       guardBuiltin("keys", builtinGuard{}),
+	"values":     guardBuiltin("values", builtinGuard{}),
+	"toPairs":    guardBuiltin("toPairs", builtinGuard{}),
+	"uniq":       guardedUniq,
 }
 
 // sizeFunc returns the size, in bytes, of a builtin's result for args
@@ -151,32 +177,75 @@ var guardedBuiltins = map[string]func(params ...any) (any, error){
 // (the builtin then fails on its arguments itself).
 type sizeFunc func(args []any, limit int64) (size int64, ok bool)
 
-func guardBuiltin(name string, size sizeFunc) func(params ...any) (any, error) {
+// builtinGuard is how the guard bounds a builtin.
+type builtinGuard struct {
+	// size sizes the result before it exists, in a sandbox, where it is
+	// charged; nil: the result is charged once it exists (a builtin whose
+	// result is at most a few times the size of its input).
+	size sizeFunc
+	// vmUnits is what the VM would charge its memory budget for the
+	// result, checked before the builtin runs, in every flow: the VM
+	// charges its own builtin only after it built the result (and the
+	// guarded one not at all).
+	vmUnits sizeFunc
+}
+
+// guardArgs returns the guard and the builtin's own arguments of a guarded
+// call, after a tick.
+func guardArgs(params []any) (*exprGuard, []any, error) {
+	if len(params) == 0 {
+		return nil, nil, errExprGuardMissing
+	}
+	g, err := guardOf(params[0])
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := g.tick(); err != nil {
+		return nil, nil, err
+	}
+	return g, params[1:], nil
+}
+
+// spendVM spends n units of the emulated VM memory budget, failing as the
+// VM does once it is spent (which ends the evaluation).
+func (g *exprGuard) spendVM(n int64) error {
+	if n >= int64(conf.DefaultMemoryBudget) || g.vmMemory+uint(n) >= conf.DefaultMemoryBudget {
+		return errors.New("memory budget exceeded")
+	}
+	g.vmMemory += uint(n)
+	return nil
+}
+
+// chargeResult bounds a builtin's result once it exists, in a sandbox:
+// charged (sized like its JSON) when it was not sized before, else checked
+// against the per-value cap.
+func (g *exprGuard) chargeResult(v any, charge bool) error {
+	switch {
+	case g.sb == nil:
+		return nil
+	case charge:
+		return g.sb.ChargeValue(v)
+	default:
+		return g.checkResult(v)
+	}
+}
+
+func guardBuiltin(name string, bound builtinGuard) func(params ...any) (any, error) {
 	fn := builtin.Builtins[builtin.Index[name]]
 	return func(params ...any) (any, error) {
-		if len(params) == 0 {
-			return nil, errExprGuardMissing
-		}
-		g, err := guardOf(params[0])
+		g, args, err := guardArgs(params)
 		if err != nil {
 			return nil, err
 		}
-		if err := g.tick(); err != nil {
-			return nil, err
-		}
-		args := params[1:]
-		if name == "repeat" {
-			// The VM charges repeat's result to its memory budget; keep
-			// that limit (checked before the string exists).
-			if n, ok := repeatSize(args, int64(conf.DefaultMemoryBudget)); ok {
-				g.repeatBytes += uint(n)
-				if g.repeatBytes >= conf.DefaultMemoryBudget {
-					return nil, errors.New("memory budget exceeded")
+		if bound.vmUnits != nil {
+			if n, ok := bound.vmUnits(args, int64(conf.DefaultMemoryBudget)); ok {
+				if err := g.spendVM(n); err != nil {
+					return nil, err
 				}
 			}
 		}
-		if g.sb != nil {
-			if n, ok := size(args, g.sb.MaxValueBytes()); ok {
+		if g.sb != nil && bound.size != nil {
+			if n, ok := bound.size(args, g.sb.MaxValueBytes()); ok {
 				if err := g.charge(n); err != nil {
 					return nil, err
 				}
@@ -186,11 +255,48 @@ func guardBuiltin(name string, size sizeFunc) func(params ...any) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := g.checkResult(out); err != nil {
+		if err := g.chargeResult(out, bound.size == nil); err != nil {
 			return nil, err
 		}
 		return out, nil
 	}
+}
+
+// guardedUniq is expr's uniq (the same quadratic algorithm, so the same
+// result) that checks the evaluation's context for every item.
+func guardedUniq(params ...any) (any, error) {
+	g, args, err := guardArgs(params)
+	if err != nil {
+		return nil, err
+	}
+	if len(args) != 1 {
+		return callBuiltin(builtin.Builtins[builtin.Index["uniq"]], args) // its error
+	}
+	v, ok := arrayArg(args[0])
+	if !ok {
+		return callBuiltin(builtin.Builtins[builtin.Index["uniq"]], args) // its error
+	}
+	ret := []any{}
+	for i := 0; i < v.Len(); i++ {
+		if err := g.tick(); err != nil {
+			return nil, err
+		}
+		item := v.Index(i).Interface()
+		seen := false
+		for _, r := range ret {
+			if runtime.Equal(item, r) {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			ret = append(ret, item)
+		}
+	}
+	if err := g.chargeResult(ret, true); err != nil {
+		return nil, err
+	}
+	return ret, nil
 }
 
 // callBuiltin runs an expr builtin the way the VM would.
@@ -346,6 +452,94 @@ func base64Size(args []any, _ int64) (int64, bool) {
 		return 0, false
 	}
 	return (int64(len(s)) + 2) / 3 * 4, true
+}
+
+// arrayArg is v as an array or slice (ok=false for anything else).
+func arrayArg(v any) (reflect.Value, bool) {
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
+		return reflect.Value{}, false
+	}
+	return rv, true
+}
+
+// concatItems is the number of items concat returns.
+func concatItems(args []any, limit int64) (int64, bool) {
+	if len(args) == 0 {
+		return 0, false
+	}
+	var n int64
+	for _, arg := range args {
+		v, ok := arrayArg(arg)
+		if !ok {
+			return 0, false
+		}
+		n += int64(v.Len())
+		if n > limit {
+			return limit + 1, true
+		}
+	}
+	return n, true
+}
+
+// concatSize sizes concat's result like its JSON: its arguments' items.
+func concatSize(args []any, limit int64) (int64, bool) {
+	if _, ok := concatItems(args, limit); !ok {
+		return 0, false
+	}
+	var n int64 = 2
+	for _, arg := range args {
+		n += node.EstimateSize(arg, limit)
+		if n > limit {
+			return limit + 1, true
+		}
+	}
+	return n, true
+}
+
+// flattenItems counts what flatten goes through: the items it returns and
+// the nested arrays it opens (arrays nesting the same array twice double
+// both at every level).
+func flattenItems(args []any, limit int64) (int64, bool) {
+	if len(args) != 1 {
+		return 0, false
+	}
+	v, ok := arrayArg(args[0])
+	if !ok {
+		return 0, false
+	}
+	var n int64
+	var walk func(v reflect.Value, depth int) bool
+	walk = func(v reflect.Value, depth int) bool {
+		if depth > builtin.MaxDepth {
+			return false // flatten fails itself
+		}
+		for i := 0; i < v.Len() && n <= limit; i++ {
+			n++
+			item := derefValue(v.Index(i))
+			if item.Kind() == reflect.Slice || item.Kind() == reflect.Array {
+				if !walk(item, depth+1) {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	if !walk(v, 0) {
+		return 0, false
+	}
+	return min(n, limit+1), true
+}
+
+// derefValue follows pointers and interfaces, as flatten does.
+func derefValue(v reflect.Value) reflect.Value {
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return v
+		}
+		v = v.Elem()
+	}
+	return v
 }
 
 func valueSize(args []any, limit int64) (int64, bool) {

@@ -104,6 +104,20 @@ func RegenerateCA(dir string) error
   hostname, `hostname.local`, current interface IPs (re-read lazily), and any
   IP-literal Host (rebinding needs a hostname). Port stripped, case-insensitive.
   403 on mismatch. Compose files set `PIWORKER_ALLOWED_HOSTS`.
+- CORS fails closed (ADR-0004): only the `cors_origins` entries get
+  cross-origin, credentialed access (and pass the request guard's and
+  `/mcp`'s Origin checks); the default is empty, since the editor is
+  same-origin (the Vite dev proxy keeps the browser's Host, so it is too),
+  and an empty list never means `*`.
+- What anyone who can connect can make the server keep or write is bounded:
+  both listeners cap the request line and headers at 64 KiB (431 above;
+  Go's default is 1 MiB); the HTTP metrics label methods with a fixed set
+  (GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS, else `other`) and paths
+  with the route template, since every distinct label value is a series
+  kept for good; the access log cuts the method and the path to 256 bytes
+  and logs a refusal for an unknown Host at debug level only (the guard
+  logs its own refusals at debug too), like the rate-limited server error
+  log keeps handshake noise off the SD card.
 - `action-http` resolves `{{secret.NAME}}` in headers and in the URL userinfo/
   query at request time (never in payload-derived text); `trigger-webhook`
   `token` is `Sensitive` and supports `{{secret.NAME}}`. When the URL or a
@@ -1207,14 +1221,29 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
     `wouldExecute`, then `missingSecrets`, then the trace; each issue
     message is cut to 2 KiB too).
   - Expressions (transform, filter, switch, set-var, join, database
-    parameters) are compiled with a guard (`expr_guard.go`): every predicate
-    body (the loops of `filter`, `map`, `count`, `reduce`, …) checks the
-    evaluation's context, so an evaluation stops once its deadline passed
-    instead of running on in the background — in every flow, not only in
-    the sandbox; in a sandbox string `+`, `repeat`, `join`, `replace`,
-    `toJSON`, `string` and `toBase64` size their result before it exists
-    and charge the sandbox, and the result is capped at 1 MiB. Templates
-    stop expanding at the sandbox's limits.
+    parameters) are refused before expr parses them when they are over
+    16 KiB or nest brackets (`(`, `[`, `{`, counted on expr's own tokens,
+    unclosed ones included) more than 256 levels deep (`expr_limits.go`):
+    expr's parser recurses once per bracket, unbounded, so a deeply nested
+    expression grew a goroutine stack to hundreds of MiB and overflowed
+    the stack of 32-bit builds, a fatal error, in every node factory —
+    `pw_validate_flow`, `pw_save_draft`, `pw_dry_run` and deploy alike.
+    They are compiled with a guard (`expr_guard.go`): every predicate
+    body (the loops of `filter`, `map`, `count`, `reduce`, …) and every
+    item of `uniq` (quadratic) checks the evaluation's context, so an
+    evaluation stops once its deadline passed instead of running on in the
+    background — in every flow, not only in the sandbox. Also in every
+    flow, `repeat`, `concat` and `flatten`, whose result expr's VM charges
+    to its memory budget (10⁶ items or bytes per evaluation) only after
+    they built it, are checked against that budget before they run
+    (`flatten` counting the nested arrays it opens too): copies of one
+    large array allocated gigabytes past any deadline. In a sandbox string
+    `+`, `repeat`, `join`, `replace`, `toJSON`, `string`, `toBase64`,
+    `concat` and `flatten` size their result before it exists and charge
+    the sandbox; `upper`, `lower`, `split`, `splitAfter`, `fromBase64`,
+    `fromJSON`, `keys`, `values`, `toPairs` and `uniq`, whose result is at
+    most a few times their input, charge it once it exists; every result
+    is capped at 1 MiB. Templates stop expanding at the sandbox's limits.
   - The result (`flow.DryRunResult`: `issues`, `trace`, `wouldExecute`,
     `missingSecrets`, `truncated`, `timedOut`, `capped`) lists the Lint
     issues and, in execution order, the trace (`nodeId`, `type`,

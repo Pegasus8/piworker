@@ -15,7 +15,7 @@ func TestLoadDefaultsWhenNoFile(t *testing.T) {
 	assert.Equal(t, ":8443", cfg.Addr, "HTTPS is the default listener")
 	assert.Equal(t, "piworker.db", cfg.DBPath)
 	assert.True(t, cfg.Auth)
-	assert.Equal(t, []string{"http://localhost:3000", "http://localhost:8080"}, cfg.CORSOrigins)
+	assert.Empty(t, cfg.CORSOrigins, "the same-origin editor needs no CORS; dev servers list theirs")
 }
 
 func TestLoadTOMLFile(t *testing.T) {

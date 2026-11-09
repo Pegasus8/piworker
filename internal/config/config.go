@@ -45,11 +45,13 @@ const DefaultConfigPath = "piworker.toml"
 // Default returns the built-in default configuration.
 func Default() Config {
 	return Config{
-		Addr:        ":8443",
-		DBPath:      "piworker.db",
-		Debug:       false,
-		Auth:        true,
-		CORSOrigins: []string{"http://localhost:3000", "http://localhost:8080"},
+		Addr:   ":8443",
+		DBPath: "piworker.db",
+		Debug:  false,
+		Auth:   true,
+		// No cross-origin access: the editor is served from the same origin.
+		// A Vite dev server lists its own origin (docker-compose.yml, README).
+		CORSOrigins: nil,
 		MCP:         DefaultMCP(),
 
 		HTTPAddr:     ":8080",

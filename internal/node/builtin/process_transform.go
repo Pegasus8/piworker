@@ -60,11 +60,16 @@ func NewTransformProcess(config map[string]interface{}) (node.Node, error) {
 // expr.AsBool() for boolean conditions) are appended. Keeping the option list in
 // one place keeps the sandbox contract consistent across every node.
 //
-// The program is compiled twice: plain first, for its errors (exactly expr's
+// The source is bounded first (checkExprSource: length and bracket
+// nesting, which expr's recursive parser does not limit). The program is
+// compiled twice: plain first, for its errors (exactly expr's
 // own), then with the expression guard (expr_guard.go), which is the program
 // returned: its loops stop when the evaluation's context ends and, in a
 // sandbox, the data it builds is bounded.
 func compileExpr(src string, extra ...expr.Option) (*vm.Program, error) {
+	if err := checkExprSource(src); err != nil {
+		return nil, err
+	}
 	base := func() []expr.Option {
 		return []expr.Option{
 			expr.AllowUndefinedVariables(),

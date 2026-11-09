@@ -125,11 +125,26 @@ func RecordFlowDeployment(success bool) {
 	FlowDeployments.WithLabelValues(status).Inc()
 }
 
-// RecordHTTPRequest records an HTTP request.
+// RecordHTTPRequest records an HTTP request. path must come from a bounded
+// set (a route template); the method is bounded here (methodLabel).
 func RecordHTTPRequest(method, path string, statusCode int, durationSeconds float64) {
 	status := statusCodeToLabel(statusCode)
+	method = methodLabel(method)
 	HTTPRequestsTotal.WithLabelValues(method, path, status).Inc()
 	HTTPRequestDuration.WithLabelValues(method, path).Observe(durationSeconds)
+}
+
+// methodLabel maps a request method to a fixed set of label values: Go
+// accepts any token as a method, from anyone who can connect, and
+// Prometheus never frees a series, so every distinct method would cost
+// memory for good.
+func methodLabel(method string) string {
+	switch method {
+	case "GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS":
+		return method
+	default:
+		return "other"
+	}
 }
 
 // SetFlowsTotal sets the total number of flows.
