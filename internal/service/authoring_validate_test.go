@@ -30,7 +30,7 @@ func TestValidateReportsLintAuthoringIssuesAndRisk(t *testing.T) {
 	assert.False(t, res.Valid)
 	assert.Contains(t, issueCodes(res.Issues), flow.IssueConfigType)
 	assert.Contains(t, issueCodes(res.Issues), IssueSensitiveLiteral)
-	assert.NotContains(t, mustJSON(t, res), apiKeyCanary, "known secret values never reach an agent")
+	assert.Contains(t, mustJSON(t, res), apiKeyCanary, "what the agent wrote comes back as it wrote it, a secret's value or not")
 
 	// An undefined secret a strict setting needs is an error deploy would
 	// refuse, but not a blocking one: the admin may define it.

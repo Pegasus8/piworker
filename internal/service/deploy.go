@@ -440,8 +440,19 @@ func (a *Authoring) evaluateDeploy(ctx context.Context, level storage.AgentDeplo
 	if !stop {
 		issues := a.lint(ctx, plan.candidate)
 		if errs := errorIssues(issues); len(errs) > 0 {
-			return nil, &ToolError{Kind: ErrInvalidArguments, FlowIssues: agentIssues(a.proposalRedactor(plan.candidate), issues),
-				Message: fmt.Sprintf("the flow has %d error(s) deploy would refuse", len(errs))}
+			te := &ToolError{Kind: ErrInvalidArguments, Message: fmt.Sprintf("the flow has %d error(s) deploy would refuse", len(errs))}
+			if authorizeStoredRead(actor) != nil {
+				// The issues name the stored flow's nodes and settings,
+				// which the read scope shows.
+				te.Message += " (a token with the read scope sees them)"
+				return nil, te
+			}
+			withheld := a.storedWithheld(plan.candidate)
+			if plan.draft != nil {
+				withheld = a.draftWithheld(plan.draft.KeptJSON, plan.candidate)
+			}
+			te.FlowIssues = a.agentIssues(plan.candidate, withheld, issues)
+			return nil, te
 		}
 	}
 	if level == storage.AgentDeployLow {

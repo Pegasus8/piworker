@@ -75,6 +75,8 @@ type proposal struct {
 	// compared with the base: comparing what the agent wrote would let it
 	// confirm a guess of a value it may not read.
 	kept map[propKey]bool
+	// nameKept: next's name is the base's, which the agent did not write.
+	nameKept bool
 }
 
 // propKey names a config property of a node.
@@ -137,7 +139,7 @@ func (a *Authoring) resolveProposal(req proposalRequest) (*proposal, error) {
 		if err != nil {
 			return nil, fmt.Errorf("copy flow: %w", err)
 		}
-		p.next = next
+		p.next, p.nameKept = next, true
 		for i := range next.Nodes {
 			for prop := range next.Nodes[i].Config {
 				p.kept[propKey{next.Nodes[i].ID, prop}] = true
@@ -148,7 +150,7 @@ func (a *Authoring) resolveProposal(req proposalRequest) (*proposal, error) {
 		if len(issues) > 0 {
 			return nil, &ToolError{Kind: ErrInvalidArguments, Message: "the ops cannot be applied", FlowIssues: issues}
 		}
-		p.next = next
+		p.next, p.nameKept = next, true
 		opsOrigin, replaced = opWrites(p.base, req.ops, p.wrote)
 	} else {
 		next, err := cloneFlow(req.flow)
@@ -163,7 +165,7 @@ func (a *Authoring) resolveProposal(req proposalRequest) (*proposal, error) {
 		}
 		if p.base != nil {
 			if next.Name == "" {
-				next.Name = p.base.Name
+				next.Name, p.nameKept = p.base.Name, true
 			}
 			if next.Description == "" {
 				next.Description = p.base.Description
@@ -177,7 +179,7 @@ func (a *Authoring) resolveProposal(req proposalRequest) (*proposal, error) {
 	}
 	next := p.next
 	if req.name != "" {
-		next.Name = req.name
+		next.Name, p.nameKept = req.name, false
 	}
 	next.ID = req.flowID
 	next.State, next.Version = "", 0
@@ -818,48 +820,4 @@ func mergeIssues(f *flow.Flow, lint, extra []flow.Issue) []flow.Issue {
 		return a.Message < b.Message
 	})
 	return out
-}
-
-// agentIssues redacts issue messages for agents: known secret values
-// (red) and URLs past their host, bounded.
-func agentIssues(red secretRedactor, issues []flow.Issue) []flow.Issue {
-	out := make([]flow.Issue, len(issues))
-	for i, is := range issues {
-		is.Path = capText(red.text(is.Path), 4*maxViewIDBytes)
-		is.Message = capText(hideURLsInText(red.text(is.Message)), maxAgentIssueBytes)
-		out[i] = is
-	}
-	return out
-}
-
-// agentAlerts redacts alerts for agents. They are agent-safe at the source
-// (flow.Diff: values only of properties agents may read); known secret
-// values are redacted from them all the same.
-func agentAlerts(red secretRedactor, alerts []flow.Alert) []flow.Alert {
-	out := make([]flow.Alert, len(alerts))
-	for i, al := range alerts {
-		al.NodeID = capText(red.text(al.NodeID), maxViewIDBytes)
-		al.Message = capText(hideURLsInText(red.text(al.Message)), maxAgentIssueBytes)
-		if al.Before != nil {
-			al.Before = visibleValue(red, al.Before)
-		}
-		if al.After != nil {
-			al.After = visibleValue(red, al.After)
-		}
-		out[i] = al
-	}
-	return out
-}
-
-// proposalRedactor redacts, from what agents see of a proposal, the known
-// secret values and the credentials typed literally into the Sensitive
-// settings of the flows involved (the read views' rule).
-func (a *Authoring) proposalRedactor(flows ...*flow.Flow) secretRedactor {
-	values := a.views.secretValues()
-	for _, f := range flows {
-		if f != nil {
-			values = append(values, a.views.sensitiveValues(f)...)
-		}
-	}
-	return valuesRedactor(values)
 }

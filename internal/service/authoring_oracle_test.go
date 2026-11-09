@@ -186,12 +186,13 @@ func TestMergedPatchIsKept(t *testing.T) {
 // A draft stored without a readable kept list hides every hidden setting.
 func TestKeptRedactionWithoutAListHidesEverything(t *testing.T) {
 	e := newAuthEnv(t)
-	n := &templateFlow().Nodes[1]
+	f := templateFlow()
+	n := &f.Nodes[1]
 	for _, raw := range []string{`[]`, ``, `{"props":null}`} {
-		redact := e.a.keptRedaction(json.RawMessage(raw))
+		redact := e.a.keptRedaction(json.RawMessage(raw), f)
 		assert.True(t, redact(n, "template"), "%q", raw)
 	}
-	redact := e.a.keptRedaction(json.RawMessage(`{"props":[]}`))
+	redact := e.a.keptRedaction(json.RawMessage(`{"props":[]}`), f)
 	assert.False(t, redact(n, "template"), "nothing kept")
 }
 

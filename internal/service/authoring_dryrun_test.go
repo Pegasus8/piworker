@@ -89,8 +89,8 @@ func decodedPreview(p string) string {
 }
 
 // An agent's inline flow is its own: nothing is hidden from the run. What it
-// returns is redacted all the same: known secret values and URLs past their
-// host.
+// returns has URLs cut past their host; what the agent sent comes back as
+// it sent it, a secret's value or not (hiding it would confirm a guess).
 func TestDryRunInlineFlowForAnAgent(t *testing.T) {
 	e := newAuthEnv(t)
 	agent := e.token()
@@ -104,7 +104,7 @@ func TestDryRunInlineFlowForAnAgent(t *testing.T) {
 	assert.Contains(t, out, "BASEHIDDENWORDS", "the agent wrote it")
 	assert.Contains(t, out, "https://hooks.example.com/<redacted>")
 	assert.NotContains(t, mustJSON(t, res), "pathsecret")
-	assert.NotContains(t, mustJSON(t, res), apiKeyCanary)
+	assert.Contains(t, out, apiKeyCanary, "the agent's own text")
 
 	rows := e.auditRows()
 	require.Len(t, rows, 1)
@@ -215,7 +215,7 @@ func TestTestNode(t *testing.T) {
 	require.NotEmpty(t, res.Outputs)
 	assert.Contains(t, res.Outputs[0].Preview, "ok")
 	assert.Contains(t, res.Outputs[0].Preview, "https://api.example.com/<redacted>")
-	assert.NotContains(t, mustJSON(t, res), apiKeyCanary)
+	assert.Contains(t, res.Outputs[0].Preview, apiKeyCanary, "the agent's own input, as sent")
 	assert.NotContains(t, mustJSON(t, res), "private/path")
 
 	// The editor sees the URL (secret values are still redacted).

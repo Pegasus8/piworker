@@ -1035,10 +1035,12 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
     `DryRunInput.Redact`, which replaces the selected config values with
     `"<redacted>"` before the flow is validated and run: every property
     agents may not see (`Sensitive`, not `AgentVisible`, undeclared, or of
-    an unknown type) whose value the agent did not write itself — for a
-    stored flow all of them, for a draft those equal to the base version's
-    value at the same node and property. The run then computes only on what
-    the agent may see. A redacted value that leaves its node invalid (an
+    an unknown type), and every one whose value holds a known value (a
+    secret's value, or a credential typed into a `Sensitive` setting: what
+    the read views redact), whose value the agent did not write itself —
+    for a stored flow all of them, for a draft the settings it kept and
+    recorded as withheld (see `SaveDraft`). The run then computes only on
+    what the agent may see. A redacted value that leaves its node invalid (an
     expression, an object-typed setting such as HTTP headers: an error
     issue at a redacted property, or `invalid_config` at a node with
     redacted properties) does not stop the run: the node becomes a stub —
@@ -1346,23 +1348,44 @@ toggling a running flow on records nothing (it deploys nothing). A
     the admin typed stays when kept), so the names of secrets referenced in
     settings agents cannot read are not revealed. An `unknown_secret` where
     Lint reports the same setting's `undefined_secret` is left out. The
-    stored draft records the kept hidden settings (storage `KeptJSON`,
-    `{"props": [[nodeId, prop], …]}`), which its dry-run hides.
-  - Issue messages and alerts are redacted for agents before they are
-    returned and stored: known secret values and the literals of the flow's
-    `Sensitive` settings, URLs past their host, each message at most 2 KiB.
+    stored draft records its withheld settings (storage `KeptJSON`,
+    `{"props": [[nodeId, prop], …], "name": bool}`): the kept ones that are
+    hidden or whose base value holds a known value (a secret's value, or a
+    credential typed into a `Sensitive` setting of the base), and whether
+    the name is the base's and holds one. Its dry-run hides them from the
+    run and `GetDraft` shows them as `"<redacted>"`.
+  - No redaction oracle either: what agents see never depends on how what
+    they sent compares with a value they may not read (hiding text equal to
+    a secret's value or to the admin's credential would let them confirm a
+    guess, a PIN in a few hundred tries). What the agent wrote comes back as
+    it wrote it — in issue messages and paths, alert values, the draft
+    view, dry-run and node-test output — a secret's value or not; the
+    admin's content it may not read is withheld wholesale, decided by that
+    content alone. Issue messages: an issue at a node holding withheld
+    settings gets a fixed text (Lint quotes settings, hiding only what the
+    read views hide, by comparison), except `config_type` and
+    `undefined_secret` at a setting the agent wrote, whose messages are
+    built again from that setting alone; codes whose messages never quote
+    settings (IDs, types, ports, positions, the authoring issues) are kept.
+    Alerts: one about a withheld setting carries no `before`/`after` and a
+    message naming no value (the host of `new_host`, the secret of
+    `secret_added`/`secret_moved`: enabling a disabled node whose hidden
+    URL names a host and a secret raises the alerts without revealing
+    either, H7); `before` values (the base's) are redacted as the read
+    views redact them, other `after` values are what the agent wrote or may
+    read. URLs are cut past their host and each message is at most 2 KiB.
     Storage errors map to `conflict` (the base moved meanwhile),
     `flow_not_found`, `forbidden` (the 21st pending draft, a revoked token)
     and `invalid_arguments` (too large to store). A new flow's draft has no
     ID: the approval assigns it, and the applied draft then records the new
     flow's ID as its `flowId` (its `baseVersion` stays 0).
 - `GetDraft`: the agent's own drafts only (another token's: `not_found`,
-  with the message of an unknown one); the proposed flow through the read
-  views' default-deny redaction (GetFlow's nodes, connections and bounds),
-  the stored issues and alerts, and the admin's reason with secret values
-  and URLs past their host redacted (the view's text loses only the known
-  secret values: the literals of `Sensitive` settings cannot appear in what
-  it shows, so hiding text equal to them would only confirm a guess).
+  with the message of an unknown one); the proposed flow with GetFlow's
+  shape and bounds: hidden and withheld settings (and a withheld name) as
+  `"<redacted>"`, everything else as the agent wrote it (IDs, names and
+  visible values are not redacted by comparison); the stored issues and
+  alerts; the admin's reason with secret values and URLs past their host
+  redacted (the admin's text, which the agent does not choose).
 - `DryRun` of exactly one of `flow`, `draftId` (own draft) or `flowId` (the
   current version). For an agent by `flowId` or `draftId` it sets
   `DryRunInput.Redact` (H4): properties agents may not read (`Sensitive`,
@@ -1370,7 +1393,9 @@ toggling a running flow on records nothing (it deploys nothing). A
   a stored flow, for a draft of an existing flow (`baseVersion` ≠ 0) the
   kept ones the draft recorded (what the agent did not write, equal to the
   base's or not; a draft without a readable list hides every hidden
-  setting); a node the hidden values leave invalid is a mockable stub with
+  setting, or without a readable list what the stored-flow rule hides); a
+  stored flow also hides every visible setting whose value holds a known
+  value; a node the hidden values leave invalid is a mockable stub with
   a `hidden_settings` warning (see the dry-run above), so a stored flow
   with hidden expressions or headers still runs around them; a new flow's
   draft, approved or not, and an inline `flow` are the agent's own and are
@@ -1379,21 +1404,23 @@ toggling a running flow on records nothing (it deploys nothing). A
   errors unredacted except secret values. `flow.ErrSandboxBusy` → `busy`,
   `flow.ErrDryRunInput` → `invalid_arguments`; an invalid flow is a result
   with `issues` (no run), not an error. For agents the issue messages, trace
-  inputs, outputs and errors and the `wouldExecute` inputs lose the known
-  secret values, URLs past their host and, for an inline flow, the literals
-  of its `Sensitive` settings, and are cut to 2 KiB again. The values of a
-  stored flow or of a draft's base are not hidden from the result: the run
-  never holds them (`Redact`), so text equal to one came from the agent
-  (its payload, mocks or what it wrote), and hiding it would confirm the
-  guess. The lint runs with the
+  inputs, outputs and errors and the `wouldExecute` inputs lose URLs past
+  their host and, for an inline flow, the literals the agent typed into its
+  own `Sensitive` settings, and are cut to 2 KiB again. Nothing else is
+  hidden from the result by comparison, secret values included: the run
+  never holds a secret (its store is empty) nor what the agent may not
+  read of a stored flow or draft (`Redact`), so text equal to one came
+  from the agent (its payload, mocks or what it wrote), and hiding it
+  would confirm the guess. The lint runs with the
   service's secret store (so `undefined_secret` is real); the nodes still
   get the sandbox's empty one.
 - `TestNode`: `Sensitive` literals in `config` refused as in `SaveDraft`
   (agents only; `/config/{prop}`); `flow.ErrTestNodeForbidden` →
   `forbidden`; `flow.ErrInvalidNodeType` and `flow.ErrDryRunInput` →
   `invalid_arguments`; busy → `busy`; config problems are the result's
-  `issues` (their messages lose only secret values: the config is the
-  caller's); outputs and the error redacted for agents like a dry-run's.
+  `issues`; the config and input are the caller's own (and the sandbox's
+  secret store is empty), so agents get the issues, outputs and error as
+  sent, URLs cut past their host; the editor's lose secret values.
 - `ListDrafts`: `status` `pending` (default), `decided` or `all` (else
   `invalid_arguments`), `limit` 1–100 (0: 50; more is 100), newest first,
   `nextBefore` the next page's `beforeId` ("" at the end). `flowName` is the
@@ -1449,7 +1476,10 @@ toggling a running flow on records nothing (it deploys nothing). A
   draft, H5) and deployed, restarting a running flow; without it the current
   version is deployed (a running flow: `conflict`). The flow is linted first
   (any Lint error, `undefined_secret` included: `invalid_arguments` +
-  `flowIssues`). Under the lifecycle lock, right before deploying or
+  `flowIssues`, rendered like the authoring issues — a node holding
+  withheld settings gets a fixed text; a token without the `read` scope
+  gets only the count, since the issues name the stored flow's nodes and
+  settings). Under the lifecycle lock, right before deploying or
   stopping, the token is re-read — still active (not revoked or expired)
   with the `deploy` scope, else `forbidden` — the level re-read, and the
   flow's version must still be the one the policy evaluated, else

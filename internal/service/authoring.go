@@ -225,7 +225,7 @@ func (a *Authoring) Validate(ctx context.Context, actor Actor, req ValidateReque
 	}
 	issues := a.proposalIssues(ctx, p)
 	if actor.isAgent() {
-		issues = agentIssues(a.proposalRedactor(p.base, p.next), issues)
+		issues = a.agentIssues(p.next, a.withheldSettings(p.base, p.next, p.kept), issues)
 	}
 	return ValidateResult{
 		Valid:  len(flow.BlockingIssues(issues)) == 0,
@@ -256,12 +256,13 @@ func (a *Authoring) proposalIssues(ctx context.Context, p *proposal) []flow.Issu
 	return mergeIssues(p.next, lint, extra)
 }
 
-// redactedRefusal redacts the flow issues of a refusal for agents (an ops
-// issue may name what the agent sent; known secret values never appear).
+// redactedRefusal bounds the flow issues of a refusal for agents: an ops
+// issue names only what the agent sent (IDs, types, ports), which comes back
+// as it sent it, URLs cut after their host.
 func (a *Authoring) redactedRefusal(err error) error {
 	var te *ToolError
 	if errors.As(err, &te) && len(te.FlowIssues) > 0 {
-		te.FlowIssues = agentIssues(a.proposalRedactor(), te.FlowIssues)
+		te.FlowIssues = a.agentIssues(nil, nil, te.FlowIssues)
 	}
 	return err
 }
@@ -348,14 +349,14 @@ func (a *Authoring) SaveDraft(ctx context.Context, actor Actor, in DraftInput) (
 	if err != nil {
 		return DraftResult{}, a.redactedRefusal(err)
 	}
-	red := a.proposalRedactor(p.base, p.next)
-	issues := agentIssues(red, a.proposalIssues(ctx, p))
+	withheld := a.withheldSettings(p.base, p.next, p.kept)
+	issues := a.agentIssues(p.next, withheld, a.proposalIssues(ctx, p))
 	if blocking := flow.BlockingIssues(issues); len(blocking) > 0 {
 		return DraftResult{}, &ToolError{Kind: ErrInvalidArguments, FlowIssues: issues,
 			Message: fmt.Sprintf("the proposal has %d error(s) deploy would refuse; fix them and save again (pw_validate_flow lists them)", len(blocking))}
 	}
 	risk := flow.Risk(p.next, a.registry)
-	alerts := agentAlerts(red, flow.Diff(p.base, p.next, a.registry).Alerts)
+	alerts := a.agentAlerts(p.base, withheld, flow.Diff(p.base, p.next, a.registry).Alerts)
 	baseVersion := 0
 	if p.base != nil {
 		baseVersion = p.base.Version
@@ -372,7 +373,8 @@ func (a *Authoring) SaveDraft(ctx context.Context, actor Actor, in DraftInput) (
 	if err != nil {
 		return DraftResult{}, fmt.Errorf("encode alerts: %w", err)
 	}
-	keptJSON, err := json.Marshal(a.keptHidden(p))
+	nameWithheld := p.nameKept && p.base != nil && holdsKnown(a.knownRedactor(p.base), p.base.Name)
+	keptJSON, err := json.Marshal(newKeptSettings(withheld, nameWithheld))
 	if err != nil {
 		return DraftResult{}, fmt.Errorf("encode kept settings: %w", err)
 	}
@@ -461,14 +463,24 @@ func (a *Authoring) GetDraft(ctx context.Context, actor Actor, draftID string) (
 	if err != nil {
 		return DraftView{}, fmt.Errorf("decode draft %s: %w", d.ID, err)
 	}
-	// The view shows only what agents may read (configView), so the
-	// literals of the flow's Sensitive settings cannot appear in it: hiding
-	// them from what the agent wrote (its names) would confirm a guess.
-	red := a.views.redactor()
+	// What the agent wrote is shown as it wrote it; what it kept of the base
+	// and may not read (stored with the draft) is withheld (no value is
+	// redacted by comparison: that would confirm a guess). The reason is
+	// the admin's text.
+	var withheld map[propKey]bool
+	nameWithheld := false
+	if d.BaseVersion != 0 {
+		withheld = a.draftWithheld(d.KeptJSON, f)
+		if kept, _, ok := readKept(d.KeptJSON); ok {
+			nameWithheld = kept.Name
+		} else {
+			nameWithheld = holdsKnown(a.knownRedactor(f), f.Name)
+		}
+	}
 	view := DraftView{
 		DraftID:        d.ID,
 		Status:         d.Status,
-		Reason:         agentText(red, d.Reason, maxAgentIssueBytes),
+		Reason:         agentText(a.views.redactor(), d.Reason, maxAgentIssueBytes),
 		Risk:           node.Risk(d.Risk),
 		Issues:         decodeList[flow.Issue](d.IssuesJSON),
 		Alerts:         decodeList[flow.Alert](d.AlertsJSON),
@@ -478,7 +490,7 @@ func (a *Authoring) GetDraft(ctx context.Context, actor Actor, draftID string) (
 		Note:           d.Note,
 		CreatedAt:      d.CreatedAt,
 		DecidedAt:      d.DecidedAt,
-		Flow:           a.draftFlowView(red, d.FlowID, f),
+		Flow:           a.draftFlowView(d.FlowID, f, withheld, nameWithheld),
 	}
 	return view, nil
 }
@@ -511,14 +523,20 @@ func decodeList[T any](raw json.RawMessage) []T {
 	return out
 }
 
-// draftFlowView is a proposed flow as agents see it: GetFlow's nodes
-// (default-deny redacted configs, type risks) and connections, bounded the
-// same way (the structure first, then the configs while they fit).
-func (a *Authoring) draftFlowView(red secretRedactor, flowID string, f *flow.Flow) DraftFlowView {
-	id := func(s string) string { return capText(red.text(s), maxViewIDBytes) }
+// draftFlowView is a proposed flow as its author sees it: GetFlow's nodes
+// (default-deny configs: hidden and withheld settings as "<redacted>",
+// draftConfigView; type risks) and connections, bounded the same way (the
+// structure first, then the configs while they fit). The name is
+// "<redacted>" when withheld (the base's, holding a known value).
+func (a *Authoring) draftFlowView(flowID string, f *flow.Flow, withheld map[propKey]bool, nameWithheld bool) DraftFlowView {
+	id := func(s string) string { return capText(s, maxViewIDBytes) }
+	name := capText(hideURLsInText(f.Name), maxFlowNameBytes)
+	if nameWithheld {
+		name = redactedMark
+	}
 	view := DraftFlowView{
 		ID:               id(flowID),
-		Name:             a.views.flowName(red, f.Name),
+		Name:             name,
 		Nodes:            make([]NodeView, 0, min(len(f.Nodes), maxViewNodes)),
 		Connections:      make([]ConnectionView, 0, min(len(f.Connections), maxViewConnections)),
 		TotalNodes:       len(f.Nodes),
@@ -531,7 +549,7 @@ func (a *Authoring) draftFlowView(red secretRedactor, flowID string, f *flow.Flo
 		nv := NodeView{ID: id(n.ID), Type: id(n.Type), Enabled: n.Enabled, Position: n.Position, ConfigOmitted: true}
 		var schema *node.ConfigSchema
 		if info, ok := a.registry.Get(n.Type); ok {
-			nv.Name, nv.Risk, schema = red.text(info.Name), info.Risk, info.Config
+			nv.Name, nv.Risk, schema = info.Name, info.Risk, info.Config
 		}
 		if i == maxViewNodes || !budget.takeElement(nv) {
 			view.Truncated = true
@@ -553,7 +571,7 @@ func (a *Authoring) draftFlowView(red secretRedactor, flowID string, f *flow.Flo
 	}
 	const omitted = len(`null,"configOmitted":true`)
 	for i := range view.Nodes {
-		cfg := configView(red, schemas[i], f.Nodes[i].Config)
+		cfg := draftConfigView(schemas[i], f.Nodes[i].ID, f.Nodes[i].Config, withheld)
 		if !budget.take(jsonLen(cfg) - omitted) {
 			view.Truncated = true
 			continue
@@ -605,9 +623,11 @@ func (a *Authoring) DryRun(ctx context.Context, actor Actor, req DryRunRequest) 
 	}
 	in := flow.DryRunInput{TriggerNodeID: req.TriggerNodeID, Payload: req.Payload, Mocks: req.Mocks, FlowVars: req.FlowVars}
 	// own is the agent's inline flow: the credentials it typed are hidden
-	// from what it sees all the same. A stored flow's or a draft's hidden
-	// values never reach the run (Redact), so nothing of theirs is hidden
-	// from the result: hiding text equal to them would confirm a guess.
+	// from what it sees all the same. What a stored flow or a draft holds
+	// that the agent may not read never reaches the run (Redact: hidden
+	// settings, and those holding a known value), so nothing is hidden from
+	// the result by comparison: hiding text equal to a secret would confirm
+	// a guess.
 	var f, own *flow.Flow
 	switch {
 	case req.Flow != nil:
@@ -627,7 +647,7 @@ func (a *Authoring) DryRun(ctx context.Context, actor Actor, req DryRunRequest) 
 			return flow.DryRunResult{}, err
 		}
 		if actor.isAgent() {
-			in.Redact = a.hiddenSetting
+			in.Redact = a.storedRedaction(f)
 		}
 	default:
 		d, err := a.ownDraft(actor, req.DraftID)
@@ -647,12 +667,12 @@ func (a *Authoring) DryRun(ctx context.Context, actor Actor, req DryRunRequest) 
 		// base; a new flow's draft is all the agent's (also once approved,
 		// when it names the flow it created).
 		if d.BaseVersion != 0 && actor.isAgent() {
-			in.Redact = a.keptRedaction(d.KeptJSON)
+			in.Redact = a.keptRedaction(d.KeptJSON, f)
 		}
 	}
 	res, err := a.dryRun(secrets.WithStore(ctx, a.secrets), f, a.registry, in)
 	if err != nil {
-		return flow.DryRunResult{}, a.sandboxError(err)
+		return flow.DryRunResult{}, a.sandboxError(actor, err)
 	}
 	return a.redactDryRun(actor, own, res), nil
 }
@@ -669,46 +689,14 @@ func (a *Authoring) hiddenSetting(n *flow.Node, prop string) bool {
 	return !ok || !p.AgentVisible || p.Sensitive
 }
 
-// keptSettings is what SaveDraft stores with a draft (storage KeptJSON):
-// the hidden settings of the proposal that hold base content its author did
-// not write (proposal.kept), which a dry-run of the draft hides.
-type keptSettings struct {
-	Props [][2]string `json:"props"` // [node ID, property], sorted
-}
-
-// keptHidden lists the kept hidden settings of a proposal.
-func (a *Authoring) keptHidden(p *proposal) keptSettings {
-	out := keptSettings{Props: [][2]string{}}
-	for _, k := range sortedPropKeys(p.kept) {
-		if n := p.next.GetNode(k.node); n != nil && a.hiddenSetting(n, k.prop) {
-			out.Props = append(out.Props, [2]string{k.node, k.prop})
-		}
-	}
-	return out
-}
-
-// keptRedaction is DryRunInput.Redact for a draft of an existing flow: the
-// settings stored as kept (what the agent did not write: it never saw
-// them), not what it wrote, equal to the base's or not. A draft without a
-// readable list hides every hidden setting.
-func (a *Authoring) keptRedaction(raw json.RawMessage) func(n *flow.Node, prop string) bool {
-	var kept keptSettings
-	if err := json.Unmarshal(raw, &kept); err != nil || kept.Props == nil {
-		return a.hiddenSetting
-	}
-	set := make(map[propKey]bool, len(kept.Props))
-	for _, k := range kept.Props {
-		set[propKey{k[0], k[1]}] = true
-	}
-	return func(n *flow.Node, prop string) bool { return set[propKey{n.ID, prop}] }
-}
-
 // sandboxError maps a dry-run's or node test's refusal: busy (the one
 // sandbox slot), invalid_arguments (what was asked: flow.ErrDryRunInput, an
-// unknown type), forbidden (a node that cannot be tested).
-func (a *Authoring) sandboxError(err error) error {
-	red := a.views.redactor()
-	msg := func() string { return capText(hideURLsInText(red.text(err.Error())), maxAgentIssueBytes) }
+// unknown type), forbidden (a node that cannot be tested). The message names
+// what was asked (IDs, types, the agent's input), shown to agents as sent
+// (sandboxRedactor).
+func (a *Authoring) sandboxError(actor Actor, err error) error {
+	text := a.sandboxRedactor(actor, nil)
+	msg := func() string { return capText(text(err.Error()), maxAgentIssueBytes) }
 	switch {
 	case errors.Is(err, flow.ErrBusy):
 		return toolError(ErrBusy, "another dry-run or node test is in progress; retry in a few seconds")
@@ -720,22 +708,22 @@ func (a *Authoring) sandboxError(err error) error {
 	return err
 }
 
-// sandboxRedactor redacts what a dry-run or node test shows: known secret
-// values (for everyone) and, for agents, URLs past their host and the
-// credentials typed into the Sensitive settings of own (the agent's inline
-// flow). The values of a stored flow or of a draft's base are not among
-// them: the run never holds them (DryRunInput.Redact), so text equal to one
-// came from the agent, and hiding it would confirm the guess.
+// sandboxRedactor redacts what a dry-run or node test shows: for the editor,
+// known secret values; for agents, URLs past their host and the credentials
+// typed into the Sensitive settings of own (the agent's inline flow, its
+// own text). Nothing else is hidden by comparison: the run never holds a
+// secret (its store is empty) nor what the agent may not read of a stored
+// flow or draft (DryRunInput.Redact), so text equal to a secret came from
+// the agent, and hiding it would confirm the guess.
 func (a *Authoring) sandboxRedactor(actor Actor, own *flow.Flow) func(string) string {
 	if !actor.isAgent() {
 		red := a.views.redactor()
 		return red.text
 	}
-	values := a.views.secretValues()
+	var red secretRedactor
 	if own != nil {
-		values = append(values, a.views.sensitiveValues(own)...)
+		red = valuesRedactor(a.views.sensitiveValues(own))
 	}
-	red := valuesRedactor(values)
 	return func(s string) string { return hideURLsInText(red.text(s)) }
 }
 
@@ -793,14 +781,14 @@ func (a *Authoring) TestNode(ctx context.Context, actor Actor, req TestNodeReque
 	}
 	res, err := a.testNode(ctx, a.registry, req.Type, req.Config, req.Input)
 	if err != nil {
-		return flow.TestNodeResult{}, a.sandboxError(err)
+		return flow.TestNodeResult{}, a.sandboxError(actor, err)
 	}
+	// The config and input are the caller's own (the sandbox's secret store
+	// is empty): agents get them back as sent, URLs cut after their host.
 	text := a.sandboxRedactor(actor, nil)
-	red := a.views.redactor()
 	cut := func(s string) string { return cutText(text(s), flow.DryRunPreviewBytes) }
 	for i := range res.Issues {
-		// The config is the caller's own: only secret values are hidden.
-		res.Issues[i].Message = cutText(red.text(res.Issues[i].Message), flow.DryRunPreviewBytes)
+		res.Issues[i].Message = cut(res.Issues[i].Message)
 	}
 	for i := range res.Outputs {
 		res.Outputs[i].Preview = cut(res.Outputs[i].Preview)

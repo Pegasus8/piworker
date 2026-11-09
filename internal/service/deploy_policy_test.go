@@ -483,7 +483,16 @@ func TestDeployLintsFirst(t *testing.T) {
 	_, err := e.a.Deploy(t.Context(), e.deployer(), DeployRequest{FlowID: stored.ID})
 	te := requireKind(t, err, ErrInvalidArguments)
 	assert.Contains(t, issueCodes(te.FlowIssues), flow.IssueUndefinedSecret)
+	assert.NotContains(t, mustJSON(t, te.FlowIssues), `\"bot\"`, "the secret named in a setting the agent cannot read")
 	assert.Empty(t, e.life.deploys)
+
+	// The issues name the stored flow's nodes and settings: a token without
+	// the read scope gets only their count.
+	_, err = e.a.Deploy(t.Context(), e.token(storage.ScopeDeploy), DeployRequest{FlowID: stored.ID})
+	te = requireKind(t, err, ErrInvalidArguments)
+	assert.Empty(t, te.FlowIssues)
+	assert.Contains(t, te.Message, "1 error(s)")
+	assert.Contains(t, te.Message, "read scope")
 
 	// Lifecycle refusals map to the agent's kinds.
 	ok := e.create(safeFlow())
