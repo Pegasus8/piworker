@@ -66,6 +66,9 @@ const (
 )
 
 var alertRank = map[string]int{
+	// global_variable_write (diff_vars.go) is listed after the field alerts.
+	AlertGlobalVariableWrite: 11,
+
 	AlertRiskRaised: 0, AlertPrivilegedNodeAdded: 1, AlertDestinationChanged: 2, AlertDynamicDestination: 3,
 	AlertNewHost: 4, AlertSecretAdded: 5, AlertSecretMoved: 6, AlertRiskSwitchOn: 7, AlertSensitiveLiteral: 8,
 	AlertCredentialedRequestChanged: 9,
@@ -268,7 +271,7 @@ func Diff(base, next *Flow, reg *node.Registry) DiffReport {
 			report.Nodes = append(report.Nodes, nd)
 		}
 	}
-	report.Alerts = diffAlerts(report, baseByKey, nextByKey, baseOrder, nextOrder, reg)
+	report.Alerts = diffAlerts(report, next, baseByKey, nextByKey, baseOrder, nextOrder, reg)
 	return report
 }
 
@@ -495,7 +498,7 @@ func hasDynamicTemplate(v any) bool {
 // with a draft and returned to its author, so they show a property's values
 // only when an agent may read it (agentReadable); otherwise only risks,
 // hosts, secret names and risk-switch booleans.
-func diffAlerts(report DiffReport, baseByKey, nextByKey map[string]*diffNode,
+func diffAlerts(report DiffReport, next *Flow, baseByKey, nextByKey map[string]*diffNode,
 	baseOrder, nextOrder []*diffNode, reg *node.Registry) []Alert {
 	type ranked struct {
 		order int
@@ -650,6 +653,8 @@ func diffAlerts(report DiffReport, baseByKey, nextByKey map[string]*diffNode,
 				Message: fmt.Sprintf("connects a new input into node %s (%s), which sends with a credential: what it sends changes", d.n.ID, d.n.Type)})
 		}
 	}
+
+	globalVariableAlerts(next, baseByKey, nextOrder, report.Connections.Added, add)
 
 	sort.SliceStable(list, func(i, j int) bool {
 		x, y := list[i], list[j]
