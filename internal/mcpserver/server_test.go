@@ -176,6 +176,16 @@ func TestSubscriptionsListenIsRejected(t *testing.T) {
 	id, code, _ := rpcRefusal(t, e.serve(withToken(listen, callToken)), http.StatusNotFound)
 	assert.EqualValues(t, 9, id)
 	assert.EqualValues(t, -32601, code)
+
+	// A notification of it gets no JSON-RPC answer: the SDK refuses it
+	// (HTTP 400) as a request that lacks its id.
+	for _, version := range ProtocolVersions {
+		r := rpc(`{"jsonrpc":"2.0","method":"subscriptions/listen","params":{}}`)
+		r.Header.Set("Mcp-Protocol-Version", version)
+		w := e.serve(withToken(r, otherToken))
+		assert.Equal(t, http.StatusBadRequest, w.Code, version)
+		assert.NotContains(t, w.Body.String(), `"jsonrpc"`, version)
+	}
 }
 
 // A tool call goes to the tool service with the token's actor, the tool's

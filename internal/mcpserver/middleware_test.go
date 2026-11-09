@@ -491,6 +491,43 @@ func TestUnknownMethodsAreJSONRPCErrors(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, e.serve(r).Code)
 }
 
+// A message that is neither a request (no method, or an empty one) nor a
+// response (no result or error) is an invalid request (-32600, HTTP 400,
+// with its id) at every version, not a request of an unknown method. A
+// response is not answered: the SDK accepts it (202), as the transport
+// requires, though the stateless server sends no requests to answer.
+func TestMessagesWithoutAMethod(t *testing.T) {
+	e := newTestEnv(t)
+	n := 0
+	serve := func(version, body string) *httptest.ResponseRecorder {
+		n++
+		r := rpc(body)
+		r.Header.Set("Mcp-Protocol-Version", version)
+		return e.serve(withToken(r, e.verifier.add(fmt.Sprintf("nomethod%08d", n))))
+	}
+	for _, version := range ProtocolVersions {
+		for _, body := range []string{
+			`{"jsonrpc":"2.0","id":5}`,
+			`{"jsonrpc":"2.0","id":5,"params":{}}`,
+			`{"jsonrpc":"2.0","id":5,"method":"","params":{}}`,
+		} {
+			id, code, msg := rpcRefusal(t, serve(version, body), http.StatusBadRequest)
+			assert.EqualValues(t, 5, id, "%s %s", version, body)
+			assert.EqualValues(t, -32600, code, "%s %s", version, body)
+			assert.Contains(t, msg, "method", "%s %s", version, body)
+		}
+		for _, body := range []string{
+			`{"jsonrpc":"2.0","id":5,"result":{}}`,
+			`{"jsonrpc":"2.0","id":"r1","error":{"code":-32601,"message":"no such method"}}`,
+		} {
+			w := serve(version, body)
+			assert.Equal(t, http.StatusAccepted, w.Code, "%s %s: %s", version, body, w.Body.String())
+			assert.Empty(t, w.Body.String(), "%s %s", version, body)
+		}
+	}
+	assert.Zero(t, e.tools.calls.Load())
+}
+
 // sdkMethods lists only methods the SDK dispatches: none of them is
 // answered as unknown to the SDK, as a request or as a notification.
 func TestSDKMethodsAreDispatched(t *testing.T) {

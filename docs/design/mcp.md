@@ -423,11 +423,17 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   (`sdkMethods`, its v1.8.0 table) is answered JSON-RPC `-32601` (HTTP 200)
   at 2025-06-18 and 2025-11-25, as the SDK answers a method it knows but
   does not serve; the SDK itself would send a plain-text 400 there (from
-  2026-07-28 it answers `-32601` itself, HTTP 404).
+  2026-07-28 it answers `-32601` itself, HTTP 404). A message that is
+  neither a request nor a response (no method, or an empty one, and no
+  result or error) is an invalid request at every version (400, `-32600`,
+  with its id), not one of an unknown method. A response (no method, a
+  result or an error) goes to the SDK, which accepts it with 202: the
+  stateless server sends no requests, so it answers none.
 - Capabilities: tools and prompts with `listChanged: false` (always
-  advertised, even when empty); `subscriptions/listen` is answered with
-  JSON-RPC `-32601` before the SDK sees it (HTTP 404 from 2026-07-28, as
-  SEP-2575 requires and the SDK answers its own; 200 before); list and
+  advertised, even when empty); a `subscriptions/listen` request is answered
+  with JSON-RPC `-32601` before the SDK sees it (HTTP 404 from 2026-07-28, as
+  SEP-2575 requires and the SDK answers its own; 200 before), a notification
+  of it gets the SDK's plain-text 400 (it lacks its id); list and
   discover results carry
   `cacheScope: private`, `ttlMs: 5000`.
 - `getServer(r)` builds a per-token `*mcp.Server` holding only what the token

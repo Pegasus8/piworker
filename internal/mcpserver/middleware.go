@@ -304,7 +304,9 @@ func (h *Handler) checkScope(next http.Handler) http.Handler {
 }
 
 // checkMessage reads and checks the JSON-RPC message of a POST, answering
-// the refusal itself; the body is put back for the SDK.
+// the refusal itself; the body is put back for the SDK. A response (no
+// method, a result or an error) goes to the SDK unchecked; a message that
+// is neither a request nor a response is an invalid request.
 func (h *Handler) checkMessage(w http.ResponseWriter, r *http.Request, actor service.Actor, g gates) bool {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, h.maxBody))
 	r.Body.Close()
@@ -332,9 +334,19 @@ func (h *Handler) checkMessage(w http.ResponseWriter, r *http.Request, actor ser
 		writeRPCError(w, http.StatusBadRequest, nil, jsonrpc.CodeParseError, "Parse error: "+shorten(err.Error(), 200))
 		return false
 	}
+	if len(m.Method) == 0 && (len(m.Result) > 0 || len(m.Error) > 0) {
+		// A response: the SDK accepts it (202), as the transport requires;
+		// the stateless server sends no requests, so it answers none.
+		return true
+	}
 	var method string
 	if len(m.Method) > 0 && jsonv2.Unmarshal(m.Method, &method) != nil {
 		writeRPCError(w, http.StatusBadRequest, m.ID, jsonrpc.CodeInvalidRequest, "Invalid request: the method is not a string")
+		return false
+	}
+	if method == "" {
+		// Neither a request nor a response: not one of an unknown method.
+		writeRPCError(w, http.StatusBadRequest, m.ID, jsonrpc.CodeInvalidRequest, "Invalid request: the message has no method")
 		return false
 	}
 	isCall := len(m.ID) > 0
@@ -350,7 +362,7 @@ func (h *Handler) checkMessage(w http.ResponseWriter, r *http.Request, actor ser
 		// 2026-07-28 it answers unknown ones in JSON-RPC itself).
 		writeRPCError(w, http.StatusOK, m.ID, jsonrpc.CodeMethodNotFound, fmt.Sprintf("method not found: %q", shorten(method, maxToolNameLength)))
 		return false
-	case method == "subscriptions/listen":
+	case isCall && method == "subscriptions/listen":
 		// From 2026-07-28 a method that is not found is HTTP 404 (SEP-2575).
 		status := http.StatusOK
 		if version >= sessionlessVersion {
@@ -408,6 +420,8 @@ type rpcMessage struct {
 	ID     jsontext.Value `json:"id"`
 	Method jsontext.Value `json:"method"`
 	Params jsontext.Value `json:"params"`
+	Result jsontext.Value `json:"result"`
+	Error  jsontext.Value `json:"error"`
 }
 
 // isBatch reports a JSON array body: a JSON-RPC batch.
