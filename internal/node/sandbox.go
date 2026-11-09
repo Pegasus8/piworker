@@ -28,9 +28,10 @@ var ErrSandboxLimit = errors.New("sandbox limit exceeded")
 //
 // Outside a sandbox (SandboxFrom returns nil) nodes behave as usual.
 type Sandbox struct {
-	maxValue int64
-	budget   atomic.Int64
-	exceeded atomic.Bool
+	maxValue   int64
+	budgetSize int64
+	budget     atomic.Int64
+	refusals   atomic.Int64
 
 	mu     sync.Mutex
 	idle   *sync.Cond
@@ -40,7 +41,7 @@ type Sandbox struct {
 // NewSandbox returns a sandbox where no value may exceed maxValue bytes and
 // all charges together may not exceed budget bytes.
 func NewSandbox(maxValue, budget int64) *Sandbox {
-	s := &Sandbox{maxValue: maxValue}
+	s := &Sandbox{maxValue: maxValue, budgetSize: budget}
 	s.budget.Store(budget)
 	s.idle = sync.NewCond(&s.mu)
 	return s
@@ -113,21 +114,30 @@ func (s *Sandbox) Wait() {
 // MaxValueBytes is the largest value, in bytes, a node may generate.
 func (s *Sandbox) MaxValueBytes() int64 { return s.maxValue }
 
-// Exceeded reports whether a charge failed: the execution went over a limit
-// and its caller should end it.
-func (s *Sandbox) Exceeded() bool { return s.exceeded.Load() }
+// Exceeded reports whether a charge or a limit was refused: the execution
+// went over a limit and its caller should end it.
+func (s *Sandbox) Exceeded() bool { return s.refusals.Load() > 0 }
+
+// Refusals counts the charges and limits refused so far: a caller compares
+// it before and after a node ran to tell whether that node went over a limit
+// (a node that cannot return an error, such as a template that stopped
+// expanding, is caught this way).
+func (s *Sandbox) Refusals() int64 { return s.refusals.Load() }
+
+func (s *Sandbox) refuse(format string, args ...any) error {
+	s.refusals.Add(1)
+	return fmt.Errorf("%w: "+format, append([]any{ErrSandboxLimit}, args...)...)
+}
 
 // Charge spends n bytes of generated data: it fails with ErrSandboxLimit (and
 // marks the sandbox exceeded) when n is over the per-value cap or the budget
 // is spent. Call it before generating the data.
 func (s *Sandbox) Charge(n int64) error {
 	if n < 0 || n > s.maxValue {
-		s.exceeded.Store(true)
-		return fmt.Errorf("%w: a value of more than %d bytes", ErrSandboxLimit, s.maxValue)
+		return s.refuse("a value of more than %d bytes", s.maxValue)
 	}
 	if s.budget.Add(-n) < 0 {
-		s.exceeded.Store(true)
-		return fmt.Errorf("%w: the data generated went over its budget", ErrSandboxLimit)
+		return s.refuse("the data generated went over its budget of %d bytes", s.budgetSize)
 	}
 	return nil
 }
@@ -137,8 +147,7 @@ func (s *Sandbox) Charge(n int64) error {
 // pieces, each of them charged). It spends nothing.
 func (s *Sandbox) Limit(n int64) error {
 	if n > s.maxValue {
-		s.exceeded.Store(true)
-		return fmt.Errorf("%w: a value of more than %d bytes", ErrSandboxLimit, s.maxValue)
+		return s.refuse("a value of more than %d bytes", s.maxValue)
 	}
 	return nil
 }

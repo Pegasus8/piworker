@@ -76,11 +76,13 @@ func TestSandboxCharge(t *testing.T) {
 	sb := NewSandbox(100, 250)
 	require.NoError(t, sb.Charge(100))
 	assert.False(t, sb.Exceeded())
+	assert.Zero(t, sb.Refusals())
 
 	err := sb.Charge(101)
 	require.ErrorIs(t, err, ErrSandboxLimit)
 	assert.Contains(t, err.Error(), "100 bytes")
 	assert.True(t, sb.Exceeded())
+	assert.Equal(t, int64(1), sb.Refusals(), "each refusal is counted")
 
 	sb = NewSandbox(100, 250)
 	require.NoError(t, sb.Charge(100))
