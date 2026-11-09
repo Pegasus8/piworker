@@ -223,17 +223,65 @@ export interface AlertValues {
   after?: string
   /**
    * The alert is about a setting whose values the server keeps out of
-   * alerts (not agent-visible, H7): the field diff below shows them.
+   * alerts (not agent-visible, H7), and the node's field diff (of the same
+   * comparison) has a row for it: that row shows them.
    */
   inFieldDiff: boolean
+  /**
+   * The setting has no field row because its value did not change (a node
+   * was disabled or enabled): its value in the proposed flow, which the
+   * editor may read (credentials there are already "<hidden>").
+   */
+  unchanged?: string
 }
 
-/** The values an alert carries, as text for AgentText. */
-export function alertValues(alert: DraftAlert): AlertValues {
+/** What an alert's values are looked up in: the field rows of its comparison and the proposed flow. */
+export interface AlertContext {
+  /** Node ID → the field paths its NodeDiff lists (fieldPaths of the same DiffReport). */
+  fields?: ReadonlyMap<string, ReadonlySet<string>>
+  /** Node ID → its settings in the proposed flow (proposedSettings). */
+  proposed?: ReadonlyMap<string, Readonly<Record<string, unknown>>>
+}
+
+/** The values an alert carries, as text for AgentText, and where else to find them. */
+export function alertValues(alert: DraftAlert, ctx: AlertContext = {}): AlertValues {
   const before = alert.before === undefined || alert.before === null ? undefined : valueText(alert.before)
   const after = alert.after === undefined || alert.after === null ? undefined : valueText(alert.after)
-  const onSetting = !!alert.nodeId && !!alert.path?.startsWith('config.')
-  return { before, after, inFieldDiff: onSetting && before === undefined && after === undefined }
+  const out: AlertValues = { before, after, inFieldDiff: false }
+  if (!alert.nodeId || !alert.path?.startsWith('config.') || before !== undefined || after !== undefined) return out
+  if (ctx.fields?.get(alert.nodeId)?.has(alert.path)) {
+    out.inFieldDiff = true
+    return out
+  }
+  const settings = ctx.proposed?.get(alert.nodeId)
+  const key = alert.path.slice('config.'.length)
+  if (settings && has(settings, key) && settings[key] !== undefined && settings[key] !== null) out.unchanged = valueText(settings[key])
+  return out
+}
+
+/** The field paths each node's diff lists, by node ID. */
+export function fieldPaths(diff: DiffReport | null | undefined): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>()
+  for (const n of diff?.nodes ?? []) {
+    const paths = out.get(n.nodeId) ?? new Set<string>()
+    for (const f of n.fields ?? []) paths.add(f.path)
+    out.set(n.nodeId, paths)
+  }
+  return out
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/** The proposed flow's settings by node ID (the first node of an ID); anything malformed is skipped. */
+export function proposedSettings(flow: unknown): Map<string, Record<string, unknown>> {
+  const out = new Map<string, Record<string, unknown>>()
+  const nodes = isRecord(flow) ? flow.nodes : undefined
+  if (!Array.isArray(nodes)) return out
+  for (const n of nodes) {
+    if (!isRecord(n) || typeof n.id !== 'string' || out.has(n.id)) continue
+    out.set(n.id, isRecord(n.config) ? n.config : {})
+  }
+  return out
 }
 
 /** Node label for a node ID: "<type name> (<id>)" when its type is known, else "Node <id>". */
@@ -436,11 +484,87 @@ export function draftTitle(d: Pick<DraftSummary, 'flowId' | 'flowName' | 'isNew'
   return name || `Flow ${visibleText(d.flowId)}`
 }
 
-/** Which version a draft changes, and whether the flow moved on since. */
-export function draftVersionText(d: Pick<DraftSummary, 'isNew' | 'baseVersion' | 'currentVersion' | 'stale'>): string {
-  if (d.isNew) return 'Creates a new flow'
-  if (d.stale) return `Written for version ${d.baseVersion}; the flow is now at version ${d.currentVersion}`
-  return `Changes version ${d.baseVersion} (the current one)`
+/** Where the flow is now, for a draft of an existing flow (currentVersion 0: deleted). */
+const flowNow = (current: number) => current ? `the flow is now at version ${current}` : 'the flow was deleted'
+
+/**
+ * Which version a draft changes and what became of it. The server marks
+ * only pending drafts stale, so a decided draft never reads as changing
+ * "the current one": it says what it was written for, the version an
+ * approval saved, and where the flow is now when that differs.
+ */
+export function draftVersionText(
+  d: Pick<DraftSummary, 'isNew' | 'baseVersion' | 'currentVersion' | 'stale' | 'status' | 'appliedVersion'>
+): string {
+  if (d.status === 'pending') {
+    if (d.isNew) return 'Creates a new flow'
+    if (d.stale) return `Written for version ${d.baseVersion}; ${flowNow(d.currentVersion)}`
+    return `Changes version ${d.baseVersion} (the current one)`
+  }
+  const parts = [d.isNew ? 'Written as a new flow' : `Written for version ${d.baseVersion}`]
+  const applied = d.status === 'approved' && d.appliedVersion ? d.appliedVersion : 0
+  if (applied) parts.push(`saved as version ${applied}`)
+  // The version the text names last; a new flow that was never created has none to compare.
+  const named = applied || (d.isNew ? 0 : d.baseVersion)
+  const neverCreated = d.isNew && !d.currentVersion
+  if (d.currentVersion !== named && !neverCreated) parts.push(flowNow(d.currentVersion))
+  return parts.join('; ')
+}
+
+export interface DiffBasis {
+  /** The heading of the changes section. */
+  heading: string
+  /** What the risk, the alerts and the changes are compared with, in words. */
+  note: string
+  /** The alerts panel's text when there are none. */
+  emptyAlerts: string
+}
+
+const NO_ALERTS = 'No alerts: no destination, secret, credential or risk changes.'
+
+/**
+ * What a draft's diff is compared with. The server recomputes it on read
+ * against the current version (an empty flow for a new one, or a deleted
+ * one): for a decided draft that is not the version it was written for,
+ * and an approved draft's changes are already part of the version it became.
+ */
+export function diffBasis(d: DraftDetail): DiffBasis {
+  const empty = d.isNew || !d.currentVersion
+  if (empty) {
+    return {
+      heading: 'Changes compared with an empty flow',
+      note: d.isNew
+        ? 'Compared with an empty flow: this draft creates a new flow.'
+        : 'Compared with an empty flow: the flow this draft was written for no longer exists.',
+      emptyAlerts: NO_ALERTS
+    }
+  }
+  const current = d.currentVersion
+  const notBase = current !== d.baseVersion ? `, not version ${d.baseVersion} the draft was written for` : ''
+  if (d.status === 'pending') {
+    return {
+      heading: `Changes compared with version ${current} (current)`,
+      note: `Compared with the current version, ${current}${notBase}.`,
+      emptyAlerts: NO_ALERTS
+    }
+  }
+  const heading = `Changes compared with version ${current} (current, recomputed now)`
+  if (d.status === 'approved') {
+    const saved = d.appliedVersion ? `This draft was saved as version ${d.appliedVersion}` : 'This draft was approved'
+    const part = d.appliedVersion === current ? 'so its changes are already part of it and show here as none' : 'so its changes are already part of the flow'
+    return {
+      heading,
+      note: `Recomputed now against the current version, ${current}${notBase}. ${saved}, ${part}: what shows here is only what differs from the current version.`,
+      emptyAlerts: d.appliedVersion === current
+        ? `No alerts against version ${current}: this draft's changes are already part of it.`
+        : `No alerts against the current version, ${current}.`
+    }
+  }
+  return {
+    heading,
+    note: `Recomputed now against the current version, ${current}${notBase}. Nothing from this draft was saved.`,
+    emptyAlerts: `No alerts against the current version, ${current}.`
+  }
 }
 
 export interface DraftState {
@@ -511,14 +635,34 @@ export function approvalBlock(d: DraftDetail, deploy: boolean): string {
   return ''
 }
 
-/** The confirmation text of an approval: the risk and the alerts first, then what happens. */
-export function approveConfirmText(d: DraftDetail, deploy: boolean): string {
-  const risk = riskChange(String(d.diff.riskBefore), String(d.diff.riskAfter)).text
+/** A diff's risk change and alerts in words: "Risk raised from Safe to External", "2 alerts: New host (2)" or "no alerts". */
+function diffDigest(diff: DiffReport): { risk: string; alerts: string } {
+  const risk = riskChange(String(diff.riskBefore), String(diff.riskAfter)).text
+  const alerts = diff.alerts ?? []
   const counts = new Map<string, number>()
-  for (const a of d.diff.alerts ?? []) counts.set(a.kind, (counts.get(a.kind) ?? 0) + 1)
-  const alerts = counts.size
-    ? `${plural(d.diff.alerts!.length, 'alert')}: ${[...counts].map(([kind, n]) => n > 1 ? `${alertKind(kind).label} (${n})` : alertKind(kind).label).join(', ')}.`
-    : 'No alerts.'
+  for (const a of alerts) counts.set(a.kind, (counts.get(a.kind) ?? 0) + 1)
+  const kinds = [...counts].map(([kind, n]) => n > 1 ? `${alertKind(kind).label} (${n})` : alertKind(kind).label)
+  return { risk, alerts: counts.size ? `${plural(alerts.length, 'alert')}: ${kinds.join(', ')}` : 'no alerts' }
+}
+
+/**
+ * The confirmation text of an approval: the risk and the alerts first, then
+ * what happens. When the current version is an agent's the admin never
+ * approved, it also compares with the version they last approved: approving
+ * makes the result the new baseline, so it approves those changes too.
+ */
+export function approveConfirmText(d: DraftDetail, deploy: boolean): string {
+  const now = diffDigest(d.diff)
+  let compared: string
+  if (d.diffApproved) {
+    const since = diffDigest(d.diffApproved)
+    compared = `Compared with the current version, ${d.currentVersion}: ${now.risk}; ${now.alerts}. ` +
+      `Compared with version ${d.lastApprovedVersion}, the one you last approved: ${since.risk}; ${since.alerts}. ` +
+      'Approving also approves these earlier agent changes.'
+  } else {
+    const alerts = now.alerts.charAt(0).toUpperCase() + now.alerts.slice(1)
+    compared = `${now.risk}. ${alerts}.`
+  }
   const name = visibleText(d.flowName) || visibleText(d.flowId)
   const saved = d.isNew
     ? `“${name}” is created as a new flow from this draft by “${visibleText(d.tokenName || d.tokenId)}”.`
@@ -526,7 +670,7 @@ export function approveConfirmText(d: DraftDetail, deploy: boolean): string {
   const runs = d.running
     ? 'The flow is running, so it is redeployed with this version.'
     : deploy ? 'It is deployed right away.' : 'It is not deployed.'
-  return `${risk}. ${alerts} ${saved} ${runs}`
+  return `${compared} ${saved} ${runs}`
 }
 
 /** What an approval or rollback did, for OperationFeedback. */

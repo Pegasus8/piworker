@@ -63,6 +63,7 @@ async function mockServer(page: Page, opts: MockOptions = {}) {
     ]
   }
   let flowRunning = true
+  let f1Deployment: Record<string, unknown> = { version: 5, actorKind: 'agent', tokenName: 'laptop', deployedAt: iso(-3_600_000) }
   const handle = async (route: Route) => {
     const req = route.request()
     const url = new URL(req.url())
@@ -86,7 +87,7 @@ async function mockServer(page: Page, opts: MockOptions = {}) {
           const r = opts.approve(body)
           return route.fulfill({ status: r.status, json: r.json })
         }
-        current = { ...current, status: 'approved', appliedVersion: 4, decidedAt: iso(0) }
+        current = { ...current, status: 'approved', appliedVersion: 4, currentVersion: 4, lastApprovedVersion: 4, diffApproved: null, decidedAt: iso(0) }
         return ok({ flowId: 'f1', version: 4, deployed: !!body?.deploy })
       }
       case 'POST /agent/drafts/d1/reject':
@@ -94,13 +95,19 @@ async function mockServer(page: Page, opts: MockOptions = {}) {
         return ok({})
       case 'GET /flows': return ok({ flows: [
         { id: 'f1', name: 'Garage', state: flowRunning ? 'running' : 'inactive', nodes: [{}], version: versions.current, agentChanged: versions.current !== versions.lastAdminApproved,
-          deployment: { version: 5, actorKind: 'agent', tokenName: 'laptop', deployedAt: iso(-3_600_000) } },
+          deployment: f1Deployment },
         { id: 'f2', name: 'Lights', state: 'inactive', nodes: [], version: 1, agentChanged: false, deployment: null }
       ], total: 2 })
+      case 'GET /flows/f1': return ok({
+        flow: { id: 'f1', name: 'Garage', state: flowRunning ? 'running' : 'inactive', nodes: [{}], connections: [], version: versions.current,
+          agentChanged: versions.current !== versions.lastAdminApproved, deployment: f1Deployment },
+        running: flowRunning
+      })
       case 'GET /flows/f1/versions': return ok(versions)
       case 'POST /flows/f1/rollback':
         versions = { current: 6, lastAdminApproved: 6, versions: [{ version: 6, actorKind: 'editor', adminApproved: true, note: 'rollback to v3', createdAt: iso(0), deployed: true }, ...versions.versions.map(v => ({ ...v, deployed: false }))] }
         flowRunning = true
+        f1Deployment = { version: 6, actorKind: 'editor', deployedAt: iso(0) }
         return ok({ flowId: 'f1', version: 6, deployed: true })
       case 'PATCH /flows/f2/toggle':
         return route.fulfill({ status: 409, json: { success: false, error: 'The flow was changed since you loaded it', data: { currentVersion: 2 } } })
@@ -164,13 +171,25 @@ test('a draft is reviewed alerts first and approved with Deploy now', async ({ p
   await page.getByLabel('Deploy now').check()
   await page.getByRole('button', { name: 'Approve and deploy…' }).click()
   const dialog = page.getByRole('dialog', { name: 'Approve this draft?' })
-  await expect(dialog).toContainText('Risk raised from Safe to External. 4 alerts')
+  // The current version (3) is not the one you last approved (2): the
+  // confirmation compares with both, never a bare "No alerts".
+  await expect(dialog).toContainText('Compared with the current version, 3: Risk raised from Safe to External; 4 alerts')
+  await expect(dialog).toContainText('Compared with version 2, the one you last approved: Risk raised from Safe to External; 1 alert: New host.')
+  await expect(dialog).toContainText('Approving also approves these earlier agent changes.')
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
   await dialog.getByRole('button', { name: 'Approve and deploy' }).click()
   await expect.poll(() => last(requests, 'POST', '/agent/drafts/d1/approve')?.body).toEqual({ deploy: true })
   await expect(page.getByRole('status').filter({ hasText: 'Approved: saved as version 4 and deployed.' })).toBeVisible()
   await expect(page.getByText('You approved this draft; it was saved as version 4.')).toBeVisible()
   await expect(page.getByRole('button', { name: /Approve/ })).toHaveCount(0)
+  // The decision section is gone: focus moves to the outcome, not <body>.
+  await expect(page.locator('#draft-outcome')).toBeFocused()
+  await expect(page.locator('#draft-outcome')).toBeInViewport()
+  // A decided draft says what it was written for and what it became, and
+  // that its changes are recomputed against the version it became.
+  await expect(page.getByText('Written for version 3; saved as version 4', { exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Changes compared with version 4 (current, recomputed now)' })).toBeVisible()
+  await expect(page.getByText(/This draft was saved as version 4, so its changes are already part of it/)).toBeVisible()
 })
 
 test('a running flow is always redeployed; a stale draft cannot be approved and says why', async ({ page }) => {
@@ -198,6 +217,7 @@ test('a refused approval keeps the draft pending and lists the issues', async ({
   await expect(page.getByRole('alert').filter({ hasText: 'Not approved: The flow cannot be deployed' })).toBeVisible()
   await expect(page.getByText('Secret BOT is not defined')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Approve and save…' })).toBeVisible()
+  await expect(page.locator('#draft-outcome')).toBeFocused()
 })
 
 test('rejecting sends the reason', async ({ page }) => {
@@ -208,6 +228,8 @@ test('rejecting sends the reason', async ({ page }) => {
   await page.getByRole('dialog', { name: 'Reject this draft?' }).getByRole('button', { name: 'Reject draft' }).click()
   await expect.poll(() => last(requests, 'POST', '/agent/drafts/d1/reject')?.body).toEqual({ reason: 'Use the existing chat' })
   await expect(page.getByText('Reason: Use the existing chat')).toBeVisible()
+  await expect(page.locator('#draft-outcome')).toBeFocused()
+  await expect(page.getByText('Written for version 3', { exact: true })).toBeVisible()
 })
 
 test('flows show agent markers, the history rolls back with confirmation, and a stale list toggle deploys nothing', async ({ page }) => {

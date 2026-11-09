@@ -9,15 +9,18 @@ import {
   approvalBlock,
   approveConfirmText,
   connectionText,
+  diffBasis,
   diffSummary,
   draftState,
   draftTitle,
   draftVersionText,
   fieldLabel,
+  fieldPaths,
   fieldRows,
   groupNodes,
   issueCounts,
   issueCountsLabel,
+  proposedSettings,
   riskChange,
   riskInfo,
   severityInfo,
@@ -76,7 +79,8 @@ test('alert values are shown only when the server sent them (agent-visible value
   expect(alertValues({ kind: 'destination_changed', nodeId: 'n1', path: 'config.topic', message: 'm', before: 'a/b', after: 'a/c' }))
     .toEqual({ before: 'a/b', after: 'a/c', inFieldDiff: false })
   // H7: a hidden setting's alert has no values; the field diff shows them.
-  expect(alertValues({ kind: 'destination_changed', nodeId: 'n1', path: 'config.url', message: 'm' }))
+  const fields = new Map([['n1', new Set(['config.url'])]])
+  expect(alertValues({ kind: 'destination_changed', nodeId: 'n1', path: 'config.url', message: 'm' }, { fields }))
     .toEqual({ before: undefined, after: undefined, inFieldDiff: true })
   expect(alertValues({ kind: 'risk_raised', message: 'm', before: 'safe', after: 'privileged' }))
     .toEqual({ before: 'safe', after: 'privileged', inFieldDiff: false })
@@ -85,6 +89,54 @@ test('alert values are shown only when the server sent them (agent-visible value
   expect(alertValues({ kind: 'secret_added', nodeId: 'n1', path: 'config.token', message: 'm', after: 'BOT' }).after).toBe('BOT')
   // Flow-level alerts without values have nothing to look up.
   expect(alertValues({ kind: 'risk_raised', message: 'm' }).inFieldDiff).toBe(false)
+})
+
+test('an alert points at the field changes only when the node diff has that field', () => {
+  // Disabling an HTTP node raises destination_changed for its unchanged url
+  // (not agent-visible: no values), while the node diff lists only enabled.
+  const diff = emptyDiff({
+    nodes: [{ nodeId: 'h1', type: 'action-http', typeName: 'HTTP Request', change: 'changed', moved: false,
+      fields: [{ path: 'enabled', change: 'changed', before: true, after: false, sensitive: false, destination: false }] }]
+  })
+  const fields = fieldPaths(diff)
+  expect([...fields.get('h1') ?? []]).toEqual(['enabled'])
+  const gone = { kind: 'destination_changed', nodeId: 'h1', path: 'config.url', message: 'disables node h1' }
+  expect(alertValues(gone, { fields }).inFieldDiff).toBe(false)
+  // The editor may read the proposed flow (credentials already hidden):
+  // the unchanged value is shown from it.
+  const proposed = proposedSettings({ nodes: [{ id: 'h1', type: 'action-http', enabled: false, config: { url: 'https://a.example/hook' } }] })
+  expect(alertValues(gone, { fields, proposed })).toEqual({
+    before: undefined, after: undefined, inFieldDiff: false, unchanged: 'https://a.example/hook'
+  })
+  // Without the setting anywhere, nothing is claimed.
+  expect(alertValues({ ...gone, path: 'config.host' }, { fields, proposed })).toEqual({
+    before: undefined, after: undefined, inFieldDiff: false
+  })
+  // Without a context nothing is claimed either.
+  expect(alertValues(gone).inFieldDiff).toBe(false)
+  // A field row wins over the proposed flow's value.
+  const both = fieldPaths(emptyDiff({ nodes: [{ nodeId: 'h1', type: 't', typeName: 'T', change: 'removed', moved: false,
+    fields: [{ path: 'config.url', change: 'removed', before: 'https://a.example/hook', sensitive: false, destination: true }] }] }))
+  expect(alertValues(gone, { fields: both, proposed })).toEqual({ before: undefined, after: undefined, inFieldDiff: true })
+})
+
+test('the proposed flow is read defensively, node by node', () => {
+  const settings = proposedSettings({ nodes: [
+    { id: 'a', config: { url: 'x', n: 2 } },
+    { id: 'a', config: { url: 'second' } },
+    { id: 'b' },
+    { config: { url: 'no id' } },
+    'junk'
+  ] })
+  expect(settings.get('a')).toEqual({ url: 'x', n: 2 })
+  expect(settings.get('b')).toEqual({})
+  expect(settings.size).toBe(2)
+  expect(proposedSettings(null).size).toBe(0)
+  expect(proposedSettings({ nodes: 'x' }).size).toBe(0)
+  // Prototype names are settings like any other, not inherited members.
+  expect(alertValues({ kind: 'destination_changed', nodeId: 'b', path: 'config.constructor', message: '' },
+    { fields: new Map(), proposed: settings }).unchanged).toBeUndefined()
+  expect(fieldPaths(null).size).toBe(0)
 })
 
 test('alerts name their node and setting, or the whole flow', () => {
@@ -209,6 +261,55 @@ test('draft titles and versions say whether the flow is new and whether the draf
   expect(draftVersionText(summary())).toBe('Changes version 3 (the current one)')
   expect(draftVersionText(summary({ stale: true, currentVersion: 5 }))).toBe('Written for version 3; the flow is now at version 5')
   expect(draftVersionText(summary({ isNew: true, baseVersion: 0, currentVersion: 0 }))).toBe('Creates a new flow')
+  expect(draftVersionText(summary({ stale: true, currentVersion: 0 }))).toBe('Written for version 3; the flow was deleted')
+})
+
+test('a decided draft says which version it was written for and what became of it', () => {
+  // The server marks only pending drafts stale: a decided one is never "the current one".
+  const approved = summary({ status: 'approved', appliedVersion: 4, currentVersion: 4, decidedAt: '2026-11-08T13:00:00Z' })
+  expect(draftVersionText(approved)).toBe('Written for version 3; saved as version 4')
+  expect(draftVersionText({ ...approved, currentVersion: 6 })).toBe('Written for version 3; saved as version 4; the flow is now at version 6')
+  expect(draftVersionText(summary({ status: 'rejected', currentVersion: 5 }))).toBe('Written for version 3; the flow is now at version 5')
+  expect(draftVersionText(summary({ status: 'rejected' }))).toBe('Written for version 3')
+  expect(draftVersionText(summary({ status: 'void', currentVersion: 0 }))).toBe('Written for version 3; the flow was deleted')
+  expect(draftVersionText(summary({ status: 'void', currentVersion: 4 }))).toBe('Written for version 3; the flow is now at version 4')
+  const created = summary({ status: 'approved', isNew: true, baseVersion: 0, appliedVersion: 1, currentVersion: 1 })
+  expect(draftVersionText(created)).toBe('Written as a new flow; saved as version 1')
+  expect(draftVersionText(summary({ status: 'rejected', isNew: true, baseVersion: 0, currentVersion: 0 }))).toBe('Written as a new flow')
+})
+
+test('what the risk, alerts and changes are compared with, for pending and decided drafts', () => {
+  const pending = diffBasis(detail())
+  expect(pending.heading).toBe('Changes compared with version 3 (current)')
+  expect(pending.note).toBe('Compared with the current version, 3.')
+  expect(pending.emptyAlerts).toContain('No alerts')
+  expect(diffBasis(detail({ stale: true, currentVersion: 5 })).note)
+    .toBe('Compared with the current version, 5, not version 3 the draft was written for.')
+  const fresh = diffBasis(detail({ isNew: true, flowId: '', baseVersion: 0, currentVersion: 0 }))
+  expect(fresh.heading).toBe('Changes compared with an empty flow')
+  expect(fresh.note).toContain('creates a new flow')
+
+  // An approved draft is recomputed against the version it became: its
+  // changes are already part of it, so "no changes" must not read as "the
+  // draft changed nothing".
+  const approved = diffBasis(detail({ status: 'approved', appliedVersion: 4, currentVersion: 4 }))
+  expect(approved.heading).toBe('Changes compared with version 4 (current, recomputed now)')
+  expect(approved.note).toContain('Recomputed now against the current version, 4')
+  expect(approved.note).toContain('saved as version 4')
+  expect(approved.note).toContain('already part of it')
+  expect(approved.emptyAlerts).toBe('No alerts against version 4: this draft\'s changes are already part of it.')
+  const later = diffBasis(detail({ status: 'approved', appliedVersion: 4, currentVersion: 6 }))
+  expect(later.emptyAlerts).toBe('No alerts against the current version, 6.')
+  expect(later.note).toContain('saved as version 4')
+
+  const rejected = diffBasis(detail({ status: 'rejected', currentVersion: 5 }))
+  expect(rejected.heading).toBe('Changes compared with version 5 (current, recomputed now)')
+  expect(rejected.note).toBe('Recomputed now against the current version, 5, not version 3 the draft was written for. Nothing from this draft was saved.')
+  expect(rejected.emptyAlerts).toBe('No alerts against the current version, 5.')
+  expect(diffBasis(detail({ status: 'void' })).note).toBe('Recomputed now against the current version, 3. Nothing from this draft was saved.')
+  const deleted = diffBasis(detail({ status: 'void', currentVersion: 0 }))
+  expect(deleted.heading).toBe('Changes compared with an empty flow')
+  expect(deleted.note).toContain('no longer exists')
 })
 
 test('each draft state is explained in words', () => {
@@ -262,6 +363,28 @@ test('the approval confirmation repeats the risk and the alerts first', () => {
   expect(approveConfirmText(detail(), true)).toContain('deployed right away')
   expect(approveConfirmText(detail(), false)).toContain('not deployed')
   expect(approveConfirmText(detail({ isNew: true, flowId: '', flowName: 'Lights' }), false)).toContain('created as a new flow')
+})
+
+test('the approval confirmation also compares with the version you last approved', () => {
+  // The current version 5 is an agent's, not approved: it added a host. The
+  // draft changes little on top of it, so only diffApproved has alerts.
+  const d = detail({
+    baseVersion: 5, currentVersion: 5, lastApprovedVersion: 3,
+    diff: emptyDiff({ riskBefore: 'external', riskAfter: 'external' }),
+    diffApproved: emptyDiff({ riskBefore: 'safe', riskAfter: 'external', alerts: [
+      { kind: 'new_host', nodeId: 'h', path: 'config.url', message: '', after: 'evil.example' },
+      { kind: 'risk_raised', message: '', before: 'safe', after: 'external' }
+    ] })
+  })
+  const text = approveConfirmText(d, false)
+  expect(text).not.toContain('No alerts.')
+  expect(text.startsWith('Compared with the current version, 5: Risk unchanged: External; no alerts. ' +
+    'Compared with version 3, the one you last approved: Risk raised from Safe to External; 2 alerts: New host, Risk raised. ' +
+    'Approving also approves these earlier agent changes.')).toBe(true)
+  expect(text).toContain('saved as a new version')
+  // Without alerts since the approved version, it says that too.
+  const quiet = approveConfirmText({ ...d, diffApproved: emptyDiff({ riskBefore: 'external', riskAfter: 'external' }) }, false)
+  expect(quiet).toContain('Compared with version 3, the one you last approved: Risk unchanged: External; no alerts.')
 })
 
 test('the outcome of an approval or rollback says what was saved and whether it runs', () => {

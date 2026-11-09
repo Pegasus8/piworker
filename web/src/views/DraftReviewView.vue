@@ -5,7 +5,9 @@
 // diff (Sensitive values hidden, destinations highlighted), the comparison
 // with the version you last approved, and then approve (saving a new
 // version, deploying it when asked or when the flow runs) or reject with a
-// reason the agent sees. Everything the draft holds came from an agent and is
+// reason the agent sees. A decided draft says what it became, and that its
+// diff is recomputed against the current version. After a decision, focus
+// moves to its outcome. Everything the draft holds came from an agent and is
 // rendered as text only (AgentText), never as HTML.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
@@ -24,8 +26,8 @@ import { useAgentStore, apiErrorMessage } from '@/stores/agent'
 import { useAuthStore } from '@/stores/auth'
 import { countHidden, formatDateTime, formatRelative, jsonText, visibleText } from '@/lib/agentAccess'
 import {
-  applyOutcome, approvalBlock, approveConfirmText, draftIcon, draftState, draftVersionText, issueCountsLabel, issueCounts,
-  nodeNames, riskChange, severityInfo, type ApplyResult, type FlowIssue
+  applyOutcome, approvalBlock, approveConfirmText, diffBasis, draftIcon, draftState, draftVersionText, fieldPaths,
+  issueCountsLabel, issueCounts, nodeNames, proposedSettings, riskChange, severityInfo, type ApplyResult, type FlowIssue
 } from '@/lib/drafts'
 
 /** The longest rejection reason the server accepts (service.MaxRejectReasonChars). */
@@ -37,6 +39,7 @@ const agent = useAgentStore()
 const auth = useAuthStore()
 const confirmation = ref<InstanceType<typeof ConfirmDialog>>()
 const heading = ref<HTMLElement>()
+const outcome = ref<HTMLElement>()
 
 const id = computed(() => String(route.params.id ?? ''))
 const loading = ref(false)
@@ -54,6 +57,12 @@ const now = ref(new Date())
 const d = computed(() => drafts.detail?.id === id.value ? drafts.detail : null)
 const names = computed(() => nodeNames(d.value?.diff, d.value?.diffApproved))
 const state = computed(() => d.value ? draftState(d.value) : null)
+const basis = computed(() => d.value ? diffBasis(d.value) : null)
+// Where an alert's values are: the field rows of its own comparison, or the
+// proposed flow for a setting that did not change.
+const fieldsNow = computed(() => fieldPaths(d.value?.diff))
+const fieldsApproved = computed(() => fieldPaths(d.value?.diffApproved))
+const proposed = computed(() => proposedSettings(d.value?.flow))
 const isPending = computed(() => d.value?.status === 'pending')
 // A running flow is always redeployed: the box is checked and locked then.
 const willDeploy = computed(() => !!d.value && (d.value.running || deployNow.value))
@@ -114,6 +123,15 @@ watch(() => agent.pendingDrafts, (count, before) => {
   if (count !== before && isPending.value && !pending.value) void load({ background: true })
 })
 
+// A decision reloads the draft: once it is no longer pending, the decision
+// section (and the button that had focus) is gone. Focus and show the
+// outcome instead of leaving focus on <body> far below it.
+async function focusOutcome() {
+  await nextTick()
+  outcome.value?.focus()
+  outcome.value?.scrollIntoView?.({ block: 'nearest' })
+}
+
 async function approve() {
   const draft = d.value
   if (!draft || pending.value || block.value) return
@@ -141,6 +159,7 @@ async function approve() {
   } finally {
     pending.value = false
   }
+  await focusOutcome()
 }
 
 async function reject() {
@@ -162,6 +181,7 @@ async function reject() {
   } finally {
     pending.value = false
   }
+  await focusOutcome()
 }
 </script>
 
@@ -175,10 +195,12 @@ async function reject() {
           <ArrowLeft class="h-4 w-4" aria-hidden="true" />All drafts
         </RouterLink>
 
-        <OperationFeedback :message="feedback" @dismiss="feedback = null" />
-        <p v-if="applied" class="text-sm">
-          <RouterLink :to="`/editor/${encodeURIComponent(applied.flowId)}`" class="font-medium text-primary underline underline-offset-2">Open the flow in the editor</RouterLink>
-        </p>
+        <div id="draft-outcome" ref="outcome" tabindex="-1" class="space-y-2 focus:outline-none">
+          <OperationFeedback :message="feedback" @dismiss="feedback = null" />
+          <p v-if="applied" class="text-sm">
+            <RouterLink :to="`/editor/${encodeURIComponent(applied.flowId)}`" class="font-medium text-primary underline underline-offset-2">Open the flow in the editor</RouterLink>
+          </p>
+        </div>
 
         <p v-if="loading && !d" role="status" class="text-sm text-muted-foreground">Loading the draft…</p>
         <p v-else-if="notFound" role="alert" class="rounded-md bg-muted p-6 text-center text-sm">
@@ -230,6 +252,11 @@ async function reject() {
             <p class="whitespace-pre-wrap break-words rounded-md border p-3 text-sm"><AgentText :text="d.note" /></p>
           </section>
 
+          <!-- A decided draft's risk, alerts and changes are recomputed against the current version. -->
+          <p v-if="!isPending && basis" id="draft-basis" role="note" class="flex items-start gap-2 rounded-md border bg-muted p-3 text-sm">
+            <Info class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />{{ basis.note }}
+          </p>
+
           <!-- Risk before → after. -->
           <section v-if="risk" aria-labelledby="risk-heading" class="space-y-2">
             <h3 id="risk-heading" class="text-sm font-semibold">Risk</h3>
@@ -242,13 +269,13 @@ async function reject() {
           </section>
 
           <!-- Alerts, before the changes. -->
-          <section aria-labelledby="alerts-heading" class="space-y-2">
+          <section v-if="basis" aria-labelledby="alerts-heading" :aria-describedby="isPending ? undefined : 'draft-basis'" class="space-y-2">
             <h3 id="alerts-heading" class="flex items-center gap-2 text-sm font-semibold">
               <component :is="draftIcon('AlertTriangle')" class="h-4 w-4 text-amber-700 dark:text-amber-400" aria-hidden="true" />
               Alerts ({{ d.diff.alerts?.length ?? 0 }})
             </h3>
-            <p class="text-xs text-muted-foreground">Compared with the current version{{ d.isNew ? ' (an empty flow: this one is new)' : '' }}.</p>
-            <DraftAlerts :alerts="d.diff.alerts" :names="names" />
+            <p v-if="isPending" class="text-xs text-muted-foreground">{{ basis.note }}</p>
+            <DraftAlerts :alerts="d.diff.alerts" :names="names" :fields="fieldsNow" :proposed="proposed" :empty-text="basis.emptyAlerts" />
           </section>
 
           <!-- Lint issues now, and those of a refused approval. -->
@@ -268,8 +295,8 @@ async function reject() {
           </section>
 
           <!-- The changes. -->
-          <section aria-labelledby="changes-heading" class="space-y-2">
-            <h3 id="changes-heading" class="text-sm font-semibold">Changes compared with {{ d.isNew ? 'an empty flow' : `version ${d.currentVersion} (current)` }}</h3>
+          <section v-if="basis" aria-labelledby="changes-heading" :aria-describedby="isPending ? undefined : 'draft-basis'" class="space-y-2">
+            <h3 id="changes-heading" class="text-sm font-semibold">{{ basis.heading }}</h3>
             <p class="text-xs text-muted-foreground">Credentials are never shown; settings marked Destination say where the flow sends data or connects.</p>
             <DraftDiff :diff="d.diff" :names="names" label="Changes" />
           </section>
@@ -285,7 +312,10 @@ async function reject() {
               <ArrowRight class="h-4 w-4 text-muted-foreground" aria-hidden="true" />
               <RiskBadge :risk="String(d.diffApproved.riskAfter)" prefix="With this draft" />
             </div>
-            <DraftAlerts :alerts="d.diffApproved.alerts" :names="names" empty-text="No alerts compared with the version you approved." />
+            <DraftAlerts
+              :alerts="d.diffApproved.alerts" :names="names" :fields="fieldsApproved" :proposed="proposed"
+              empty-text="No alerts compared with the version you approved."
+            />
             <DraftDiff :diff="d.diffApproved" :names="names" label="Since the version you approved" />
           </section>
 
