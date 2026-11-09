@@ -510,7 +510,40 @@ func assertGolden(t *testing.T, path string, v any) {
 	}
 	want, err := os.ReadFile(path)
 	require.NoError(t, err, "go test -run '%s' -update creates %s", t.Name(), path)
-	assert.Equal(t, string(want), buf.String(), "%s: review the difference, then rewrite the file with -update", path)
+	if got := buf.String(); got != string(want) {
+		t.Errorf("%s differs (- golden, + now); review it, then rewrite the file with -update:\n%s", path, lineDiff(string(want), got))
+	}
+}
+
+// lineDiff shows the lines between the first and the last that differ,
+// with three lines of context, at most 200 lines.
+func lineDiff(want, got string) string {
+	a, b := strings.Split(want, "\n"), strings.Split(got, "\n")
+	start := 0
+	for start < len(a) && start < len(b) && a[start] == b[start] {
+		start++
+	}
+	endA, endB := len(a), len(b)
+	for endA > start && endB > start && a[endA-1] == b[endB-1] {
+		endA, endB = endA-1, endB-1
+	}
+	var out []string
+	for _, l := range a[max(0, start-3):start] {
+		out = append(out, "  "+l)
+	}
+	for _, l := range a[start:endA] {
+		out = append(out, "- "+l)
+	}
+	for _, l := range b[start:endB] {
+		out = append(out, "+ "+l)
+	}
+	for _, l := range a[endA:min(len(a), endA+3)] {
+		out = append(out, "  "+l)
+	}
+	if len(out) > 200 {
+		out = append(out[:200], "…")
+	}
+	return fmt.Sprintf("@@ line %d @@\n%s", start+1, strings.Join(out, "\n"))
 }
 
 // sharedToolsGolden pins the author and deploy tools as tools/list lists
