@@ -1,8 +1,10 @@
 package flow
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Pegasus8/piworker/internal/node"
@@ -155,8 +157,8 @@ func configFindings(f *Flow, reg *node.Registry) []finding {
 // calls its Validate, as deploy does. It returns the instances by node index
 // and a finding per node that could not be created or validated; the
 // finding's err is the NodeExecutionError deploy returns (wrapping
-// ErrInvalidNodeConfig, HTTP 400). Messages hide the node's Sensitive
-// values; errs are unchanged.
+// ErrInvalidNodeConfig, HTTP 400). Lint hides setting values in the
+// messages when it renders them (hideValues); errs are unchanged.
 func instantiateNodes(f *Flow, reg *node.Registry, skip map[int]bool) (map[int]node.Node, []finding) {
 	instances := map[int]node.Node{}
 	var out []finding
@@ -181,7 +183,7 @@ func instantiateNodes(f *Flow, reg *node.Registry, skip map[int]bool) (map[int]n
 		if err != nil {
 			// Unknown types are an invalid flow too (HTTP 400).
 			deployErr := NewNodeExecutionError(n.ID, n.Type, fmt.Errorf("%w: %w", ErrInvalidNodeConfig, err))
-			out = append(out, nodeFinding(i, "", code, IssueError, hideSensitive(err.Error(), reg, n), deployErr))
+			out = append(out, nodeFinding(i, "", code, IssueError, err.Error(), deployErr))
 			continue
 		}
 		instances[i] = inst
@@ -189,35 +191,89 @@ func instantiateNodes(f *Flow, reg *node.Registry, skip map[int]bool) (map[int]n
 	return instances, out
 }
 
-// minHiddenLength is the shortest Sensitive value hideSensitive replaces in
-// place; a shorter one found in a message hides the whole message.
+// minHiddenLength is the shortest setting value hideValues replaces in
+// place. A shorter Sensitive value found in a message hides the whole
+// message; a shorter value that is only not AgentVisible is left (it says
+// little, and replacing it would mangle the message).
 const minHiddenLength = 4
 
-// hideSensitive removes from msg the values of n's Sensitive properties
-// (strings anywhere inside them), so a node error that quotes its config
-// never shows a credential.
-func hideSensitive(msg string, reg *node.Registry, n *Node) string {
-	info, ok := reg.Get(n.Type)
-	if !ok || info.Config == nil {
+// shownValuePrefix is how many runes of an offending string node.CheckConfig
+// quotes (its maxShownValue) before cutting it with "…".
+const shownValuePrefix = 32
+
+// wholeMessageHidden replaces a message that quotes a short Sensitive value.
+const wholeMessageHidden = "the node rejected its configuration (details hidden: they quote a sensitive setting)"
+
+// hiddenForm is one way a message may quote a hidden setting value.
+type hiddenForm struct {
+	text      string
+	value     string // the value it quotes
+	sensitive bool
+}
+
+// hideValues removes from msg, a message about node n, the values of the
+// settings agents may not read (the read views' rule: Sensitive, not
+// AgentVisible, undeclared, or of a type without a schema): strings at any
+// depth (and numbers, as text), raw and in the forms careless node errors
+// quote them (%q, %+q, JSON with and without HTML escaping, and
+// CheckConfig's cut-off prefix). Lint messages are shown to agents, and with
+// ops or a redacted draft they cover the admin's nodes too.
+func hideValues(msg string, reg *node.Registry, n *Node) string {
+	if n == nil || len(n.Config) == 0 {
 		return msg
 	}
-	var values []string
-	for name, p := range info.Config.Properties {
-		if p.Sensitive {
-			values = appendLeafStrings(values, n.Config[name])
-		}
+	var schema map[string]node.ConfigProperty
+	if info, ok := reg.Get(n.Type); ok && info.Config != nil {
+		schema = info.Config.Properties
 	}
-	sort.Slice(values, func(a, b int) bool { return len(values[a]) > len(values[b]) })
-	for _, v := range values {
-		if !strings.Contains(msg, v) {
+	var forms []hiddenForm
+	for name, v := range n.Config {
+		p, declared := schema[name]
+		if declared && p.AgentVisible && !p.Sensitive {
 			continue
 		}
-		if len(v) < minHiddenLength {
-			return "the node rejected its configuration (details hidden: they quote a sensitive setting)"
+		for _, value := range appendLeafStrings(nil, v) {
+			for _, text := range quotedForms(value) {
+				forms = append(forms, hiddenForm{text: text, value: value, sensitive: p.Sensitive})
+			}
 		}
-		msg = strings.ReplaceAll(msg, v, "<hidden>")
+	}
+	sort.SliceStable(forms, func(a, b int) bool { return len(forms[a].text) > len(forms[b].text) })
+	for _, f := range forms {
+		if f.text == "" || !strings.Contains(msg, f.text) {
+			continue
+		}
+		if len(f.value) < minHiddenLength {
+			if f.sensitive {
+				return wholeMessageHidden
+			}
+			continue
+		}
+		msg = strings.ReplaceAll(msg, f.text, HiddenValue)
 	}
 	return msg
+}
+
+// quotedForms returns v and the forms a message may quote it in: the
+// insides of its Go (%q, %+q) and JSON quotings, and for a long v its first
+// shownValuePrefix runes, raw and Go-quoted.
+func quotedForms(v string) []string {
+	inner := func(q string) string { return q[1 : len(q)-1] }
+	forms := []string{v, inner(strconv.Quote(v)), inner(strconv.QuoteToASCII(v))}
+	if js, err := json.Marshal(v); err == nil {
+		forms = append(forms, inner(string(js)))
+	}
+	var buf strings.Builder
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err == nil {
+		forms = append(forms, inner(strings.TrimSpace(buf.String())))
+	}
+	if runes := []rune(v); len(runes) > shownValuePrefix {
+		prefix := string(runes[:shownValuePrefix])
+		forms = append(forms, prefix, inner(strconv.Quote(prefix)))
+	}
+	return forms
 }
 
 // appendLeafStrings appends the non-empty strings (and numbers, as text)
@@ -424,18 +480,25 @@ func Lint(f *Flow, reg *node.Registry) []Issue {
 	}
 	all = append(all, structureFindings(f, isTrigger, ports)...)
 
-	// Callable triggers need an active connection: to an instantiated node,
-	// from one of the trigger's output ports.
+	// Callable triggers need an active connection: from one of the
+	// trigger's output ports to an enabled node of a registered type. A
+	// target that fails its own checks still counts (deploy reports it
+	// first; Lint reports it once, on that node).
 	byID := map[string]node.Node{}
+	runnable := map[string]bool{}
 	for i := range f.Nodes {
+		n := &f.Nodes[i]
 		if in, ok := instances[i]; ok {
-			byID[f.Nodes[i].ID] = in
+			byID[n.ID] = in
+		}
+		if n.Enabled && reg.Has(n.Type) {
+			runnable[n.ID] = true
 		}
 	}
 	all = append(all, callTriggerFindings(f, byID, func(id string) bool {
 		_, outputs := byID[id].Ports()
 		for _, c := range f.Connections {
-			if _, target := byID[c.TargetNode]; c.SourceNode == id && target && hasPort(outputs, c.SourcePort) {
+			if c.SourceNode == id && runnable[c.TargetNode] && hasPort(outputs, c.SourcePort) {
 				return true
 			}
 		}
@@ -460,7 +523,7 @@ func Lint(f *Flow, reg *node.Registry) []Issue {
 	all = append(all, tools...)
 
 	all = append(all, positionFindings(f)...)
-	return lintIssues(f, all)
+	return lintIssues(f, reg, all)
 }
 
 // positionFindings reports the nodes whose position ValidPosition refuses.
@@ -476,8 +539,9 @@ func positionFindings(f *Flow) []finding {
 	return out
 }
 
-// lintIssues renders findings as Issues in Lint's order, once each.
-func lintIssues(f *Flow, fds []finding) []Issue {
+// lintIssues renders findings as Issues in Lint's order, once each, with
+// the setting values agents may not read hidden from node messages.
+func lintIssues(f *Flow, reg *node.Registry, fds []finding) []Issue {
 	type keyed struct {
 		section, index int
 		issue          Issue
@@ -485,7 +549,11 @@ func lintIssues(f *Flow, fds []finding) []Issue {
 	seen := map[Issue]bool{}
 	list := make([]keyed, 0, len(fds))
 	for _, fd := range fds {
-		k := keyed{issue: Issue{Path: fd.pointerPath(f), Code: fd.code, Severity: fd.sev, Message: fd.msg}}
+		msg := fd.msg
+		if fd.node >= 0 && fd.node < len(f.Nodes) {
+			msg = hideValues(msg, reg, &f.Nodes[fd.node])
+		}
+		k := keyed{issue: Issue{Path: fd.pointerPath(f), Code: fd.code, Severity: fd.sev, Message: msg}}
 		switch {
 		case fd.node >= 0:
 			k.section, k.index = 1, fd.node

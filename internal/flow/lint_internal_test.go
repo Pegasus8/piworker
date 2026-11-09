@@ -1,6 +1,7 @@
 package flow
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -19,7 +20,7 @@ func leakyRegistry(t *testing.T) *node.Registry {
 		"password": {Type: "string", Sensitive: true},
 		"headers":  {Type: "object", Sensitive: true},
 		"pin":      {Type: "string", Sensitive: true},
-		"host":     {Type: "string"},
+		"host":     {Type: "string", AgentVisible: true},
 	}}
 	require.NoError(t, reg.Register(node.NodeTypeInfo{
 		Type: "leaky", Name: "Leaky", Category: NodeCategoryOutput, Risk: node.RiskExternal,
@@ -52,7 +53,7 @@ func TestLintNeverEchoesSensitiveValues(t *testing.T) {
 		assert.NotContains(t, issues[0].Message, secret)
 	}
 
-	// Without short values, the message keeps what is not sensitive.
+	// Without short values, the message keeps what agents may read.
 	n.Config["pin"] = "12345678"
 	f.Nodes[len(f.Nodes)-1] = *n
 	issues = Lint(f, reg)
@@ -92,4 +93,53 @@ func TestStructureFindingsKeepValidateOrder(t *testing.T) {
 func TestJSONPointerEscaping(t *testing.T) {
 	assert.Equal(t, "/nodes/a~1b~0c/config/x~1y", nodePointer("a/b~c", "x/y"))
 	assert.Equal(t, "/nodes/n1", nodePointer("n1", ""))
+}
+
+// quotingRegistry has a node type whose factory quotes its settings the
+// ways careless node errors do: %q, %+q, JSON, and CheckConfig-style
+// truncation.
+func quotingRegistry(t *testing.T) *node.Registry {
+	t.Helper()
+	reg := createTestRegistry()
+	schema := &node.ConfigSchema{Properties: map[string]node.ConfigProperty{
+		"password": {Type: "string", Sensitive: true},
+		"target":   {Type: "string"},
+		"mode":     {Type: "string", AgentVisible: true},
+	}}
+	require.NoError(t, reg.Register(node.NodeTypeInfo{
+		Type: "quoting", Name: "Quoting", Category: NodeCategoryOutput, Risk: node.RiskExternal,
+		Inputs: []Port{{ID: "input", DataType: DataTypeAny}}, Config: schema,
+	}, func(cfg map[string]any) (node.Node, error) {
+		pw, _ := cfg["password"].(string)
+		target, _ := cfg["target"].(string)
+		js, _ := json.Marshal(pw)
+		short := []rune(target)
+		if len(short) > 32 {
+			short = short[:32]
+		}
+		return nil, fmt.Errorf("bad password %q / %+q / %s; target %q / %q…; mode %q", pw, pw, js, target, string(short), cfg["mode"])
+	}))
+	return reg
+}
+
+func TestLintHidesQuotedForms(t *testing.T) {
+	reg := quotingRegistry(t)
+	f := createSimpleFlow()
+	n := NewNode("quoting", NodeCategoryOutput)
+	n.ID = "q"
+	n.Config = map[string]any{
+		"password": "s3cr3t\"tail-of-the-<secret>-ñandú",
+		"target":   "https://hooks.example.com/services/T000/B000/XXXXXXXXXXXXXXXXXXXXXXXX",
+		"mode":     "fast-mode",
+	}
+	f.AddNode(*n)
+
+	issues := Lint(f, reg)
+	require.Len(t, issues, 1)
+	msg := issues[0].Message
+	for _, leak := range []string{"s3cr3t", "tail-of-the", "secret", "XXXXXXXX", "services/T000", "hooks.example.com/serv"} {
+		assert.NotContains(t, msg, leak)
+	}
+	assert.Contains(t, msg, `mode "fast-mode"`, "values agents may read stay")
+	assert.Contains(t, msg, "<hidden>")
 }

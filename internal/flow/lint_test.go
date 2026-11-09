@@ -309,3 +309,26 @@ func TestLintReportsPositionsOutOfRange(t *testing.T) {
 		assert.Contains(t, i.Message, "1000000")
 	}
 }
+
+// A callable trigger connected to a node that fails its own checks is
+// connected: only that node's problem is reported, not a misleading
+// "connect it" on the trigger.
+func TestLintDoesNotCallAConnectedTriggerUnconnected(t *testing.T) {
+	f := flow.NewFlow("tool")
+	f.Nodes = []flow.Node{
+		lintNode("tool", "trigger-tool", strictToolConfig()),
+		lintNode("http", "action-http", map[string]any{}),
+		lintNode("typed", "action-http", map[string]any{"url": "https://api.example.com/", "timeout": "soon"}),
+	}
+	f.Connections = []flow.Connection{lintConn("c1", "tool", "output", "http", "input")}
+	assert.Equal(t, []string{"error:" + flow.IssueInvalidConfig + "@/nodes/http", "error:" + flow.IssueConfigType + "@/nodes/typed/config/timeout"}, issueKeys(flow.Lint(f, node.DefaultRegistry)))
+
+	f.Connections = []flow.Connection{lintConn("c1", "tool", "output", "typed", "input")}
+	assert.Equal(t, []string{"error:" + flow.IssueInvalidConfig + "@/nodes/http", "error:" + flow.IssueConfigType + "@/nodes/typed/config/timeout"}, issueKeys(flow.Lint(f, node.DefaultRegistry)))
+
+	// A disabled or unknown target is no active connection.
+	f.Nodes[2].Enabled = false
+	f.Nodes = append(f.Nodes, lintNode("ghost", "nope", nil))
+	f.Connections = []flow.Connection{lintConn("c1", "tool", "output", "typed", "input"), lintConn("c2", "tool", "output", "ghost", "input")}
+	assert.Contains(t, issueKeys(flow.Lint(f, node.DefaultRegistry)), "error:"+flow.IssueTriggerNotConnected+"@/nodes/tool")
+}
