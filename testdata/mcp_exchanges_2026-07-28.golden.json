@@ -1557,7 +1557,8 @@
             "type": "text"
           }
         ],
-        "isError": true
+        "isError": true,
+        "resultType": "complete"
       }
     }
   },

@@ -342,19 +342,65 @@ func (h *Handler) routeUnheldTools(actor service.Actor, held, skipped map[string
 			if !toolNamePattern.MatchString(call.Params.Name) {
 				// No tool has such a name: answered as unknown here, so an
 				// agent cannot have a name of any length audited.
-				return unknownTool(shorten(call.Params.Name, maxToolNameLength)), nil
+				return endpointResult(req, unknownTool(shorten(call.Params.Name, maxToolNameLength))), nil
 			}
 			if skipped[call.Params.Name] {
 				// Not advertised, so not callable: the SDK would not check
 				// its output schema, and the agent was never shown it.
-				return unknownTool(call.Params.Name), nil
+				return endpointResult(req, unknownTool(call.Params.Name)), nil
 			}
 			// Hidden and unknown flow tools, and built-in tools of a scope
 			// the token lacks (no flow tool has a pw_ name, so the service
 			// answers them as unknown, like any name it does not know).
-			return h.callFlowTool(ctx, actor, call.Params.Name, call.Params.Arguments, nil), nil
+			return endpointResult(req, h.callFlowTool(ctx, actor, call.Params.Name, call.Params.Arguments, nil)), nil
 		}
 	}
+}
+
+// endpointResult is a tools/call result the endpoint answers itself (a
+// tool the server does not hold, a handler that panicked) rather than
+// through the SDK's tool handler, which marks its results "resultType":
+// "complete" for clients of 2026-07-28 and later (SEP-2322); results a
+// middleware returns are not marked. Marked the same way, the answer reads
+// like any other tool result of its version: like a held tool's refusal.
+func endpointResult(req mcp.Request, res *mcp.CallToolResult) mcp.Result {
+	// As the SDK decides: the latest version without initialize parameters
+	// (a stateless server's sessions always have them).
+	version := ProtocolVersions[0]
+	if ss, ok := req.GetSession().(*mcp.ServerSession); ok {
+		if p := ss.InitializeParams(); p != nil {
+			version = p.ProtocolVersion
+		}
+	}
+	if version < resultTypeVersion {
+		return res
+	}
+	return completeResult{res}
+}
+
+// resultTypeVersion is the first protocol version whose results carry a
+// resultType.
+const resultTypeVersion = "2026-07-28"
+
+// completeResult is a tool result marked "resultType": "complete".
+type completeResult struct{ *mcp.CallToolResult }
+
+// MarshalJSON adds resultType to the result's JSON object, last, where the
+// SDK puts it.
+func (r completeResult) MarshalJSON() ([]byte, error) {
+	data, err := json.Marshal(r.CallToolResult)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) < 2 || data[0] != '{' || data[len(data)-1] != '}' {
+		return nil, fmt.Errorf("a tool result is not a JSON object: %.40s", data)
+	}
+	out := make([]byte, 0, len(data)+len(`,"resultType":"complete"`))
+	out = append(out, data[:len(data)-1]...)
+	if len(data) > 2 {
+		out = append(out, ',')
+	}
+	return append(out, `"resultType":"complete"}`...), nil
 }
 
 // recoverPanics answers a request whose handler panicked instead of letting
@@ -384,7 +430,7 @@ func (h *Handler) recoverPanics(actor service.Actor) mcp.Middleware {
 				}
 				ev.Msg("MCP handler panicked")
 				if method == "tools/call" {
-					res, err = errorResult(errHandlerPanicked), nil
+					res, err = endpointResult(req, errorResult(errHandlerPanicked)), nil
 					return
 				}
 				res, err = nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "internal error; see the PiWorker log"}

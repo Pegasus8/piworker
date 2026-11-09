@@ -253,6 +253,46 @@ func TestUnknownAndHiddenToolsAreAlike(t *testing.T) {
 	assert.EqualValues(t, 2, e.tools.calls.Load())
 }
 
+// At 2026-07-28 every result says it is complete ("resultType", SEP-2322),
+// those the endpoint answers itself too: a call of a tool the server does
+// not hold (unknown, hidden or an impossible name) or whose handler
+// panicked reads like the refusal of a held tool, the name aside. Earlier
+// versions have no resultType.
+func TestEndpointResultsAreCompleteAt20260728(t *testing.T) {
+	e := newTestEnv(t)
+	e.tools.setTools(2, testTool(t, "garage"))
+	e.tools.call = func(_ context.Context, _ service.Actor, ref service.ToolRef, _ map[string]any) (flow.CallResult, error) {
+		if ref.Name == "boom" {
+			panic("exploded")
+		}
+		return flow.CallResult{}, &service.ToolError{Kind: service.ErrToolNotFound, Message: fmt.Sprintf("unknown tool %q", ref.Name)}
+	}
+	call := func(name string) map[string]any {
+		t.Helper()
+		params := map[string]any{"name": name, "arguments": map[string]any{"door": "left"}}
+		res, rpcErr := rpcResult(t, e.serve(withToken(rpc2026(t, "tools/call", params), callToken)))
+		require.Nil(t, rpcErr, name)
+		return res
+	}
+	// garage is held: its refusal (it was undeployed since the server was
+	// built) comes from the SDK's tool handler.
+	held := call("garage")
+	require.Equal(t, "complete", held["resultType"])
+	for _, name := range []string{"nothing_here", "garage door"} {
+		res := call(name)
+		assert.Equal(t, "complete", res["resultType"], name)
+		assert.Equal(t, strings.ReplaceAll(fmt.Sprint(held), "garage", "X"), strings.ReplaceAll(fmt.Sprint(res), name, "X"))
+	}
+	panicked := call("boom")
+	assert.Equal(t, "complete", panicked["resultType"])
+	assert.Equal(t, "failed", errorCode(resultBody(t, panicked)))
+
+	for _, name := range []string{"garage", "nothing_here", "boom"} {
+		res, _ := called(t, e, callToken, name, `{"door":"left"}`)
+		assert.NotContains(t, res, "resultType", "%s at 2025-06-18", name)
+	}
+}
+
 // Internal failures are logged; the agent sees no details.
 func TestInternalFailuresAreLoggedNotShown(t *testing.T) {
 	e := newTestEnv(t)

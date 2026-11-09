@@ -245,6 +245,30 @@ func rpc(body string) *http.Request {
 	return r
 }
 
+// rpc2026 builds a POST of method with params (without _meta) as a client
+// of protocol 2026-07-28 sends it: with the per-request _meta, the
+// Mcp-Method header and, when params name a tool or a prompt, Mcp-Name.
+func rpc2026(t *testing.T, method string, params map[string]any) *http.Request {
+	t.Helper()
+	p := map[string]any{"_meta": map[string]any{
+		"io.modelcontextprotocol/protocolVersion":    "2026-07-28",
+		"io.modelcontextprotocol/clientInfo":         map[string]any{"name": "t", "version": "1"},
+		"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+	}}
+	for k, v := range params {
+		p[k] = v
+	}
+	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 9, "method": method, "params": p})
+	require.NoError(t, err)
+	r := rpc(string(body))
+	r.Header.Set("Mcp-Protocol-Version", "2026-07-28")
+	r.Header.Set("Mcp-Method", method)
+	if name, ok := params["name"].(string); ok {
+		r.Header.Set("Mcp-Name", name)
+	}
+	return r
+}
+
 func withToken(r *http.Request, raw string) *http.Request {
 	r.Header.Set("Authorization", "Bearer "+raw)
 	return r
