@@ -1283,7 +1283,9 @@ toggling a running flow on records nothing (it deploys nothing). A
   `currentVersion`; unknown: `flow_not_found`); a new flow needs `flow` (no
   `ops`) and a name (`name` or `flow.name`, ≤ `MaxDraftNameChars` = 100);
   an existing flow keeps its name unless `name` (or a whole flow's name) is
-  set. `ops` apply to the base (their issues, at `/ops/{i}`:
+  set, and the bound applies only to a name the draft changes (a longer
+  stored name the editor allowed is kept). `ops` apply to the base (their
+  issues, at `/ops/{i}`:
   `invalid_arguments` with `flowIssues`); new nodes are laid out. Authoring
   issue codes (besides Lint's): `sensitive_literal` (error: a `Sensitive`
   property holds a literal, not `{{secret.NAME}}` or the sentinel; the

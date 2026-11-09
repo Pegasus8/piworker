@@ -185,7 +185,9 @@ func (a *Authoring) resolveProposal(req proposalRequest) (*proposal, error) {
 	if req.requireName && p.base == nil && strings.TrimSpace(next.Name) == "" {
 		return nil, toolError(ErrInvalidArguments, "a new flow needs a name")
 	}
-	if utf8.RuneCountInString(next.Name) > MaxDraftNameChars {
+	// The bound is on the names drafts set: a stored name the editor made
+	// longer is kept as it is.
+	if (p.base == nil || next.Name != p.base.Name) && utf8.RuneCountInString(next.Name) > MaxDraftNameChars {
 		return nil, toolError(ErrInvalidArguments, fmt.Sprintf("the name is over %d characters", MaxDraftNameChars))
 	}
 	if len(next.Nodes) > MaxDraftNodes {

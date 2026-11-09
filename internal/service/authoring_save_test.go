@@ -433,3 +433,30 @@ func TestSaveDraftStoresAgentSafeAlerts(t *testing.T) {
 	assert.NotContains(t, string(d.AlertsJSON), "very-private-path", "the base's hidden URL is not an alert value")
 	assert.NotContains(t, string(d.AlertsJSON)+string(d.IssuesJSON), apiKeyCanary)
 }
+
+// The name bound applies to a name the draft sets: an existing flow whose
+// stored name is longer (the editor allows it) can still be drafted, by ops
+// or by a whole flow that keeps the name; renaming it over the bound is
+// refused.
+func TestSaveDraftKeepsALongStoredName(t *testing.T) {
+	e := newAuthEnv(t)
+	f := safeFlow()
+	f.Name = strings.Repeat("n", MaxDraftNameChars+20)
+	stored := e.create(f)
+	agent := e.token()
+	ops := []flow.Op{{Op: flow.OpUpdateNode, NodeID: "calc", Config: map[string]any{"expression": "payload + 1"}}}
+
+	_, err := e.a.SaveDraft(t.Context(), agent, DraftInput{FlowID: stored.ID, BaseVersion: 1, Note: "ops", Ops: ops})
+	require.NoError(t, err)
+	whole := safeFlow()
+	whole.Name = stored.Name
+	_, err = e.a.SaveDraft(t.Context(), agent, DraftInput{FlowID: stored.ID, BaseVersion: 1, Note: "whole", Flow: whole})
+	require.NoError(t, err)
+
+	_, err = e.a.SaveDraft(t.Context(), agent, DraftInput{FlowID: stored.ID, BaseVersion: 1, Note: "rename", Ops: ops,
+		Name: strings.Repeat("m", MaxDraftNameChars+1)})
+	requireKind(t, err, ErrInvalidArguments)
+	whole.Name = strings.Repeat("m", MaxDraftNameChars+1)
+	_, err = e.a.SaveDraft(t.Context(), agent, DraftInput{FlowID: stored.ID, BaseVersion: 1, Note: "rename", Flow: whole})
+	requireKind(t, err, ErrInvalidArguments)
+}
