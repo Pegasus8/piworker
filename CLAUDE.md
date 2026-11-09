@@ -119,13 +119,18 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
 - `vars.DefaultStore` — in-memory key/value store backing the `set-var`/`get-var`
   nodes (persisted to SQLite through the attached store).
 - Shared builtin helpers live alongside the nodes: `evalExpr` (sandboxed
-  `expr-lang`, used by transform/filter/switch/set-var), `renderTemplate`, and
-  `inferDataType`. Reuse these rather than re-implementing.
+  `expr-lang`, used by transform/filter/switch/set-var; compiled with
+  `expr_guard.go`, so loops stop at the evaluation's deadline in every flow),
+  `renderTemplate`, and `inferDataType`. Reuse these rather than re-implementing.
+- Nodes resolve secrets and variables **through their context** when they run
+  (`secrets.FromContext`, `vars.FromContext`/`vars.Scoped`), never in a factory, and start
+  goroutines with `node.Go`: that is what lets a dry-run swap in empty stores
+  and a `node.Sandbox` (ADR-0020).
 - The tool-name registry (`builtin/tool_names.go`) — a `trigger-tool` claims its
   `toolName` on `Start` (duplicate → `node.ErrResourceConflict` → 409) and
   releases it on `Stop`.
 
-### Agent tools (MCP; ADR-0009…0017, `docs/design/mcp.md`)
+### Agent tools (MCP; ADR-0009…0021, `docs/design/mcp.md`)
 - A flow becomes a tool through a `trigger-tool` node (input schema, `confirm`,
   limits) answered by `action-reply`. `internal/toolschema` compiles the closed
   schema subset and validates arguments; `flow/risk.go` (`AnalyzeTools`) rates
@@ -155,12 +160,31 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
   that pins the CA; built for six OS/arch pairs by `make build-mcp-bridge-all`.
 - Background polls from the editor send `X-PiWorker-Background: 1` (or use a
   passive path) so they never extend the session (ADR-0017).
+- **Authoring** (ADR-0018…0021, design §10): agents never write flows, only
+  drafts (`flow_drafts`) through `service.Authoring` (`pw_save_draft`, ops or a
+  whole flow against a `baseVersion`; stale → `conflict`). The admin approves
+  them on `/agents/drafts`. Every definition save is a numbered version in
+  `flow_versions` (`UpdateFlowVersioned`; deploy/stop are `UpdateFlowState`,
+  not versions); editor saves and deploys send the loaded `version` and get 409
+  on a stale one. `flow.Lint` reports every issue from the **same collectors
+  deploy runs** (keep it that way: a flow without Lint errors deploys);
+  `flow.Risk`; `flow.Diff` gives field diffs plus the alerts that define
+  `agent_deploy = low` (`internal/service/deploy.go`). Agent deploys go
+  through the editor's lifecycle path (`FlowsHandler.WithLock`, one lifecycle)
+  and record the deployment marker. `flow.DryRun`/`flow.TestNode` run in a
+  private runtime from `Registry.Derive`: non-`safe` nodes are stubs, stores
+  and secrets are empty, one run at a time.
+- Agent-facing output **never depends on comparing the agent's text with a
+  hidden value** (ADR-0021): echo what the agent wrote, withhold the admin's
+  hidden content whole. Test new agent-facing paths by sending a secret's value
+  and expecting it back unchanged.
 
 ### Storage, auth, config
 - `internal/storage`: SQLite tuned in `buildDSN` (WAL, `busy_timeout`,
   `_txlock=immediate`) with `SetMaxOpenConns(1)` (single writer). Flows are
-  stored as a JSON blob in the `data` column; a `settings` table persists the
-  legacy settings. The user store **shares the same `*sql.DB` handle**
+  stored as a JSON blob in the `data` column with a `version`, each definition
+  also in `flow_versions` (newest 50 plus the last admin-approved); a
+  `settings` table persists the legacy settings. The user store **shares the same `*sql.DB` handle**
   (`NewSQLiteUserStoreWithDB(store.DB())`) — don't open a second pool on the file.
 - Auth: SQLite-backed opaque sessions with HttpOnly/SameSite=Strict cookies,
   Secure whenever PiWorker serves TLS itself (`session_secure` only matters with
@@ -209,7 +233,12 @@ while the tab is hidden).
    from it and deploy type-checks configs against it (`node.CheckConfig`, 400 on
    mismatch). Mark credential fields `Sensitive`, enum/number/boolean and
    identifier-like fields `AgentVisible`, and give numbers a `Unit` repeated in
-   the description. `builtin/schema_policy_test.go` enforces all of this.
+   the description. Mark where data goes `Destination` (URLs, hosts, topics,
+   recipients, paths, pins), opt-ins that widen access `RiskSwitch`, what
+   selects a request's action `Operation`, and rates `Rate` — the `low` agent
+   deploy policy is built on these (ADR-0019). Settings that cannot work
+   without their secrets implement `node.SecretRequirer`.
+   `builtin/schema_policy_test.go` enforces all of this.
    Factories and `Validate` must reject bad config (deploy maps that to 400).
 4. Multi-output nodes: declare each output port and set `SourcePort` on every
    emitted message. Add a `_test.go` next to it.

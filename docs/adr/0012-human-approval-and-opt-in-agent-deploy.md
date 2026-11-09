@@ -1,6 +1,6 @@
 # ADR-0012: Human approval gates and opt-in agent deploy
 
-**Status:** Accepted
+**Status:** Accepted (definition of `low` superseded by ADR-0019)
 **Date:** 2026-11-08
 **Deciders:** maintainer
 **Design:** [docs/design/mcp.md §9–10](../design/mcp.md)
@@ -61,6 +61,6 @@ able to deploy flows, as a risk each installation can choose to accept.
 1. [x] `agent_approvals` storage and editor REST (revoked tokens void their
    pending approvals; per-token cap).
 2. [x] Approval queue UI and execution of approved calls.
-3. [ ] Draft approval page with diff and alerts.
-4. [ ] `agent_deploy` setting with step-up, policy checks, "deployed by agent"
-   marker and one-click rollback.
+3. [x] Draft approval page with diff and alerts (ADR-0018).
+4. [x] `agent_deploy` setting with step-up, policy checks, "deployed by agent"
+   marker and one-click rollback (ADR-0018, ADR-0019).

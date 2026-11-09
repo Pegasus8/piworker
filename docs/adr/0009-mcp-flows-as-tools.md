@@ -73,4 +73,4 @@ GPIO/shell/I2C tools, reading secrets or variables, legacy HTTP+SSE.
 6. [x] Read tools (`pw_list_flows`, `pw_get_flow`, `pw_list_runs`, `pw_get_run`,
    `pw_system_status`, prompt `diagnose_flow`); stdio bridge; SDK-client tests
    for three protocol versions (`main_mcp_test.go`).
-7. [ ] Author tools (drafts, dry-run, lint) and agent deploy (ADR-0012).
+7. [x] Author tools (drafts, dry-run, lint) and agent deploy (ADR-0012, ADR-0018…0021).

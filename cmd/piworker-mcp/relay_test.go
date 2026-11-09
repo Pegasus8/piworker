@@ -225,6 +225,9 @@ func TestRelayUsesTheNegotiatedProtocolVersion(t *testing.T) {
 	b.send(t, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"garage_open"}}`)
 	b.recv(t)
 
+	// The notification is forwarded concurrently with the call and gets no
+	// answer, so it may reach the server after the call's response arrived.
+	require.Eventually(t, func() bool { return len(rec.requests()) == 3 }, 5*time.Second, 5*time.Millisecond)
 	seen := rec.requests()
 	require.Len(t, seen, 3)
 	versions := map[string]string{}
