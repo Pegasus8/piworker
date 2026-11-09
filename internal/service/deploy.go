@@ -547,20 +547,26 @@ func (a *Authoring) recheckDeploy(actor Actor, plan *deployPlan) error {
 }
 
 // deployRefusal maps a lifecycle refusal for agents; saved is the version a
-// draft was saved as before the deploy failed (0: none).
+// draft was saved as before the deploy failed (0: none). After a save the
+// agent always learns it, with the version: a refusal ToolError does not
+// map (an internal failure) becomes unavailable with a fixed message, never
+// the lifecycle's own (it may quote settings).
 func deployRefusal(err error, saved int) error {
-	var le *LifecycleError
-	if !errors.As(err, &le) {
-		return err
+	var te *ToolError
+	if le := (*LifecycleError)(nil); errors.As(err, &le) {
+		te = le.ToolError()
 	}
-	te := le.ToolError()
+	if saved == 0 {
+		if te == nil {
+			return err
+		}
+		return te
+	}
 	if te == nil {
-		return err
+		te = toolError(ErrUnavailable, "the admin can see why in the editor")
 	}
-	if saved > 0 {
-		te.Message = fmt.Sprintf("the draft was saved as version %d, but deploying it failed: %s", saved, te.Message)
-		te.CurrentVersion = saved
-	}
+	te.Message = fmt.Sprintf("the draft was saved as version %d, but deploying it failed: %s", saved, te.Message)
+	te.CurrentVersion = saved
 	return te
 }
 

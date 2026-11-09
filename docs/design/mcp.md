@@ -1529,7 +1529,11 @@ toggling a running flow on records nothing (it deploys nothing). A
     current version, which the draft would replace, is privileged") and the
     alert kinds in `LowDeployRefusedAlerts` order. A draft saved before its deploy failed
     stays saved: the error says "the draft was saved as version N, but
-    deploying it failed: …" with `currentVersion` N. The audit row (args:
+    deploying it failed: …" with `currentVersion` N, whatever the lifecycle
+    answered — a refusal `LifecycleError.ToolError` does not map (a 500: an
+    unclassified deploy error, the marker not recorded) is `unavailable`
+    with a fixed text ("the admin can see why in the editor"), never the
+    lifecycle's message. The audit row (args:
     `flowId`, `draftId`, never the flow) is privileged only when a
     privileged flow's deploy or stop reached the lifecycle path (the lock
     and the re-check passed): a refusal before it is an ordinary row the

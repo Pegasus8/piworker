@@ -1,6 +1,7 @@
 package service
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
@@ -677,4 +678,34 @@ func TestRefusedDeploysAreNotPrivilegedRows(t *testing.T) {
 	require.Len(t, rows, 2)
 	assert.True(t, rows[0].Privileged)
 	assert.Equal(t, "completed", rows[0].Outcome)
+}
+
+// A draft saved as a version whose deploy then fails stays saved (the flow
+// keeps its running intent): the agent is told so with the version, whatever
+// the lifecycle answered, and never the lifecycle's message (it may quote
+// settings).
+func TestDeployADraftWhoseDeployFails(t *testing.T) {
+	for name, failure := range map[string]*LifecycleError{
+		"a mapped refusal": {Status: http.StatusConflict, Message: "Flow is still stopping", Err: flow.ErrFlowStillStopping},
+		"an internal failure": {Status: http.StatusInternalServerError,
+			Message: "Failed to record the deployment: https://user:pw@db.example/x"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newAuthEnv(t)
+			e.setLevel(storage.AgentDeployAll)
+			base := e.create(lightsFlow())
+			agent := e.deployer()
+			saved := e.draft(agent, DraftInput{FlowID: base.ID, BaseVersion: 1, Ops: []flow.Op{
+				{Op: flow.OpUpdateNode, NodeID: "calc", Config: map[string]any{"expression": "payload + 1"}},
+			}})
+			e.life.failDeploy = failure
+			_, err := e.a.Deploy(t.Context(), agent, DeployRequest{FlowID: base.ID, DraftID: saved.DraftID})
+			var te *ToolError
+			require.ErrorAs(t, err, &te)
+			assert.Equal(t, 2, te.CurrentVersion)
+			assert.Contains(t, te.Message, "the draft was saved as version 2, but deploying it failed")
+			assert.NotContains(t, te.Message, "user:pw")
+			assert.Equal(t, 2, mustFlow(t, e, base.ID).Version, "the version stays saved")
+		})
+	}
 }
