@@ -1711,6 +1711,33 @@ func TestMCPDryRunAndTestNode(t *testing.T) {
 	assert.Zero(t, hits.Load())
 }
 
+// No guessing oracle (§10): what an agent sends comes back as it sent it,
+// even when it equals a secret's value (a PIN), through every authoring
+// tool that echoes it; hiding it would confirm the guess.
+func TestMCPEchoesOfSecretValuesComeBackAsSent(t *testing.T) {
+	app := newAuthorApp(t, true, storage.AgentDeployOff)
+	agent := app.agent(t, "claude", storage.ScopeRead, storage.ScopeAuthor)
+	const pin = "48213"
+	defineSecret(t, "pw_e2e_door_pin", pin)
+
+	out := callOK[flow.TestNodeResult](t, agent, "pw_test_node", map[string]any{
+		"type": "process-transform", "config": map[string]any{"expression": "payload"}, "input": pin})
+	require.Len(t, out.Outputs, 1, "%+v", out)
+	assert.Equal(t, `"`+pin+`"`, out.Outputs[0].Preview)
+
+	res := callOK[flow.DryRunResult](t, agent, "pw_dry_run", map[string]any{"payload": pin,
+		"flow": agentChain("", agentNode("start", "trigger-manual", nil), agentNode("calc", "process-transform", map[string]any{"expression": "payload"}))})
+	calc := traceStep(res, "calc")
+	require.NotNil(t, calc)
+	require.Len(t, calc.Outputs, 1)
+	assert.Equal(t, `"`+pin+`"`, calc.Outputs[0].Preview)
+
+	verdict := callOK[service.ValidateResult](t, agent, "pw_validate_flow", map[string]any{
+		"flow": agentChain("", agentNode("cron", "trigger-cron", map[string]any{"expression": pin}))})
+	assert.False(t, verdict.Valid)
+	assert.Contains(t, string(mustJSON(t, verdict.Issues)), `invalid cron expression \"`+pin+`\"`)
+}
+
 // The agent deploy level decides what an agent may deploy: low allows a
 // safe flow and refuses destination changes (H1: and a credential used for
 // another request) and privileged flows; all allows them. The editor sees
