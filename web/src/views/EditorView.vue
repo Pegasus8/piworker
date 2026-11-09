@@ -2,7 +2,7 @@
 import VariablesDialog from '@/components/VariablesDialog.vue'
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
-import { useFlowsStore } from '@/stores/flows'
+import { useFlowsStore, FlowVersionConflictError } from '@/stores/flows'
 import { useObservabilityStore } from '@/stores/observability'
 import { FlowCanvas, NodePalette, NodeConfigPanel, ActivityPanel } from '@/components/flow'
 import { Button, Input, Badge, Dialog } from '@/components/ui'
@@ -75,16 +75,40 @@ onUnmounted(() => {
 async function handleSave(): Promise<boolean> {
   if (!flowsStore.currentFlow || isSaving.value) return false
   isSaving.value = true
+  let conflict: FlowVersionConflictError | null = null
   const saved = await run(async () => {
     if (!flowsStore.currentFlow!.id) {
       const flow = await flowsStore.createFlow(flowsStore.currentFlow!.name, flowsStore.currentFlow!.description)
       flowsStore.currentFlow!.id = flow.id
+      flowsStore.currentFlow!.version = flow.version
       await router.replace(`/editor/${flow.id}`)
     }
-    await flowsStore.saveFlow()
+    try {
+      await flowsStore.saveFlow()
+    } catch (e) {
+      if (e instanceof FlowVersionConflictError) conflict = e
+      throw e
+    }
   }, 'Flow saved.', 'Could not save the flow. Your changes are still here. Try again.')
   isSaving.value = false
+  if (conflict) await offerReload(conflict)
   return saved
+}
+
+// A save never silently overwrites a version saved since this editor loaded
+// the flow (an approved agent draft, another tab): offer to reload it, which
+// discards the changes made here, or to keep editing.
+async function offerReload(conflict: FlowVersionConflictError) {
+  feedback.value = { kind: 'error', text: `Not saved: this flow was changed since you opened it (now version ${conflict.currentVersion}).` }
+  const reload = await confirmation.value?.ask(
+    'This flow was changed elsewhere',
+    `Version ${conflict.currentVersion} was saved after you opened this flow. Reload it to see that version; the changes you made here will be lost. Cancel keeps your changes on screen, unsaved.`,
+    'Reload', 'Cancel')
+  if (reload && flowId.value) {
+    flowsStore.isDirty = false
+    await flowsStore.fetchFlow(flowId.value)
+    feedback.value = { kind: 'success', text: `Reloaded version ${flowsStore.currentFlow?.version ?? conflict.currentVersion}.` }
+  }
 }
 
 async function handleDeploy() {

@@ -4,9 +4,12 @@ import { watchSyncEffect } from 'vue'
 mock.module('../src/stores/nodeTypes', () => ({
   useNodeTypesStore: () => ({ fetchNodeTypes: async () => {}, getById: () => undefined })
 }))
-const apiMock: { getFlow: (id: string) => Promise<unknown> } = { getFlow: async () => ({}) }
+const apiMock: {
+  getFlow: (id: string) => Promise<unknown>
+  updateFlow: (id: string, flow: any) => Promise<any>
+} = { getFlow: async () => ({}), updateFlow: async (_id, flow) => flow }
 mock.module('../src/composables/useApi', () => ({ useApi: () => apiMock }))
-const { useFlowsStore } = await import('../src/stores/flows')
+const { useFlowsStore, FlowVersionConflictError } = await import('../src/stores/flows')
 
 function deferred<T>() {
   let resolve!: (v: T) => void
@@ -94,4 +97,59 @@ test('selected node configuration stays reactive and removing a node clears its 
     expect(store.edges).toHaveLength(0)
     expect(store.isDirty).toBe(true)
   } finally { stop() }
+})
+
+// An axios-shaped rejection.
+function httpError(status: number, data: unknown) {
+  return Object.assign(new Error(`Request failed with status code ${status}`), { response: { status, data } })
+}
+
+test('saving sends the version the editor loaded and keeps the new one', async () => {
+  setActivePinia(createPinia())
+  const store = useFlowsStore()
+  apiMock.getFlow = async () => ({ ...backendFlow('a'), version: 3 })
+  let sent: any
+  apiMock.updateFlow = async (_id, flow) => { sent = flow; return { ...flow, version: 4 } }
+  await store.fetchFlow('a')
+  store.isDirty = true
+
+  await store.saveFlow()
+
+  expect(sent.version).toBe(3)
+  expect(store.currentFlow?.version).toBe(4)
+  expect(store.isDirty).toBe(false)
+})
+
+test('a stale save offers no silent overwrite: it reports the current version', async () => {
+  setActivePinia(createPinia())
+  const store = useFlowsStore()
+  apiMock.getFlow = async () => ({ ...backendFlow('a'), version: 3 })
+  apiMock.updateFlow = async () => {
+    throw httpError(409, { success: false, error: 'The flow was changed since you loaded it', data: { currentVersion: 5 } })
+  }
+  await store.fetchFlow('a')
+  store.isDirty = true
+
+  let caught: unknown
+  try { await store.saveFlow() } catch (e) { caught = e }
+
+  expect(caught).toBeInstanceOf(FlowVersionConflictError)
+  expect((caught as InstanceType<typeof FlowVersionConflictError>).currentVersion).toBe(5)
+  expect(store.isDirty).toBe(true)
+  expect(store.currentFlow?.version).toBe(3)
+  expect(store.nodes.map(n => n.id)).toEqual(['a-node'])
+})
+
+test('other conflicts (a running flow) are ordinary save errors', async () => {
+  setActivePinia(createPinia())
+  const store = useFlowsStore()
+  apiMock.getFlow = async () => ({ ...backendFlow('a'), version: 1 })
+  apiMock.updateFlow = async () => { throw httpError(409, { success: false, error: 'Cannot update a running flow; stop it first' }) }
+  await store.fetchFlow('a')
+
+  let caught: unknown
+  try { await store.saveFlow() } catch (e) { caught = e }
+
+  expect(caught).toBeInstanceOf(Error)
+  expect(caught).not.toBeInstanceOf(FlowVersionConflictError)
 })

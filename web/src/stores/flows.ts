@@ -19,6 +19,24 @@ const frontendCategoryMap: Record<string, string> = {
   action: 'output'
 }
 
+/** A save refused because the flow was saved elsewhere (an approved agent
+ * draft, another tab) after the editor loaded it. Nothing was overwritten. */
+export class FlowVersionConflictError extends Error {
+  constructor(readonly currentVersion: number, message: string) {
+    super(message)
+    this.name = 'FlowVersionConflictError'
+  }
+}
+
+/** The 409 of a stale save carries data.currentVersion; other 409s (a
+ * running flow) do not. */
+function versionConflict(e: unknown): FlowVersionConflictError | null {
+  const response = (e as { response?: { status?: number; data?: any } })?.response
+  const current = response?.data?.data?.currentVersion
+  if (response?.status !== 409 || typeof current !== 'number') return null
+  return new FlowVersionConflictError(current, String(response.data?.error || 'The flow was changed since you loaded it'))
+}
+
 export const useFlowsStore = defineStore('flows', () => {
   const api = useApi()
   const nodeTypesStore = useNodeTypesStore()
@@ -184,13 +202,21 @@ export const useFlowsStore = defineStore('flows', () => {
     try {
       const payload = {
         ...currentFlow.value,
+        // The version this editor loaded: the server refuses the save (409)
+        // when another one was saved since, instead of overwriting it.
+        version: currentFlow.value.version,
         nodes: reverseTransformNodes(nodes.value),
         connections: reverseTransformEdges(edges.value)
       }
       // Remove frontend-only 'edges' key; backend uses 'connections'
       delete (payload as any).edges
       const prevRunning = currentFlow.value.running
-      const updatedFlow = await api.updateFlow(currentFlow.value.id, payload as any)
+      let updatedFlow: Flow
+      try {
+        updatedFlow = await api.updateFlow(currentFlow.value.id, payload as any)
+      } catch (e) {
+        throw versionConflict(e) ?? e
+      }
       // The update response carries the flow but not its live running state;
       // preserve it so the editor's deploy/stop toggle stays accurate.
       updatedFlow.running = prevRunning

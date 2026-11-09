@@ -46,6 +46,8 @@ export interface Flow {
   description?: string
   state?: 'active' | 'inactive' | 'running' | 'failed'
   running?: boolean
+  /** Server-controlled definition version; a save sends the one it loaded (stale → 409). */
+  version?: number
   nodes: FlowNode[]
   edges: FlowEdge[]
   createdAt: string
