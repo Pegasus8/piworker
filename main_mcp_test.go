@@ -716,6 +716,7 @@ func goldenToolFlow(t *testing.T, app mcpApp, id, flowName, name string, cfg map
 // so the transcripts differ only where the protocol versions do.
 func TestMCPProtocolGolden(t *testing.T) {
 	everything := []string{storage.ScopeCall, storage.ScopeRead, storage.ScopeAuthor, storage.ScopeDeploy}
+	answers := map[string]map[string]any{} // tool answers by version
 	for _, version := range mcpserver.ProtocolVersions {
 		t.Run(version, func(t *testing.T) {
 			app := newAuthorApp(t, true, storage.AgentDeployAll)
@@ -809,8 +810,42 @@ func TestMCPProtocolGolden(t *testing.T) {
 				map[string]any{"flowId": report.ID, "draftId": draft.DraftID})
 
 			assertGolden(t, filepath.Join("testdata", "mcp_exchanges_"+version+".golden.json"), g.exchanges)
+			answers[version] = toolAnswers(t, version, g.exchanges)
 		})
 	}
+	// Every tool call is answered alike at every version.
+	for _, version := range mcpserver.ProtocolVersions[1:] {
+		assert.Equal(t, answers[mcpserver.ProtocolVersions[0]], answers[version], version)
+	}
+}
+
+// toolAnswers are the results of a transcript's tools/call exchanges, by
+// exchange, without what the sessionless protocol (2026-07-28) adds to
+// every result: "resultType": "complete" and the server's identity in
+// _meta, checked here.
+func toolAnswers(t *testing.T, version string, exchanges []goldenExchange) map[string]any {
+	t.Helper()
+	out := map[string]any{}
+	for _, ex := range exchanges {
+		if ex.Request.(map[string]any)["method"] != "tools/call" {
+			continue
+		}
+		res := maps.Clone(ex.Response.(map[string]any)["result"].(map[string]any))
+		meta, _ := res["_meta"].(map[string]any)
+		meta = maps.Clone(meta)
+		if version >= "2026-07-28" {
+			assert.Equal(t, "complete", res["resultType"], ex.Name)
+			assert.Contains(t, meta, "io.modelcontextprotocol/serverInfo", ex.Name)
+		}
+		delete(res, "resultType")
+		delete(meta, "io.modelcontextprotocol/serverInfo")
+		delete(res, "_meta")
+		if len(meta) > 0 {
+			res["_meta"] = meta
+		}
+		out[ex.Name] = res
+	}
+	return out
 }
 
 // Versions /mcp does not negotiate are refused on the transport, and so are
