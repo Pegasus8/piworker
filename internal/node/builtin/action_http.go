@@ -338,7 +338,7 @@ func (a *HTTPAction) Process(ctx context.Context, msg *types.Message) ([]*types.
 	// Secrets written in the URL (userinfo, query) and header templates are
 	// resolved now, at request time, so a rotated secret applies without a
 	// redeploy. Text that came from the message never resolves them.
-	sec, err := newRequestSecrets()
+	sec, err := newRequestSecrets(ctx)
 	if err != nil {
 		return nil, err
 	}

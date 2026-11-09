@@ -94,8 +94,8 @@ func NewEmailAction(config map[string]interface{}) (node.Node, error) {
 		host:     host,
 		port:     port,
 		tlsMode:  tlsMode,
-		username: expandSecrets(base.GetConfigString("username", "")),
-		password: expandSecrets(base.GetConfigString("password", "")),
+		username: base.GetConfigString("username", ""), // {{secret.NAME}} resolved per send
+		password: base.GetConfigString("password", ""),
 		from:     from,
 		to:       to,
 		subject:  base.GetConfigString("subject", "PiWorker notification"),
@@ -213,10 +213,12 @@ func (a *EmailAction) send(ctx context.Context, raw []byte) error {
 		}
 	}
 
-	if a.username != "" {
+	// Credentials resolve their secrets now, from the store of the node's
+	// context, so a sandboxed run never sees the real ones.
+	if username := expandSecrets(ctx, a.username); username != "" {
 		// smtp.PlainAuth refuses to send credentials over an unencrypted
 		// connection to a non-localhost server.
-		if err := c.Auth(smtp.PlainAuth("", a.username, a.password, a.host)); err != nil {
+		if err := c.Auth(smtp.PlainAuth("", username, expandSecrets(ctx, a.password), a.host)); err != nil {
 			return err
 		}
 	}

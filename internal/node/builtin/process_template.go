@@ -225,15 +225,18 @@ func resolvePlaceholder(match string, msg *types.Message, ctx context.Context) (
 
 // expandSecrets resolves only {{secret.NAME}} placeholders, leaving every other
 // placeholder untouched. Use it for credential fields (tokens, passwords) that
-// must reference a secret without interpolating message payload.
-func expandSecrets(s string) string {
+// must reference a secret without interpolating message payload. Secrets come
+// from the store carried by ctx (secrets.FromContext): call it when the node
+// runs, with the context it was given, never from a factory.
+func expandSecrets(ctx context.Context, s string) string {
+	store := secrets.FromContext(ctx)
 	return templateRe.ReplaceAllStringFunc(s, func(match string) string {
 		parts := placeholderParts(match)
 		if parts[0] != "secret" {
 			return match
 		}
 		if len(parts) > 1 {
-			if v, ok := secrets.DefaultStore.Get(parts[1]); ok {
+			if v, ok := store.Get(parts[1]); ok {
 				return v
 			}
 		}
@@ -243,14 +246,15 @@ func expandSecrets(s string) string {
 
 // expandSecretsStrict is expandSecrets for values that must not silently
 // degrade: a reference to an undefined secret is an error, not "".
-func expandSecretsStrict(s string) (string, error) {
+func expandSecretsStrict(ctx context.Context, s string) (string, error) {
+	store := secrets.FromContext(ctx)
 	var missing string
 	out := templateRe.ReplaceAllStringFunc(s, func(match string) string {
 		name, ok := secretRef(placeholderParts(match))
 		if !ok {
 			return match
 		}
-		v, exists := secrets.DefaultStore.Get(name)
+		v, exists := store.Get(name)
 		if !exists && missing == "" {
 			missing = name
 		}

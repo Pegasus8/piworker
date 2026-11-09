@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"context"
 	"testing"
 
 	"github.com/Pegasus8/piworker/internal/secrets"
@@ -26,11 +27,11 @@ func TestExpandSecretsOnlyTouchesSecrets(t *testing.T) {
 	require.NoError(t, secrets.DefaultStore.Set("tok", "abc"))
 	defer secrets.DefaultStore.Delete("tok")
 
-	assert.Equal(t, "abc", expandSecrets("{{secret.tok}}"))
+	assert.Equal(t, "abc", expandSecrets(context.Background(), "{{secret.tok}}"))
 	// Non-secret placeholders are left untouched (credential fields must not
 	// interpolate message payload).
-	assert.Equal(t, "{{payload}}", expandSecrets("{{payload}}"))
-	assert.Equal(t, "plain", expandSecrets("plain"))
+	assert.Equal(t, "{{payload}}", expandSecrets(context.Background(), "{{payload}}"))
+	assert.Equal(t, "plain", expandSecrets(context.Background(), "plain"))
 	// Missing secret renders empty.
-	assert.Equal(t, "", expandSecrets("{{secret.absent}}"))
+	assert.Equal(t, "", expandSecrets(context.Background(), "{{secret.absent}}"))
 }

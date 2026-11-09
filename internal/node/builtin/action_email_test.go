@@ -28,7 +28,8 @@ type fakeSMTP struct {
 	ln       net.Listener
 	mu       sync.Mutex
 	data     []string
-	rcptCode string // reply to RCPT TO (default 250)
+	auths    []string // AUTH command lines
+	rcptCode string   // reply to RCPT TO (default 250)
 }
 
 func newFakeSMTP(t *testing.T, tlsCfg *tls.Config) *fakeSMTP {
@@ -63,6 +64,12 @@ func (s *fakeSMTP) messages() []string {
 	return append([]string(nil), s.data...)
 }
 
+func (s *fakeSMTP) authLines() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.auths...)
+}
+
 func (s *fakeSMTP) session(c net.Conn) {
 	defer c.Close()
 	r := bufio.NewReader(c)
@@ -79,6 +86,9 @@ func (s *fakeSMTP) session(c net.Conn) {
 			w("250-fake")
 			w("250 AUTH PLAIN")
 		case strings.HasPrefix(cmd, "AUTH"):
+			s.mu.Lock()
+			s.auths = append(s.auths, strings.TrimSpace(line))
+			s.mu.Unlock()
 			w("235 ok")
 		case strings.HasPrefix(cmd, "MAIL"):
 			w("250 ok")

@@ -55,8 +55,8 @@ func NewMqttTrigger(config map[string]interface{}) (node.Node, error) {
 		BaseNode: base,
 		broker:   broker,
 		clientID: resolveMqttClientID(base.GetConfigString("clientId", ""), "piworker-sub"),
-		username: expandSecrets(base.GetConfigString("username", "")),
-		password: expandSecrets(base.GetConfigString("password", "")),
+		username: base.GetConfigString("username", ""), // {{secret.NAME}} resolved by Start
+		password: base.GetConfigString("password", ""),
 		topic:    topic,
 		qos:      qos,
 
@@ -113,7 +113,7 @@ func (t *MqttTrigger) Start(ctx context.Context, out chan<- *types.Message) erro
 		}
 	}
 
-	opts := newMqttClientOptions(t.broker, t.clientID, t.username, t.password).
+	opts := newMqttClientOptions(t.broker, t.clientID, expandSecrets(ctx, t.username), expandSecrets(ctx, t.password)).
 		SetConnectRetry(true).
 		SetConnectRetryInterval(t.connectRetryInterval).
 		SetOnConnectHandler(func(c mqtt.Client) {
