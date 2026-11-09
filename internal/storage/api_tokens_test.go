@@ -258,6 +258,37 @@ func TestRevokeAllAPITokens(t *testing.T) {
 	assert.Equal(t, after+1, again)
 }
 
+// The count is what the editor reports as "N active tokens revoked", so a
+// token that already expired is revoked too but not counted.
+func TestRevokeAllAPITokensCountsOnlyTokensActiveNow(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	active, _ := newTestToken(t, s, NewAPIToken{})
+	expired, _ := newTestToken(t, s, NewAPIToken{ExpiresAt: testNow.Add(time.Hour)})
+	at := testNow.Add(2 * time.Hour)
+
+	n, err := s.RevokeAllAPITokens(at)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "the expired token was not active")
+	for _, id := range []string{active.ID, expired.ID} {
+		got, err := s.GetAPIToken(id)
+		require.NoError(t, err)
+		require.NotNil(t, got.RevokedAt, "every unrevoked token is revoked")
+	}
+
+	other := createTestStore(t)
+	defer other.Close()
+	newTestToken(t, other, NewAPIToken{})
+	newTestToken(t, other, NewAPIToken{ExpiresAt: testNow.Add(time.Hour)})
+	tx, err := other.DB().Begin()
+	require.NoError(t, err)
+	defer tx.Rollback() //nolint:errcheck // committed below
+	n, err = RevokeAllAPITokensTx(tx, at)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+	require.NoError(t, tx.Commit())
+}
+
 func TestTouchAPITokenLastUsed(t *testing.T) {
 	s := createTestStore(t)
 	defer s.Close()

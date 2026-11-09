@@ -20,7 +20,7 @@ import {
   type ApprovalDecision,
   type AuditEntry,
   type AuditFilters,
-  type AuditRejection,
+  type RejectionTotal,
   type CreateTokenForm,
   type CreatedAgentToken,
   type SnippetTLS
@@ -28,10 +28,14 @@ import {
 
 /** How often the navigation badge refreshes the pending approvals count. */
 export const APPROVAL_POLL_MS = 10_000
+/**
+ * Marks a request the editor sends by itself, not on the admin's behalf: the
+ * server then checks the session without extending its idle expiry
+ * (api.BackgroundRequestHeader).
+ */
+export const BACKGROUND_HEADERS: Readonly<Record<string, string>> = { 'X-PiWorker-Background': '1' }
 /** Audit rows per page. */
 export const AUDIT_PAGE_SIZE = 50
-/** Rejection counter rows read at once (the server's largest audit limit). */
-export const MAX_REJECTION_ROWS = 1000
 const MAX_RECENT_DECISIONS = 10
 
 export type ApprovalFilter = 'pending' | 'approved' | 'rejected' | 'expired' | 'all'
@@ -56,6 +60,18 @@ function status(e: unknown): number | undefined {
 
 const path = (id: string) => encodeURIComponent(id)
 
+/**
+ * Wraps a read so that callers asking while it is in flight share it (the
+ * agent pages' header and the page itself both read the settings at mount).
+ */
+function shared(read: () => Promise<void>): () => Promise<void> {
+  let inFlight: Promise<void> | null = null
+  return () => {
+    inFlight ??= read().finally(() => { inFlight = null })
+    return inFlight
+  }
+}
+
 export const useAgentStore = defineStore('agent', () => {
   const tokens = ref<AgentToken[]>([])
   const tools = ref<AgentTool[]>([])
@@ -66,8 +82,8 @@ export const useAgentStore = defineStore('agent', () => {
   const recentDecisions = ref<ApprovalDecision[]>([])
   const agentApiAvailable = ref(true)
   const audit = ref<AuditEntry[]>([])
-  const rejections = ref<AuditRejection[]>([])
-  /** Whether older counter rows exist than the ones read. */
+  const rejections = ref<RejectionTotal[]>([])
+  /** Whether the server listed only the largest rejection totals. */
   const rejectionsTruncated = ref(false)
   const auditHasMore = ref(false)
   const auditFilters = ref<AuditFilters>({})
@@ -98,20 +114,14 @@ export const useAgentStore = defineStore('agent', () => {
     await fetchTokens()
   }
 
-  /** Revokes every active token; tokens that could not be revoked are named. */
-  async function revokeAllTokens(): Promise<{ revoked: number; failed: string[] }> {
-    let revoked = 0
-    const failed: string[] = []
-    for (const t of activeTokens.value) {
-      try {
-        await apiClient.delete(`/agent/tokens/${path(t.id)}`)
-        revoked++
-      } catch {
-        failed.push(t.name)
-      }
-    }
+  /**
+   * Revokes every token in one server transaction (their pending approvals
+   * are rejected too) and returns how many of them were active.
+   */
+  async function revokeAllTokens(): Promise<number> {
+    const { data } = await apiClient.post('/agent/tokens/revoke-all')
     try { await fetchTokens() } catch { /* shown on the next refresh */ }
-    return { revoked, failed }
+    return data.data?.revoked ?? 0
   }
 
   async function updateGrant(tokenId: string, change: GrantChange) {
@@ -140,7 +150,7 @@ export const useAgentStore = defineStore('agent', () => {
 
   // Agent deploy level. Settings that cannot be read are unknown (null), never
   // the last ones seen: the page must not claim a level it could not read.
-  async function fetchSettings() {
+  const fetchSettings = shared(async () => {
     try {
       const { data } = await apiClient.get('/agent/settings')
       settings.value = data.data ?? null
@@ -148,7 +158,7 @@ export const useAgentStore = defineStore('agent', () => {
       settings.value = null
       throw e
     }
-  }
+  })
 
   async function saveSettings(agentDeploy: AgentDeployLevel, password: string) {
     const { data } = await apiClient.put('/agent/settings', { agentDeploy, password })
@@ -158,12 +168,16 @@ export const useAgentStore = defineStore('agent', () => {
   // Approvals. Lists can be requested while others are in flight (filter
   // changes, refreshes, new requests); only the latest one is shown, and a
   // decision supersedes lists requested before it. Returns false, without
-  // throwing, when the response was superseded.
+  // throwing, when the response was superseded. A background reload (one the
+  // page starts by itself) does not extend the session.
   let approvalsSeq = 0
-  async function fetchApprovals(filter: ApprovalFilter = 'pending'): Promise<boolean> {
+  async function fetchApprovals(filter: ApprovalFilter = 'pending', opts: { background?: boolean } = {}): Promise<boolean> {
     const seq = ++approvalsSeq
     try {
-      const { data } = await apiClient.get('/agent/approvals', { params: { status: filter } })
+      const { data } = await apiClient.get('/agent/approvals', {
+        params: { status: filter },
+        ...(opts.background ? { headers: BACKGROUND_HEADERS } : {})
+      })
       if (seq !== approvalsSeq) return false
       approvals.value = data.data?.approvals ?? []
       pendingCount.value = data.data?.pending ?? 0
@@ -174,9 +188,12 @@ export const useAgentStore = defineStore('agent', () => {
     }
   }
 
+  // The badge's poll: a read-only count that the server answers without
+  // extending the session's idle expiry, so an open tab alone does not keep
+  // a session alive.
   async function refreshPendingCount() {
     try {
-      const { data } = await apiClient.get('/agent/approvals', { params: { status: 'pending', limit: 1 } })
+      const { data } = await apiClient.get('/agent/approvals/pending-count')
       pendingCount.value = data.data?.pending ?? 0
       agentApiAvailable.value = true
     } catch (e) {
@@ -231,13 +248,19 @@ export const useAgentStore = defineStore('agent', () => {
     auditHasMore.value = entries.length === AUDIT_PAGE_SIZE
   }
 
-  // Counters are per token, reason and minute; summing a page of them would
-  // undercount, so they are read with the largest limit.
+  // Rejections are counted per token, reason and minute; the server sums them
+  // per token and reason over the window. A server without the endpoint
+  // (404) has nothing to show.
   async function loadRejections() {
-    const { data } = await apiClient.get('/agent/audit', { params: rejectionParams(auditFilters.value, MAX_REJECTION_ROWS) })
-    const rows: AuditRejection[] = data.data?.rejections ?? []
-    rejections.value = rows
-    rejectionsTruncated.value = rows.length >= MAX_REJECTION_ROWS
+    try {
+      const { data } = await apiClient.get('/agent/audit/rejections', { params: rejectionParams(auditFilters.value) })
+      rejections.value = data.data?.totals ?? []
+      rejectionsTruncated.value = !!data.data?.truncated
+    } catch (e) {
+      rejections.value = []
+      rejectionsTruncated.value = false
+      if (status(e) !== 404) throw e
+    }
   }
 
   async function fetchAudit(filters: AuditFilters) {
@@ -256,10 +279,10 @@ export const useAgentStore = defineStore('agent', () => {
     flowNames.value = Object.fromEntries(flows.map(f => [f.id, f.name]))
   }
 
-  async function fetchTLS() {
+  const fetchTLS = shared(async () => {
     const info = await useApi().getTLSInfo()
     tls.value = { mode: info.mode, caFingerprint: info.caFingerprint }
-  }
+  })
 
   return {
     tokens, tools, toolsError, settings, approvals, pendingCount, recentDecisions, agentApiAvailable,

@@ -419,6 +419,8 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 		authHandler.SetAgentTokenRevoker(agentTokens)
 		api.NewAgentHandler(store, authHandler, agentTokens, api.AgentHandlerOptions{
 			AuthorEnabled: cfg.MCP.AuthorEnabled,
+			MCPEnabled:    cfg.MCP.Enabled,
+			LANAccess:     cfg.MCP.LANAccess,
 			Executor:      services.tools,
 			Logger:        log.Logger,
 		}).RegisterRoutes(router)
@@ -575,7 +577,7 @@ func makeCorsMiddleware(allowedOrigins []string) mux.MiddlewareFunc {
 			}
 
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-PiWorker-Request")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-PiWorker-Request, "+api.BackgroundRequestHeader)
 			w.Header().Set("Access-Control-Max-Age", "86400") // 24 hours
 
 			if r.Method == http.MethodOptions {

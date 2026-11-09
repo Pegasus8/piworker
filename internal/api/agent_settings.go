@@ -6,11 +6,14 @@ import (
 	"github.com/Pegasus8/piworker/internal/storage"
 )
 
-// AgentSettings is the GET/PUT /api/agent/settings payload. AuthorEnabled
-// reflects mcp.author_enabled and is read-only here (it lives in the TOML).
+// AgentSettings is the GET/PUT /api/agent/settings payload. AuthorEnabled,
+// MCPEnabled and LANAccess reflect mcp.author_enabled, mcp.enabled and
+// mcp.lan_access and are read-only here (they live in the TOML).
 type AgentSettings struct {
 	AgentDeploy   storage.AgentDeployLevel `json:"agentDeploy"`
 	AuthorEnabled bool                     `json:"authorEnabled"`
+	MCPEnabled    bool                     `json:"mcpEnabled"`
+	LANAccess     bool                     `json:"lanAccess"`
 }
 
 type putAgentSettingsRequest struct {
@@ -25,7 +28,7 @@ func (h *AgentHandler) settings(w http.ResponseWriter) (AgentSettings, bool) {
 		writeError(w, http.StatusInternalServerError, "Cannot read agent settings")
 		return AgentSettings{}, false
 	}
-	return AgentSettings{AgentDeploy: level, AuthorEnabled: h.authorEnabled}, true
+	return AgentSettings{AgentDeploy: level, AuthorEnabled: h.authorEnabled, MCPEnabled: h.mcpEnabled, LANAccess: h.lanAccess}, true
 }
 
 // GetSettings returns the agent settings.

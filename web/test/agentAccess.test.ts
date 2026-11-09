@@ -1,4 +1,7 @@
 import { expect, test } from 'bun:test'
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   scopeOptions,
   buildCreateTokenRequest,
@@ -10,11 +13,18 @@ import {
   revealHidden,
   countHidden,
   approvalRisk,
+  approvalToolChange,
+  approvalToolName,
   formatRelative,
+  mcpStatus,
   auditParams,
   toolKey,
   EXPIRY_OPTIONS,
   DEPLOY_LEVELS,
+  DESKTOP_CONFIG_PATHS,
+  BRIDGE_COMMAND,
+  DESKTOP_COMMAND_NOTE,
+  DESKTOP_PLAIN_HTTP_NOTE,
   type AgentTool
 } from '../src/lib/agentAccess'
 
@@ -87,47 +97,160 @@ test('expiry choices default to 90 days and stay within the server limit', () =>
 const TOKEN = 'pwk_abcdefghijklmnop_' + 'a'.repeat(52)
 const FP = 'SHA256:AB:CD'
 
-test('Claude Code snippet trusts the local CA and targets the HTTPS listener', () => {
+test('Claude Code checks the CA, then trusts it for the claude command only', () => {
   const s = clientSnippets({ token: TOKEN, location: { protocol: 'https:', hostname: 'raspberrypi.local', port: '8443' }, tls: { mode: 'auto', caFingerprint: FP } })
   expect(s.url).toBe('https://raspberrypi.local:8443/mcp')
+  expect(s.needsCA).toBe(true)
+  // A CA swapped on the way would be trusted for every site Node.js reaches.
+  expect(s.caCheck).toBe('openssl x509 -in ~/piworker-ca.crt -noout -fingerprint -sha256')
   expect(s.claudeCode).toBe([
-    'export NODE_EXTRA_CA_CERTS=~/piworker-ca.crt',
     'claude mcp add --transport http --scope user piworker https://raspberrypi.local:8443/mcp \\',
     `  --header "Authorization: Bearer ${TOKEN}"`
   ].join('\n'))
+  // Scoped to the command, never exported into the shell (profile).
+  expect(s.claudeStart).toBe('NODE_EXTRA_CA_CERTS=~/piworker-ca.crt claude')
+  expect(`${s.caCheck}\n${s.claudeCode}\n${s.claudeStart}`).not.toContain('export')
+})
+
+test('Claude Desktop runs the bridge by its full path with the private token file', () => {
+  const s = clientSnippets({ token: TOKEN, location: { protocol: 'https:', hostname: 'raspberrypi.local', port: '8443' }, tls: { mode: 'auto', caFingerprint: FP } })
   const desktop = JSON.parse(s.claudeDesktop)
-  expect(desktop.mcpServers.piworker.command).toBe('piworker-mcp')
-  expect(desktop.mcpServers.piworker.args).toEqual(['--url', 'https://raspberrypi.local:8443/mcp', '--token-file', '/path/to/piworker-token', '--ca-fingerprint', FP])
+  // Claude Desktop does not use the shell PATH.
+  expect(desktop.mcpServers.piworker.command).toBe('/usr/local/bin/piworker-mcp')
+  expect(BRIDGE_COMMAND.posix).toBe('/usr/local/bin/piworker-mcp')
+  // The bridge expands a leading ~ itself.
+  expect(desktop.mcpServers.piworker.args).toEqual(['--url', 'https://raspberrypi.local:8443/mcp', '--token-file', '~/.piworker-token', '--ca-fingerprint', FP])
+  expect(s.claudeDesktop).not.toContain('/path/to')
+  expect(s.desktopPlainHttp).toBe(false)
   // The token goes into a private file, never into the desktop config.
   expect(s.claudeDesktop).not.toContain(TOKEN)
-  expect(s.tokenFile).toContain(TOKEN)
+  expect(DESKTOP_COMMAND_NOTE).toContain('full path')
+  expect(DESKTOP_COMMAND_NOTE).toContain('PATH')
+  expect(DESKTOP_COMMAND_NOTE).not.toMatch(/in your PATH or/i)
+})
+
+// The token is pasted at a silent prompt, so it never lands in the shell
+// history, and the file is created afresh, private to the user.
+test('the macOS/Linux token-file command keeps the token out of the history and the file private', () => {
+  const s = clientSnippets({ token: TOKEN, location: { protocol: 'https:', hostname: 'pi', port: '8443' }, tls: null })
+  expect(s.tokenFile).not.toContain(TOKEN)
   expect(s.tokenFile).toContain('umask 077')
+  expect(s.tokenFile).toContain('read -rs')
+
+  const home = mkdtempSync(join(tmpdir(), 'pwk-home-'))
+  try {
+    const run = (input: string) => Bun.spawnSync(['bash', '-c', s.tokenFile], { env: { HOME: home, PATH: process.env.PATH ?? '/usr/bin:/bin' }, stdin: new TextEncoder().encode(input) })
+    // An existing file with wider permissions is replaced, not reused.
+    const file = join(home, '.piworker-token')
+    writeFileSync(file, 'old\n', { mode: 0o644 })
+    expect(run(`${TOKEN}\n`).exitCode).toBe(0)
+    expect(readFileSync(file, 'utf8')).toBe(`${TOKEN}\n`)
+    expect(statSync(file).mode & 0o777).toBe(0o600)
+    // Anything else is refused and leaves the file alone.
+    const refused = run('not a token\n')
+    expect(refused.exitCode).not.toBe(0)
+    expect(readFileSync(file, 'utf8')).toBe(`${TOKEN}\n`)
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('Claude Desktop on Windows gets a PowerShell command that keeps the token file private', () => {
+  const s = clientSnippets({ token: TOKEN, location: { protocol: 'https:', hostname: 'raspberrypi.local', port: '8443' }, tls: { mode: 'auto', caFingerprint: FP } })
+  const ps = s.tokenFileWindows
+  // Read at a masked prompt: not in the PSReadLine history.
+  expect(ps).not.toContain(TOKEN)
+  expect(ps).toContain('Read-Host')
+  expect(ps).toContain('-AsSecureString')
+  // Any failure stops it before the token is written.
+  expect(ps).toContain(`$ErrorActionPreference = 'Stop'`)
+  expect(ps).toContain(`$f = Join-Path $env:USERPROFILE '.piworker-token'`)
+  // Created afresh (no explicit entries left from an older file), restricted
+  // to the current user by SID (no name to resolve), checked, then filled.
+  const remove = ps.indexOf('Remove-Item -Force $f')
+  const create = ps.indexOf('New-Item -ItemType File -Path $f')
+  const icacls = ps.indexOf('icacls $f /inheritance:r /grant:r "*$([System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value):(F)"')
+  const check = ps.indexOf('if ($LASTEXITCODE -ne 0)')
+  const write = ps.indexOf('Set-Content -Path $f')
+  for (const i of [remove, create, icacls, check, write]) expect(i).toBeGreaterThanOrEqual(0)
+  expect(remove).toBeLessThan(create)
+  expect(create).toBeLessThan(icacls)
+  expect(icacls).toBeLessThan(check)
+  expect(check).toBeLessThan(write)
+  expect(ps).not.toMatch(/icacls[^\n]*Out-Null/)
+  expect(ps).toContain('-NoNewline -Encoding ascii')
+  expect(ps).not.toContain('umask')
+  // The same bridge flags, with the full path of the .exe and ~ for the token.
+  const desktop = JSON.parse(s.claudeDesktopWindows)
+  expect(desktop.mcpServers.piworker.command).toBe('C:\\Users\\YOU\\AppData\\Local\\Programs\\piworker-mcp\\piworker-mcp.exe')
+  expect(BRIDGE_COMMAND.windows).toBe(desktop.mcpServers.piworker.command)
+  expect(desktop.mcpServers.piworker.args).toEqual(['--url', 'https://raspberrypi.local:8443/mcp', '--token-file', '~\\.piworker-token', '--ca-fingerprint', FP])
+  expect(s.claudeDesktopWindows).toContain('"~\\\\.piworker-token"')
+  expect(s.claudeDesktopWindows).not.toContain(TOKEN)
+  expect(DESKTOP_CONFIG_PATHS.windows).toBe('%APPDATA%\\Claude\\claude_desktop_config.json')
+  expect(DESKTOP_CONFIG_PATHS.macos).toBe('~/Library/Application Support/Claude/claude_desktop_config.json')
 })
 
 test('snippets use the HTTPS port even when the editor is opened over HTTP', () => {
   const s = clientSnippets({ token: TOKEN, location: { protocol: 'http:', hostname: '192.168.1.10', port: '8080' }, tls: { mode: 'auto', caFingerprint: FP } })
   expect(s.url).toBe('https://192.168.1.10:8443/mcp')
+  expect(JSON.parse(s.claudeDesktop).mcpServers.piworker.args[1]).toBe('https://192.168.1.10:8443/mcp')
   const v6 = clientSnippets({ token: TOKEN, location: { protocol: 'https:', hostname: 'fe80::1', port: '' }, tls: { mode: 'auto', caFingerprint: FP } })
   expect(v6.url).toBe('https://[fe80::1]/mcp')
   const bracketed = clientSnippets({ token: TOKEN, location: { protocol: 'https:', hostname: '[fe80::1]', port: '9443' }, tls: null })
   expect(bracketed.url).toBe('https://[fe80::1]:9443/mcp')
 })
 
-test('without the local CA the snippets neither export the CA nor pin a fingerprint', () => {
+test('without the local CA the snippets neither check nor trust the CA, nor pin a fingerprint', () => {
   const custom = clientSnippets({ token: TOKEN, location: { protocol: 'https:', hostname: 'pi.example.lan', port: '443' }, tls: { mode: 'custom', caFingerprint: '' } })
   expect(custom.url).toBe('https://pi.example.lan:443/mcp')
+  expect(custom.needsCA).toBe(false)
+  expect(custom.caCheck).toBe('')
+  expect(custom.claudeStart).toBe('')
   expect(custom.claudeCode).not.toContain('NODE_EXTRA_CA_CERTS')
   expect(JSON.parse(custom.claudeDesktop).mcpServers.piworker.args).not.toContain('--ca-fingerprint')
   const off = clientSnippets({ token: TOKEN, location: { protocol: 'http:', hostname: 'localhost', port: '8080' }, tls: { mode: 'off', caFingerprint: '' } })
-  expect(off.url).toBe('http://localhost:8080/mcp')
   expect(off.claudeCode).not.toContain('NODE_EXTRA_CA_CERTS')
+  expect(off.caCheck).toBe('')
+})
+
+// piworker-mcp accepts plain http only to a loopback IP literal (127.0.0.1 or
+// [::1]): with TLS off the bridge config names this machine by its IP, and
+// the dialog explains why and recommends HTTPS for other devices.
+test('with TLS off, Claude Desktop connects over plain HTTP only to this machine', () => {
+  const plain = { mode: 'off' as const, caFingerprint: '' }
+  for (const hostname of ['localhost', '192.168.1.10', 'raspberrypi.local', '127.0.0.1']) {
+    const s = clientSnippets({ token: TOKEN, location: { protocol: 'http:', hostname, port: '8080' }, tls: plain })
+    expect(JSON.parse(s.claudeDesktop).mcpServers.piworker.args).toEqual(['--url', 'http://127.0.0.1:8080/mcp', '--token-file', '~/.piworker-token'])
+    expect(JSON.parse(s.claudeDesktopWindows).mcpServers.piworker.args[1]).toBe('http://127.0.0.1:8080/mcp')
+    expect(s.desktopPlainHttp).toBe(true)
+  }
+  for (const hostname of ['::1', '[::1]']) {
+    const s = clientSnippets({ token: TOKEN, location: { protocol: 'http:', hostname, port: '8080' }, tls: plain })
+    expect(JSON.parse(s.claudeDesktop).mcpServers.piworker.args[1]).toBe('http://[::1]:8080/mcp')
+    expect(s.url).toBe('http://[::1]:8080/mcp')
+  }
+  // Claude Code on this machine uses the same address; from another device it
+  // keeps the page's host, which answers only with lan_access.
+  expect(clientSnippets({ token: TOKEN, location: { protocol: 'http:', hostname: 'localhost', port: '8080' }, tls: plain }).url).toBe('http://127.0.0.1:8080/mcp')
+  expect(clientSnippets({ token: TOKEN, location: { protocol: 'http:', hostname: '192.168.1.10', port: '8080' }, tls: plain }).url).toBe('http://192.168.1.10:8080/mcp')
+  expect(clientSnippets({ token: TOKEN, location: { protocol: 'http:', hostname: 'localhost', port: '' }, tls: plain }).url).toBe('http://127.0.0.1/mcp')
+  expect(DESKTOP_PLAIN_HTTP_NOTE).toContain('127.0.0.1')
+  expect(DESKTOP_PLAIN_HTTP_NOTE).toContain('[::1]')
+  expect(DESKTOP_PLAIN_HTTP_NOTE).toContain('mode = "auto"')
+  // Behind an HTTPS reverse proxy (TLS off in PiWorker) the page's https
+  // address works for both.
+  const proxied = clientSnippets({ token: TOKEN, location: { protocol: 'https:', hostname: 'pi.example.lan', port: '' }, tls: plain })
+  expect(proxied.url).toBe('https://pi.example.lan/mcp')
+  expect(JSON.parse(proxied.claudeDesktop).mcpServers.piworker.args[1]).toBe('https://pi.example.lan/mcp')
+  expect(proxied.desktopPlainHttp).toBe(false)
 })
 
 test('an unexpected token is shell-quoted so a snippet can never run extra commands', () => {
   const s = clientSnippets({ token: 'pwk_x"; rm -rf ~; "', location: { protocol: 'https:', hostname: 'pi', port: '8443' }, tls: null })
   expect(s.claudeCode).toContain(`--header 'Authorization: Bearer pwk_x"; rm -rf ~; "'`)
   const quote = clientSnippets({ token: "pwk_it's", location: { protocol: 'https:', hostname: 'pi', port: '8443' }, tls: null })
-  expect(quote.tokenFile).toContain(`'pwk_it'\\''s'`)
+  expect(quote.claudeCode).toContain(`--header 'Authorization: Bearer pwk_it'\\''s'`)
 })
 
 test('grant status explains suspensions and tool changes', () => {
@@ -198,18 +321,88 @@ test('JSON text from agents never carries hidden characters', () => {
   expect(countHidden(jsonText(args))).toBe(3)
 })
 
-test('approvals show the tool risk, or say why it is unknown', () => {
-  expect(approvalRisk('tool_call', tool({ risk: 'privileged' }), false)).toMatchObject({ risk: 'privileged', label: 'privileged' })
-  expect(approvalRisk('tool_call', tool({ risk: 'privileged' }), false)!.reason).toContain('as published now')
+test('approvals show the risk recorded with the request', () => {
+  // The recorded risk wins over the tool as published now (ADR-0015).
+  const recorded = approvalRisk({ kind: 'tool_call', toolRisk: 'privileged' }, tool({ risk: 'safe' }), false)!
+  expect(recorded).toMatchObject({ risk: 'privileged', label: 'privileged' })
+  expect(recorded.reason).toContain('when the agent asked')
+  expect(approvalRisk({ kind: 'tool_call', toolRisk: 'safe' }, undefined, true)).toMatchObject({ risk: 'safe', label: 'safe' })
+  // An unexpected recorded value is not trusted as a risk level.
+  expect(approvalRisk({ kind: 'tool_call', toolRisk: 'bogus' as any }, undefined, false)).toMatchObject({ risk: 'unknown' })
+})
+
+test('older approvals without a recorded risk fall back to the published tool, or say why it is unknown', () => {
+  const old = { kind: 'tool_call' }
+  expect(approvalRisk(old, tool({ risk: 'privileged' }), false)).toMatchObject({ risk: 'privileged', label: 'privileged' })
+  expect(approvalRisk(old, tool({ risk: 'privileged' }), false)!.reason).toContain('as published now')
   // A tool that is not published now has no known risk: never show none.
-  const missing = approvalRisk('tool_call', undefined, false)!
+  const missing = approvalRisk(old, undefined, false)!
   expect(missing).toMatchObject({ risk: 'unknown', label: 'risk unknown' })
   expect(missing.reason).toContain('not published')
-  const unavailable = approvalRisk('tool_call', undefined, true)!
+  const unavailable = approvalRisk(old, undefined, true)!
   expect(unavailable).toMatchObject({ risk: 'unknown', label: 'risk unknown' })
   expect(unavailable.reason).toContain('could not be loaded')
   // Draft deploys are reviewed with their own risk on the draft page.
-  expect(approvalRisk('draft_deploy', undefined, false)).toBeNull()
+  expect(approvalRisk({ kind: 'draft_deploy' }, undefined, false)).toBeNull()
+})
+
+test('approvals name the tool recorded with the request', () => {
+  expect(approvalToolName({ kind: 'tool_call', ref: 'n1', toolName: 'garage_open' }, tool({ toolName: 'renamed' }))).toBe('garage_open')
+  expect(approvalToolName({ kind: 'tool_call', ref: 'n1' }, tool({ toolName: 'published' }))).toBe('published')
+  expect(approvalToolName({ kind: 'tool_call', ref: 'n1' }, undefined)).toBe('n1')
+  expect(approvalToolName({ kind: 'draft_deploy', ref: 'draft-1' }, undefined)).toBe('draft-1')
+})
+
+test('a pending approval whose tool changed since the request says it will not run', () => {
+  const a = { kind: 'tool_call', status: 'pending', toolName: 'garage_open', toolFingerprint: 'sha256:aaa' }
+  expect(approvalToolChange(a, tool())).toBe('')
+  expect(approvalToolChange(a, tool({ fingerprint: 'sha256:bbb' }))).toContain('changed since the request')
+  expect(approvalToolChange(a, tool({ toolName: 'other' }))).toContain('changed since the request')
+  // Unknown is not "changed": the server decides when the tools cannot be read.
+  expect(approvalToolChange(a, undefined)).toBe('')
+  expect(approvalToolChange({ ...a, status: 'approved' }, tool({ fingerprint: 'sha256:bbb' }))).toBe('')
+  // Older approvals did not record the tool: approving them runs nothing.
+  expect(approvalToolChange({ kind: 'tool_call', status: 'pending' }, tool())).toContain('did not record')
+  expect(approvalToolChange({ kind: 'draft_deploy', status: 'pending' }, undefined)).toBe('')
+})
+
+test('the MCP status says whether agents can connect and how to turn it on', () => {
+  const settings = (over: Record<string, unknown> = {}) => ({ agentDeploy: 'off', authorEnabled: false, mcpEnabled: true, lanAccess: false, ...over }) as any
+  const auto = { mode: 'auto' as const, caFingerprint: FP }
+  const off = mcpStatus(settings({ mcpEnabled: false }), auto)
+  expect(off.state).toBe('off')
+  expect(off.detail).toContain('enabled = true')
+  expect(off.detail).toContain('[mcp]')
+  expect(off.detail).toContain('PIWORKER_MCP_ENABLED=true')
+  expect(off.detail).toContain('restart')
+  expect(mcpStatus(settings(), auto)).toMatchObject({ state: 'on', label: 'MCP is on' })
+  // Settings that cannot be read are not reported as off or on.
+  expect(mcpStatus(null, auto).state).toBe('unknown')
+  expect(mcpStatus(settings({ mcpEnabled: undefined }), auto).state).toBe('unknown')
+  // With TLS off, only this device can connect unless lan_access is set.
+  const plain = { mode: 'off' as const, caFingerprint: '' }
+  const local = mcpStatus(settings(), plain)
+  expect(local.state).toBe('on')
+  expect(local.label).toContain('this device only')
+  expect(local.detail).toContain('lan_access = true')
+  expect(local.detail).toContain('PIWORKER_MCP_LAN_ACCESS=true')
+  const lan = mcpStatus(settings({ lanAccess: true }), plain)
+  expect(lan.label).toBe('MCP is on')
+  expect(lan.detail).toContain('unencrypted')
+  // lan_access only matters with TLS off.
+  expect(mcpStatus(settings({ lanAccess: true }), auto).detail).not.toContain('unencrypted')
+  // The token dialog shows the detail whenever it limits who can connect.
+  expect(local.localOnly).toBe(true)
+  expect(local.notice).toBe(true)
+  expect(lan.localOnly).toBe(false)
+  expect(mcpStatus(settings(), auto)).toMatchObject({ localOnly: false, notice: false })
+  expect(off.notice).toBe(true)
+  // TLS settings that could not be read make no claim about HTTPS.
+  const unknownTls = mcpStatus(settings(), null)
+  expect(unknownTls.state).toBe('on')
+  expect(unknownTls.detail).not.toContain('over HTTPS')
+  expect(unknownTls.detail).toContain('could not be read')
+  expect(unknownTls).toMatchObject({ localOnly: false, notice: true })
 })
 
 test('relative times read naturally in both directions', () => {

@@ -303,7 +303,13 @@ type toolAnalysis struct {
 	issues   *issueSet
 }
 
+// raise lifts the tool's risk to r. A risk that is not one of the declared
+// values (a node type registered without one) is privileged, so the tool can
+// never end up with a risk that the permission rules do not recognise.
 func (a *toolAnalysis) raise(r node.Risk) {
+	if !r.Valid() {
+		r = node.RiskPrivileged
+	}
 	if riskRank(r) > riskRank(a.risk) {
 		a.risk = r
 	}

@@ -12,7 +12,10 @@ import AgentText from '@/components/agent/AgentText.vue'
 import type { Feedback } from '@/composables/useFeedback'
 import { useAgentStore, apiErrorMessage, type ApprovalFilter } from '@/stores/agent'
 import { useAuthStore } from '@/stores/auth'
-import { approvalRisk, countHidden, formatDateTime, formatRelative, jsonText, visibleText, type AgentApproval, type ApprovalDecision } from '@/lib/agentAccess'
+import {
+  approvalRisk, approvalToolChange, approvalToolName, countHidden, formatDateTime, formatRelative, jsonText, visibleText,
+  type AgentApproval, type ApprovalDecision
+} from '@/lib/agentAccess'
 
 const agent = useAgentStore()
 const auth = useAuthStore()
@@ -34,13 +37,13 @@ const filters = [
 // Loads can overlap (filter, refresh, new requests); the store shows only the
 // latest list, and the page stays loading until none is in flight.
 let loads = 0
-async function load() {
+async function load(opts: { background?: boolean } = {}) {
   if (!auth.authEnabled) return
   loads++
   loading.value = true
   loadError.value = ''
   try {
-    await agent.fetchApprovals(filter.value)
+    await agent.fetchApprovals(filter.value, opts)
   } catch (e) {
     loadError.value = apiErrorMessage(e, 'Could not load the approvals.')
   } finally {
@@ -55,22 +58,28 @@ onMounted(async () => {
   if (auth.authEnabled) await Promise.allSettled([agent.fetchTools(), agent.fetchFlowNames()])
 })
 onBeforeUnmount(() => clearInterval(clock))
-watch(filter, load)
-// New requests arrive through the badge's polling.
+watch(filter, () => load())
+// New requests arrive through the badge's polling. Agents can change the count
+// at will, so this reload is a background request: an open tab alone must not
+// keep the session alive.
 watch(() => agent.pendingCount, (count, before) => {
-  if (filter.value === 'pending' && count !== before && !pending.value) void load()
+  if (filter.value === 'pending' && count !== before && !pending.value) void load({ background: true })
 })
 
 const isTool = (a: AgentApproval) => a.kind === 'tool_call'
 const toolOf = (a: AgentApproval) => isTool(a) ? agent.toolFor(a.flowId, a.ref) : undefined
-const title = (a: AgentApproval) => visibleText(toolOf(a)?.toolName ?? a.ref)
+// The tool name and risk recorded with the request are what approving runs
+// (ADR-0015); the published tool fills in only for older approvals.
+const title = (a: AgentApproval) => visibleText(approvalToolName(a, toolOf(a)))
 const flowName = (a: AgentApproval) => a.flowId ? (toolOf(a)?.flowName ?? agent.flowNames[a.flowId] ?? a.flowId) : ''
 const kindLabel = (a: AgentApproval) => isTool(a) ? 'Tool call' : a.kind === 'draft_deploy' ? 'Draft deploy' : a.kind
 const statusLabel: Record<string, string> = { pending: 'Waiting', approved: 'Approved', rejected: 'Rejected', expired: 'Expired' }
 const tokenStatusLabel: Record<string, string> = { active: 'active', expired: 'token expired', revoked: 'token revoked', unknown: 'token deleted' }
 const riskVariant = (risk: string) => risk === 'privileged' || risk === 'unknown' ? 'destructive' : risk === 'external' ? 'secondary' : 'outline'
-const riskOf = (a: AgentApproval) => approvalRisk(a.kind, toolOf(a), !!agent.toolsError)
-const canApprove = (a: AgentApproval) => a.status === 'pending' && isTool(a) && a.tokenStatus === 'active'
+const riskOf = (a: AgentApproval) => approvalRisk(a, toolOf(a), !!agent.toolsError)
+// Why approving would run nothing ('' when it would run or cannot be told here).
+const toolChange = (a: AgentApproval) => approvalToolChange(a, toolOf(a))
+const canApprove = (a: AgentApproval) => a.status === 'pending' && isTool(a) && a.tokenStatus === 'active' && !toolChange(a)
 const hasArgs = (a: AgentApproval) => a.args !== undefined && a.args !== null
 // Invisible or direction-changing characters in what the agent sent.
 const hiddenCount = (a: AgentApproval) => countHidden(a.summary ?? '') + countHidden(jsonText(a.args))
@@ -124,7 +133,7 @@ const decisions = computed(() => agent.recentDecisions)
               <Label for="approval-filter" class="text-xs">Show</Label>
               <Select id="approval-filter" v-model="filter" aria-label="Approval status" :options="filters" class="h-9 w-36" />
             </div>
-            <Button variant="outline" size="icon" aria-label="Refresh" :disabled="loading" @click="load"><RefreshCw class="h-4 w-4" /></Button>
+            <Button variant="outline" size="icon" aria-label="Refresh" :disabled="loading" @click="load()"><RefreshCw class="h-4 w-4" /></Button>
           </div>
         </div>
 
@@ -184,6 +193,7 @@ const decisions = computed(() => agent.recentDecisions)
           <p v-else-if="a.status === 'pending' && a.tokenStatus !== 'active'" class="text-sm text-muted-foreground">
             The token that asked for this is no longer active, so the request can only be rejected.
           </p>
+          <p v-else-if="toolChange(a)" role="note" class="text-sm text-amber-700 dark:text-amber-400">{{ toolChange(a) }}</p>
           <div v-if="a.status === 'pending'" class="flex flex-wrap gap-2">
             <Button :disabled="pending || !canApprove(a)" @click="decide(a, true)">Approve…</Button>
             <Button variant="outline" :disabled="pending" @click="decide(a, false)">Reject…</Button>

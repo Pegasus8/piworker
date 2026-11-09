@@ -40,6 +40,10 @@ type AgentHandlerOptions struct {
 	// AuthorEnabled mirrors mcp.author_enabled: only then can tokens get the
 	// author scope.
 	AuthorEnabled bool
+	// MCPEnabled and LANAccess mirror mcp.enabled and mcp.lan_access, so the
+	// agent pages can say whether agents can connect at all.
+	MCPEnabled bool
+	LANAccess  bool
 	// Executor runs approved requests (default: unavailable).
 	Executor ApprovalExecutor
 	// Now is the clock (default time.Now).
@@ -54,6 +58,8 @@ type AgentHandler struct {
 	auth          *AuthHandler
 	tokens        *agentauth.TokenVerifier
 	authorEnabled bool
+	mcpEnabled    bool
+	lanAccess     bool
 	executor      ApprovalExecutor
 	now           func() time.Time
 	logger        zerolog.Logger
@@ -68,6 +74,8 @@ func NewAgentHandler(store *storage.SQLiteStore, auth *AuthHandler, tokens *agen
 		auth:          auth,
 		tokens:        tokens,
 		authorEnabled: opts.AuthorEnabled,
+		mcpEnabled:    opts.MCPEnabled,
+		lanAccess:     opts.LANAccess,
 		executor:      opts.Executor,
 		now:           opts.Now,
 		logger:        opts.Logger,
@@ -85,10 +93,13 @@ func NewAgentHandler(store *storage.SQLiteStore, auth *AuthHandler, tokens *agen
 func (h *AgentHandler) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/agent/tokens", h.ListTokens).Methods(http.MethodGet)
 	r.HandleFunc("/api/agent/tokens", h.CreateToken).Methods(http.MethodPost)
+	r.HandleFunc("/api/agent/tokens/revoke-all", h.RevokeAllTokens).Methods(http.MethodPost)
 	r.HandleFunc("/api/agent/tokens/{id}", h.RevokeToken).Methods(http.MethodDelete)
 	r.HandleFunc("/api/agent/tokens/{id}/grants", h.UpdateGrant).Methods(http.MethodPost)
 	r.HandleFunc("/api/agent/audit", h.ListAudit).Methods(http.MethodGet)
+	r.HandleFunc("/api/agent/audit/rejections", h.ListRejectionTotals).Methods(http.MethodGet)
 	r.HandleFunc("/api/agent/approvals", h.ListApprovals).Methods(http.MethodGet)
+	r.HandleFunc(PendingApprovalsCountPath, h.PendingCount).Methods(http.MethodGet)
 	r.HandleFunc("/api/agent/approvals/{id}/approve", h.Approve).Methods(http.MethodPost)
 	r.HandleFunc("/api/agent/approvals/{id}/reject", h.Reject).Methods(http.MethodPost)
 	r.HandleFunc("/api/agent/settings", h.GetSettings).Methods(http.MethodGet)

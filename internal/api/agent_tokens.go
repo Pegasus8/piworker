@@ -205,6 +205,28 @@ func (h *AgentHandler) RevokeToken(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, http.StatusOK, nil, "Token revoked")
 }
 
+// RevokedTokens is the POST /api/agent/tokens/revoke-all payload: how many
+// active tokens were revoked (expired ones are revoked too, uncounted).
+type RevokedTokens struct {
+	Revoked int `json:"revoked"`
+}
+
+// RevokeAllTokens revokes every token in one transaction, which also rejects
+// their pending approvals and bumps the tokens epoch, and stops every cached
+// verification at once. Like revoking one token it needs no password: it
+// only narrows access (docs/design/mcp.md §7).
+// POST /api/agent/tokens/revoke-all
+func (h *AgentHandler) RevokeAllTokens(w http.ResponseWriter, r *http.Request) {
+	n, err := h.tokens.RevokeAll()
+	if err != nil {
+		h.logger.Error().Err(err).Msg("Failed to revoke all agent tokens")
+		writeError(w, http.StatusInternalServerError, "Cannot revoke the agent tokens")
+		return
+	}
+	h.logger.Warn().Int("revoked", n).Str("by", sessionUser(r)).Msg("All agent tokens revoked")
+	writeSuccess(w, http.StatusOK, RevokedTokens{Revoked: n}, "Tokens revoked")
+}
+
 // Errors of the grant mutation run inside the store's transaction.
 var (
 	errGrantNotFound  = errors.New("grant not found")

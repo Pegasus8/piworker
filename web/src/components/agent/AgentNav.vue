@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { computed, onMounted } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { ArrowLeft, Bot } from 'lucide-vue-next'
-import { Button } from '@/components/ui'
+import { Badge, Button } from '@/components/ui'
 import { useAgentStore } from '@/stores/agent'
 import { useAuthStore } from '@/stores/auth'
+import { mcpStatus } from '@/lib/agentAccess'
 
 const router = useRouter()
 const agent = useAgentStore()
@@ -13,6 +15,16 @@ const tabs = [
   { to: '/agents/approvals', label: 'Approvals' },
   { to: '/agents/audit', label: 'Audit' }
 ]
+
+// Whether agents can connect at all (mcp.enabled, and lan_access with TLS
+// off): read once per visit, shared with the page's own reads.
+const mcp = computed(() => mcpStatus(agent.settings, agent.tls))
+const mcpVariant = computed(() => mcp.value.state === 'on' ? 'secondary' : mcp.value.state === 'off' ? 'destructive' : 'outline')
+onMounted(() => {
+  if (!auth.authEnabled) return
+  if (!agent.settings) agent.fetchSettings().catch(() => { /* shown as unknown */ })
+  if (!agent.tls) agent.fetchTLS().catch(() => { /* the TLS mode stays unknown */ })
+})
 </script>
 
 <template>
@@ -25,6 +37,11 @@ const tabs = [
         the access you grant; you approve sensitive requests here and every call is recorded.
       </p>
     </div>
+    <section v-if="auth.authEnabled" aria-label="MCP endpoint" class="flex flex-wrap items-start gap-2 rounded-md border p-3 text-sm"
+      :class="mcp.state === 'off' && 'border-destructive/40 bg-destructive/5'">
+      <Badge :variant="mcpVariant">{{ mcp.label }}</Badge>
+      <p class="min-w-0 flex-1 text-muted-foreground">{{ mcp.detail }}</p>
+    </section>
     <nav aria-label="Agent access sections" class="flex flex-wrap gap-2">
       <RouterLink
         v-for="tab in tabs"

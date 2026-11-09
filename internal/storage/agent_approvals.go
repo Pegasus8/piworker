@@ -28,6 +28,14 @@ const (
 	ApprovalExpired  = "expired"
 )
 
+// Tool risks recorded with a tool call: the node.Risk values (storage does
+// not import the node package).
+const (
+	ApprovalToolRiskSafe       = "safe"
+	ApprovalToolRiskExternal   = "external"
+	ApprovalToolRiskPrivileged = "privileged"
+)
+
 // DecidedBy values recorded when the system, not the admin, closes a pending
 // approval because the token that requested it can no longer act.
 const (
@@ -85,15 +93,19 @@ type AgentApproval struct {
 	// ToolName and ToolFingerprint identify the tool a tool call asks for,
 	// as published when the call was made: an approval runs only that
 	// version of the tool (empty for other kinds).
-	ToolName        string          `json:"toolName,omitempty"`
-	ToolFingerprint string          `json:"toolFingerprint,omitempty"`
-	Args            json.RawMessage `json:"args,omitempty"`
-	Summary         string          `json:"summary"`
-	Status          string          `json:"status"`
-	CreatedAt       time.Time       `json:"createdAt"`
-	DecidedAt       *time.Time      `json:"decidedAt,omitempty"`
-	DecidedBy       string          `json:"decidedBy,omitempty"`
-	ExpiresAt       time.Time       `json:"expiresAt"`
+	ToolName        string `json:"toolName,omitempty"`
+	ToolFingerprint string `json:"toolFingerprint,omitempty"`
+	// ToolRisk is the tool's risk (safe, external or privileged) when the
+	// call was made, shown to the admin (ADR-0015); empty for other kinds
+	// and for approvals stored before it was recorded.
+	ToolRisk  string          `json:"toolRisk,omitempty"`
+	Args      json.RawMessage `json:"args,omitempty"`
+	Summary   string          `json:"summary"`
+	Status    string          `json:"status"`
+	CreatedAt time.Time       `json:"createdAt"`
+	DecidedAt *time.Time      `json:"decidedAt,omitempty"`
+	DecidedBy string          `json:"decidedBy,omitempty"`
+	ExpiresAt time.Time       `json:"expiresAt"`
 	// Result is the JSON CallResult of an approved tool call once it ran
 	// (SetAgentApprovalResult); nil before.
 	Result json.RawMessage `json:"result,omitempty"`
@@ -164,6 +176,16 @@ func (s *SQLiteStore) CreateAgentApproval(a AgentApproval, now time.Time) (*Agen
 	if len(a.ToolName) > MaxApprovalToolRefLength || len(a.ToolFingerprint) > MaxApprovalToolRefLength {
 		return nil, invalidApproval("tool name and fingerprint must not exceed %d bytes", MaxApprovalToolRefLength)
 	}
+	switch a.ToolRisk {
+	case "", ApprovalToolRiskSafe, ApprovalToolRiskExternal, ApprovalToolRiskPrivileged:
+	default:
+		return nil, invalidApproval("unknown tool risk %q", a.ToolRisk)
+	}
+	// A tool call that names its tool is shown with its recorded risk; an
+	// empty one would pass for an approval stored before risks were recorded.
+	if a.Kind == ApprovalKindToolCall && (a.ToolName != "" || a.ToolFingerprint != "") && a.ToolRisk == "" {
+		return nil, invalidApproval("a tool call that names its tool must record the tool's risk")
+	}
 	if a.ExpiresAt.IsZero() {
 		a.ExpiresAt = now.Add(lifetime)
 	}
@@ -205,9 +227,9 @@ func (s *SQLiteStore) CreateAgentApproval(a AgentApproval, now time.Time) (*Agen
 		return nil, err
 	}
 	_, err = tx.Exec(`
-		INSERT INTO agent_approvals (id, kind, token_id, flow_id, ref, tool_name, tool_fingerprint, args_json, summary, status, created_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, a.ID, a.Kind, a.TokenID, a.FlowID, a.Ref, a.ToolName, a.ToolFingerprint, args, a.Summary, a.Status, a.CreatedAt.Unix(), a.ExpiresAt.Unix())
+		INSERT INTO agent_approvals (id, kind, token_id, flow_id, ref, tool_name, tool_fingerprint, tool_risk, args_json, summary, status, created_at, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, a.ID, a.Kind, a.TokenID, a.FlowID, a.Ref, a.ToolName, a.ToolFingerprint, a.ToolRisk, args, a.Summary, a.Status, a.CreatedAt.Unix(), a.ExpiresAt.Unix())
 	if err != nil {
 		if isUniqueViolation(err) {
 			return nil, ErrAgentApprovalExists
@@ -246,7 +268,7 @@ func expireAgentApprovals(tx *sql.Tx, now time.Time) (int64, error) {
 }
 
 const agentApprovalSelect = `
-	SELECT a.id, a.kind, a.token_id, COALESCE(t.name, ''), a.flow_id, a.ref, a.tool_name, a.tool_fingerprint, a.args_json, a.summary,
+	SELECT a.id, a.kind, a.token_id, COALESCE(t.name, ''), a.flow_id, a.ref, a.tool_name, a.tool_fingerprint, a.tool_risk, a.args_json, a.summary,
 	       a.status, a.created_at, a.decided_at, a.decided_by, a.expires_at, t.revoked_at, t.expires_at, a.result_json
 	FROM agent_approvals a LEFT JOIN api_tokens t ON t.id = a.token_id`
 
@@ -263,7 +285,7 @@ func scanAgentApproval(row rowScanner) (*AgentApproval, error) {
 		decided                    sql.NullInt64
 		tokenRevoked, tokenExpires sql.NullInt64
 	)
-	if err := row.Scan(&a.ID, &a.Kind, &a.TokenID, &a.TokenName, &a.FlowID, &a.Ref, &a.ToolName, &a.ToolFingerprint, &args, &a.Summary, &a.Status, &created, &decided, &a.DecidedBy, &expires, &tokenRevoked, &tokenExpires, &result); err != nil {
+	if err := row.Scan(&a.ID, &a.Kind, &a.TokenID, &a.TokenName, &a.FlowID, &a.Ref, &a.ToolName, &a.ToolFingerprint, &a.ToolRisk, &args, &a.Summary, &a.Status, &created, &decided, &a.DecidedBy, &expires, &tokenRevoked, &tokenExpires, &result); err != nil {
 		return nil, err
 	}
 	if args.Valid {
@@ -455,6 +477,7 @@ const agentApprovalsSchema = `
 		ref        TEXT NOT NULL,
 		tool_name  TEXT NOT NULL DEFAULT '',
 		tool_fingerprint TEXT NOT NULL DEFAULT '',
+		tool_risk  TEXT NOT NULL DEFAULT '',
 		args_json  TEXT,
 		summary    TEXT NOT NULL DEFAULT '',
 		status     TEXT NOT NULL,
@@ -505,6 +528,7 @@ func migrateAgentApprovals(db *sql.DB) error {
 		{"result_json", "TEXT"},
 		{"tool_name", "TEXT NOT NULL DEFAULT ''"},
 		{"tool_fingerprint", "TEXT NOT NULL DEFAULT ''"},
+		{"tool_risk", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		has, err := historyHasColumn(db, "agent_approvals", col.name)
 		if err != nil {

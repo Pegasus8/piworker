@@ -12,6 +12,7 @@ A **visual flow-based automation system** for Raspberry Pi and other devices. Cr
 - **Extensible** - Easy to add new node types
 - **Lightweight** - Single binary with embedded frontend, optimized for Raspberry Pi
 - **HTTPS by default** - Local certificate authority generated on first start, with automatic certificate renewal
+- **AI agents (MCP)** - Publish flows as typed tools that Claude Code, Claude Desktop and other MCP clients can call, with scoped tokens, approvals and an audit log
 - **Fast** - Go backend with concurrent message processing
 
 ## Quick Start
@@ -480,6 +481,127 @@ node's documentation.
 
 ---
 
+## AI agents (MCP)
+
+PiWorker can be used by AI agents (Claude Code, Claude Desktop and other
+[Model Context Protocol](https://modelcontextprotocol.io) clients) through its
+`/mcp` endpoint. Agents do not get a tool per node type or raw access to
+commands, GPIO or files: **the flows you publish are the tools**
+([ADR-0009](docs/adr/0009-mcp-flows-as-tools.md),
+[design](docs/design/mcp.md)). An agent can only send the data a tool's input
+schema allows; the flow decides what happens with it.
+
+### Enabling it
+
+MCP is off by default. Set `enabled = true` in the `[mcp]` section of
+`piworker.toml` (or `PIWORKER_MCP_ENABLED=true`) and restart PiWorker; it needs
+`auth = true`. The endpoint is `https://<device>:8443/mcp`. With
+`[tls] mode = "off"` it only answers clients on the same machine unless
+`lan_access = true` (tokens would then cross the network unencrypted). The
+**Agents** pages of the editor show whether MCP is on.
+
+### Publishing a flow as a tool
+
+1. Start the flow with an **Agent Tool** node: a tool name (e.g. `garage_open`),
+   a description the agent reads, and an input schema (see [Agent tools](#agent-tools)).
+2. Connect the nodes that do the work, using the arguments from the payload.
+3. End each branch that answers with an **Agent Reply** node (`result` or `error`).
+4. Deploy the flow: the tool is published while the flow runs.
+5. Under **Agents → New token**, grant the tool to a token and copy the client set-up.
+
+The editor's **Test tool** section of an Agent Tool node calls it the way an
+agent would. PiWorker rates each tool `safe`, `external` or `privileged` from
+the nodes it can reach (commands, files, databases, GPIO and I2C are
+privileged), and tells agents whether a tool is read-only, destructive or
+reaches the outside world.
+
+### Tokens and scopes
+
+Each agent gets its own token (`pwk_…`), created in the editor with your
+password and shown once. Tokens work only on `/mcp`, never on the editor's
+API, and expire after 90 days by default.
+
+- **Scopes**: `call` (call granted tools), `read` (see flows, runs and system
+  status; secrets and variables stay hidden), `author` (draft flows for you to
+  review; only with `author_enabled = true`) and `deploy` (only while the
+  **Agent deploy** level is not off). Drafting and agent deploy tools are
+  described in the [design](docs/design/mcp.md#10-authoring-and-agent-deploy).
+- **Grants** name individual tools, or **all tools** for every published tool
+  that is not privileged. Calling a privileged tool also needs the token's
+  **privileged** flag.
+- A grant is bound to the tool's *fingerprint* (risk, annotations, input
+  schema, confirmation mode). Redeploying a tool with any change suspends its
+  grants until you re-confirm them ([ADR-0015](docs/adr/0015-tool-identity-binds-grants-and-approvals.md)).
+- Revoking a token, or all of them at once, needs no password and takes effect
+  immediately. Account recovery and password changes revoke every token
+  (a password change can keep them on request).
+
+### Approvals and audit
+
+A tool whose confirmation mode is `admin` does not run when called: the agent
+gets `approval_required` and the request waits up to 15 minutes under
+**Agents → Approvals**, with the tool, its recorded risk, the arguments (shown
+as plain text, hidden characters escaped) and the token. Approving runs
+exactly the tool version the agent asked for (a tool changed since runs
+nothing) and keeps the result, which the agent fetches with `pw_get_result`.
+Every agent call is recorded under **Agents → Audit** for 30 days; calls
+refused as busy, cooling down or with invalid arguments are counted per
+token.
+
+### Connecting Claude Code
+
+Save PiWorker's CA, check its fingerprint, add the server with the token,
+and start Claude Code trusting the CA:
+
+```bash
+curl -fo ~/piworker-ca.crt http://raspberrypi.local:8080/piworker-ca.crt
+openssl x509 -in ~/piworker-ca.crt -noout -fingerprint -sha256
+# Stop unless it prints the CA fingerprint shown by `piworkerctl install`,
+# the PiWorker log or the editor's Trust this device page.
+claude mcp add --transport http --scope user piworker https://raspberrypi.local:8443/mcp \
+  --header "Authorization: Bearer pwk_…"
+NODE_EXTRA_CA_CERTS=~/piworker-ca.crt claude   # for this command only
+```
+
+The CA is downloaded over plain HTTP, so the fingerprint check is what makes
+it trustworthy. Node.js trusts `NODE_EXTRA_CA_CERTS` for **every** site, so
+set it for the `claude` command only (an alias such as
+`alias claude='NODE_EXTRA_CA_CERTS=~/piworker-ca.crt claude'` keeps it that
+way) and never export it from your shell profile. To avoid trusting the CA
+at all, run Claude Code through the piworker-mcp bridge instead, which pins
+the CA for PiWorker only:
+`claude mcp add --scope user piworker -- /usr/local/bin/piworker-mcp --url https://raspberrypi.local:8443/mcp --token-file ~/.piworker-token --ca-fingerprint SHA256:…`
+(see below for the token file).
+
+### Connecting Claude Desktop
+
+Claude Desktop starts local (stdio) servers, so it connects through the
+**piworker-mcp** bridge, which pins PiWorker's CA fingerprint and reads the
+token from a private file (`--url`, `--token-file`, `--ca-fingerprint`). The
+editor shows the exact commands for macOS/Linux and Windows when you create a
+token; see [cmd/piworker-mcp/README.md](cmd/piworker-mcp/README.md) for
+installing it. In `claude_desktop_config.json`, `"command"` must be the
+**full path** of the bridge (Claude Desktop does not use your shell's
+`PATH`); `--token-file ~/.piworker-token` may start with `~`. The bridge
+accepts plain `http://` only to `127.0.0.1` or `[::1]`: with
+`[tls] mode = "off"`, Claude Desktop must run on the PiWorker device itself,
+so turn HTTPS on (`mode = "auto"`) to connect from other computers.
+
+### Security notes
+
+- A token is a password: anyone holding it has its access. Give each agent its
+  own token with only the tools it needs, and revoke it when in doubt.
+- Privileged tools (commands, files, databases, GPIO, I2C) need a token with
+  the **privileged** flag; **all tools** never covers them. Arguments that
+  reach privileged nodes must be strictly constrained by the schema.
+- Agents never manage tokens, settings or approvals, and never read secrets
+  or variables. **Agent deploy** is off by default; turning it on needs your
+  password and is a risk you accept for every token with the deploy scope.
+- Client-side confirmations are a convenience, not a control: use
+  `confirm: admin` for anything that needs your approval.
+
+---
+
 ## Configuration
 
 Configuration is layered, in order of increasing precedence:
@@ -506,6 +628,13 @@ mode = "auto"           # auto | custom | off
 hosts = []              # extra certificate names or addresses
 cert_file = ""          # custom mode
 key_file = ""           # custom mode
+
+[mcp]                   # AI agents, see "AI agents (MCP)"
+enabled = false         # mount /mcp (needs auth = true)
+lan_access = false      # with tls.mode = "off": accept non-loopback clients
+max_inflight = 4        # agent calls running at once (1-64)
+max_result_bytes = 16384
+author_enabled = false  # allow the author scope
 ```
 
 ### Command Line Flags
@@ -665,6 +794,11 @@ export PIWORKER_CORS_ORIGINS=http://localhost:3000,http://localhost:8080
 export PIWORKER_ALLOWED_HOSTS=piworker.example.com,backend
 export PIWORKER_ADMIN_USER=admin
 export PIWORKER_ADMIN_PASS=...
+export PIWORKER_MCP_ENABLED=true     # [mcp] enabled
+export PIWORKER_MCP_LAN_ACCESS=false # [mcp] lan_access
+export PIWORKER_MCP_MAX_INFLIGHT=4
+export PIWORKER_MCP_MAX_RESULT_BYTES=16384
+export PIWORKER_MCP_AUTHOR_ENABLED=false
 ```
 
 Boolean variables accept `true/false`, `1/0`, `yes/no` or `on/off`; an empty or
@@ -758,7 +892,9 @@ itself is never replaced automatically.
 use the system trust. Save the CA (for example
 `curl -o ~/piworker-ca.crt http://raspberrypi.local:8080/piworker-ca.crt`), check
 its fingerprint, then use `curl --cacert ~/piworker-ca.crt …` or, for Claude Code,
-`export NODE_EXTRA_CA_CERTS=~/piworker-ca.crt` before starting it.
+start it with `NODE_EXTRA_CA_CERTS=~/piworker-ca.crt claude`: for that command
+only, never exported from your shell profile, since Node.js then trusts the CA
+for every site (see [Connecting Claude Code](#connecting-claude-code)).
 
 **What trusting the CA means.** A trusted CA can vouch for any website on that
 device. PiWorker stores the CA key only in its data directory (`tls/ca.key`), but
@@ -920,6 +1056,23 @@ preserved during migration.
 |--------|----------|-------------|
 | GET | `/piworker-ca.crt` | The local CA certificate (PEM); public, also on the HTTP port; 404 without a local CA |
 | GET | `/api/tls` | TLS mode, CA fingerprint, certificate names and expiry (authenticated) |
+
+### Agent access (editor session only)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET, POST | `/api/agent/tokens` | List tokens; create one (password step-up, plaintext shown once) |
+| DELETE | `/api/agent/tokens/{id}` | Revoke a token |
+| POST | `/api/agent/tokens/revoke-all` | Revoke every token at once; returns how many were active |
+| POST | `/api/agent/tokens/{id}/grants` | Add, re-confirm (password), suspend or remove a grant |
+| GET | `/api/agent/tools` | Published tools, for grant pickers |
+| GET | `/api/agent/approvals` | Approval queue (`status`, `limit`) |
+| GET | `/api/agent/approvals/pending-count` | Pending approvals (does not extend the session) |
+| POST | `/api/agent/approvals/{id}/approve`, `/reject` | Decide; approving runs the call and returns its result |
+| GET | `/api/agent/audit` | Agent calls, newest first (filters, `beforeId` paging) |
+| GET | `/api/agent/audit/rejections` | Rejected calls per token and reason (`tokenId`, `since`, `until`) |
+| GET, PUT | `/api/agent/settings` | Agent deploy level (PUT needs the password), MCP status |
+| POST | `/api/flows/{id}/call/{nodeId}` | Call a published tool as the editor (Test tool) |
 
 ---
 

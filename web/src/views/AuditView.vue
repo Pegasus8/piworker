@@ -6,7 +6,7 @@ import { computed, onMounted, ref } from 'vue'
 import { Badge, Button, Card, Input, Label } from '@/components/ui'
 import AgentNav from '@/components/agent/AgentNav.vue'
 import AgentText from '@/components/agent/AgentText.vue'
-import { useAgentStore, apiErrorMessage, MAX_REJECTION_ROWS } from '@/stores/agent'
+import { useAgentStore, apiErrorMessage } from '@/stores/agent'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime, type AuditFilters } from '@/lib/agentAccess'
 
@@ -23,25 +23,9 @@ const flowName = (id?: string) => id ? (agent.flowNames[id] ?? id) : ''
 const flows = computed(() => Object.entries(agent.flowNames).map(([id, name]) => ({ id, name })))
 const outcomeVariant = (o: string) => o === 'completed' || o === 'completed_no_reply' ? 'secondary' : o === 'error' || o === 'rejected' || o === 'forbidden' ? 'destructive' : 'outline'
 
-// Rejection counters are kept per token, reason and minute; sum them for display.
-const rejectionTotals = computed(() => {
-  const totals = new Map<string, { tokenId: string; reason: string; count: number; last: string }>()
-  for (const r of agent.rejections) {
-    const k = `${r.tokenId}\u0000${r.reason}`
-    const t = totals.get(k)
-    if (t) {
-      t.count += r.count
-      if (r.at > t.last) t.last = r.at
-    } else totals.set(k, { tokenId: r.tokenId, reason: r.reason, count: r.count, last: r.at })
-  }
-  return [...totals.values()].sort((a, b) => b.count - a.count)
-})
-// The oldest minute counted, when older counters were left out.
-const rejectionsSince = computed(() => {
-  if (!agent.rejectionsTruncated) return ''
-  const oldest = agent.rejections.reduce((min, r) => r.at < min ? r.at : min, agent.rejections[0]?.at ?? '')
-  return formatDateTime(oldest)
-})
+// Totals per token and reason over the window, summed by the server.
+const rejectionTotals = computed(() => agent.rejections)
+const rejectionToken = (r: { tokenId: string; tokenName: string }) => r.tokenName || tokenName(r.tokenId)
 
 async function run(action: () => Promise<void>) {
   loading.value = true
@@ -130,7 +114,7 @@ const inputClass = 'flex h-9 w-full rounded-md border border-input bg-background
               The token and time filters apply; the tool, flow and outcome filters do not apply to these counts.
             </p>
             <p v-if="agent.rejectionsTruncated" class="text-sm text-amber-700 dark:text-amber-400">
-              Only the {{ MAX_REJECTION_ROWS }} most recent per-minute counts are summed, back to {{ rejectionsSince }}; older rejections are left out.
+              Only the {{ rejectionTotals.length }} largest totals are listed; narrow the token or time filters to see the others.
             </p>
           </div>
           <div class="overflow-x-auto">
@@ -140,7 +124,7 @@ const inputClass = 'flex h-9 w-full rounded-md border border-input bg-background
               </thead>
               <tbody>
                 <tr v-for="r in rejectionTotals" :key="r.tokenId + r.reason" class="border-t">
-                  <td class="break-words py-2 pr-4">{{ tokenName(r.tokenId) }}</td>
+                  <td class="break-words py-2 pr-4">{{ rejectionToken(r) }}</td>
                   <td class="py-2 pr-4 font-mono text-xs">{{ r.reason }}</td>
                   <td class="py-2 pr-4">{{ r.count }}</td>
                   <td class="whitespace-nowrap py-2">{{ formatDateTime(r.last) }}</td>

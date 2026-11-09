@@ -1,7 +1,7 @@
 import { beforeEach, expect, mock, test } from 'bun:test'
 import { createPinia, setActivePinia } from 'pinia'
 
-type Call = { method: string; url: string; body?: unknown; params?: unknown }
+type Call = { method: string; url: string; body?: unknown; params?: unknown; headers?: Record<string, string> }
 type Responder = (call: Call) => unknown
 let calls: Call[] = []
 let routes: Record<string, Responder> = {}
@@ -19,7 +19,8 @@ async function respond(call: Call) {
 }
 
 const apiClient = {
-  get: (url: string, config?: { params?: unknown }) => respond({ method: 'GET', url, params: config?.params }),
+  get: (url: string, config?: { params?: unknown; headers?: Record<string, string> }) =>
+    respond({ method: 'GET', url, params: config?.params, ...(config?.headers ? { headers: config.headers } : {}) }),
   post: (url: string, body?: unknown) => respond({ method: 'POST', url, body }),
   put: (url: string, body?: unknown) => respond({ method: 'PUT', url, body }),
   delete: (url: string) => respond({ method: 'DELETE', url })
@@ -29,7 +30,7 @@ const legacy = {
   getTLSInfo: async () => ({ mode: 'auto', caFingerprint: 'SHA256:AB', sans: [], notAfter: null, caCertUrl: '/piworker-ca.crt' })
 }
 mock.module('../src/composables/useApi', () => ({ apiClient, useApi: () => legacy }))
-const { useAgentStore, MAX_REJECTION_ROWS } = await import('../src/stores/agent')
+const { useAgentStore } = await import('../src/stores/agent')
 
 const token = (id: string, status = 'active', grants: unknown[] = []) => ({
   id, name: `token ${id}`, prefix: `pwk_${id}`, scopes: ['call'], privileged: false, grants, allTools: false,
@@ -106,18 +107,24 @@ test('revoking one token encodes its id and refreshes the list', async () => {
   expect(store.tokens[0].status).toBe('revoked')
 })
 
-test('revoke all revokes every active token and reports the ones that failed', async () => {
+test('revoke all is one request that revokes every token at once, then refreshes the list', async () => {
   let listed = [token('a'), token('b'), token('c', 'expired'), token('d', 'revoked')]
   routes['GET /agent/tokens'] = () => ({ tokens: listed })
-  routes['DELETE /agent/tokens/a'] = () => null
-  routes['DELETE /agent/tokens/b'] = () => { throw httpError(500) }
+  routes['POST /agent/tokens/revoke-all'] = () => {
+    listed = listed.map(t => ({ ...t, status: 'revoked' }))
+    return { revoked: 3 }
+  }
   const store = useAgentStore()
   await store.fetchTokens()
-  const result = await store.revokeAllTokens()
-  expect(result).toEqual({ revoked: 1, failed: ['token b'] })
-  const deletes = calls.filter(c => c.method === 'DELETE').map(c => c.url)
-  expect(deletes).toEqual(['/agent/tokens/a', '/agent/tokens/b'])
-  listed = []
+  calls = []
+  expect(await store.revokeAllTokens()).toBe(3)
+  expect(calls.map(c => `${c.method} ${c.url}`)).toEqual(['POST /agent/tokens/revoke-all', 'GET /agent/tokens'])
+  expect(calls[0].body).toBeUndefined()
+  expect(store.activeTokens).toEqual([])
+
+  // A failure is reported to the caller; nothing is half done on the server.
+  routes['POST /agent/tokens/revoke-all'] = () => { throw httpError(500, 'Cannot revoke the agent tokens') }
+  await expect(store.revokeAllTokens()).rejects.toThrow('Cannot revoke the agent tokens')
 })
 
 test('grant changes send only the fields the action needs and update the token', async () => {
@@ -154,6 +161,32 @@ test('agent deploy settings are read and changed with the password', async () =>
   expect(store.settings).toBeNull()
 })
 
+test('reads of the settings and TLS details in flight are shared by the views asking at once', async () => {
+  routes['GET /agent/settings'] = () => ({ agentDeploy: 'off', authorEnabled: false, mcpEnabled: true, lanAccess: false })
+  let tlsReads = 0
+  const realTLS = legacy.getTLSInfo
+  legacy.getTLSInfo = async () => { tlsReads++; return realTLS() }
+  try {
+    const store = useAgentStore()
+    await Promise.all([store.fetchSettings(), store.fetchSettings(), store.fetchTLS(), store.fetchTLS()])
+    expect(calls.filter(c => c.url === '/agent/settings')).toHaveLength(1)
+    expect(tlsReads).toBe(1)
+    expect(store.settings?.mcpEnabled).toBe(true)
+    expect(store.tls?.mode).toBe('auto')
+    // A later read asks again.
+    await Promise.all([store.fetchSettings(), store.fetchTLS()])
+    expect(calls.filter(c => c.url === '/agent/settings')).toHaveLength(2)
+    expect(tlsReads).toBe(2)
+    // A failed read fails every caller that shared it.
+    routes['GET /agent/settings'] = () => { throw httpError(503, 'Cannot read agent settings') }
+    const results = await Promise.allSettled([store.fetchSettings(), store.fetchSettings()])
+    expect(results.map(r => r.status)).toEqual(['rejected', 'rejected'])
+    expect(store.settings).toBeNull()
+  } finally {
+    legacy.getTLSInfo = realTLS
+  }
+})
+
 test('approvals are listed by status and keep the pending count for the badge', async () => {
   routes['GET /agent/approvals'] = (c) => ({ approvals: [approval('x')], pending: 3, echo: c.params })
   const store = useAgentStore()
@@ -161,8 +194,12 @@ test('approvals are listed by status and keep the pending count for the badge', 
   expect(calls[0].params).toEqual({ status: 'all' })
   expect(store.approvals.map(a => a.id)).toEqual(['x'])
   expect(store.pendingCount).toBe(3)
+  // The badge polls the lightweight count, which does not keep the session alive.
+  routes['GET /agent/approvals/pending-count'] = () => ({ pending: 1 })
   await store.refreshPendingCount()
-  expect(calls[1].params).toEqual({ status: 'pending', limit: 1 })
+  expect(`${calls[1].method} ${calls[1].url}`).toBe('GET /agent/approvals/pending-count')
+  expect(calls[1].params).toBeUndefined()
+  expect(store.pendingCount).toBe(1)
 })
 
 test('a slower, older approvals response never replaces a newer one', async () => {
@@ -204,6 +241,19 @@ test('a slower, older approvals response never replaces a newer one', async () =
   } finally {
     apiClient.get = realGet
   }
+})
+
+// The Approvals page reloads its list when the badge count changes, which an
+// agent can cause at will; those reloads are background requests, which do
+// not extend the session (api.BackgroundRequestHeader).
+test('a background reload of the approvals marks itself so the session is not extended', async () => {
+  routes['GET /agent/approvals'] = () => ({ approvals: [approval('x')], pending: 1 })
+  const store = useAgentStore()
+  await store.fetchApprovals('pending', { background: true })
+  expect(calls[0].headers).toEqual({ 'X-PiWorker-Background': '1' })
+  expect(calls[0].params).toEqual({ status: 'pending' })
+  await store.fetchApprovals('pending')
+  expect(calls[1].headers).toBeUndefined()
 })
 
 test('a decision is not undone by a list requested before it', async () => {
@@ -253,18 +303,16 @@ test('approving keeps the decision and its execution outcome', async () => {
 })
 
 const auditPage = (from: number, n: number) => Array.from({ length: n }, (_, i) => ({ id: from - i, ts: '2026-11-08T12:00:00Z', tokenId: 'a', tokenName: 'laptop', tool: 't', outcome: 'completed', durMs: 5, privileged: false }))
-const rejection = (minute: number, count = 1) => ({ tokenId: 'a', at: new Date(Date.UTC(2026, 10, 8, 12, minute)).toISOString(), reason: 'busy', count })
-// Entries come from requests that page by entries; counters from the one that asks for none.
-const isCounters = (c: Call) => (c.params as Record<string, unknown>).beforeId === 1
+const total = (reason: string, count: number) => ({ tokenId: 'a', tokenName: 'laptop', reason, count, last: '2026-11-08T12:05:00Z' })
+const isTotals = (c: Call) => c.url === '/agent/audit/rejections'
 
 test('the audit pages backwards with beforeId and appends', async () => {
   let next = auditPage(100, 50)
-  routes['GET /agent/audit'] = (c) => isCounters(c)
-    ? { entries: [], rejections: [rejection(0, 4)] }
-    : { entries: next, rejections: [] }
+  routes['GET /agent/audit'] = () => ({ entries: next, rejections: [] })
+  routes['GET /agent/audit/rejections'] = () => ({ totals: [total('busy', 4)], truncated: false })
   const store = useAgentStore()
   await store.fetchAudit({ tool: 'garage_open' })
-  const entryCalls = () => calls.filter(c => !isCounters(c))
+  const entryCalls = () => calls.filter(c => c.url === '/agent/audit')
   expect(entryCalls()[0].params).toEqual({ tool: 'garage_open', limit: 50 })
   expect(store.audit).toHaveLength(50)
   expect(store.auditHasMore).toBe(true)
@@ -274,8 +322,8 @@ test('the audit pages backwards with beforeId and appends', async () => {
   expect(entryCalls()[1].params).toEqual({ tool: 'garage_open', beforeId: 51, limit: 50 })
   expect(store.audit).toHaveLength(53)
   expect(store.auditHasMore).toBe(false)
-  // Paging does not reload the counters.
-  expect(calls.filter(isCounters)).toHaveLength(1)
+  // Paging does not reload the totals.
+  expect(calls.filter(isTotals)).toHaveLength(1)
   // A new search starts over.
   next = auditPage(10, 1)
   await store.fetchAudit({})
@@ -283,24 +331,25 @@ test('the audit pages backwards with beforeId and appends', async () => {
   expect(store.audit.map(e => e.id)).toEqual([10])
 })
 
-test('rejection counters are read apart, with the largest limit and only the filters they support', async () => {
-  let counters = [rejection(2), rejection(1)]
-  routes['GET /agent/audit'] = (c) => isCounters(c) ? { entries: [], rejections: counters } : { entries: auditPage(5, 1), rejections: [rejection(9)] }
+test('rejection totals are summed by the server, with only the filters they support', async () => {
+  routes['GET /agent/audit'] = () => ({ entries: auditPage(5, 1), rejections: [] })
+  routes['GET /agent/audit/rejections'] = () => ({ totals: [total('busy', 7), total('cooldown', 2)], truncated: false })
   const store = useAgentStore()
   const local = '2026-11-08T12:30'
   await store.fetchAudit({ tokenId: 'a', tool: 'garage_open', flowId: 'f1', outcome: 'busy', since: local, until: local })
-  // The server applies only the token and the time range to counters, and a
-  // page of entries would cut them to its own limit. beforeId=1 asks for no
-  // entries (ids start at 1).
-  const counterCall = calls.find(isCounters)!
+  // The server applies only the token and the time window to rejections.
   const at = new Date(local).toISOString().replace(/\.\d{3}Z$/, 'Z')
-  expect(counterCall.params).toEqual({ tokenId: 'a', since: at, until: at, beforeId: 1, limit: MAX_REJECTION_ROWS })
-  expect(MAX_REJECTION_ROWS).toBe(1000)
-  expect(store.rejections).toEqual(counters)
+  expect(calls.find(isTotals)!.params).toEqual({ tokenId: 'a', since: at, until: at })
+  expect(store.rejections.map(r => [r.reason, r.count])).toEqual([['busy', 7], ['cooldown', 2]])
   expect(store.rejectionsTruncated).toBe(false)
-  counters = Array.from({ length: MAX_REJECTION_ROWS }, (_, i) => rejection(i % 60))
+  routes['GET /agent/audit/rejections'] = () => ({ totals: [total('busy', 1)], truncated: true })
   await store.fetchAudit({})
+  expect(calls.filter(isTotals).at(-1)!.params).toEqual({})
   expect(store.rejectionsTruncated).toBe(true)
+  // A server without the totals endpoint answers 404: nothing to show.
+  delete routes['GET /agent/audit/rejections']
+  await store.fetchAudit({})
+  expect(store.rejections).toEqual([])
 })
 
 test('flow names and TLS details come from the existing API', async () => {
@@ -319,7 +368,7 @@ test('server error messages are preferred over the fallback', async () => {
 })
 
 test('the approval badge polls once for all watchers and stops with the last one', async () => {
-  routes['GET /agent/approvals'] = () => ({ approvals: [], pending: 2 })
+  routes['GET /agent/approvals/pending-count'] = () => ({ pending: 2 })
   const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' })
   let timers = 0
   const opts = { document: doc as any, setInterval: () => ++timers, clearInterval: () => { timers-- } }

@@ -187,13 +187,14 @@ docker logs piworker 2>&amp;1 | grep "CA fingerprint"</code></pre>
         <h2 class="text-lg font-semibold"><Terminal class="mr-1 inline h-5 w-5" />Command-line tools and Claude Code</h2>
         <p class="text-sm text-muted-foreground">
           Tools such as curl and Node.js (Claude Code) do not always use the system trust. Save the CA, check its
-          fingerprint, and point them at it:
+          fingerprint (stop if it differs), and point each command at it. Do not export NODE_EXTRA_CA_CERTS in your
+          shell profile: every Node.js program would then trust this CA for every website.
         </p>
         <pre class="overflow-x-auto rounded-md bg-muted p-3 text-xs"><code>{{ cliDownload }}
 openssl x509 -in ~/{{ caFileName() }} -noout -fingerprint -sha256
 curl --cacert ~/{{ caFileName() }} {{ httpsBase }}/api/health
-# Claude Code: add to your shell profile, then start claude
-export NODE_EXTRA_CA_CERTS=~/{{ caFileName() }}</code></pre>
+# Claude Code: trust the CA for this command only
+NODE_EXTRA_CA_CERTS=~/{{ caFileName() }} claude</code></pre>
       </Card>
 
       <Card class="space-y-2 p-4 sm:p-6">

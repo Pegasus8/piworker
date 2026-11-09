@@ -103,6 +103,20 @@ test('stopped flows expose persisted runs and node errors with retry', async ({ 
  await expect(dialog).toContainText('3 ms')
 })
 
+test('run history shows who started each run', async ({ page }) => {
+ const run = (id: string, actor?: string) => ({ id, flowId: 'core', status: 'success', nodeCount: 1, errorCount: 0, startedAt: '2026-09-12T12:00:00Z', ...(actor === undefined ? {} : { actor }) })
+ await page.route('**/api/flows/core/runs?*', route => route.fulfill({ json: { success: true, data: { runs: [run('agent-run', 'token:laptop <b>x</b>'), run('editor-run', 'editor'), run('trigger-run')] } } }))
+ await page.route('**/api/flows/core/runs/*/events', route => route.fulfill({ json: { success: true, data: { events: [] } } }))
+ await page.goto('/editor/core')
+ await page.getByRole('button', { name: /^Runs/ }).click()
+ await expect(page.getByRole('button', { name: 'View run agent-run' }).getByTestId('run-actor')).toHaveText('Agent laptop <b>x</b>')
+ await expect(page.getByRole('button', { name: 'View run editor-run' }).getByTestId('run-actor')).toHaveText('Editor')
+ await expect(page.getByRole('button', { name: 'View run trigger-run' }).getByTestId('run-actor')).toHaveText('Trigger')
+ await expect(page.locator('b')).toHaveCount(0)
+ await page.getByRole('button', { name: 'View run agent-run' }).click()
+ await expect(page.getByRole('dialog', { name: 'Run details' })).toContainText('Started by: Agent laptop <b>x</b>')
+})
+
 test('run history errors remain retryable while stopped and closing details discards late results', async ({ page }) => {
  let calls = 0
  await page.route('**/api/flows/core/runs?*', route => {

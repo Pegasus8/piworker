@@ -15,7 +15,7 @@ import type { Feedback } from '@/composables/useFeedback'
 import { useAgentStore, apiErrorMessage, type GrantChange } from '@/stores/agent'
 import { useAuthStore } from '@/stores/auth'
 import {
-  DEPLOY_LEVELS, clientSnippets, formatDateTime, formatRelative, grantStatus, toolKey,
+  DEPLOY_LEVELS, clientSnippets, formatDateTime, formatRelative, grantStatus, mcpStatus, toolKey,
   type AgentDeployLevel, type AgentToken, type CreatedAgentToken, type TokenGrant
 } from '@/lib/agentAccess'
 
@@ -37,6 +37,7 @@ const levelPassword = ref('')
 const settingsError = ref('')
 
 const endpoint = computed(() => clientSnippets({ token: '', location: window.location, tls: agent.tls }).url)
+const mcp = computed(() => mcpStatus(agent.settings, agent.tls))
 const levelChanged = computed(() => !!agent.settings && !!level.value && level.value !== agent.settings.agentDeploy)
 watch(() => agent.settings?.agentDeploy, v => { level.value = v ?? null }, { immediate: true })
 const authorScope = computed(() => !agent.settings ? 'unknown' : agent.settings.authorEnabled ? 'enabled' : 'disabled')
@@ -104,17 +105,11 @@ async function revoke(t: AgentToken) {
 
 async function revokeAll() {
   const n = agent.activeTokens.length
-  if (pending.value || !n || !await confirmation.value?.ask('Revoke all tokens?', `All ${n} active token${n === 1 ? '' : 's'} stop working immediately. Agents need new tokens to connect again.`, 'Revoke all tokens')) return
-  if (pending.value) return
-  pending.value = true
-  feedback.value = { kind: 'pending', text: 'Revoking…' }
-  try {
-    const { revoked, failed } = await agent.revokeAllTokens()
-    feedback.value = failed.length
-      ? { kind: 'error', text: `Revoked ${revoked}; could not revoke: ${failed.join(', ')}. Try again.` }
-      : { kind: 'success', text: `Revoked ${revoked} token${revoked === 1 ? '' : 's'}.` }
-  } finally {
-    pending.value = false
+  if (pending.value || !n || !await confirmation.value?.ask('Revoke all tokens?', `All ${n} active token${n === 1 ? '' : 's'} stop working immediately, and their requests waiting for approval are rejected. Agents need new tokens to connect again.`, 'Revoke all tokens')) return
+  // One request revokes every token in one transaction: all of them or none.
+  let revoked = 0
+  if (await act(async () => { revoked = await agent.revokeAllTokens() }, '', 'Could not revoke the tokens. Try again.')) {
+    feedback.value = { kind: 'success', text: `Revoked ${revoked} token${revoked === 1 ? '' : 's'}.` }
   }
 }
 
@@ -299,15 +294,15 @@ function cancelLevel() {
           Agents connect to <code class="break-all">{{ endpoint }}</code> and send their token as a Bearer header. Each new
           token comes with ready-to-paste set-up for Claude Code and Claude Desktop.
         </p>
+        <p v-if="mcp.state !== 'on'" class="text-sm text-muted-foreground">{{ mcp.label }}: {{ mcp.detail }}</p>
         <p class="text-sm text-muted-foreground">
-          MCP is off by default: set <code>enabled = true</code> in the <code>[mcp]</code> section of piworker.toml and
-          restart PiWorker. Clients must trust this PiWorker's certificate:
+          Clients must trust this PiWorker's certificate:
           <RouterLink to="/trust" class="text-primary underline-offset-2 hover:underline">Trust this device</RouterLink>.
         </p>
       </Card>
     </div>
     <CreateTokenDialog v-model:open="showCreate" @created="onCreated" />
-    <TokenSecretDialog :created="created" :tls="agent.tls" @done="created = null" />
+    <TokenSecretDialog :created="created" :tls="agent.tls" :mcp="mcp" @done="created = null" />
     <PasswordPrompt ref="passwordPrompt" />
     <ConfirmDialog ref="confirmation" />
   </main>

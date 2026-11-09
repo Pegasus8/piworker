@@ -3,8 +3,31 @@
 This complements `validate_pi.py`: it runs **the real installer against production
 paths** on a clean Linux/systemd Raspberry Pi, with Python 3.9+, curl, tar and glibc
 2.35+. Do not use a Pi with an existing PiWorker installation or valuable PiWorker
-data. Preflight refuses existing service, binary, configuration, data or backups.
+data. Preflight refuses existing service, binary, configuration, data or backups,
+and requires ports **8443** and **8080** to be free.
 It does not automatically install OS dependencies or reboot the machine.
+
+## HTTPS during the test
+
+The installer sets up native HTTPS: the service serves the editor and API on
+`https://<pi>:8443` with a certificate from the local CA it creates on first
+start (`/var/lib/piworker/tls/ca.crt`). Port 8080 only redirects to HTTPS,
+except `/api/health` and `/piworker-ca.crt`, which it answers directly.
+
+The test talks to the service at `https://127.0.0.1:8443` and trusts **only the
+installed CA** (`/var/lib/piworker/tls/ca.crt`); certificate verification is
+never turned off. It also checks that port 8080 answers `/api/health` and
+serves exactly the installed CA. Each phase reads the CA file again; the kit
+does not check that the CA stays the same across update, reinstall and reboot
+(PiWorker only replaces it with `-tls-regenerate-ca`), so compare
+`/var/lib/piworker/tls/ca.crt` before and after if you need that.
+
+To look at the test installation from another computer, download the CA from
+`http://<pi>:8080/piworker-ca.crt`, compare its SHA-256 fingerprint with the
+one `piworkerctl install` printed (`openssl x509 -in piworker-ca.crt -noout
+-fingerprint -sha256`), trust it (the editor's **Trust this device** page has
+per-OS steps) and open `https://<pi>:8443`. Remove that trust when you are done
+with the test Pi.
 
 ## Run the prepared kit
 
@@ -53,7 +76,11 @@ sudo python3 validate_installation.py prepare --browser
 ```
 
 This runs Chromium as the service account, with its sandbox enabled and a temporary
-profile, verifies the rendered login and saves `/var/lib/piworker-release-test/login.png`.
+profile, opens `https://127.0.0.1:8443/`, verifies the rendered login and saves
+`/var/lib/piworker-release-test/login.png`. Chromium cannot be pointed at a CA
+file, so the script first verifies the certificate the service presents against
+the installed CA and then lets Chromium accept only that certificate (its public
+key pin); any other certificate still fails.
 Failure to launch or render is a failed check; it is not silently counted as passed.
 Without the flag the report explicitly marks browser rendering as not tested.
 This does not replace interactive flow editing and mobile browser checks.

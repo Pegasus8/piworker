@@ -386,6 +386,7 @@ func (t *Tools) requestApproval(actor Actor, info flow.ToolInfo, args map[string
 		Ref:             info.TriggerNodeID,
 		ToolName:        info.ToolName,
 		ToolFingerprint: info.Fingerprint,
+		ToolRisk:        string(info.Risk),
 		Args:            data,
 		Summary:         capText(summary, storage.MaxApprovalSummaryLength),
 	}, t.now())

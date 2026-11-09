@@ -378,9 +378,18 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 - Recovery-code redemption and password change revoke all tokens (password
   change: unless "keep agent tokens" is ticked), in the server process.
 - API (cookie): `GET/POST /api/agent/tokens`, `DELETE /api/agent/tokens/{id}`,
+  `POST /api/agent/tokens/revoke-all` (no password; one transaction that
+  also voids pending approvals and bumps `tokens_epoch`; returns how many
+  active, i.e. unexpired, tokens it revoked),
   `POST /api/agent/tokens/{id}/grants` (re-confirm), `GET /api/agent/audit`,
   `GET/POST /api/agent/approvals[/{id}/approve|reject]`,
-  `GET/PUT /api/agent/settings` (agent deploy level; PUT needs step-up),
+  `GET /api/agent/approvals/pending-count` (the editor badge's poll: a
+  read-only count of pending, unexpired approvals, authenticated without
+  extending the session's idle expiry and without a write transaction),
+  `GET/PUT /api/agent/settings` (agent deploy level; PUT needs step-up; also
+  reports the read-only TOML settings `authorEnabled`, `mcpEnabled` and
+  `lanAccess`, so the editor can say whether agents can connect),
+  `GET /api/agent/audit/rejections` (rejection totals, §9),
   `GET /api/agent/tools` (the published tools, for grant pickers):
   ```json
   {"version": 7, "tools": [{"flowId": "…", "flowName": "…", "triggerNodeId": "…",
@@ -389,6 +398,11 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
     "destructiveHint": true, "idempotentHint": false, "openWorldHint": true},
     "fingerprint": "sha256:…", "confirm": "admin", "inputSchema": {…}}]}
   ```
+- Requests the editor starts by itself, not on the admin's behalf (the
+  Approvals page reloading its list when the badge count changes, which an
+  agent can cause at will), carry `X-PiWorker-Background: 1`; any guarded
+  path then checks the session without extending its idle expiry. The header
+  can only shorten a session, so it needs no allowlist (CORS allows it).
 
 ## 8. `/mcp` endpoint — `internal/mcpserver`
 
@@ -533,9 +547,12 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 ## 9. Approvals (`confirm: admin`) and audit
 
 - Table `agent_approvals(id, kind, token_id, flow_id, ref, tool_name,
-  tool_fingerprint, args_json, summary, status, created_at, decided_at,
-  decided_by, expires_at, result_json)`; kinds: `tool_call`, `draft_deploy`.
-  Pending approvals expire (tool calls: 15 min).
+  tool_fingerprint, tool_risk, args_json, summary, status, created_at,
+  decided_at, decided_by, expires_at, result_json)`; kinds: `tool_call`,
+  `draft_deploy`. Pending approvals expire (tool calls: 15 min). The editor
+  shows the tool name and risk recorded with the request (`toolName`,
+  `toolRisk`), falling back to the published tool only for approvals stored
+  before the risk was recorded.
 - A `confirm: admin` call returns `{status:"approval_required", runId}`; the
   editor shows a queue (badge + page) with tool, args (text only), risk and
   token; approve runs the call and stores its `CallResult` on the approval
@@ -555,9 +572,16 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   and per agent read (§8); async batched writes; retention
   30 days by time; rejections (`busy`, cooldown, invalid args) stored as
   per-token per-minute counters (`mcp_rejections`); privileged calls never
-  evicted early. The audit API pages by `id` (most recently recorded first).
+  evicted early. The audit API pages by `id` (most recently recorded first);
+  `GET /api/agent/audit/rejections?tokenId&since&until` sums the counters per
+  token and reason in SQL (at most 500 groups, largest first, `truncated`
+  when more matched).
 - Agent-authored text is rendered as plain text only (never `marked`/`v-html`);
-  the webui sends `Content-Security-Policy: script-src 'self'`.
+  every webui response sends `Content-Security-Policy` (`webui.ContentSecurityPolicy`:
+  `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+  img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none';
+  base-uri 'self'; form-action 'self'; frame-ancestors 'none'`). The built
+  `index.html` has no inline script (tested).
 
 ## 10. Authoring and agent deploy
 
@@ -617,11 +641,14 @@ Environment: `PIWORKER_TLS_MODE`, `PIWORKER_HTTP_ADDR`, `PIWORKER_ALLOWED_HOSTS`
 
 ## 12. Clients
 
-Claude Code (trust the CA once via `NODE_EXTRA_CA_CERTS`):
+Claude Code (check the CA's fingerprint, then trust it through
+`NODE_EXTRA_CA_CERTS` for the `claude` command only: Node.js trusts it for
+every site, so it is never exported from the shell profile):
 ```bash
-export NODE_EXTRA_CA_CERTS=~/piworker-ca.crt
+openssl x509 -in ~/piworker-ca.crt -noout -fingerprint -sha256   # must match
 claude mcp add --transport http --scope user piworker https://raspberrypi.local:8443/mcp \
   --header "Authorization: Bearer pwk_…"
+NODE_EXTRA_CA_CERTS=~/piworker-ca.crt claude
 ```
 Claude Desktop: stdio bridge `piworker-mcp` (`cmd/piworker-mcp`, usage in its
 README; pure Go, `CGO_ENABLED=0`, enforced by a test; `make
@@ -663,6 +690,16 @@ windows amd64, attached to releases) with `--url`, `--token-file`, `--ca-file`
   `data.httpStatus` (429: `data.retryAfter`); other JSON-RPC error bodies pass
   through. Limits: 4 MiB per stdin message, 16 MiB per answer, 2 min per
   request; at stdin EOF, in-flight requests get 10 s, then exit 0.
+- The editor's new-token dialog gives the token-file command for macOS/Linux
+  (`umask 077`, file recreated) and for Windows (PowerShell, file recreated,
+  `icacls` restricted to the current user's SID, stopping before the token is
+  written if it fails), both reading the token at a silent prompt so it stays
+  out of the shell history, with the matching `claude_desktop_config.json`:
+  `"command"` is the bridge's full path (Claude Desktop does not use the shell
+  `PATH`), `--token-file ~/.piworker-token` (the bridge expands `~`), and with
+  TLS off `--url http://127.0.0.1:<port>/mcp` (or `[::1]`), the only plain-HTTP
+  destinations the bridge accepts, with a note recommending `mode = "auto"` for
+  other computers.
 
 ## 13. Testing
 

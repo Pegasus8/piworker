@@ -330,7 +330,35 @@ func (h *AuthHandler) Password(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) csrfAllowed(r *http.Request) bool {
 	return csrfAllowed(r, h.secure, h.origins)
 }
+
+// passiveSessionPaths are polled in the background by every open editor tab.
+// They need a valid session but are not activity: authenticating them never
+// extends the session's idle expiry, so a forgotten tab does not keep a
+// session alive past SessionIdleTimeout.
+var passiveSessionPaths = map[string]bool{
+	PendingApprovalsCountPath: true,
+}
+
+// BackgroundRequestHeader marks a request the editor sends by itself (a
+// refresh triggered by polling), not on the admin's behalf. Set to "1", the
+// session is authenticated without extending its idle expiry. A client can
+// only shorten its own session with it, so every guarded path accepts it.
+const BackgroundRequestHeader = "X-PiWorker-Background"
+
+// AuthMiddleware requires a valid session on guarded /api paths and extends
+// its idle expiry, except on passiveSessionPaths and background requests
+// (BackgroundRequestHeader), which it authenticates with the non-touching
+// variant.
 func AuthMiddleware(h *AuthHandler) mux.MiddlewareFunc {
+	return authMiddleware(h, func(r *http.Request) bool {
+		return !passiveSessionPaths[r.URL.Path] && r.Header.Get(BackgroundRequestHeader) != "1"
+	})
+}
+
+// authMiddleware authenticates the session; touch says whether a request
+// counts as activity that extends the session's idle expiry (false: the
+// session is only checked, as live event streams re-check it).
+func authMiddleware(h *AuthHandler, touch func(*http.Request) bool) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !isGuardedAPIPath(r.URL.Path) {
@@ -352,7 +380,7 @@ func AuthMiddleware(h *AuthHandler) mux.MiddlewareFunc {
 				writeError(w, 401, "Sign in to continue")
 				return
 			}
-			session, err := h.store.GetSession(cookie.Value, time.Now(), true)
+			session, err := h.store.GetSession(cookie.Value, time.Now(), touch(r))
 			if errors.Is(err, storage.ErrSessionNotFound) {
 				h.setCookie(w, r, "", -1)
 				writeError(w, 401, "Session expired. Please sign in again.")
