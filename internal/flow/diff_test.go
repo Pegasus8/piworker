@@ -175,10 +175,10 @@ func TestDiffAlerts(t *testing.T) {
 				tg := r.Alerts[0]
 				assert.Equal(t, "tg", tg.NodeID)
 				assert.Equal(t, "config.chatId", tg.Path)
-				assert.Equal(t, "111", tg.Before)
-				assert.Equal(t, "222", tg.After)
+				assert.Nil(t, tg.Before, "chatId is not AgentVisible: the field diff has it, the alert does not")
+				assert.Nil(t, tg.After)
 				assert.Equal(t, "mail", r.Alerts[1].NodeID)
-				assert.Equal(t, "ops@example.com", r.Alerts[1].After)
+				assert.Nil(t, r.Alerts[1].After)
 				assert.Equal(t, "gone", r.Alerts[2].NodeID)
 				assert.Equal(t, "config.broker", r.Alerts[2].Path)
 				assert.Equal(t, "config.topic", r.Alerts[3].Path)
@@ -312,4 +312,219 @@ func TestDiffHidesSensitiveValues(t *testing.T) {
 	require.Len(t, mq.Fields, 1)
 	assert.Equal(t, flow.FieldDiff{Path: "config.password", Change: flow.ChangeChanged, Before: flow.HiddenValue, After: flow.HiddenValue, Sensitive: true}, mq.Fields[0])
 	assert.Contains(t, alertKinds(r), flow.AlertSensitiveLiteral)
+}
+
+func disabled(n flow.Node) flow.Node {
+	n.Enabled = false
+	return n
+}
+
+// Alerts describe the flow that runs: a disabled node counts as absent, as
+// for Risk, so enabling one is like adding it and disabling one like
+// removing it.
+func TestDiffAlertsTreatDisabledNodesAsAbsent(t *testing.T) {
+	evil := func() flow.Node {
+		return lintNode("h", "action-http", map[string]any{"url": "https://evil.example.com/x", "headers": map[string]any{"Authorization": "{{secret.api}}"}})
+	}
+	approved := lintNode("a", "action-http", map[string]any{"url": "https://api.example.com/", "headers": map[string]any{"Authorization": "{{secret.api}}"}})
+	cases := []struct {
+		name       string
+		base, next *flow.Flow
+		want       []string
+	}{
+		{
+			name: "enabling a dormant destination and secret",
+			base: diffFlow(trigger(), disabled(evil())),
+			next: diffFlow(trigger(), evil()),
+			want: []string{flow.AlertRiskRaised, flow.AlertSecretAdded, flow.AlertDestinationChanged, flow.AlertNewHost},
+		},
+		{
+			name: "enabling a node that reuses an approved secret elsewhere",
+			base: diffFlow(trigger(), approved, disabled(evil())),
+			next: diffFlow(trigger(), approved, evil()),
+			want: []string{flow.AlertSecretMoved, flow.AlertDestinationChanged, flow.AlertNewHost},
+		},
+		{
+			name: "enabling a dormant risk switch",
+			base: diffFlow(trigger(), disabled(lintNode("rss", "trigger-rss", map[string]any{"url": "http://10.0.0.2/feed", "allowPrivate": true}))),
+			next: diffFlow(trigger(), lintNode("rss", "trigger-rss", map[string]any{"url": "http://10.0.0.2/feed", "allowPrivate": true})),
+			want: []string{flow.AlertRiskRaised, flow.AlertPrivilegedNodeAdded, flow.AlertRiskSwitchOn, flow.AlertDestinationChanged, flow.AlertNewHost},
+		},
+		{
+			name: "enabling a dormant literal credential",
+			base: diffFlow(trigger(), disabled(lintNode("mq", "action-mqtt", map[string]any{"broker": "tcp://broker.lan:1883", "topic": "t", "password": "hunter2"}))),
+			next: diffFlow(trigger(), lintNode("mq", "action-mqtt", map[string]any{"broker": "tcp://broker.lan:1883", "topic": "t", "password": "hunter2"})),
+			want: []string{flow.AlertRiskRaised, flow.AlertDestinationChanged, flow.AlertNewHost, flow.AlertSensitiveLiteral, flow.AlertDestinationChanged},
+		},
+		{
+			name: "disabling a destination is like removing it",
+			base: diffFlow(trigger(), lintNode("tg", "action-telegram", map[string]any{"chatId": "111"})),
+			next: diffFlow(trigger(), disabled(lintNode("tg", "action-telegram", map[string]any{"chatId": "111"}))),
+			want: []string{flow.AlertDestinationChanged},
+		},
+		{
+			name: "changing a node that stays disabled",
+			base: diffFlow(trigger(), disabled(lintNode("tg", "action-telegram", map[string]any{"chatId": "111"}))),
+			next: diffFlow(trigger(), disabled(lintNode("tg", "action-telegram", map[string]any{"chatId": "{{payload.chat}}", "botToken": "literal"}))),
+			want: []string{},
+		},
+		{
+			name: "removing a disabled node",
+			base: diffFlow(trigger(), disabled(evil())),
+			next: diffFlow(trigger()),
+			want: []string{},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := flow.Diff(tc.base, tc.next, node.DefaultRegistry)
+			assert.Equal(t, tc.want, alertKinds(r))
+		})
+	}
+}
+
+// Alerts are stored with a draft and returned to its author, so they hold
+// no setting value an agent may not read (the read-view rule: only
+// AgentVisible, non-Sensitive values) — only risks, hosts, secret names and
+// risk-switch booleans. The field diffs (editor only) hold the values.
+func TestDiffAlertsHoldNoHiddenValues(t *testing.T) {
+	base := diffFlow(trigger(),
+		lintNode("tg", "action-telegram", map[string]any{"chatId": "-100123456789", "botToken": "{{secret.bot}}"}),
+		lintNode("mail", "action-email", map[string]any{"host": "smtp.corp.internal", "to": "ceo@corp.example", "port": float64(587)}),
+		lintNode("http", "action-http", map[string]any{"url": "https://hooks.slack.com/services/T0/B0/XOXBSECRETPATH"}),
+		lintNode("mq", "action-mqtt", map[string]any{"broker": "tcp://broker.lan:1883", "topic": "home/secret-topic"}),
+		lintNode("i2c", "action-i2c", map[string]any{"bus": "1", "address": "0x76"}))
+	next := diffFlow(trigger(),
+		lintNode("http", "action-http", map[string]any{"url": "https://hooks.slack.com/services/T0/B0/OTHERSECRETPATH"}),
+		lintNode("mq", "action-mqtt", map[string]any{"broker": "tcp://broker.lan:1883", "topic": "home/{{payload.room}}-private"}),
+		lintNode("i2c", "action-i2c", map[string]any{"bus": "1", "address": "0x77"}))
+
+	r := flow.Diff(base, next, node.DefaultRegistry)
+	require.NotEmpty(t, r.Alerts)
+	alerts, err := json.Marshal(r.Alerts)
+	require.NoError(t, err)
+	for _, hidden := range []string{"-100123456789", "smtp.corp.internal", "ceo@corp.example", "XOXBSECRETPATH", "OTHERSECRETPATH", "secret-topic", "-private"} {
+		assert.NotContains(t, string(alerts), hidden)
+	}
+	// AgentVisible values are shown.
+	var i2c *flow.Alert
+	for k := range r.Alerts {
+		if r.Alerts[k].NodeID == "i2c" {
+			i2c = &r.Alerts[k]
+		}
+	}
+	require.NotNil(t, i2c)
+	assert.Equal(t, "0x76", i2c.Before)
+	assert.Equal(t, "0x77", i2c.After)
+
+	// The editor's field diffs still show what changed.
+	report, err := json.Marshal(r.Nodes)
+	require.NoError(t, err)
+	assert.Contains(t, string(report), "ceo@corp.example")
+}
+
+// A second node under an existing ID is a node of its own in the report,
+// with every alert, not a silent duplicate (deploy refuses the flow, but the
+// approval page must still show it).
+func TestDiffReportsDuplicateNodeIDs(t *testing.T) {
+	base := diffFlow(trigger(), lintNode("h", "action-http", map[string]any{"url": "https://api.example.com/"}))
+	next := diffFlow(trigger(),
+		lintNode("h", "action-http", map[string]any{"url": "https://api.example.com/"}),
+		lintNode("h", "action-http", map[string]any{"url": "https://evil.example/", "headers": map[string]any{"X": "{{secret.k}}"}}))
+	r := flow.Diff(base, next, node.DefaultRegistry)
+	require.Len(t, r.Nodes, 1)
+	assert.Equal(t, "h", r.Nodes[0].NodeID)
+	assert.Equal(t, flow.ChangeAdded, r.Nodes[0].Change)
+	assert.Equal(t, []string{flow.AlertSecretAdded, flow.AlertDestinationChanged, flow.AlertNewHost}, alertKinds(r))
+
+	same := flow.Diff(next, next, node.DefaultRegistry)
+	assert.Empty(t, same.Nodes, "duplicates are paired in order")
+	assert.Empty(t, same.Alerts)
+
+	removed := flow.Diff(next, base, node.DefaultRegistry)
+	require.Len(t, removed.Nodes, 1)
+	assert.Equal(t, flow.ChangeRemoved, removed.Nodes[0].Change)
+}
+
+// What a credential the admin approved is used for changes when the
+// request's operation (an HTTP method or body) or its input changes.
+func TestDiffFlagsCredentialedRequestChanges(t *testing.T) {
+	authed := func(cfg map[string]any) flow.Node {
+		c := map[string]any{"url": "https://api.example.com/items", "method": "GET", "headers": map[string]any{"Authorization": "Bearer {{secret.api}}"}}
+		for k, v := range cfg {
+			c[k] = v
+		}
+		return lintNode("h", "action-http", c)
+	}
+	cases := []struct {
+		name       string
+		base, next *flow.Flow
+		want       []string
+		check      func(t *testing.T, r flow.DiffReport)
+	}{
+		{
+			name: "method",
+			base: diffFlow(trigger(), authed(nil)),
+			next: diffFlow(trigger(), authed(map[string]any{"method": "DELETE"})),
+			want: []string{flow.AlertCredentialedRequestChanged},
+			check: func(t *testing.T, r flow.DiffReport) {
+				a := r.Alerts[0]
+				assert.Equal(t, "h", a.NodeID)
+				assert.Equal(t, "config.method", a.Path)
+				assert.Equal(t, "GET", a.Before, "method is AgentVisible")
+				assert.Equal(t, "DELETE", a.After)
+			},
+		},
+		{
+			name: "body",
+			base: diffFlow(trigger(), authed(map[string]any{"method": "POST", "body": "{\"a\":1}"})),
+			next: diffFlow(trigger(), authed(map[string]any{"method": "POST", "body": "{\"drop\":true}"})),
+			want: []string{flow.AlertCredentialedRequestChanged},
+			check: func(t *testing.T, r flow.DiffReport) {
+				assert.Nil(t, r.Alerts[0].Before, "body is not AgentVisible")
+				assert.Nil(t, r.Alerts[0].After)
+			},
+		},
+		{
+			name: "a new input",
+			base: diffFlow(trigger(), authed(nil)),
+			next: func() *flow.Flow {
+				f := diffFlow(trigger(), authed(nil), lintNode("x", "process-transform", map[string]any{"expression": "payload"}))
+				f.Connections = []flow.Connection{lintConn("c1", "t", "output", "x", "input"), lintConn("c2", "x", "output", "h", "input")}
+				return f
+			}(),
+			want: []string{flow.AlertCredentialedRequestChanged},
+			check: func(t *testing.T, r flow.DiffReport) {
+				assert.Equal(t, "h", r.Alerts[0].NodeID)
+				assert.Empty(t, r.Alerts[0].Path)
+			},
+		},
+		{
+			name: "no credential, no alert",
+			base: diffFlow(trigger(), lintNode("h", "action-http", map[string]any{"url": "https://api.example.com/", "method": "GET"})),
+			next: diffFlow(trigger(), lintNode("h", "action-http", map[string]any{"url": "https://api.example.com/", "method": "DELETE"})),
+			want: []string{},
+		},
+		{
+			name: "content of a credentialed message is not an operation",
+			base: diffFlow(trigger(), lintNode("tg", "action-telegram", map[string]any{"chatId": "1", "botToken": "{{secret.bot}}", "message": "hi"})),
+			next: diffFlow(trigger(), lintNode("tg", "action-telegram", map[string]any{"chatId": "1", "botToken": "{{secret.bot}}", "message": "hello"})),
+			want: []string{},
+		},
+		{
+			name: "a literal credential counts too",
+			base: diffFlow(trigger(), lintNode("h", "action-http", map[string]any{"url": "https://api.example.com/", "headers": map[string]any{"Authorization": "Bearer abc"}})),
+			next: diffFlow(trigger(), lintNode("h", "action-http", map[string]any{"url": "https://api.example.com/", "headers": map[string]any{"Authorization": "Bearer abc"}, "method": "POST"})),
+			want: []string{flow.AlertCredentialedRequestChanged},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := flow.Diff(tc.base, tc.next, node.DefaultRegistry)
+			assert.Equal(t, tc.want, alertKinds(r))
+			if tc.check != nil {
+				tc.check(t, r)
+			}
+		})
+	}
 }
