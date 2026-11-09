@@ -178,16 +178,22 @@ export interface DeployLevelOption {
   value: AgentDeployLevel
   label: string
   risk: string
-  /** The guessing residual of the read views, for levels that let agents deploy. */
+  /** What the level adds to the guessing residual (GUESSING_AT_EVERY_LEVEL). */
   residual?: string
 }
 
 /**
- * The read views hide known secret values by comparison, so an agent that
- * can put its own text in a flow version or a run and read it back can
- * confirm a guess (ADR-0021, docs/design/mcp.md §6).
+ * What agents read (the read views, tool results) hides known secret values
+ * by comparison, so an agent whose own text comes back to it can confirm a
+ * guess, at every agent deploy level (ADR-0021, docs/design/mcp.md §6).
  */
-const GUESSING_RESIDUAL = 'An agent whose token also has the author and read scopes can save a guess of a secret\'s value in a flow it deploys, or in a run\'s output, and read it back: the read views hide known secret values, so a hidden guess is a right one. Only short values can be guessed this way. Credentials typed into a setting are hidden the same way: store them as secrets, where short ones are marked.'
+export const GUESSING_AT_EVERY_LEVEL = 'What agents read hides known secret values, so an agent can confirm a guess of a value wherever its own text comes back hidden, whatever the level: with the call scope, from a granted tool that repeats its arguments; with the read scope, from an error a run records of what it sent (a tool call, a webhook or an MQTT message); with the author and read scopes, from a draft you approve. Only short or predictable values can be guessed this way. Credentials typed into a setting are hidden the same way but never checked: store them as secrets, where short ones are marked.'
+
+/**
+ * What letting agents deploy adds: an agent saves its guesses in a flow
+ * version or a run of it with no approval per round (ADR-0021).
+ */
+const GUESSING_RESIDUAL = 'An agent whose token also has the author and read scopes can guess without your approval: it saves a guess of a secret\'s value in a flow it deploys, or in an error a run of it records, and reads it back. The settings of that flow agents cannot see are hidden from its run errors the same way, so keep guessable passwords and paths out of them.'
 
 /** Agent deploy levels with the risk the admin accepts (docs/design/mcp.md §10). */
 export const DEPLOY_LEVELS: DeployLevelOption[] = [

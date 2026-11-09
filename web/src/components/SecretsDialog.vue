@@ -24,8 +24,8 @@ const error = ref('')
 const newName = ref('')
 const newValue = ref('')
 
-// Short values can be guessed by an agent allowed to deploy flows
-// (ADR-0021): marked with an icon and words, never color alone.
+// An agent could confirm a guess of a short value (ADR-0021): marked with
+// an icon and words, never color alone.
 const notice = computed(() => shortSecretNotice(shortBelow.value))
 const hasShort = computed(() => items.value.some(s => s.short))
 const newValueShort = computed(() => !!newValue.value && isShortValue(newValue.value, shortBelow.value))

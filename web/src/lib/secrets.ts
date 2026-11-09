@@ -1,9 +1,10 @@
 // Secrets as the editor lists them (GET /api/secrets): names, never values or
-// lengths, and whether each value is short. The read views agents use hide
-// known secret values by comparison, so an agent allowed to author, deploy
-// and read flows can save a guess in a flow or a run and see whether it comes
-// back hidden: practical only for short values (ADR-0021, docs/design/mcp.md
-// §6). The editor marks them so the admin can lengthen them.
+// lengths, and whether each value is short. What agents read (the read views,
+// tool results) hides known secret values by comparison, so an agent whose
+// own text comes back to it, at any agent deploy level, can see whether a
+// guess comes back hidden: practical only for short or predictable values
+// (ADR-0021, docs/design/mcp.md §6). The editor marks short ones so the admin
+// can replace them with longer random values.
 import type { Component } from 'vue'
 import { AlertTriangle } from 'lucide-vue-next'
 
@@ -55,7 +56,7 @@ export function shortSecretNotice(shortBelow = DEFAULT_SHORT_BELOW): ShortSecret
   return {
     icon: AlertTriangle,
     label: 'Short value',
-    text: `An agent allowed to deploy flows could guess it. Use ${shortBelow} characters or more.`
+    text: `An agent could confirm a guess of it (see Agents). Use ${shortBelow} random characters or more.`
   }
 }
 
@@ -71,10 +72,16 @@ export function shortSecretsSummary(list: SecretList | null): ShortSecretsSummar
   const total = list.secrets.length
   if (!total) return { short: 0, text: 'No secrets are stored.' }
   const short = list.secrets.filter(s => s.short).length
-  if (!short) return { short, text: `No secret is short: every value has ${list.shortBelow} characters or more.` }
+  // Length is no proof of randomness: say so even when nothing is short.
+  if (!short) {
+    return {
+      short,
+      text: `No secret is shorter than ${list.shortBelow} characters. Use random values: a long word or date can still be guessed.`
+    }
+  }
   const one = short === 1
   return {
     short,
-    text: `${short} of ${total} secrets ${one ? 'is' : 'are'} short (fewer than ${list.shortBelow} characters): an agent could guess ${one ? 'it' : 'them'}.`
+    text: `${short} of ${total} secrets ${one ? 'is' : 'are'} short (fewer than ${list.shortBelow} characters): an agent could confirm a guess of ${one ? 'it' : 'them'}.`
   }
 }

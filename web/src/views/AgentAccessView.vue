@@ -16,7 +16,7 @@ import type { Feedback } from '@/composables/useFeedback'
 import { useAgentStore, apiErrorMessage, type GrantChange } from '@/stores/agent'
 import { useAuthStore } from '@/stores/auth'
 import {
-  DEPLOY_LEVELS, clientSnippets, formatDateTime, formatRelative, grantStatus, mcpStatus, toolKey,
+  DEPLOY_LEVELS, GUESSING_AT_EVERY_LEVEL, clientSnippets, formatDateTime, formatRelative, grantStatus, mcpStatus, toolKey,
   type AgentDeployLevel, type AgentToken, type CreatedAgentToken, type TokenGrant
 } from '@/lib/agentAccess'
 
@@ -36,8 +36,9 @@ const addChoice = ref<Record<string, string>>({})
 const level = ref<AgentDeployLevel | null>(null)
 const levelPassword = ref('')
 const settingsError = ref('')
-// Short secrets, the ones an agent at low or all could guess (ADR-0021):
-// read once with the page and again after the admin edits the secrets.
+// Short secrets, the ones an agent could confirm a guess of at any level
+// (ADR-0021): read once with the page and again after the admin edits the
+// secrets.
 const secretsChecked = ref(false)
 const showSecrets = ref(false)
 
@@ -272,7 +273,11 @@ function cancelLevel() {
           The current level is unknown ({{ settingsError }}).
           <Button variant="link" class="h-auto p-0" :disabled="pending" @click="loadSettings">Retry</Button>
         </p>
-        <div role="radiogroup" aria-label="Agent deploy level" class="space-y-2">
+        <p id="deploy-guessing" class="flex items-start gap-1.5 text-xs text-muted-foreground">
+          <KeyRound class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span><strong class="font-medium text-foreground">Guessable secrets, at every level:</strong> {{ GUESSING_AT_EVERY_LEVEL }}</span>
+        </p>
+        <div role="radiogroup" aria-label="Agent deploy level" aria-describedby="deploy-guessing" class="space-y-2">
           <div v-for="l in DEPLOY_LEVELS" :key="l.value" class="flex items-start gap-3 rounded-md border p-3" :class="level === l.value && 'border-primary'">
             <input :id="`deploy-${l.value}`" v-model="level" type="radio" name="agent-deploy" :value="l.value" class="mt-1 accent-primary"
               :disabled="pending || !agent.settings"
@@ -282,7 +287,7 @@ function cancelLevel() {
               <p :id="`deploy-${l.value}-risk`" class="text-xs text-muted-foreground">{{ l.risk }}</p>
               <p v-if="l.residual" :id="`deploy-${l.value}-residual`" class="flex items-start gap-1.5 text-xs text-muted-foreground">
                 <KeyRound class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                <span><strong class="font-medium text-foreground">Guessable secrets:</strong> {{ l.residual }}</span>
+                <span><strong class="font-medium text-foreground">Guessable secrets, also:</strong> {{ l.residual }}</span>
               </p>
             </div>
           </div>

@@ -347,18 +347,22 @@ test('the agent deploy level shows its risk and needs the password', async ({ pa
   await expect(page.getByRole('dialog', { name: 'New agent token' }).getByLabel('Deploy', { exact: true })).toBeEnabled()
 })
 
-test('the levels that let agents deploy explain the guessing residual and count the short secrets', async ({ page }) => {
+test('the deploy levels explain the guessing residual and count the short secrets', async ({ page }) => {
   const opts: MockOptions = { secrets: [{ name: 'api_key', short: false }, { name: 'door_pin', short: true }] }
   const requests = await mockServer(page, opts)
   await page.goto('/agents')
   const level = page.getByRole('radiogroup', { name: 'Agent deploy level' })
-  // Next to low and all, never off.
+  // At every level, off included: a call-scope token and a granted tool
+  // that repeats its arguments are enough.
+  await expect(level).toHaveAccessibleDescription(/with the call scope, from a granted tool that repeats its arguments/)
+  await expect(page.getByText('Guessable secrets, at every level:')).toBeVisible()
+  // What low and all add, next to them only.
   for (const name of ['Low-risk flows', 'All flows']) {
-    await expect(level.getByLabel(name)).toHaveAccessibleDescription(/author and read scopes can save a guess of a secret's value/)
+    await expect(level.getByLabel(name)).toHaveAccessibleDescription(/author and read scopes can guess without your approval/)
   }
   await expect(level.getByLabel('Off (recommended)')).not.toHaveAccessibleDescription(/guess/)
   const short = page.getByRole('status').filter({ hasText: 'Short secrets:' })
-  await expect(short).toContainText('1 of 2 secrets is short (fewer than 16 characters): an agent could guess it.')
+  await expect(short).toContainText('1 of 2 secrets is short (fewer than 16 characters): an agent could confirm a guess of it.')
   // One read with the page; nothing polls it.
   await page.waitForTimeout(300)
   expect(requests.filter(r => r.method === 'GET' && r.path === '/secrets')).toHaveLength(1)
@@ -368,7 +372,7 @@ test('the levels that let agents deploy explain the guessing residual and count 
   const dialog = page.getByRole('dialog', { name: 'Manage secrets' })
   const marks = dialog.getByText('Short value:', { exact: false })
   await expect(marks).toHaveCount(1)
-  await expect(dialog).toContainText('An agent allowed to deploy flows could guess it. Use 16 characters or more.')
+  await expect(dialog).toContainText('An agent could confirm a guess of it (see Agents). Use 16 random characters or more.')
   // A short value is flagged while typed; replacing it clears the mark.
   await dialog.getByLabel('Secret name').fill('door_pin')
   await dialog.getByLabel('Secret value').fill('1234')
@@ -378,7 +382,7 @@ test('the levels that let agents deploy explain the guessing residual and count 
   await dialog.getByRole('button', { name: 'Add secret' }).click()
   await expect(marks).toHaveCount(0)
   await dialog.getByRole('button', { name: 'Done' }).click()
-  await expect(short).toContainText('No secret is short: every value has 16 characters or more.')
+  await expect(short).toContainText('No secret is shorter than 16 characters. Use random values: a long word or date can still be guessed.')
 })
 
 test('secrets that cannot be read leave the short count unknown', async ({ page }) => {

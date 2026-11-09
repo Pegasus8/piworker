@@ -57,8 +57,11 @@ test('a short secret is marked with an icon and words, never color alone', () =>
   const notice = shortSecretNotice(16)
   expect(notice.icon).toBe(AlertTriangle)
   expect(notice.label).toBe('Short value')
-  expect(notice.text).toBe('An agent allowed to deploy flows could guess it. Use 16 characters or more.')
-  expect(shortSecretNotice(20).text).toContain('Use 20 characters or more.')
+  // At every agent deploy level (a granted tool that repeats its arguments
+  // needs only the call scope), and length alone is not enough: random.
+  expect(notice.text).toBe('An agent could confirm a guess of it (see Agents). Use 16 random characters or more.')
+  expect(notice.text).not.toContain('deploy')
+  expect(shortSecretNotice(20).text).toContain('Use 20 random characters or more.')
 })
 
 test('the Agents page summary counts the short secrets', () => {
@@ -66,12 +69,13 @@ test('the Agents page summary counts the short secrets', () => {
   expect(shortSecretsSummary(null)).toEqual({ short: null, text: 'Could not check the secrets for short values.' })
   expect(shortSecretsSummary({ secrets: [], shortBelow: 16 })).toEqual({ short: 0, text: 'No secrets are stored.' })
   expect(shortSecretsSummary({ secrets: [item('a', false), item('b', false)], shortBelow: 16 })).toEqual({
-    short: 0, text: 'No secret is short: every value has 16 characters or more.'
+    // Long is not unguessable: a long word or date still is.
+    short: 0, text: 'No secret is shorter than 16 characters. Use random values: a long word or date can still be guessed.'
   })
   expect(shortSecretsSummary({ secrets: [item('a', true), item('b', false)], shortBelow: 16 })).toEqual({
-    short: 1, text: '1 of 2 secrets is short (fewer than 16 characters): an agent could guess it.'
+    short: 1, text: '1 of 2 secrets is short (fewer than 16 characters): an agent could confirm a guess of it.'
   })
   expect(shortSecretsSummary({ secrets: [item('a', true), item('b', true), item('c', false)], shortBelow: 16 })).toEqual({
-    short: 2, text: '2 of 3 secrets are short (fewer than 16 characters): an agent could guess them.'
+    short: 2, text: '2 of 3 secrets are short (fewer than 16 characters): an agent could confirm a guess of them.'
   })
 })

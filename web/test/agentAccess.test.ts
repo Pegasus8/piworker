@@ -21,6 +21,7 @@ import {
   toolKey,
   EXPIRY_OPTIONS,
   DEPLOY_LEVELS,
+  GUESSING_AT_EVERY_LEVEL,
   DESKTOP_CONFIG_PATHS,
   BRIDGE_COMMAND,
   DESKTOP_COMMAND_NOTE,
@@ -448,14 +449,28 @@ test('deploy levels describe their risk', () => {
   }
 })
 
-test('the levels that let agents deploy explain the guessing residual of the read views', () => {
+test('the guessing residual is explained for every level, off included', () => {
+  // How (agent text that comes back hidden), by which routes even at off
+  // (call scope and an echoing tool, an error a run records, an approved
+  // draft), what is at stake (short or predictable values) and what to do.
+  for (const words of ['hides known secret values', 'call scope', 'repeats its arguments', 'read scope',
+    'error a run records', 'webhook', 'draft you approve', 'short or predictable values', 'typed into a setting',
+    'as secrets']) {
+    expect(GUESSING_AT_EVERY_LEVEL).toContain(words)
+  }
+})
+
+test('the levels that let agents deploy explain what they add to the guessing residual', () => {
   expect(DEPLOY_LEVELS.find(l => l.value === 'off')!.residual).toBeUndefined()
   for (const value of ['low', 'all'] as const) {
     const residual = DEPLOY_LEVELS.find(l => l.value === value)!.residual!
-    // Who (author and read scopes besides deploy), how (save a guess, read
-    // it back hidden), what is at stake (short values only) and what to do.
-    for (const words of ['author and read scopes', 'guess', 'hide', 'short values', 'typed into a setting', 'as secrets']) {
+    // Who (author and read scopes besides deploy) and what changes: no
+    // approval per guess, a flow it deploys or an error its run records.
+    for (const words of ['author and read scopes', 'guess', 'flow it deploys', 'error a run of it records',
+      'without your approval']) {
       expect(residual).toContain(words)
     }
+    // The recorder keeps node errors only, never a run's output.
+    expect(residual).not.toContain('output')
   }
 })

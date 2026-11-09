@@ -201,7 +201,7 @@ test('the secrets are checked for short values once per page load, unknown when 
     expect(store.shortSecrets).toEqual({ short: null, text: 'Could not check the secrets for short values.' })
     await store.fetchSecretList()
     expect(reads).toBe(1)
-    expect(store.shortSecrets).toEqual({ short: 2, text: '2 of 3 secrets are short (fewer than 16 characters): an agent could guess them.' })
+    expect(store.shortSecrets).toEqual({ short: 2, text: '2 of 3 secrets are short (fewer than 16 characters): an agent could confirm a guess of them.' })
     // Nothing polls it: the count changes only when the page asks again.
     await new Promise(r => setTimeout(r, 20))
     expect(reads).toBe(1)

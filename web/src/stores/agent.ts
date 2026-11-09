@@ -293,7 +293,7 @@ export const useAgentStore = defineStore('agent', () => {
     tls.value = { mode: info.mode, caFingerprint: info.caFingerprint }
   })
 
-  // Which secrets are short, for the agent deploy level's residual risk
+  // Which secrets are short, for the guessing residual of the Agents page
   // (ADR-0021). Read when the page loads or the admin edits the secrets,
   // never polled; a list that cannot be read is unknown, not the last one.
   async function fetchSecretList() {
