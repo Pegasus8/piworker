@@ -75,7 +75,7 @@
       "additionalProperties": false,
       "properties": {
         "draftId": {
-          "description": "One of your drafts (from pw_save_draft).",
+          "description": "One of your drafts (from pw_save_draft); the settings it kept of the stored flow are hidden from the run as with flowId.",
           "maxLength": 256,
           "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
           "type": "string"
@@ -333,7 +333,7 @@
           "type": "object"
         },
         "flowId": {
-          "description": "A stored flow (its current version); settings agents may not read are hidden from the run.",
+          "description": "A stored flow (its current version); settings agents may not read are hidden from the run, and a node they leave invalid does not run (issue hidden_settings): give it a mock.",
           "maxLength": 256,
           "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
           "type": "string"

@@ -376,23 +376,86 @@ func TestDryRunKeepsWarningsAndSecretIssues(t *testing.T) {
 	assert.Equal(t, []string{"pw_dry_undefined"}, res.MissingSecrets)
 }
 
-// TestDryRunIssuesAreOfTheRedactedFlow: Lint runs after Redact, so a
-// redacted value that makes its node invalid is an issue (no run) whose
-// message quotes nothing hidden.
-func TestDryRunIssuesAreOfTheRedactedFlow(t *testing.T) {
+// TestDryRunStubsNodesTheRedactionInvalidates: Lint runs after Redact; a
+// node that a redacted value makes invalid (an expression, an object-typed
+// setting) is not an error that stops the run: it is stubbed — never built
+// from its settings, listed in wouldExecute with its type's risk, mockable —
+// with a hidden_settings warning, and the rest of the flow runs. Nothing
+// hidden is quoted.
+func TestDryRunStubsNodesTheRedactionInvalidates(t *testing.T) {
 	waitFreeSandbox(t)
+	srv, hits, _ := hitServer(t)
 	f := dryFlow([]dn{
 		{"trig", "trigger-manual", nil},
 		{"t", "process-transform", map[string]any{"expression": `"very-hidden-" + string(payload)`}},
-	}, "trig>t")
+		{"http", "action-http", map[string]any{"url": srv.URL, "allowPrivate": true, "headers": map[string]any{"X-Key": "very-hidden-key"}}},
+		{"after", "process-transform", map[string]any{"expression": `payload + "!"`}},
+	}, "trig>t", "t>http", "http>after")
+	redact := func(n *flow.Node, prop string) bool { return prop == "expression" && n.ID == "t" || prop == "headers" }
+
 	res, err := flow.DryRun(context.Background(), f, node.DefaultRegistry, flow.DryRunInput{
-		TriggerNodeID: "trig",
-		Redact:        func(n *flow.Node, prop string) bool { return prop == "expression" },
+		TriggerNodeID: "trig", Payload: "x", Redact: redact,
+		Mocks: map[string]any{"t": "from the mock", "http": "reply"},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"error:" + flow.IssueInvalidConfig + "@/nodes/t"}, issueKeys(res.Issues))
-	assert.Empty(t, res.Trace)
+	assert.Equal(t, []string{
+		"warning:" + flow.IssueHiddenSettings + "@/nodes/t",
+		"warning:" + flow.IssueHiddenSettings + "@/nodes/http",
+	}, issueKeys(res.Issues))
+	step, ok := stepOf(res, "t")
+	require.True(t, ok)
+	assert.True(t, step.Stubbed)
+	require.Len(t, step.Outputs, 1)
+	assert.Equal(t, `"from the mock"`, step.Outputs[0].Preview)
+	require.Len(t, res.WouldExecute, 2)
+	assert.Equal(t, "t", res.WouldExecute[0].NodeID)
+	assert.Equal(t, node.RiskSafe, res.WouldExecute[0].Risk)
+	assert.Equal(t, `"from the mock"`, res.WouldExecute[1].Input)
+	after, ok := stepOf(res, "after")
+	require.True(t, ok, "the flow runs on past the stubs")
+	assert.Equal(t, `"reply!"`, after.Outputs[0].Preview)
 	assert.NotContains(t, resultJSON(t, res), "very-hidden")
+	assert.Zero(t, hits.Load())
+
+	// Without a mock the stub's branch ends there.
+	res, err = flow.DryRun(context.Background(), f, node.DefaultRegistry, flow.DryRunInput{TriggerNodeID: "trig", Redact: redact})
+	require.NoError(t, err)
+	step, ok = stepOf(res, "t")
+	require.True(t, ok)
+	assert.Empty(t, step.Outputs)
+	_, ok = stepOf(res, "http")
+	assert.False(t, ok)
+
+	// A setting the redaction leaves valid is computed on as "<redacted>";
+	// errors elsewhere still stop the run.
+	broken := dryFlow([]dn{
+		{"trig", "trigger-manual", nil},
+		{"t", "process-transform", map[string]any{"expression": `"very-hidden"`}},
+		{"bad", "process-transform", map[string]any{"expression": 42}},
+	}, "trig>t", "t>bad")
+	res, err = flow.DryRun(context.Background(), broken, node.DefaultRegistry, flow.DryRunInput{TriggerNodeID: "trig", Redact: redact})
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"warning:" + flow.IssueHiddenSettings + "@/nodes/t",
+		"error:" + flow.IssueConfigType + "@/nodes/bad/config/expression",
+	}, issueKeys(res.Issues))
+	assert.Empty(t, res.Trace)
+}
+
+// TestDryRunHiddenStubMarkerIsTheSandboxs: a config key a caller sends can
+// never make a node a hidden-settings stub; only Redact does.
+func TestDryRunHiddenStubMarkerIsTheSandboxs(t *testing.T) {
+	waitFreeSandbox(t)
+	f := dryFlow([]dn{
+		{"trig", "trigger-manual", nil},
+		{"t", "process-transform", map[string]any{"expression": `payload + "!"`, flow.HiddenStubConfigKey(): true}},
+	}, "trig>t")
+	res, err := flow.DryRun(context.Background(), f, node.DefaultRegistry, flow.DryRunInput{TriggerNodeID: "trig", Payload: "x"})
+	require.NoError(t, err)
+	step, ok := stepOf(res, "t")
+	require.True(t, ok)
+	assert.False(t, step.Stubbed)
+	assert.Equal(t, `"x!"`, step.Outputs[0].Preview)
 }
 
 // TestDryRunDoesNotModifyTheFlow: the caller's flow is left as it was (the

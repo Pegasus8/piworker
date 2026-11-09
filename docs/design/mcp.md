@@ -1038,10 +1038,16 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
     an unknown type) whose value the agent did not write itself — for a
     stored flow all of them, for a draft those equal to the base version's
     value at the same node and property. The run then computes only on what
-    the agent may see; a redacted value that makes its node invalid is an
-    issue like any invalid flow's (no run; the message quotes the sentinel,
-    not the value). A flow the agent sends inline holds only what it wrote
-    and is not redacted.
+    the agent may see. A redacted value that leaves its node invalid (an
+    expression, an object-typed setting such as HTTP headers: an error
+    issue at a redacted property, or `invalid_config` at a node with
+    redacted properties) does not stop the run: the node becomes a stub —
+    never built from its settings, listed in `wouldExecute` with its
+    type's risk, emitting its mock if one is given — and its issues are
+    replaced by one `hidden_settings` warning at `/nodes/{nodeId}` (a fixed
+    message). Every other issue stops the run as before. The stub marker is
+    a config key of the sandbox's own copy that no caller can set. A flow
+    the agent sends inline holds only what it wrote and is not redacted.
 - Node test (`flow.TestNode`, behind `pw_test_node`): one node of a
   processing type whose type and instance risk are `safe` (anything else is
   forbidden), its config checked as deploy checks it (Lint's collectors:
@@ -1362,9 +1368,12 @@ toggling a running flow on records nothing (it deploys nothing). A
   a stored flow, for a draft of an existing flow (`baseVersion` ≠ 0) the
   kept ones the draft recorded (what the agent did not write, equal to the
   base's or not; a draft without a readable list hides every hidden
-  setting); a new flow's draft, approved or not, and an inline `flow` are
-  the agent's own and are not redacted, but no dry-run ever gets real
-  secrets (the sandbox's store is empty). The editor sees previews and
+  setting); a node the hidden values leave invalid is a mockable stub with
+  a `hidden_settings` warning (see the dry-run above), so a stored flow
+  with hidden expressions or headers still runs around them; a new flow's
+  draft, approved or not, and an inline `flow` are the agent's own and are
+  not redacted, but no dry-run ever gets real secrets (the sandbox's store
+  is empty). The editor sees previews and
   errors unredacted except secret values. `flow.ErrSandboxBusy` → `busy`,
   `flow.ErrDryRunInput` → `invalid_arguments`; an invalid flow is a result
   with `issues` (no run), not an error. For agents the issue messages, trace

@@ -181,13 +181,16 @@ func TestDryRunRefusals(t *testing.T) {
 	_, err := e.a.DryRun(t.Context(), agent, DryRunRequest{Flow: safeFlow(), TriggerNodeID: "nope"})
 	requireKind(t, err, ErrInvalidArguments)
 
-	// A stored flow whose hidden settings make it invalid once hidden is a
-	// result with issues, not an error (the transform's expression is
-	// hidden from agents).
+	// A stored flow whose hidden settings leave a node invalid once hidden
+	// still runs: that node is a stub with a hidden_settings warning (the
+	// transform's expression is hidden from agents).
 	res, err := e.a.DryRun(t.Context(), agent, DryRunRequest{FlowID: stored.ID})
 	require.NoError(t, err)
-	assert.NotEmpty(t, flow.BlockingIssues(res.Issues))
-	assert.Empty(t, res.Trace)
+	assert.Empty(t, flow.BlockingIssues(res.Issues))
+	require.Len(t, res.Issues, 1)
+	assert.Equal(t, flow.IssueHiddenSettings, res.Issues[0].Code)
+	require.Len(t, res.WouldExecute, 1)
+	assert.Equal(t, "calc", res.WouldExecute[0].NodeID)
 
 	_, err = e.a.DryRun(t.Context(), e.token(storage.ScopeRead), DryRunRequest{FlowID: stored.ID})
 	requireKind(t, err, ErrPermissionDenied)

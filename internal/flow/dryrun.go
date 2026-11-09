@@ -65,6 +65,17 @@ const dryRunStopTimeout = time.Second
 // redactedConfigValue replaces the config values DryRunInput.Redact hides.
 const redactedConfigValue = "<redacted>"
 
+// IssueHiddenSettings (warning, at /nodes/{nodeId}): a dry-run stubbed the
+// node because the values DryRunInput.Redact hid make its settings invalid
+// (an expression, an object-typed setting). It does not run; a mock gives
+// its output.
+const IssueHiddenSettings = "hidden_settings"
+
+// hiddenStubKey marks, in the sandbox's own copy of the flow, a node to
+// build as a hidden-settings stub (see stubHiddenNodes). It is removed from
+// every config the caller sends, so only the redaction sets it.
+const hiddenStubKey = "\x00piworker.dryrun.hidden"
+
 var (
 	// ErrDryRunInput marks a dry-run or node test refused because of what it
 	// was asked (not because the flow is invalid): an unknown or unsuitable
@@ -155,13 +166,17 @@ func checkDryRunInputs(in DryRunInput) error {
 }
 
 // redactConfig replaces the config values redact selects with
-// redactedConfigValue (see DryRunInput.Redact).
-func redactConfig(f *Flow, redact func(n *Node, prop string) bool) {
-	if redact == nil {
-		return
-	}
+// redactedConfigValue (see DryRunInput.Redact) and returns, by node index,
+// the properties it replaced. It first removes hiddenStubKey from every
+// config: only stubHiddenNodes sets it.
+func redactConfig(f *Flow, redact func(n *Node, prop string) bool) map[int][]string {
+	redacted := map[int][]string{}
 	for i := range f.Nodes {
 		n := &f.Nodes[i]
+		delete(n.Config, hiddenStubKey)
+		if redact == nil {
+			continue
+		}
 		props := make([]string, 0, len(n.Config))
 		for prop := range n.Config {
 			props = append(props, prop)
@@ -170,9 +185,59 @@ func redactConfig(f *Flow, redact func(n *Node, prop string) bool) {
 		for _, prop := range props {
 			if redact(n, prop) {
 				n.Config[prop] = redactedConfigValue
+				redacted[i] = append(redacted[i], prop)
 			}
 		}
 	}
+	return redacted
+}
+
+// stubHiddenNodes turns the nodes the redaction made invalid into
+// hidden-settings stubs. An error issue at a redacted property of a node
+// (/nodes/{id}/config/{prop}) or an invalid_config at a node with redacted
+// properties (/nodes/{id}: its factory or Validate refused it) comes from
+// the hidden values, not from what the caller may see: it is replaced by
+// one IssueHiddenSettings warning at the node, where its first such issue
+// was, and the node is marked (hiddenStubKey) so the sandbox builds it as a
+// stub without its settings. Other issues are kept in order. It reports
+// whether any node was marked.
+func stubHiddenNodes(f *Flow, issues []Issue, redacted map[int][]string) ([]Issue, bool) {
+	if len(redacted) == 0 {
+		return issues, false
+	}
+	atProp := map[string]int{} // a redacted property's path → node index
+	atNode := map[string]int{} // the path of a node with redacted properties
+	for i, props := range redacted {
+		id := f.Nodes[i].ID
+		if id == "" {
+			continue
+		}
+		atNode[nodePointer(id, "")] = i
+		for _, prop := range props {
+			atProp[nodePointer(id, prop)] = i
+		}
+	}
+	out := make([]Issue, 0, len(issues))
+	stubbed := map[int]bool{}
+	for _, is := range issues {
+		i, hidden := atProp[is.Path]
+		if j, ok := atNode[is.Path]; ok && is.Code == IssueInvalidConfig {
+			i, hidden = j, true
+		}
+		if !hidden || is.Severity != IssueError {
+			out = append(out, is)
+			continue
+		}
+		if !stubbed[i] {
+			stubbed[i] = true
+			out = append(out, Issue{Path: nodePointer(f.Nodes[i].ID, ""), Code: IssueHiddenSettings, Severity: IssueWarning,
+				Message: "settings hidden from this dry-run make the node invalid here, so it does not run: give a mock for its output"})
+		}
+	}
+	for i := range stubbed {
+		f.Nodes[i].Config[hiddenStubKey] = true
+	}
+	return out, len(stubbed) > 0
 }
 
 // DryRunInput says how to run a dry-run.
@@ -303,11 +368,12 @@ func DryRun(ctx context.Context, f *Flow, reg *node.Registry, in DryRunInput) (D
 	if err != nil {
 		return DryRunResult{}, fmt.Errorf("%w: %v", ErrDryRunInput, err)
 	}
-	redactConfig(work, in.Redact)
+	redacted := redactConfig(work, in.Redact)
 	// Lint is the one validation (ADR-0007): the checks deploy runs, on the
 	// flow as it would run. The secrets are checked against the caller's
-	// store (the sandbox's is empty), and do not stop the run.
-	issues := LintContext(ctx, work, reg)
+	// store (the sandbox's is empty), and do not stop the run; nor do the
+	// nodes the redaction made invalid, which become stubs.
+	issues, hiddenStubs := stubHiddenNodes(work, LintContext(ctx, work, reg), redacted)
 	if len(BlockingIssues(issues)) > 0 {
 		return (&dryRunSession{issues: issues}).result(work, false), nil
 	}
@@ -320,7 +386,7 @@ func DryRun(ctx context.Context, f *Flow, reg *node.Registry, in DryRunInput) (D
 			return DryRunResult{}, fmt.Errorf("%w: flow variable %q: %v", ErrDryRunInput, k, err)
 		}
 	}
-	rt, err := NewFlowRuntime(work, reg.Derive(dryRunOverride(reg)),
+	opts := []RuntimeOption{
 		WithRetryConfig(RetryConfig{MaxRetries: 0, InitialWait: DefaultInitialWait, MaxWait: DefaultMaxWait, Multiplier: DefaultMultiplier}),
 		WithObserver(sess.observe),
 		WithNodeContext(func(c context.Context) context.Context { return sandboxContext(c, globals, locals, sb) }),
@@ -329,7 +395,13 @@ func DryRun(ctx context.Context, f *Flow, reg *node.Registry, in DryRunInput) (D
 		WithStopTimeout(dryRunStopTimeout),
 		withoutMetrics(),
 		withRouteGate(sess.admitRoute),
-	)
+	}
+	if hiddenStubs {
+		// Lint checked the configs; a hidden-settings stub's redacted
+		// values are what it was stubbed for.
+		opts = append(opts, withLenientConfig())
+	}
+	rt, err := NewFlowRuntime(work, reg.Derive(dryRunOverride(reg)), opts...)
 	if err != nil {
 		return DryRunResult{}, fmt.Errorf("invalid flow: %w", err)
 	}
@@ -419,6 +491,15 @@ func cloneFlowJSON(f *Flow) (*Flow, error) {
 func dryRunOverride(orig *node.Registry) func(node.NodeTypeInfo, node.NodeFactory) node.NodeFactory {
 	return func(info node.NodeTypeInfo, factory node.NodeFactory) node.NodeFactory {
 		return func(cfg map[string]any) (node.Node, error) {
+			if hidden, _ := cfg[hiddenStubKey].(bool); hidden {
+				// Never built from its settings: the type's ports and
+				// risk (an instance risk would read hidden values).
+				w := &dryRunNode{typ: info.Type, risk: info.Risk, inputs: info.Inputs, outputs: info.Outputs, stub: true}
+				if info.Category == NodeCategoryInput {
+					return &dryRunTrigger{dryRunNode: w}, nil
+				}
+				return w, nil
+			}
 			inner, err := factory(cfg)
 			if err != nil {
 				return nil, err

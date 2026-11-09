@@ -21,3 +21,7 @@ func SetTestNodeTimeout(t testing.TB, d time.Duration) {
 	testNodeTimeout = d
 	t.Cleanup(func() { testNodeTimeout = old })
 }
+
+// HiddenStubConfigKey is the config key that marks a hidden-settings stub
+// inside the sandbox's copy of a flow.
+func HiddenStubConfigKey() string { return hiddenStubKey }

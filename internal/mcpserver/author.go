@@ -117,8 +117,10 @@ var (
 	).require("note")
 	dryRunArgs = object("",
 		prop("flow", flowArg(flow.DryRunMaxNodes, flow.DryRunMaxConnections, flowInline)),
-		prop("draftId", idArg("One of your drafts (from pw_save_draft).")),
-		prop("flowId", idArg("A stored flow (its current version); settings agents may not read are hidden from the run.")),
+		prop("draftId", idArg("One of your drafts (from pw_save_draft); the settings it kept of the stored flow are hidden from "+
+			"the run as with flowId.")),
+		prop("flowId", idArg("A stored flow (its current version); settings agents may not read are hidden from the run, and a "+
+			"node they leave invalid does not run (issue hidden_settings): give it a mock.")),
 		prop("triggerNodeId", idArg("The enabled trigger (input) node whose output receives payload; may be absent when the "+
 			"flow has exactly one.")),
 		prop("payload", anyValue("The message payload injected at the trigger (any JSON, at most 64 KiB).")),
