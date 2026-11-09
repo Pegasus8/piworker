@@ -581,6 +581,8 @@ token with the `deploy` scope deploys itself within the
 flows; changing or testing an existing flow also needs `read`. A token has
 at most 20 drafts waiting.
 
+- **What agents may change**: other nodes (add, configure, enable or
+  disable, move, remove), connections, and the flow's name and description.
 - **What agents may not change**: Agent Tool and Agent Reply nodes (they
   define the tools agents call; moving them is allowed), a webhook trigger's
   path or token (nor add or turn on a webhook trigger), a setting that widens
