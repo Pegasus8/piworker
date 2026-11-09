@@ -136,10 +136,11 @@ func invalidApproval(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrInvalidAgentApproval, fmt.Sprintf(format, args...))
 }
 
-// CreateAgentApproval stores a new pending approval. An empty ID is generated
-// (callers may pass the run id); a zero ExpiresAt defaults to
-// ToolCallApprovalLifetime. A token may have at most
-// MaxPendingApprovalsPerToken approvals waiting (ErrTooManyPendingApprovals). Each creation also runs the expiry and
+// CreateAgentApproval stores a new pending approval, which must record its
+// tool (name, fingerprint and risk). An empty ID is generated (callers may
+// pass the run id); a zero ExpiresAt defaults to ToolCallApprovalLifetime. A
+// token may have at most MaxPendingApprovalsPerToken approvals waiting
+// (ErrTooManyPendingApprovals). Each creation also runs the expiry and
 // retention pass of ExpireAgentApprovals, so agent traffic alone keeps the
 // table bounded even when nobody opens the queue.
 func (s *SQLiteStore) CreateAgentApproval(a AgentApproval, now time.Time) (*AgentApproval, error) {
