@@ -499,12 +499,24 @@ func mountMCP(router *mux.Router, cfg config.Config, services appServices, token
 		router.Handle(mcpserver.Path, notFound)
 		return
 	}
+	// TODO(wave4-join): buildApp does not create the authoring service yet.
+	// Once appServices holds it (authoring *service.Authoring, built with
+	// AuthorEnabled: cfg.MCP.AuthorEnabled and the FlowsHandler as its
+	// Lifecycle), register the author and deploy tools here:
+	//   StaticTools: append ReadTools(services.reads) with
+	//     mcpserver.AuthorTools(services.authoring, registry) and
+	//     mcpserver.DeployTools(services.authoring),
+	//   Prompts: append ReadPrompts(services.reads) with mcpserver.AuthorPrompts(),
+	//   DeployLevel: store (the *storage.SQLiteStore: AgentDeployLevel),
+	// passing registry and store to mountMCP. Until then no author or deploy
+	// tool is registered, so AuthorEnabled changes nothing.
 	handler, err := mcpserver.New(mcpserver.Options{
 		Tools:          services.tools,
 		Tokens:         tokens,
 		Rejections:     services.audit,
 		StaticTools:    mcpserver.ReadTools(services.reads),
 		Prompts:        mcpserver.ReadPrompts(services.reads),
+		AuthorEnabled:  cfg.MCP.AuthorEnabled,
 		TLS:            cfg.TLSEnabled(),
 		LANAccess:      cfg.MCP.LANAccess,
 		HostAllowed:    hosts.Allowed,
