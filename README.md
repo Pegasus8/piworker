@@ -607,15 +607,17 @@ so turn HTTPS on (`mode = "auto"`) to connect from other computers.
   tool that repeats its arguments (many guesses per call); with the read
   scope, through an error a run records of what it sent (a tool call, a
   webhook, an MQTT message). Agents never see the run errors of a
-  version no admin approved. Short or predictable values fall this way: use generated secrets of 16
-  characters or more (the **Secrets** dialog marks shorter ones and the
-  **Agents** page counts them). Store credentials as secrets rather than
-  typing them into settings, URL passwords (`https://user:password@host`)
-  included: typed, they are hidden the same way but never checked. Run
-  errors also hide the settings agents cannot see, so keep guessable
-  passwords, paths and names out of those in flows whose runs agents may
-  read ([ADR-0021](docs/adr/0021-agent-views-never-confirm-a-guess.md),
-  [ADR-0022](docs/adr/0022-low-keeps-tools-and-protected-data-the-admins.md)).
+  version no admin approved. Short or predictable values fall this way:
+  use generated secrets of 16 characters or more (the **Secrets** dialog
+  marks shorter ones and the **Agents** page counts them). Store
+  credentials as secrets rather than typing them into settings, URL
+  passwords (`https://user:password@host`) included: typed, they are
+  hidden the same way but never checked. Run errors also hide the
+  settings agents cannot see, so keep guessable passwords, paths and
+  names out of those in flows whose runs agents may read
+  ([ADR-0021](docs/adr/0021-agent-views-never-confirm-a-guess.md),
+  [ADR-0022](docs/adr/0022-low-keeps-tools-and-protected-data-the-admins.md),
+  [ADR-0023](docs/adr/0023-runs-record-the-version-they-ran.md)).
 - Client-side confirmations are a convenience, not a control: use
   `confirm: admin` for anything that needs your approval.
 
