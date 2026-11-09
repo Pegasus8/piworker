@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,10 +17,13 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/api"
 	"github.com/Pegasus8/piworker/internal/config"
+	"github.com/Pegasus8/piworker/internal/events"
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
+	"github.com/Pegasus8/piworker/internal/secrets"
 	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/Pegasus8/piworker/internal/types"
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -31,12 +36,36 @@ type mcpApp struct {
 	srv *httptest.Server
 }
 
-func newMCPApp(t *testing.T, enabled bool) mcpApp {
+// mcpAppOption adds a runtime manager option built on the app's store.
+type mcpAppOption func(t *testing.T, store *storage.SQLiteStore) flow.ManagerOption
+
+// recordRuns records the runs of the app's flows in its store, as main
+// does.
+func recordRuns(t *testing.T, store *storage.SQLiteStore) flow.ManagerOption {
+	recorder := events.NewRecorder(store, events.WithLogger(zerolog.Nop()))
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		recorder.Run(ctx)
+		close(done)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+	return flow.WithManagerObserver(recorder.Observe)
+}
+
+func newMCPApp(t *testing.T, enabled bool, opts ...mcpAppOption) mcpApp {
 	t.Helper()
 	store, err := storage.NewSQLiteStore(filepath.Join(t.TempDir(), "app.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { store.Close() })
-	manager := flow.NewRuntimeManager(node.DefaultRegistry, zerolog.Nop())
+	var managerOpts []flow.ManagerOption
+	for _, opt := range opts {
+		managerOpts = append(managerOpts, opt(t, store))
+	}
+	manager := flow.NewRuntimeManager(node.DefaultRegistry, zerolog.Nop(), managerOpts...)
 	t.Cleanup(manager.StopAll)
 	cfg := config.Default()
 	cfg.Auth = true
@@ -561,4 +590,319 @@ func TestPlainHTTPListenerRefusesMCP(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	assert.Equal(t, http.StatusPermanentRedirect, w.Code)
+}
+
+// readTools are the built-in tools of the read scope.
+var readTools = []string{"pw_get_flow", "pw_get_run", "pw_list_flows", "pw_list_runs", "pw_system_status"}
+
+func toolNames(t *testing.T, s *mcp.ClientSession) map[string]*mcp.Tool {
+	t.Helper()
+	list, err := s.ListTools(context.Background(), nil)
+	require.NoError(t, err)
+	out := map[string]*mcp.Tool{}
+	for _, tool := range list.Tools {
+		out[tool.Name] = tool
+	}
+	return out
+}
+
+func keys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+// checkOutputSchema validates a successful result's structured content
+// against the tool's advertised output schema, as clients do.
+func checkOutputSchema(t *testing.T, tool *mcp.Tool, res *mcp.CallToolResult) {
+	t.Helper()
+	require.NotNil(t, tool.OutputSchema, tool.Name)
+	var schema jsonschema.Schema
+	require.NoError(t, json.Unmarshal(mustJSON(t, tool.OutputSchema), &schema))
+	resolved, err := schema.Resolve(nil)
+	require.NoError(t, err)
+	data := mustJSON(t, res.StructuredContent)
+	var v any
+	require.NoError(t, json.Unmarshal(data, &v))
+	assert.NoError(t, resolved.Validate(v), "%s: %s", tool.Name, data)
+	require.Len(t, res.Content, 1)
+	assert.JSONEq(t, string(data), res.Content[0].(*mcp.TextContent).Text, "%s: the text block is the structured content", tool.Name)
+}
+
+// Tokens with the read scope list and call the read tools (and their
+// granted tools when they also have the call scope); tokens without it see
+// none of them, and calling one is answered as calling a name that does
+// not exist.
+func TestMCPReadToolsEndToEnd(t *testing.T) {
+	app := newMCPApp(t, true, recordRuns)
+	garage := app.deployTool(t, "garage", nil)
+	_, readRaw := app.token(t, "reader", []string{storage.ScopeRead})
+	_, bothRaw := app.token(t, "laptop", []string{storage.ScopeCall, storage.ScopeRead}, garage)
+	_, callRaw := app.token(t, "caller", []string{storage.ScopeCall}, garage)
+	ctx := context.Background()
+
+	both, err := app.connect(t, bothRaw, "")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, append([]string{"garage", "pw_get_result"}, readTools...), keys(toolNames(t, both)))
+	res := callTool(t, both, "garage", map[string]any{"door": "left"})
+	require.False(t, res.IsError)
+	runID, _ := res.Meta["piworker/runId"].(string)
+	require.NotEmpty(t, runID)
+
+	reader, err := app.connect(t, readRaw, "")
+	require.NoError(t, err)
+	tools := toolNames(t, reader)
+	assert.ElementsMatch(t, readTools, keys(tools), "the read tools only: no flow tool, no pw_get_result")
+	for _, name := range readTools {
+		tool := tools[name]
+		require.NotNil(t, tool.Annotations, name)
+		assert.True(t, tool.Annotations.ReadOnlyHint, name)
+		assert.True(t, tool.Annotations.IdempotentHint, name)
+		require.NotNil(t, tool.Annotations.DestructiveHint, name)
+		assert.False(t, *tool.Annotations.DestructiveHint, name)
+		require.NotNil(t, tool.Annotations.OpenWorldHint, name)
+		assert.False(t, *tool.Annotations.OpenWorldHint, name)
+		assert.Equal(t, false, tool.InputSchema.(map[string]any)["additionalProperties"], name)
+	}
+
+	flows := callTool(t, reader, "pw_list_flows", map[string]any{})
+	require.False(t, flows.IsError)
+	checkOutputSchema(t, tools["pw_list_flows"], flows)
+	listed := structured(t, flows)["flows"].([]any)
+	require.Len(t, listed, 1)
+	assert.Equal(t, garage.FlowID, listed[0].(map[string]any)["id"])
+	assert.Equal(t, "running", listed[0].(map[string]any)["state"])
+	assert.Equal(t, []any{"garage"}, listed[0].(map[string]any)["tools"])
+
+	view := callTool(t, reader, "pw_get_flow", map[string]any{"flowId": garage.FlowID})
+	require.False(t, view.IsError)
+	checkOutputSchema(t, tools["pw_get_flow"], view)
+	got := structured(t, view)
+	assert.Len(t, got["nodes"], 2)
+	assert.Len(t, got["connections"], 1)
+	require.Len(t, got["tools"], 1)
+	assert.Equal(t, garage.Fingerprint, got["tools"].([]any)[0].(map[string]any)["fingerprint"])
+
+	// The agent's call was recorded as its run, with its token's name.
+	var runs *mcp.CallToolResult
+	require.Eventually(t, func() bool {
+		runs = callTool(t, reader, "pw_list_runs", map[string]any{"flowId": garage.FlowID, "limit": 5})
+		list, _ := structured(t, runs)["runs"].([]any)
+		return !runs.IsError && len(list) == 1 && list[0].(map[string]any)["status"] == "success"
+	}, 10*time.Second, 500*time.Millisecond)
+	checkOutputSchema(t, tools["pw_list_runs"], runs)
+	run := structured(t, runs)["runs"].([]any)[0].(map[string]any)
+	assert.Equal(t, runID, run["id"])
+	assert.Equal(t, "agent", run["actor"])
+	assert.Equal(t, "laptop", run["actorToken"])
+
+	// (Another token: each token may send 10 requests at once.)
+	_, readRaw2 := app.token(t, "reader2", []string{storage.ScopeRead})
+	reader2, err := app.connect(t, readRaw2, "")
+	require.NoError(t, err)
+	one := callTool(t, reader2, "pw_get_run", map[string]any{"flowId": garage.FlowID, "runId": runID})
+	require.False(t, one.IsError)
+	checkOutputSchema(t, tools["pw_get_run"], one)
+	events := structured(t, one)["events"].([]any)
+	require.Len(t, events, 1, "the reply (triggers record no execution)")
+	assert.Equal(t, "reply", events[0].(map[string]any)["nodeId"])
+
+	status := callTool(t, reader2, "pw_system_status", nil)
+	require.False(t, status.IsError)
+	checkOutputSchema(t, tools["pw_system_status"], status)
+	st := structured(t, status)
+	assert.Equal(t, map[string]any{"running": 1.0, "total": 1.0}, st["flows"])
+	assert.Equal(t, 1.0, st["tools"])
+	assert.Equal(t, "off", st["agentDeploy"])
+
+	// Refusals are isError results with the service's codes.
+	missing := callTool(t, reader2, "pw_get_flow", map[string]any{"flowId": "no-such-flow"})
+	assert.True(t, missing.IsError)
+	assert.Equal(t, "flow_not_found", errCode(structured(t, missing)))
+	invalid := callTool(t, reader2, "pw_get_flow", map[string]any{"flowId": "../" + garage.FlowID})
+	assert.True(t, invalid.IsError)
+	assert.Equal(t, "invalid_arguments", errCode(structured(t, invalid)))
+	foreign := callTool(t, reader2, "pw_get_run", map[string]any{"flowId": "no-such-flow", "runId": runID})
+	assert.True(t, foreign.IsError)
+	assert.Equal(t, "flow_not_found", errCode(structured(t, foreign)))
+
+	// A token without the read scope sees no read tool and no read
+	// prompt; calling one is answered exactly as an unknown name.
+	caller, err := app.connect(t, callRaw, "")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"garage", "pw_get_result"}, keys(toolNames(t, caller)))
+	prompts, err := caller.ListPrompts(ctx, nil)
+	require.NoError(t, err)
+	assert.Empty(t, prompts.Prompts)
+	hidden := callTool(t, caller, "pw_get_flow", map[string]any{"flowId": garage.FlowID})
+	unknown := callTool(t, caller, "pw_get_flows", map[string]any{"flowId": garage.FlowID})
+	assert.True(t, hidden.IsError)
+	assert.Equal(t, "not_found", errCode(structured(t, hidden)))
+	assert.Equal(t, strings.ReplaceAll(string(mustJSON(t, hidden)), "pw_get_flow", "X"), strings.ReplaceAll(string(mustJSON(t, unknown)), "pw_get_flows", "X"))
+	_, hiddenErr := caller.GetPrompt(ctx, &mcp.GetPromptParams{Name: "diagnose_flow", Arguments: map[string]string{"flowId": garage.FlowID}})
+	_, unknownErr := caller.GetPrompt(ctx, &mcp.GetPromptParams{Name: "diagnose_flows", Arguments: map[string]string{"flowId": garage.FlowID}})
+	require.Error(t, hiddenErr)
+	require.Error(t, unknownErr)
+	assert.Equal(t, strings.ReplaceAll(hiddenErr.Error(), "diagnose_flow", "X"), strings.ReplaceAll(unknownErr.Error(), "diagnose_flows", "X"))
+}
+
+// diagnose_flow returns instructions that use the read tools, for a flow
+// the token may read.
+func TestMCPDiagnoseFlowPrompt(t *testing.T) {
+	app := newMCPApp(t, true)
+	garage := app.deployTool(t, "garage", nil)
+	_, raw := app.token(t, "reader", []string{storage.ScopeRead})
+	session, err := app.connect(t, raw, "")
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	prompts, err := session.ListPrompts(ctx, nil)
+	require.NoError(t, err)
+	require.Len(t, prompts.Prompts, 1)
+	assert.Equal(t, "diagnose_flow", prompts.Prompts[0].Name)
+	require.Len(t, prompts.Prompts[0].Arguments, 1)
+	assert.Equal(t, "flowId", prompts.Prompts[0].Arguments[0].Name)
+	assert.True(t, prompts.Prompts[0].Arguments[0].Required)
+
+	res, err := session.GetPrompt(ctx, &mcp.GetPromptParams{Name: "diagnose_flow", Arguments: map[string]string{"flowId": garage.FlowID}})
+	require.NoError(t, err)
+	require.Len(t, res.Messages, 1)
+	assert.Equal(t, mcp.Role("user"), res.Messages[0].Role)
+	text := res.Messages[0].Content.(*mcp.TextContent).Text
+	for _, want := range []string{garage.FlowID, `"Garage"`, "pw_get_flow", "pw_list_runs", "pw_get_run", "pw_system_status"} {
+		assert.Contains(t, text, want)
+	}
+
+	_, err = session.GetPrompt(ctx, &mcp.GetPromptParams{Name: "diagnose_flow", Arguments: map[string]string{"flowId": "no-such-flow"}})
+	assert.ErrorContains(t, err, "unknown flow")
+	_, err = session.GetPrompt(ctx, &mcp.GetPromptParams{Name: "diagnose_flow", Arguments: map[string]string{"flowId": "a\nb"}})
+	assert.Error(t, err)
+}
+
+// The read canary through MCP: credentials and settings hidden from agents
+// in the riskiest node types, and a stored secret leaked into a flow's
+// name, a visible setting, a run's token name and node errors (literally
+// and encoded), never appear in the raw JSON-RPC answers of the read tools
+// and the prompt.
+func TestMCPReadCanaries(t *testing.T) {
+	app := newMCPApp(t, true)
+	const secretName = "MCP_READ_CANARY"
+	const secret = "Zq7SecretCanary/v+1&key=<x>"
+	require.NoError(t, secrets.DefaultStore.Set(secretName, secret))
+	t.Cleanup(func() { secrets.DefaultStore.Delete(secretName) })
+
+	canaries := map[string]string{} // where it was planted → canary
+	plant := func(where string) string {
+		c := fmt.Sprintf("CNRY%02dZ", len(canaries))
+		canaries[where] = c
+		return c
+	}
+	f := flow.NewFlow("Canary " + secret)
+	add := func(id, typ string, cfg map[string]any) {
+		n := flow.NewNode(typ, flow.NodeCategoryOutput)
+		n.ID, n.Config = id, cfg
+		f.AddNode(*n)
+	}
+	add("http", "action-http", map[string]any{
+		"method": secret, // a visible setting holding the secret's value
+		"url":    "https://" + plant("http url user") + ":" + plant("http url password") + "@api.example.com/" + plant("http url path") + "?key=" + plant("http url query"),
+		"headers": map[string]any{
+			"Authorization": "Bearer " + plant("http header"),
+			"X-Api-Key":     "{{secret." + secretName + "}}",
+		},
+		"body": plant("http body"),
+	})
+	add("cmd", "action-command", map[string]any{"command": "curl -H 'X-Token: " + plant("command") + "' https://example.com"})
+	add("mqtt", "action-mqtt", map[string]any{
+		"broker": "tcp://" + plant("mqtt broker") + ":1883", "username": plant("mqtt username"),
+		"password": plant("mqtt password"), "topic": plant("mqtt topic"), "payload": plant("mqtt payload"),
+	})
+	add("hook", "trigger-webhook", map[string]any{"path": "/" + plant("webhook path"), "token": plant("webhook token")})
+	add("mail", "action-email", map[string]any{
+		"host": plant("email host"), "username": plant("email username"), "password": plant("email password"),
+		"from": plant("email from") + "@example.com", "to": plant("email to") + "@example.com", "subject": plant("email subject"),
+	})
+	add("tg", "action-telegram", map[string]any{"botToken": "123456:" + plant("telegram bot token"), "chatId": plant("telegram chat"), "message": plant("telegram message")})
+	add("db", "action-database", map[string]any{"dsn": "postgres://u:" + plant("database dsn") + "@db/x"})
+	require.NoError(t, app.store.CreateFlow(f))
+
+	// A recorded run: its errors echo credentials typed into Sensitive
+	// settings and the secret, literally and encoded.
+	now := time.Now()
+	require.NoError(t, app.store.UpsertFlowRunWithActor("run-1", f.ID, "token:bot "+secret, now))
+	var records []storage.NodeEventRecord
+	for i, msg := range []string{
+		"401 Unauthorized for Bearer " + canaries["http header"],
+		"mqtt: not authorized (password " + canaries["mqtt password"] + ")",
+		"telegram: 401 for bot123456:" + canaries["telegram bot token"],
+		"smtp: 535 auth failed for " + canaries["email password"],
+		"webhook: bad token " + canaries["webhook token"],
+		"echoed secret " + secret,
+		"echoed query key=" + url.QueryEscape(secret),
+		"echoed basic " + base64.StdEncoding.EncodeToString([]byte(secret)),
+		`echoed payload {"apiKey":` + string(mustJSON(t, secret)) + `}`,
+	} {
+		records = append(records, storage.NodeEventRecord{RunID: "run-1", FlowID: f.ID, NodeID: "http", NodeType: "action-http",
+			Phase: "error", Error: msg, CreatedAt: now.Add(time.Duration(i) * time.Millisecond)})
+	}
+	require.NoError(t, app.store.InsertNodeEvents(records))
+	require.NoError(t, app.store.FinishFlowRun("run-1", "error", now.Add(time.Second), len(records), len(records)))
+
+	_, raw := app.token(t, "reader", []string{storage.ScopeRead})
+	call := func(name, args string) string {
+		return `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"` + name + `","arguments":` + args + `}}`
+	}
+	flowArg := `{"flowId":"` + f.ID + `"}`
+	requests := map[string]string{
+		"pw_list_flows": call("pw_list_flows", `{}`),
+		"pw_get_flow":   call("pw_get_flow", flowArg),
+		"pw_list_runs":  call("pw_list_runs", flowArg),
+		"pw_get_run":    call("pw_get_run", `{"flowId":"`+f.ID+`","runId":"run-1"}`),
+		"diagnose_flow": `{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"diagnose_flow","arguments":` + flowArg + `}}`,
+	}
+	secretForms := map[string]string{
+		"its distinctive part": "Zq7SecretCanary",
+		"base64":               base64.StdEncoding.EncodeToString([]byte(secret)),
+		"base64url":            base64.URLEncoding.EncodeToString([]byte(secret)),
+		"url-encoded":          url.QueryEscape(secret),
+	}
+	answers := map[string]string{}
+	for name, body := range requests {
+		resp, data := app.post(t, raw, body, at0618)
+		require.Equal(t, http.StatusOK, resp.StatusCode, "%s: %s", name, data)
+		text := string(data)
+		answers[name] = text
+		require.NotContains(t, text, `"error":{`, "%s answered an error: %s", name, text)
+		require.NotContains(t, text, `"isError":true`, "%s answered an error: %s", name, text)
+		for where, c := range canaries {
+			assert.NotContains(t, text, c, "%s leaked the %s", name, where)
+		}
+		for form, s := range secretForms {
+			assert.NotContains(t, text, s, "%s leaked the secret (%s)", name, form)
+		}
+	}
+
+	// The answers are real views: every node is shown with its hidden
+	// values as the sentinel ("<redacted>", HTML-escaped in the JSON), and
+	// the run with its redacted errors.
+	const sentinel = `\u003credacted\u003e`
+	for _, id := range []string{"http", "cmd", "mqtt", "hook", "mail", "tg", "db"} {
+		assert.Contains(t, answers["pw_get_flow"], `{"id":"`+id+`"`)
+	}
+	assert.Contains(t, answers["pw_get_flow"], `"password":"`+sentinel+`"`)
+	assert.Contains(t, answers["pw_get_flow"], `"name":"Canary `+sentinel+`"`)
+	assert.Contains(t, answers["pw_get_run"], `"error":"401 Unauthorized for `+sentinel+`"`)
+	assert.Contains(t, answers["pw_get_run"], `"error":"echoed secret `+sentinel+`"`)
+	assert.Contains(t, answers["pw_get_run"], `"actorToken":"bot `+sentinel+`"`)
+	assert.Contains(t, answers["pw_list_flows"], f.ID)
+	assert.Contains(t, answers["diagnose_flow"], f.ID)
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	data, err := json.Marshal(v)
+	require.NoError(t, err)
+	return data
 }

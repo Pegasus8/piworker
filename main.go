@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -329,10 +330,12 @@ func gracefulShutdown(srvs []*http.Server, flows *api.FlowsHandler, manager *flo
 type routerOption func(*mux.Router)
 
 // appServices are the long-lived services buildApp creates besides the
-// router: the tool service shared by REST and MCP, and the MCP audit writer
-// that must be flushed on shutdown.
+// router: the tool service shared by REST and MCP, the read views of the
+// MCP read tools, and the MCP audit writer that must be flushed on
+// shutdown.
 type appServices struct {
 	tools *service.Tools
+	reads *service.Reads
 	audit *service.AuditWriter
 }
 
@@ -387,6 +390,18 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 		MaxInflight:    cfg.MCP.MaxInflight,
 		MaxResultBytes: cfg.MCP.MaxResultBytes,
 		Logger:         log.Logger,
+	})
+	// What agents with the read scope may observe (redacted, bounded).
+	services.reads = service.NewReads(service.ReadsOptions{
+		Flows:    store,
+		History:  store,
+		Runtimes: runtimeManager,
+		Registry: registry,
+		Secrets:  secrets.DefaultStore,
+		Settings: store,
+		Version:  version,
+		DataDir:  filepath.Dir(cfg.DBPath),
+		MCP:      cfg.MCP,
 	})
 
 	if users != nil {
@@ -484,6 +499,8 @@ func mountMCP(router *mux.Router, cfg config.Config, services appServices, token
 		Tools:          services.tools,
 		Tokens:         tokens,
 		Rejections:     services.audit,
+		StaticTools:    mcpserver.ReadTools(services.reads),
+		Prompts:        mcpserver.ReadPrompts(services.reads),
 		TLS:            cfg.TLSEnabled(),
 		LANAccess:      cfg.MCP.LANAccess,
 		HostAllowed:    hosts.Allowed,
