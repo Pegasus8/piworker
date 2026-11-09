@@ -72,6 +72,10 @@ type DraftSummary struct {
 	Reason string `json:"reason,omitempty"`
 	// AppliedVersion is the version an approval saved (0: none).
 	AppliedVersion int `json:"appliedVersion,omitempty"`
+	// AppliedBy is who applied an approved draft: "editor" (the admin
+	// approved it) or "agent" (its author deployed it at agent_deploy low
+	// or all; nobody reviewed it); absent when not applied.
+	AppliedBy string `json:"appliedBy,omitempty"`
 }
 
 // TextChange is a text field a draft changes.
@@ -204,6 +208,7 @@ func draftSummary(d *storage.FlowDraft, current *flow.Flow) DraftSummary {
 		DecidedAt:      d.DecidedAt,
 		Reason:         d.Reason,
 		AppliedVersion: d.AppliedVersion,
+		AppliedBy:      d.AppliedBy,
 	}
 	for _, is := range decodeList[flow.Issue](d.IssuesJSON) {
 		if is.Severity == flow.IssueError {

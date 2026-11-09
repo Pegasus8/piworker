@@ -1767,6 +1767,14 @@ func TestMCPAgentDeployPolicy(t *testing.T) {
 	res := callOK[service.DeployResult](t, agent, "pw_deploy_flow", map[string]any{"flowId": api1.ID, "draftId": newHost})
 	assert.Equal(t, 2, res.Version)
 	assert.True(t, running(api1.ID))
+	// The applied draft reads as the agent's deploy, not an approval the
+	// admin gave (the agent's pw_get_draft says so too: service tests).
+	code, body := editor.do(t, http.MethodGet, "/api/agent/drafts/"+newHost, nil)
+	require.Equal(t, http.StatusOK, code, string(body))
+	detail := appData[service.DraftDetail](t, body)
+	assert.Equal(t, storage.DraftApproved, detail.Status)
+	assert.Equal(t, 2, detail.AppliedVersion)
+	assert.Equal(t, storage.DraftApplierAgent, detail.AppliedBy)
 	marks = editor.flow(t, api1.ID)
 	assert.True(t, marks.AgentChanged)
 	require.NotNil(t, marks.Deployment)
@@ -1775,7 +1783,7 @@ func TestMCPAgentDeployPolicy(t *testing.T) {
 
 	// The admin rolls back to the version it approved: saved as version 3
 	// and redeployed by the editor.
-	code, body := editor.do(t, http.MethodPost, "/api/flows/"+api1.ID+"/rollback", nil)
+	code, body = editor.do(t, http.MethodPost, "/api/flows/"+api1.ID+"/rollback", nil)
 	require.Equal(t, http.StatusOK, code, string(body))
 	rolled := appData[service.ApplyResult](t, body)
 	assert.Equal(t, 3, rolled.Version)

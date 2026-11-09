@@ -246,6 +246,9 @@ func TestApproveANewFlowDraft(t *testing.T) {
 	assert.Equal(t, storage.DraftApproved, d.Status, "the save closed the draft (H5)")
 	assert.Equal(t, 1, d.AppliedVersion)
 	assert.Equal(t, res.FlowID, d.FlowID)
+	detail, err := e.a.GetDraftDetail(t.Context(), EditorActor(), saved.DraftID)
+	require.NoError(t, err)
+	assert.Equal(t, storage.DraftApplierEditor, detail.AppliedBy, "the admin approved it")
 
 	// Approving it again: no longer pending.
 	_, err = e.a.ApproveDraft(t.Context(), EditorActor(), saved.DraftID, false)

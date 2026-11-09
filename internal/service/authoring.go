@@ -419,8 +419,11 @@ type DraftView struct {
 	Alerts      []flow.Alert `json:"alerts"`
 	FlowID      string       `json:"flowId"`
 	BaseVersion int          `json:"baseVersion"`
-	// AppliedVersion is the version an approval saved (0: none).
+	// AppliedVersion is the version an approval saved (0: none), and
+	// AppliedBy who applied it: "editor" (the admin approved it) or
+	// "agent" (this token deployed it).
 	AppliedVersion int        `json:"appliedVersion,omitempty"`
+	AppliedBy      string     `json:"appliedBy,omitempty"`
 	Note           string     `json:"note"`
 	CreatedAt      time.Time  `json:"createdAt"`
 	DecidedAt      *time.Time `json:"decidedAt,omitempty"`
@@ -487,6 +490,7 @@ func (a *Authoring) GetDraft(ctx context.Context, actor Actor, draftID string) (
 		FlowID:         d.FlowID,
 		BaseVersion:    d.BaseVersion,
 		AppliedVersion: d.AppliedVersion,
+		AppliedBy:      d.AppliedBy,
 		Note:           d.Note,
 		CreatedAt:      d.CreatedAt,
 		DecidedAt:      d.DecidedAt,

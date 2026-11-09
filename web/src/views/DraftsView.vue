@@ -4,7 +4,7 @@
 // come from agents and are rendered as plain text only.
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import { AlertTriangle, Ban, CheckCircle2, Clock, FileDiff, Info, RefreshCw, XCircle } from 'lucide-vue-next'
+import { AlertTriangle, Ban, Bot, CheckCircle2, Clock, FileDiff, Info, RefreshCw, XCircle } from 'lucide-vue-next'
 import { Badge, Button, Label, Select } from '@/components/ui'
 import AgentNav from '@/components/agent/AgentNav.vue'
 import AgentText from '@/components/agent/AgentText.vue'
@@ -78,7 +78,7 @@ const stateIcon = (d: DraftSummary) => {
   const s = draftState(d)
   if (s.tone === 'blocked') return AlertTriangle
   if (d.status === 'pending') return Clock
-  if (d.status === 'approved') return CheckCircle2
+  if (d.status === 'approved') return d.appliedBy === 'agent' ? Bot : CheckCircle2
   if (d.status === 'rejected') return XCircle
   return Ban
 }

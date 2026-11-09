@@ -100,6 +100,12 @@ export interface DraftSummary {
   decidedAt: string | null
   reason?: string
   appliedVersion?: number
+  /**
+   * Who applied an approved draft: 'editor' (you approved it) or 'agent'
+   * (its token deployed it at the low or all agent deploy level, without a
+   * review). Absent when not applied, and from older servers.
+   */
+  appliedBy?: 'editor' | 'agent' | string
 }
 
 export interface DraftList {
@@ -609,7 +615,9 @@ export interface DraftState {
 }
 
 /** A draft's state in words. */
-export function draftState(d: Pick<DraftSummary, 'status' | 'stale' | 'baseVersion' | 'currentVersion' | 'appliedVersion'>): DraftState {
+export function draftState(
+  d: Pick<DraftSummary, 'status' | 'stale' | 'baseVersion' | 'currentVersion' | 'appliedVersion' | 'appliedBy' | 'tokenName'>
+): DraftState {
   switch (d.status) {
     case 'pending':
       if (d.stale) {
@@ -621,6 +629,14 @@ export function draftState(d: Pick<DraftSummary, 'status' | 'stale' | 'baseVersi
       }
       return { label: 'Waiting for review', tone: 'pending', explanation: 'Nothing changes until you approve it.' }
     case 'approved':
+      if (d.appliedBy === 'agent') {
+        const as = d.appliedVersion ? ` as version ${d.appliedVersion}` : ''
+        return {
+          label: 'Deployed by agent', tone: 'done',
+          explanation: `Agent ${visibleText(d.tokenName)} deployed this draft itself${as} (the agent deploy level allows it); you did not review it. ` +
+            'The version history can roll it back to the version you last approved.'
+        }
+      }
       return {
         label: 'Approved', tone: 'done',
         explanation: d.appliedVersion ? `You approved this draft; it was saved as version ${d.appliedVersion}.` : 'You approved this draft.'
@@ -646,6 +662,9 @@ const STATUS_WORDS: Record<string, string> = { approved: 'approved', rejected: '
  */
 export function approvalBlock(d: DraftDetail, deploy: boolean): string {
   if (d.status !== 'pending') {
+    if (d.status === 'approved' && d.appliedBy === 'agent') {
+      return 'This draft was already deployed by its agent; there is nothing to approve.'
+    }
     const word = STATUS_WORDS[d.status] ?? 'decided'
     return word === 'void'
       ? 'This draft is void: it was closed without a decision, so there is nothing to approve.'

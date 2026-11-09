@@ -50,6 +50,7 @@ const (
 		`"risk":` + riskSchema + `,"issues":` + issuesSchema + `,"alerts":` + alertsSchema + `,` +
 		`"flowId":` + stringSchema + `,"baseVersion":` + integerSchema + `,` +
 		`"appliedVersion":{"type":"integer","description":"The version an approval saved."},` +
+		`"appliedBy":{"type":"string","enum":["editor","agent"],"description":"Who applied an approved draft: the admin (editor) or this token deploying it (agent)."},` +
 		`"note":` + stringSchema + `,"createdAt":` + timeSchema + `,"decidedAt":` + timeSchema + `,` +
 		`"flow":` + draftFlowViewSchema + `}}`
 

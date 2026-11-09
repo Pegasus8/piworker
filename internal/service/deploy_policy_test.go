@@ -419,6 +419,18 @@ func TestDeployADraft(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, storage.DraftApproved, d.Status)
 	assert.Equal(t, 2, d.AppliedVersion)
+	// Applied by the agent, not approved by the admin: the editor's draft
+	// pages and the agent's view say so.
+	detail, err := e.a.GetDraftDetail(t.Context(), EditorActor(), saved.DraftID)
+	require.NoError(t, err)
+	assert.Equal(t, storage.DraftApplierAgent, detail.AppliedBy)
+	list, err := e.a.ListDrafts(t.Context(), EditorActor(), DraftQuery{Status: storage.DraftFilterDecided})
+	require.NoError(t, err)
+	require.Len(t, list.Drafts, 1)
+	assert.Equal(t, storage.DraftApplierAgent, list.Drafts[0].AppliedBy)
+	view, err := e.a.GetDraft(t.Context(), agent, saved.DraftID)
+	require.NoError(t, err)
+	assert.Equal(t, storage.DraftApplierAgent, view.AppliedBy)
 	marks, err := e.a.Marks(t.Context(), EditorActor(), mustFlow(t, e, base.ID))
 	require.NoError(t, err)
 	assert.True(t, marks.AgentChanged)

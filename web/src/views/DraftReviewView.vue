@@ -11,7 +11,7 @@
 // rendered as text only (AgentText), never as HTML.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Info, RefreshCw } from 'lucide-vue-next'
+import { AlertTriangle, ArrowLeft, ArrowRight, Bot, CheckCircle2, Info, RefreshCw } from 'lucide-vue-next'
 import { Badge, Button, Label, Textarea } from '@/components/ui'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import OperationFeedback from '@/components/ui/OperationFeedback.vue'
@@ -236,7 +236,7 @@ async function reject() {
               class="flex items-start gap-2 rounded-md border p-3 text-sm"
               :class="state.tone === 'blocked' ? 'border-destructive/40 bg-destructive/10' : 'bg-muted'"
             >
-              <component :is="state.tone === 'blocked' ? AlertTriangle : d.status === 'approved' ? CheckCircle2 : Info" class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <component :is="state.tone === 'blocked' ? AlertTriangle : d.status === 'approved' ? (d.appliedBy === 'agent' ? Bot : CheckCircle2) : Info" class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               <div class="min-w-0 space-y-1">
                 <p>{{ state.explanation }}</p>
                 <p v-if="d.reason" class="whitespace-pre-wrap break-words">Reason: <AgentText :text="d.reason" /></p>

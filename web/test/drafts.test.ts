@@ -338,6 +338,20 @@ test('each draft state is explained in words', () => {
   expect(draftState(summary({ status: 'rejected', stale: true })).label).toBe('Rejected')
 })
 
+test('a draft its agent deployed itself never reads as one the admin approved', () => {
+  const byAgent = draftState(summary({ status: 'approved', appliedVersion: 4, appliedBy: 'agent', decidedAt: '2026-11-08T13:00:00Z' }))
+  expect(byAgent.label).toBe('Deployed by agent')
+  expect(byAgent.tone).toBe('done')
+  expect(byAgent.explanation).toBe(
+    'Agent laptop deployed this draft itself as version 4 (the agent deploy level allows it); you did not review it. ' +
+    'The version history can roll it back to the version you last approved.')
+  expect(byAgent.explanation).not.toContain('You approved')
+  expect(draftState(summary({ status: 'approved', appliedVersion: 4, appliedBy: 'editor' })).explanation)
+    .toBe('You approved this draft; it was saved as version 4.')
+  expect(approvalBlock(detail({ status: 'approved', appliedBy: 'agent' }), false)).toBe(
+    'This draft was already deployed by its agent; there is nothing to approve.')
+})
+
 test('approving is blocked, with the reason, when the server would refuse it', () => {
   expect(approvalBlock(detail(), false)).toBe('')
   expect(approvalBlock(detail({ status: 'approved' }), false)).toContain('already approved')

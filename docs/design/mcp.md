@@ -799,12 +799,21 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   flow_id ('' = new flow), base_version (0 = new), data (the resolved
   proposed flow), note, author_token_id, author_token_name, status
   pending|approved|rejected|void, risk, issues_json, alerts_json, reason,
-  created_at, decided_at, applied_version)`. `CreateFlowDraft` checks in its
+  created_at, decided_at, applied_version, applied_by)`. `applied_by` is
+  who applied an approved draft: `editor` (the admin approved it) or
+  `agent` (its token deployed it at `agent_deploy` low or all, with no
+  review), set by the save that closes it from `VersionMeta.ActorKind`;
+  the migration adding it attributes an older approved draft to the actor
+  of the version that names it (the admin when none does).
+  `CreateFlowDraft` checks in its
   transaction that the author token is not revoked, that it has fewer than
   20 pending drafts (`ErrDraftLimit`) and that an existing flow is still at
   the base version; it drops `state`, `version`, `createdAt` and `updatedAt`
   from the data (server-owned) and prunes decided drafts older than 30
-  days.
+  days and, newest kept, those beyond `MaxDecidedDraftsPerToken` (50) of
+  the author's and `MaxDecidedDrafts` (200) in all, so an agent looping on
+  save and deploy (each a decided draft of up to about 2 MiB) cannot fill
+  the disk within the 30 days.
   `ListFlowDrafts(filter{Status: pending, decided, one status or all;
   TokenID; FlowID}, limit, beforeID)` pages newest first without the data
   (the proposed `name` is read from it); `DecideFlowDraft` closes only
@@ -1088,7 +1097,10 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   count (polled with `X-PiWorker-Background`, like every background reload
   of the list or of an open draft). The list filters waiting, decided or all
   drafts and shows the flow (or "New flow"), the state in words (waiting,
-  out of date, approved, rejected, void), risk, alert and issue counts,
+  out of date, approved, deployed by agent, rejected, void: a draft its
+  agent applied itself, `appliedBy: "agent"`, reads "Deployed by agent" —
+  the agent deployed it as version N, you did not review it, the version
+  history can roll it back — never as one you approved), risk, alert and issue counts,
   token and the note. A background reload replaces the list only while it
   shows its first page: with pages loaded (or loading) by Load more it is
   skipped and the list offers a Refresh. The review page shows, in this
@@ -1270,7 +1282,7 @@ toggling a running flow on records nothing (it deploys nothing). A
 |---|---|---|
 | `Validate(ctx, actor, ValidateRequest)` | `{flowId?, flow?, ops?}` | `ValidateResult{valid, issues, risk}` |
 | `SaveDraft(ctx, actor, DraftInput)` | `{flowId?, baseVersion?, flow? \| ops?, name?, note}` | `DraftResult{draftId, status, risk, issues, alerts, flowId, baseVersion}` |
-| `GetDraft(ctx, actor, draftID)` | | `DraftView{draftId, status, reason?, risk, issues, alerts, flowId, baseVersion, appliedVersion?, note, createdAt, decidedAt?, flow: DraftFlowView{id?, name, nodes: [NodeView], connections: [ConnectionView], totalNodes, totalConnections, truncated}}` |
+| `GetDraft(ctx, actor, draftID)` | | `DraftView{draftId, status, reason?, risk, issues, alerts, flowId, baseVersion, appliedVersion?, appliedBy?, note, createdAt, decidedAt?, flow: DraftFlowView{id?, name, nodes: [NodeView], connections: [ConnectionView], totalNodes, totalConnections, truncated}}` |
 | `DryRun(ctx, actor, DryRunRequest)` | `{flow? \| draftId? \| flowId?, triggerNodeId?, payload?, mocks?, flowVars?}` | `flow.DryRunResult` |
 | `TestNode(ctx, actor, TestNodeRequest)` | `{type, config?, input?}` | `flow.TestNodeResult` |
 | `ListDrafts(ctx, actor, DraftQuery)` | `{status, limit, beforeId}` | `DraftList{drafts: [DraftSummary], nextBefore}` |
@@ -1552,7 +1564,8 @@ cut short by the browser going away):
   "baseVersion", "currentVersion", "stale", "status", "risk", "alertCount",
   "issueCounts": {"error", "warning"}, "note" (≤ 200 characters), "tokenId",
   "tokenName", "createdAt", "decidedAt" (null while pending), "reason"?,
-  "appliedVersion"?}], "nextBefore": ""}`.
+  "appliedVersion"?, "appliedBy"? ("editor" or "agent")}], "nextBefore":
+  ""}`.
 - `GET /api/agent/drafts/{id}` → `DraftDetail`: the summary's fields with
   the whole `note`, plus `"issues": [flow.Issue]`, `"running"`,
   `"nameChange"` and `"descriptionChange"` (`{"before", "after"}` or null),

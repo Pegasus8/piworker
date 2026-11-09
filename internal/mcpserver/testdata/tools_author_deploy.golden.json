@@ -568,6 +568,14 @@
           },
           "type": "array"
         },
+        "appliedBy": {
+          "description": "Who applied an approved draft: the admin (editor) or this token deploying it (agent).",
+          "enum": [
+            "editor",
+            "agent"
+          ],
+          "type": "string"
+        },
         "appliedVersion": {
           "description": "The version an approval saved.",
           "type": "integer"
