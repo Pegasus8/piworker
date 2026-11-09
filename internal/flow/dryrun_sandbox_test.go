@@ -11,6 +11,7 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
+	"github.com/Pegasus8/piworker/internal/secrets"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
@@ -163,4 +164,34 @@ func TestDryRunRedactsHiddenConfig(t *testing.T) {
 	assert.Contains(t, res.WouldExecute[0].Input, "REDACTED", "the run computed on the redacted value")
 	assert.Contains(t, asked, "tmpl.template")
 	assert.Equal(t, "Authorization: Bearer "+hidden, f.Nodes[1].Config["template"], "the caller's flow is unchanged")
+}
+
+// TestDeployRequiresStrictSecrets: deploying a flow whose Telegram bot token
+// (or notification URL, or DSN) names a secret that is not defined is
+// refused with a validation error naming the field and the secret, as it
+// was when these settings resolved in the factory; once the secret exists it
+// deploys. A dry-run of the same flow is not refused: it stubs the node and
+// lists the missing secret.
+func TestDeployRequiresStrictSecrets(t *testing.T) {
+	f := dryFlow([]dn{
+		{"trig", "trigger-manual", nil},
+		{"tg", "action-telegram", map[string]any{"botToken": "{{secret.deploy_tg_token}}", "chatId": "1"}},
+	}, "trig>tg")
+	m := flow.NewRuntimeManager(node.DefaultRegistry, zerolog.Nop())
+	defer m.StopAll()
+
+	err := m.Deploy(context.Background(), f)
+	var verr *flow.ValidationError
+	require.ErrorAs(t, err, &verr)
+	assert.Contains(t, err.Error(), "botToken")
+	assert.Contains(t, err.Error(), "deploy_tg_token")
+
+	waitFreeSandbox(t)
+	res, err := flow.DryRun(context.Background(), f, node.DefaultRegistry, flow.DryRunInput{TriggerNodeID: "trig"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"deploy_tg_token"}, res.MissingSecrets)
+
+	require.NoError(t, secrets.DefaultStore.Set("deploy_tg_token", "123:abc"))
+	t.Cleanup(func() { _ = secrets.DefaultStore.Delete("deploy_tg_token") })
+	require.NoError(t, m.Deploy(context.Background(), f))
 }

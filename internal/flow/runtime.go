@@ -1271,6 +1271,12 @@ func (m *RuntimeManager) deploy(ctx context.Context, f *Flow, extra ...RuntimeOp
 		metrics.RecordFlowDeployment(false)
 		return err
 	}
+	// Settings that cannot work without their secrets (a bot token, a DSN)
+	// fail the deploy while one is missing, not every execution.
+	if err := checkRequiredSecrets(ctx, rt); err != nil {
+		metrics.RecordFlowDeployment(false)
+		return err
+	}
 	m.keepTools(rt, tools, issues)
 
 	// Start the runtime
