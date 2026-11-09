@@ -183,17 +183,16 @@ export interface DeployLevelOption {
 }
 
 /**
- * What agents read (the read views) hides known secret values by comparison,
- * so an agent whose own text comes back to it can confirm a guess, at every
- * agent deploy level (ADR-0021, docs/design/mcp.md §6). A tool's own answer
- * is no route: an agent gets back the secrets it sent.
+ * What agents read (the read views, tool results) hides known secret values
+ * by comparison, so an agent whose own text comes back to it can confirm a
+ * guess, at every agent deploy level (ADR-0021, docs/design/mcp.md §6).
  */
-export const GUESSING_AT_EVERY_LEVEL = 'What agents read hides known secret values, so an agent can confirm a guess of a value wherever its own text comes back hidden, whatever the level: with the read scope, from an error a run records of what it sent (a tool call, a webhook or an MQTT message); with the author and read scopes, from a draft you approve. Only short or predictable values can be guessed this way. Credentials typed into a setting are hidden the same way but never checked: store them as secrets, where short ones are marked. Run errors also hide the settings agents cannot see the same way, so keep guessable passwords and paths out of them.'
+export const GUESSING_AT_EVERY_LEVEL = 'What agents read hides known secret values, so an agent can confirm a guess of a value wherever its own text comes back hidden, whatever the level: with the call scope, from a granted tool that repeats its arguments (many guesses per call); with the read scope, from an error a run records of what it sent (a tool call, a webhook or an MQTT message); with the author and read scopes, from a draft you approve. Only short or predictable values can be guessed this way. Credentials typed into a setting are hidden the same way but never checked: store them as secrets, where short ones are marked. Run errors also hide the settings agents cannot see the same way, so keep guessable passwords and paths out of them.'
 
 /**
  * What letting agents deploy adds: an agent saves its guesses in a flow
- * version with no approval per round (ADR-0021). The errors of runs of an
- * agent's deployment are withheld from agents (ADR-0022).
+ * version with no approval per round (ADR-0021). The errors of runs of a
+ * version no admin approved are withheld from agents (ADR-0022).
  */
 const GUESSING_RESIDUAL = 'An agent whose token also has the author and read scopes can guess without your approval: it saves a guess of a secret\'s value in a flow it deploys and reads the flow back.'
 

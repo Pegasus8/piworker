@@ -319,21 +319,18 @@ Shared by REST and MCP (thin adapters):
   replaced by a fixed text, keeping `nodeId` and `nodeType`. Which errors
   are withheld depends on which settings the node holds, never on their
   values; the admin sees the error in the flow's activity, and the
-  editor's own calls get it as recorded. Nor does an agent's result confirm
-  a guess (ADR-0021): it is redacted only of the secrets the agent did not
-  send itself, i.e. those none of whose redacted forms (literal,
-  URL-encoded, base64) appears in a string, object key or number of its
-  arguments. What it sent comes back as sent, a right guess and a wrong one
-  alike (also many guesses in one argument), while a secret the flow
-  outputs of its own is still redacted. Residual: a flow that both repeats
-  the argument and outputs the same secret, or that derives a secret's
-  value from the arguments (joining two of them, arithmetic), shows that
-  secret unredacted exactly when the agent's text holds it or makes the
-  flow compute it; closing it would need to know which output came from
-  the agent, which a flow's output does not record. The editor's results
-  are redacted of every known secret. This applies to every path a result
-  reaches an agent: the call, `pw_get_result` and the result stored on an
-  approved `confirm: admin` call.
+  editor's own calls get it as recorded. Results and errors are redacted
+  of every known secret for every caller, agents included, whatever the
+  arguments held: a flow can output a secret's value of its own (a
+  resolved reference, a variable, `$env`, a credential a response
+  echoes, a constant), and leaving out the secrets an agent sent would
+  show that value to an agent that sends candidates, hundreds in one
+  argument. What this comparison leaves is open (ADR-0021, action item
+  3): a granted tool whose reply or error repeats its arguments shows an
+  agent with only the `call` scope whether a guess comes back as
+  `"<redacted>"`, many guesses per call, at every level. This applies to
+  every path a result reaches an agent: the call, `pw_get_result` and the
+  result stored on an approved `confirm: admin` call.
 - `Tools.Result(actor, runID)`: only the actor that started the run.
 - Read views (phase 2), `service.Reads`, for the editor and tokens with the
   `read` scope (others: `forbidden`); JSON with camelCase fields, bounded
@@ -413,16 +410,16 @@ Shared by REST and MCP (thin adapters):
   (alert `before` values are redacted by comparison, and a kept setting
   whose stored value holds a known value is withheld, `"<redacted>"` in
   `GetDraft`, §10). Open, awaiting a decision (action item 3), at every
-  level, `off` included: `call` and `read`, a granted tool whose flow
-  records an error that repeats an argument; and `read` with a webhook
-  (one without a token answers anyone on the network) or MQTT topic the
-  agent reaches another way, of a flow whose node records an error that
-  repeats the input. A granted tool's own reply or error is not one: an
-  agent's tool result is redacted only of the secrets it did not send
-  (`Tools.Call` above, with its residual). The views keep comparing
-  because stored flows and real runs hold real secret values that only
-  comparison catches (resolved references, variables, `$env`, node
-  outputs). The residual is mitigated by warnings: `GET /api/secrets`
+  level, `off` included: `call` and a granted tool whose reply or error
+  repeats its arguments (`Tools.Call` above); `call` and `read`, a
+  granted tool whose flow records an error that repeats an argument; and
+  `read` with a webhook (one without a token answers anyone on the
+  network) or MQTT topic the agent reaches another way, of a flow whose
+  node records an error that repeats the input. The views and tool
+  results keep comparing because stored flows, real runs and tool replies
+  hold real secret values that only comparison catches (resolved
+  references, variables, `$env`, node outputs). The residual is mitigated
+  by warnings: `GET /api/secrets`
   answers `{secrets: [{name, short}], shortBelow}`, `short` for a value
   of fewer than `secrets.ShortValueRunes` (16) runes, never a value or a
   length; the editor's secrets dialog marks short secrets (and a short

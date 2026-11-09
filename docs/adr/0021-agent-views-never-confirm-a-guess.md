@@ -85,9 +85,10 @@ hidden settings (fixed issue texts, no alert values).
     admin approves (at any level, one approval per round).
   - What it needs: its text in a visible setting or the name of that
     flow, or in an error a run of it records, read back through the
-    views. Agents see run errors only of a version the admin approved
-    and deployed (ADR-0022), so this last route needs an approved draft
-    the admin deployed. Over such a version its later drafts read a guess
+    views. Agents see the errors only of runs of a version the admin
+    approved (ADR-0022), so this last route needs an approved draft that
+    is deployed (by the admin, or by an agent with `deploy` at `low` or
+    `all`). Over such a version its later drafts read a guess
     back too, with `author` alone: the `before` values of alerts are
     redacted by comparison, and a kept setting (or name) whose stored
     value holds a known value is withheld, shown as `"<redacted>"` by
@@ -107,6 +108,11 @@ hidden settings (fixed issue texts, no alert values).
 - Open, undecided (action item 3): the same comparison reaches agents
   outside that decision, at every `agent_deploy` level (`off` included)
   and without `author`:
+  - `call`: a granted tool whose reply or error repeats its arguments;
+    tool results and errors are compared with secret values
+    (`Tools.finish`; not with typed credentials or hidden settings), so
+    the agent sees whether a guess comes back as `"<redacted>"`, many
+    guesses per call.
   - `call` and `read`: a granted tool whose flow records an error that
     repeats an argument; `pw_get_run` compares it with everything listed
     above, the flow's hidden settings included.
@@ -114,15 +120,14 @@ hidden settings (fixed issue texts, no alert values).
     webhook (one without a token answers anyone on the network,
     ADR-0003) or an MQTT topic of a flow whose node records an error that
     repeats the input.
-  The short-secret warnings cover these paths for secret values only.
-  A granted tool whose reply or error repeats its arguments is no longer
-  one of them: an agent's tool result and error are redacted only of the
-  secrets none of whose forms it sent (`Tools.finish`, design §6), so a
-  right and a wrong guess come back alike, while a secret the flow
-  returns of its own (a resolved reference, a variable, `$env`) is still
-  redacted. Left: a flow that both repeats the argument and returns the
-  same secret, or derives a secret's value from the arguments, shows it
-  exactly when the agent's text holds it or makes the flow compute it.
+  Tool results need the comparison as much as the read views: flows can
+  return real secret values (resolved references, variables, `$env`, a
+  credential a response echoes, a constant). Leaving out of the
+  comparison the secrets an agent sent, tried in wave 5, was reverted: a
+  tool that never repeats its arguments but returns a secret then showed
+  it in clear to an agent that sent it among hundreds of candidates in
+  one argument. The short-secret warnings cover these paths for secret
+  values only.
 - Revisit when: the read views gain per-setting provenance across versions,
   or runtime taint tracking becomes affordable.
 
@@ -141,9 +146,9 @@ hidden settings (fixed issue texts, no alert values).
    add, and counts the short secrets; README and design §6, §10 describe
    it, including that credentials typed into `Sensitive` settings are
    redaction targets too and should be secrets.
-3. [ ] Decide the recorded-error paths of tool calls and inbound
-   triggers (the second "Open" consequence): keep the comparison, with
-   the warnings of item 2 as the mitigation, or mitigate them another
-   way. Until then they are open, not accepted. The tool result itself
-   follows the decision since wave 5 (redacted only of the secrets the
-   agent did not send).
+3. [ ] Decide the tool-result and inbound-trigger paths (the second "Open"
+   consequence): keep the comparison, which tool results need because
+   flows can return real secret values, with the warnings of item 2 as
+   the mitigation, or mitigate them another way, never by comparing a
+   result with the agent's arguments (see above). Until then they are
+   open, not accepted.

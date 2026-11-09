@@ -1,6 +1,6 @@
 // Secrets as the editor lists them (GET /api/secrets): names, never values or
-// lengths, and whether each value is short. What agents read (the read
-// views) hides known secret values by comparison, so an agent whose
+// lengths, and whether each value is short. What agents read (the read views,
+// tool results) hides known secret values by comparison, so an agent whose
 // own text comes back to it, at any agent deploy level, can see whether a
 // guess comes back hidden: practical only for short or predictable values
 // (ADR-0021, docs/design/mcp.md §6). The editor marks short ones so the admin

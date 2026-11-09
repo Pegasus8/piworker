@@ -451,17 +451,13 @@ test('deploy levels describe their risk', () => {
 
 test('the guessing residual is explained for every level, off included', () => {
   // How (agent text that comes back hidden), by which routes even at off
-  // (an error a run records, an approved draft), what is at stake (short or
-  // predictable values) and what to do.
-  for (const words of ['hides known secret values', 'read scope',
-    'error a run records', 'webhook', 'draft you approve', 'short or predictable values', 'typed into a setting',
-    'as secrets']) {
+  // (call scope and an echoing tool, an error a run records, an approved
+  // draft), what is at stake (short or predictable values) and what to do.
+  for (const words of ['hides known secret values', 'call scope', 'repeats its arguments', 'many guesses per call',
+    'read scope', 'error a run records', 'webhook', 'draft you approve', 'short or predictable values',
+    'typed into a setting', 'as secrets']) {
     expect(GUESSING_AT_EVERY_LEVEL).toContain(words)
   }
-  // A tool's own answer is no route: an agent gets back the secrets it sent
-  // (docs/design/mcp.md §6).
-  expect(GUESSING_AT_EVERY_LEVEL).not.toContain('repeats its arguments')
-  expect(GUESSING_AT_EVERY_LEVEL).not.toContain('call scope')
 })
 
 test('the levels that let agents deploy explain what they add to the guessing residual', () => {
@@ -470,7 +466,7 @@ test('the levels that let agents deploy explain what they add to the guessing re
     const residual = DEPLOY_LEVELS.find(l => l.value === value)!.residual!
     // Who (author and read scopes besides deploy) and what changes: no
     // approval per guess, a flow it deploys. Agents never see the errors of
-    // runs of a flow an agent deployed (ADR-0022).
+    // runs of a version no admin approved (ADR-0022).
     for (const words of ['author and read scopes', 'guess', 'flow it deploys', 'without your approval']) {
       expect(residual).toContain(words)
     }

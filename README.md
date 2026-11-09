@@ -603,11 +603,11 @@ so turn HTTPS on (`mode = "auto"`) to connect from other computers.
   agent whose own text comes back to it can see whether a guess of a value
   comes back hidden, at any **Agent deploy** level: with the author and
   read scopes, through a draft you approve or, with the deploy scope at
-  low or all, a flow it deploys; with the read scope, through an error a
-  run records of what it sent (a tool call, a webhook, an MQTT message).
-  A tool's own answer is no such route (an agent gets back the secrets it
-  sent), and agents never see the run errors of a flow an agent deployed.
-  Short or predictable values fall this way: use generated secrets of 16
+  low or all, a flow it deploys; with the call scope, through a granted
+  tool that repeats its arguments (many guesses per call); with the read
+  scope, through an error a run records of what it sent (a tool call, a
+  webhook, an MQTT message). Agents never see the run errors of a
+  version no admin approved. Short or predictable values fall this way: use generated secrets of 16
   characters or more (the **Secrets** dialog marks shorter ones and the
   **Agents** page counts them). Store credentials as secrets rather than
   typing them into settings, URL passwords (`https://user:password@host`)
