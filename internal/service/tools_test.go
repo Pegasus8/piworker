@@ -468,20 +468,17 @@ func TestExecuteApprovalRefusesAChangedTool(t *testing.T) {
 	}
 }
 
-// An approval recorded without the tool's identity (made before it was
-// recorded) cannot prove which tool the admin saw, so it runs nothing.
+// An approval without the tool's identity cannot prove which tool the admin
+// saw, so it runs nothing. Storage refuses to store one; the service checks
+// again rather than trust that.
 func TestExecuteApprovalNeedsTheToolIdentity(t *testing.T) {
 	e := newEnv(t)
 	info := e.deploy(fan(toolConfig(map[string]any{"confirm": "admin"}), echo()))
 	agent := e.agent(storage.NewAPIToken{AllTools: true})
-	a, err := e.store.CreateAgentApproval(storage.AgentApproval{
-		Kind: storage.ApprovalKindToolCall, TokenID: agent.TokenID, FlowID: info.FlowID, Ref: info.TriggerNodeID,
-		Args: json.RawMessage(`{"door":"left"}`), Summary: "legacy",
-	}, time.Now())
-	require.NoError(t, err)
-	approved, err := e.store.DecideAgentApproval(a.ID, true, "admin", time.Now())
-	require.NoError(t, err)
-	err = e.tools.ExecuteApproval(context.Background(), *approved)
+	err := e.tools.ExecuteApproval(context.Background(), storage.AgentApproval{
+		ID: "unstored", Kind: storage.ApprovalKindToolCall, TokenID: agent.TokenID, FlowID: info.FlowID, Ref: info.TriggerNodeID,
+		Args: json.RawMessage(`{"door":"left"}`), Status: storage.ApprovalApproved,
+	})
 	requireKind(t, err, ErrUnavailable)
 	assert.Empty(t, e.tools.results.runs, "nothing ran")
 }
@@ -492,6 +489,7 @@ func (e *env) approvedApproval() string {
 	agent := e.agent(storage.NewAPIToken{AllTools: true})
 	a, err := e.store.CreateAgentApproval(storage.AgentApproval{
 		Kind: storage.ApprovalKindToolCall, TokenID: agent.TokenID, FlowID: "f", Ref: "tool",
+		ToolName: "svc_tool", ToolFingerprint: "sha256:ab", ToolRisk: storage.ApprovalToolRiskSafe,
 	}, time.Now())
 	require.NoError(e.t, err)
 	_, err = e.store.DecideAgentApproval(a.ID, true, "admin", time.Now())

@@ -103,7 +103,7 @@ export interface DraftSummary {
   /**
    * Who applied an approved draft: 'editor' (you approved it) or 'agent'
    * (its token deployed it at the low or all agent deploy level, without a
-   * review). Absent when not applied, and from older servers.
+   * review). Absent when not applied.
    */
   appliedBy?: 'editor' | 'agent' | string
 }
@@ -126,9 +126,9 @@ export interface DraftDetail extends DraftSummary {
   issues: FlowIssue[] | null
   /** The flow runs: approving redeploys it whatever "deploy" says. */
   running: boolean
-  /** The proposed name and description where they differ from the current version's (null, or absent on an older server: unchanged). */
-  nameChange?: TextChange | null
-  descriptionChange?: TextChange | null
+  /** The proposed name and description where they differ from the current version's (null: unchanged). */
+  nameChange: TextChange | null
+  descriptionChange: TextChange | null
   diff: DiffReport
   /** The newest version you approved (0: none). */
   lastApprovedVersion: number

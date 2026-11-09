@@ -1,9 +1,7 @@
 package storage
 
 import (
-	"database/sql"
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -72,43 +70,6 @@ func TestSetAgentApprovalResultValidates(t *testing.T) {
 	_, err = s.DecideAgentApproval(rejected.ID, false, "admin", testNow.Add(time.Minute))
 	require.NoError(t, err)
 	require.ErrorIs(t, s.SetAgentApprovalResult(rejected.ID, json.RawMessage(`{}`)), ErrInvalidAgentApproval, "a rejected call never runs")
-}
-
-func TestAgentApprovalResultMigration(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "old.db")
-	old, err := sql.Open("sqlite3", path)
-	require.NoError(t, err)
-	_, err = old.Exec(`
-		CREATE TABLE agent_approvals (
-			id         TEXT PRIMARY KEY,
-			kind       TEXT NOT NULL,
-			token_id   TEXT NOT NULL,
-			flow_id    TEXT NOT NULL DEFAULT '',
-			ref        TEXT NOT NULL,
-			args_json  TEXT,
-			summary    TEXT NOT NULL DEFAULT '',
-			status     TEXT NOT NULL,
-			created_at INTEGER NOT NULL,
-			decided_at INTEGER,
-			decided_by TEXT NOT NULL DEFAULT '',
-			expires_at INTEGER NOT NULL
-		);
-		INSERT INTO agent_approvals (id, kind, token_id, ref, status, created_at, expires_at)
-		VALUES ('legacy', 'tool_call', 'tok', 'trigger-1', 'pending', 1, 2);
-	`)
-	require.NoError(t, err)
-	require.NoError(t, old.Close())
-
-	for i := range 2 { // the second open runs the migration again
-		store, err := NewSQLiteStore(path)
-		require.NoError(t, err, "open %d", i)
-		got, err := store.GetAgentApproval("legacy")
-		require.NoError(t, err)
-		assert.Nil(t, got.Result)
-		assert.Empty(t, got.ToolName)
-		assert.Empty(t, got.ToolFingerprint)
-		require.NoError(t, store.Close())
-	}
 }
 
 // A tool call records which tool the admin is asked about (its name and

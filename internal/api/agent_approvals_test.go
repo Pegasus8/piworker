@@ -58,6 +58,7 @@ func addApprovalFor(t *testing.T, s *storage.SQLiteStore, tokenID string, at tim
 	t.Helper()
 	a, err := s.CreateAgentApproval(storage.AgentApproval{
 		Kind: storage.ApprovalKindToolCall, TokenID: tokenID, FlowID: "flow", Ref: "trigger",
+		ToolName: "valves.set", ToolFingerprint: "sha256:ab", ToolRisk: storage.ApprovalToolRiskExternal,
 		Args: json.RawMessage(`{"valve":"open"}`), Summary: "Call valves.set", ExpiresAt: at.Add(expires),
 	}, at)
 	require.NoError(t, err)

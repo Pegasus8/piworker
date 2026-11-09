@@ -582,8 +582,5 @@ func (s *SQLiteStore) migrateAgent() error {
 			return fmt.Errorf("failed to migrate agent tables: %w", err)
 		}
 	}
-	if err := migrateAgentApprovals(s.db); err != nil {
-		return err
-	}
-	return migrateFlowDrafts(s.db)
+	return nil
 }

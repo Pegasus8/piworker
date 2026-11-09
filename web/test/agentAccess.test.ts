@@ -14,7 +14,6 @@ import {
   countHidden,
   approvalRisk,
   approvalToolChange,
-  approvalToolName,
   formatRelative,
   mcpStatus,
   auditParams,
@@ -325,44 +324,28 @@ test('JSON text from agents never carries hidden characters', () => {
 })
 
 test('approvals show the risk recorded with the request', () => {
-  // The recorded risk wins over the tool as published now (ADR-0015).
-  const recorded = approvalRisk({ kind: 'tool_call', toolRisk: 'privileged' }, tool({ risk: 'safe' }), false)!
+  // Every tool call records its tool's risk (ADR-0015; storage refuses one
+  // that does not): that is what the admin is shown, never the published one.
+  const recorded = approvalRisk({ toolRisk: 'privileged' })
   expect(recorded).toMatchObject({ risk: 'privileged', label: 'privileged' })
   expect(recorded.reason).toContain('when the agent asked')
-  expect(approvalRisk({ kind: 'tool_call', toolRisk: 'safe' }, undefined, true)).toMatchObject({ risk: 'safe', label: 'safe' })
-  // An unexpected recorded value is not trusted as a risk level.
-  expect(approvalRisk({ kind: 'tool_call', toolRisk: 'bogus' as any }, undefined, false)).toMatchObject({ risk: 'unknown' })
-})
-
-test('older approvals without a recorded risk fall back to the published tool, or say why it is unknown', () => {
-  const old = { kind: 'tool_call' }
-  expect(approvalRisk(old, tool({ risk: 'privileged' }), false)).toMatchObject({ risk: 'privileged', label: 'privileged' })
-  expect(approvalRisk(old, tool({ risk: 'privileged' }), false)!.reason).toContain('as published now')
-  // A tool that is not published now has no known risk: never show none.
-  const missing = approvalRisk(old, undefined, false)!
-  expect(missing).toMatchObject({ risk: 'unknown', label: 'risk unknown' })
-  expect(missing.reason).toContain('not published')
-  const unavailable = approvalRisk(old, undefined, true)!
-  expect(unavailable).toMatchObject({ risk: 'unknown', label: 'risk unknown' })
-  expect(unavailable.reason).toContain('could not be loaded')
-})
-
-test('approvals name the tool recorded with the request', () => {
-  expect(approvalToolName({ kind: 'tool_call', ref: 'n1', toolName: 'garage_open' }, tool({ toolName: 'renamed' }))).toBe('garage_open')
-  expect(approvalToolName({ kind: 'tool_call', ref: 'n1' }, tool({ toolName: 'published' }))).toBe('published')
-  expect(approvalToolName({ kind: 'tool_call', ref: 'n1' }, undefined)).toBe('n1')
+  expect(approvalRisk({ toolRisk: 'safe' })).toMatchObject({ risk: 'safe', label: 'safe' })
+  // An unexpected or missing value is not trusted as a risk level.
+  for (const toolRisk of ['bogus', '', undefined]) {
+    const unknown = approvalRisk({ toolRisk: toolRisk as any })
+    expect(unknown).toMatchObject({ risk: 'unknown', label: 'risk unknown' })
+    expect(unknown.reason).toContain('unexpected value')
+  }
 })
 
 test('a pending approval whose tool changed since the request says it will not run', () => {
-  const a = { kind: 'tool_call', status: 'pending', toolName: 'garage_open', toolFingerprint: 'sha256:aaa' }
+  const a = { status: 'pending', toolName: 'garage_open', toolFingerprint: 'sha256:aaa' }
   expect(approvalToolChange(a, tool())).toBe('')
   expect(approvalToolChange(a, tool({ fingerprint: 'sha256:bbb' }))).toContain('changed since the request')
   expect(approvalToolChange(a, tool({ toolName: 'other' }))).toContain('changed since the request')
   // Unknown is not "changed": the server decides when the tools cannot be read.
   expect(approvalToolChange(a, undefined)).toBe('')
   expect(approvalToolChange({ ...a, status: 'approved' }, tool({ fingerprint: 'sha256:bbb' }))).toBe('')
-  // Older approvals did not record the tool: approving them runs nothing.
-  expect(approvalToolChange({ kind: 'tool_call', status: 'pending' }, tool())).toContain('did not record')
 })
 
 test('the MCP status says whether agents can connect and how to turn it on', () => {

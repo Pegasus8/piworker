@@ -85,15 +85,14 @@ type AgentApproval struct {
 	TokenName string `json:"tokenName,omitempty"`
 	FlowID    string `json:"flowId,omitempty"`
 	Ref       string `json:"ref"`
-	// ToolName and ToolFingerprint identify the tool a tool call asks for,
-	// as published when the call was made: an approval runs only that
-	// version of the tool (empty for other kinds).
-	ToolName        string `json:"toolName,omitempty"`
-	ToolFingerprint string `json:"toolFingerprint,omitempty"`
+	// ToolName and ToolFingerprint identify the tool the call asks for, as
+	// published when the call was made: an approval runs only that version
+	// of the tool.
+	ToolName        string `json:"toolName"`
+	ToolFingerprint string `json:"toolFingerprint"`
 	// ToolRisk is the tool's risk (safe, external or privileged) when the
-	// call was made, shown to the admin (ADR-0015); empty for other kinds
-	// and for approvals stored before it was recorded.
-	ToolRisk  string          `json:"toolRisk,omitempty"`
+	// call was made, shown to the admin (ADR-0015).
+	ToolRisk  string          `json:"toolRisk"`
 	Args      json.RawMessage `json:"args,omitempty"`
 	Summary   string          `json:"summary"`
 	Status    string          `json:"status"`
@@ -165,15 +164,15 @@ func (s *SQLiteStore) CreateAgentApproval(a AgentApproval, now time.Time) (*Agen
 	if len(a.ToolName) > MaxApprovalToolRefLength || len(a.ToolFingerprint) > MaxApprovalToolRefLength {
 		return nil, invalidApproval("tool name and fingerprint must not exceed %d bytes", MaxApprovalToolRefLength)
 	}
+	// The tool the call asks for, as the admin is shown it and as approving
+	// runs it (ADR-0015).
+	if a.ToolName == "" || a.ToolFingerprint == "" {
+		return nil, invalidApproval("a tool call records its tool's name and fingerprint")
+	}
 	switch a.ToolRisk {
-	case "", ApprovalToolRiskSafe, ApprovalToolRiskExternal, ApprovalToolRiskPrivileged:
+	case ApprovalToolRiskSafe, ApprovalToolRiskExternal, ApprovalToolRiskPrivileged:
 	default:
 		return nil, invalidApproval("unknown tool risk %q", a.ToolRisk)
-	}
-	// A tool call that names its tool is shown with its recorded risk; an
-	// empty one would pass for an approval stored before risks were recorded.
-	if a.Kind == ApprovalKindToolCall && (a.ToolName != "" || a.ToolFingerprint != "") && a.ToolRisk == "" {
-		return nil, invalidApproval("a tool call that names its tool must record the tool's risk")
 	}
 	if a.ExpiresAt.IsZero() {
 		a.ExpiresAt = now.Add(ToolCallApprovalLifetime)
@@ -508,27 +507,4 @@ func (s *SQLiteStore) SetAgentApprovalResult(id string, result json.RawMessage) 
 		return err
 	}
 	return invalidApproval("only an approved tool call holds a result")
-}
-
-// migrateAgentApprovals adds the columns newer versions need to an existing
-// agent_approvals table. It is idempotent.
-func migrateAgentApprovals(db *sql.DB) error {
-	for _, col := range []struct{ name, def string }{
-		{"result_json", "TEXT"},
-		{"tool_name", "TEXT NOT NULL DEFAULT ''"},
-		{"tool_fingerprint", "TEXT NOT NULL DEFAULT ''"},
-		{"tool_risk", "TEXT NOT NULL DEFAULT ''"},
-	} {
-		has, err := historyHasColumn(db, "agent_approvals", col.name)
-		if err != nil {
-			return err
-		}
-		if has {
-			continue
-		}
-		if _, err := db.Exec(`ALTER TABLE agent_approvals ADD COLUMN ` + col.name + ` ` + col.def); err != nil {
-			return fmt.Errorf("failed to add agent_approvals.%s: %w", col.name, err)
-		}
-	}
-	return nil
 }

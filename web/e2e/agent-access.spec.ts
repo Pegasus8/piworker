@@ -462,17 +462,6 @@ test('approvals render agent text as plain text and report the execution', async
   await expect(call.getByRole('button', { name: 'Approve…' })).toHaveCount(0)
 })
 
-test('an approval for a tool that is not published says its risk is unknown', async ({ page }) => {
-  // An approval stored before the tool's name and risk were recorded.
-  await mockServer(page, { extraApprovals: [{ ...approvals[0], id: 'ap4', ref: 'gone', flowId: 'f2', args: {}, toolName: undefined, toolFingerprint: undefined, toolRisk: undefined }] })
-  await page.goto('/agents/approvals')
-  const call = page.getByRole('article', { name: 'Request gone' })
-  await expect(call.getByText('risk unknown', { exact: true })).toBeVisible()
-  await expect(call.getByText('Risk unknown: the tool is not published now')).toBeVisible()
-  await expect(page.getByRole('article', { name: 'Request garage_open' }).getByText('external', { exact: true })).toBeVisible()
-  await expect(page.getByRole('article', { name: 'Request garage_open' }).getByText(/risk unknown/i)).toHaveCount(0)
-})
-
 test('approvals show the tool and risk recorded with the request, and refuse a tool that changed since', async ({ page }) => {
   // The node now publishes reboot_pi (privileged, sha256:p1); the agent asked for an earlier version.
   await mockServer(page, { extraApprovals: [{ ...approvals[0], id: 'ap5', flowId: 'f2', ref: 'n2', toolName: 'reboot_v1', toolFingerprint: 'sha256:p0', toolRisk: 'safe', args: {} }] })

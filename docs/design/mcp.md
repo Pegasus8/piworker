@@ -860,10 +860,9 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   tool_fingerprint, tool_risk, args_json, summary, status, created_at,
   decided_at, decided_by, expires_at, result_json)`; one kind, `tool_call`
   (agents' drafts wait in `flow_drafts`, §10). Pending approvals expire
-  (15 min). The editor
-  shows the tool name and risk recorded with the request (`toolName`,
-  `toolRisk`), falling back to the published tool only for approvals stored
-  before the risk was recorded.
+  (15 min). Storage refuses a tool call without its tool's name,
+  fingerprint and risk; the editor shows the tool name and risk recorded
+  with the request (`toolName`, `toolRisk`), never the published tool's.
 - A `confirm: admin` call returns `{status:"approval_required", runId}`; the
   editor shows a queue (badge + page) with tool, args (text only), risk and
   token; approve runs the call and stores its `CallResult` on the approval
@@ -964,13 +963,15 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 - **Drafts** (`internal/storage/flow_drafts.go`): `flow_drafts(id, seq,
   flow_id ('' = new flow), base_version (0 = new), data (the resolved
   proposed flow), note, author_token_id, author_token_name, status
-  pending|approved|rejected|void, risk, issues_json, alerts_json, reason,
-  created_at, decided_at, applied_version, applied_by)`. `applied_by` is
-  who applied an approved draft: `editor` (the admin approved it) or
-  `agent` (its token deployed it at `agent_deploy` low or all, with no
-  review), set by the save that closes it from `VersionMeta.ActorKind`;
-  the migration adding it attributes an older approved draft to the actor
-  of the version that names it (the admin when none does).
+  pending|approved|rejected|void, risk, issues_json, alerts_json,
+  kept_json, reason, created_at, decided_at, applied_version, applied_by)`.
+  `applied_by` is who applied an approved draft: `editor` (the admin
+  approved it) or `agent` (its token deployed it at `agent_deploy` low or
+  all, with no review), set by the save that closes it from
+  `VersionMeta.ActorKind`. The agent tables (`api_tokens`,
+  `agent_approvals`, `mcp_audit`, `flow_drafts`) are new in this release
+  and created whole; only the tables that existed before (`flows.version`,
+  `flow_runs.actor` and `flow_version`) are migrated.
   `CreateFlowDraft` checks in its
   transaction that the author token is not revoked, that it has fewer than
   20 pending drafts (`ErrDraftLimit`) and that an existing flow is still at

@@ -147,37 +147,6 @@ const flowDraftsSchema = `
 	CREATE INDEX IF NOT EXISTS idx_flow_drafts_status ON flow_drafts(status, decided_at);
 `
 
-// migrateFlowDrafts adds the columns newer versions need to an existing
-// flow_drafts table. It is idempotent. An approved draft from before
-// applied_by is attributed to whoever saved the version that names it (the
-// admin when none does).
-func migrateFlowDrafts(db *sql.DB) error {
-	for _, col := range []struct{ name, ddl, fill string }{
-		{name: "kept_json", ddl: `ALTER TABLE flow_drafts ADD COLUMN kept_json TEXT NOT NULL DEFAULT '[]'`},
-		{name: "applied_by", ddl: `ALTER TABLE flow_drafts ADD COLUMN applied_by TEXT NOT NULL DEFAULT ''`,
-			fill: `UPDATE flow_drafts SET applied_by = COALESCE(
-				(SELECT v.actor_kind FROM flow_versions v WHERE v.draft_id = flow_drafts.id LIMIT 1), 'editor')
-				WHERE status = 'approved'`},
-	} {
-		has, err := historyHasColumn(db, "flow_drafts", col.name)
-		if err != nil {
-			return err
-		}
-		if has {
-			continue
-		}
-		if _, err := db.Exec(col.ddl); err != nil {
-			return fmt.Errorf("failed to add flow_drafts.%s: %w", col.name, err)
-		}
-		if col.fill != "" {
-			if _, err := db.Exec(col.fill); err != nil {
-				return fmt.Errorf("failed to fill flow_drafts.%s: %w", col.name, err)
-			}
-		}
-	}
-	return nil
-}
-
 func invalidDraft(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrInvalidFlowDraft, fmt.Sprintf(format, args...))
 }

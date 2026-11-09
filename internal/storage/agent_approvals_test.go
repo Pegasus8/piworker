@@ -18,6 +18,10 @@ func newToolCallApproval(tokenID string) AgentApproval {
 		Ref:     "trigger-1",
 		Args:    json.RawMessage(`{"pin":17,"state":"on"}`),
 		Summary: "Call tool gpio.set",
+
+		ToolName:        "gpio.set",
+		ToolFingerprint: "sha256:ab",
+		ToolRisk:        ApprovalToolRiskPrivileged,
 	}
 }
 
@@ -54,7 +58,8 @@ func TestCreateAndGetAgentApproval(t *testing.T) {
 func TestCreateAgentApprovalKeepsCallerIDAndDefaults(t *testing.T) {
 	s := createTestStore(t)
 	defer s.Close()
-	a := AgentApproval{ID: "run-123", Kind: ApprovalKindToolCall, TokenID: "tok", Ref: "trigger-9", Summary: "Call tool"}
+	a := newToolCallApproval("tok")
+	a.ID, a.Args = "run-123", nil
 	created, err := s.CreateAgentApproval(a, testNow)
 	require.NoError(t, err)
 	assert.Equal(t, "run-123", created.ID, "the run id doubles as the approval id")
