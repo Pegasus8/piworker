@@ -51,9 +51,11 @@ node recipe, UI changes and documentation do **not** need an ADR.
 | [0007](0007-registry-based-flow-validation.md) | Validate flows against the registry and reject cycles | Accepted |
 | [0008](0008-node-closer-lifecycle-hook.md) | `node.Closer` lifecycle hook | Accepted |
 | [0009](0009-mcp-flows-as-tools.md) | Expose PiWorker to agents over MCP as "flows as tools" | Accepted |
-| [0010](0010-scoped-agent-tokens-on-mcp-only.md) | Scoped opaque agent tokens, only on `/mcp` | Accepted (grant suspension rule superseded by ADR-0015) |
-| [0011](0011-native-https-with-local-ca.md) | Native HTTPS by default with a local CA | Accepted |
+| [0010](0010-scoped-agent-tokens-on-mcp-only.md) | Scoped opaque agent tokens, only on `/mcp` | Accepted (grant suspension rule superseded by ADR-0015, revocation step-up wording by ADR-0017) |
+| [0011](0011-native-https-with-local-ca.md) | Native HTTPS by default with a local CA | Accepted (plain-listener rule for `/mcp` and presented chain superseded by ADR-0016) |
 | [0012](0012-human-approval-and-opt-in-agent-deploy.md) | Human approval gates and opt-in agent deploy | Accepted |
 | [0013](0013-closed-tool-schemas-and-server-computed-risk.md) | Closed tool input schemas and server-computed risk | Accepted |
 | [0014](0014-host-allowlist-against-dns-rebinding.md) | Host allowlist against DNS rebinding | Accepted |
 | [0015](0015-tool-identity-binds-grants-and-approvals.md) | Bind grants and approvals to the tool's identity | Accepted |
+| [0016](0016-mcp-only-over-https-with-ca-in-chain.md) | Refuse `/mcp` on the plain listener and present the CA in the chain | Accepted |
+| [0017](0017-narrowing-actions-and-background-polls.md) | Narrowing actions need no step-up; background polls never extend a session | Accepted |

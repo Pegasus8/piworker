@@ -96,5 +96,5 @@ re-confirmation; an approval made stale by a redeploy must be requested again.
    any change (`internal/flow/risk.go`, `internal/service`).
 2. [x] `tool_name`, `tool_fingerprint` and `result_json` on approvals, fail
    closed execution.
-3. [ ] `tool_risk` recorded on approvals and shown by the editor.
+3. [x] `tool_risk` recorded on approvals and shown by the editor.
 4. [x] Flow-variable taint in the risk analysis.

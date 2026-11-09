@@ -173,9 +173,10 @@ may start with `~`, which the bridge expands to your home directory.
 }
 ```
 
-The editor's snippet has the same arguments, with `piworker-mcp` as the
-command and `/path/to/piworker-token` as the token file: replace both with full
-paths. If `raspberrypi.local` does not resolve on your computer, use the Pi's
+The editor's new-token dialog gives the same configuration, with the install
+paths above as `command` (change them if you installed the bridge elsewhere,
+and replace `YOU` with your Windows user name) and `~/.piworker-token` as the
+token file (the bridge expands `~`, also as `~\` on Windows). If `raspberrypi.local` does not resolve on your computer, use the Pi's
 IP address; PiWorker's certificate covers its interface addresses.
 
 ## Flags

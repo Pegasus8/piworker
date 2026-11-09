@@ -69,5 +69,8 @@ GPIO/shell/I2C tools, reading secrets or variables, legacy HTTP+SSE.
 2. [x] Deploy rejects a duplicate tool name with 409 (ADR-0006).
 3. [x] `trigger-tool`, `action-reply`, `internal/toolschema`, risk analysis.
 4. [x] `internal/service` and the REST twin.
-5. [ ] `internal/mcpserver`.
-6. [ ] Read and author tools; stdio bridge; E2E with a real SDK client.
+5. [x] `internal/mcpserver`.
+6. [x] Read tools (`pw_list_flows`, `pw_get_flow`, `pw_list_runs`, `pw_get_run`,
+   `pw_system_status`, prompt `diagnose_flow`); stdio bridge; SDK-client tests
+   for three protocol versions (`main_mcp_test.go`).
+7. [ ] Author tools (drafts, dry-run, lint) and agent deploy (ADR-0012).

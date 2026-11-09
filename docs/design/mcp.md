@@ -703,7 +703,7 @@ windows amd64, attached to releases) with `--url`, `--token-file`, `--ca-file`
 
 ## 13. Testing
 
-TDD throughout; `-race` for runtime and service. E2E in `main_mcp_e2e_test.go`
+TDD throughout; `-race` for runtime and service. E2E in `main_mcp_test.go`
 with a real `mcp.NewClient` over `StreamableClientTransport` against
 `httptest.NewTLSServer`-style setup using the generated CA: filtered
 `ListTools`, annotations, `CallTool` structured content, invalid args → isError,

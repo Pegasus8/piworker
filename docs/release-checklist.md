@@ -74,6 +74,10 @@ audience before choosing stable status.
   native SQLite and container OS scanning were outside its scope.
 - [ ] Inspect all three archives: `piworker-linux-<arch>` and `piworkerctl` must
   be present. Verify their entries in `SHA256SUMS`, and the standalone manager entry.
+- [ ] Check the six `piworker-mcp-<os>-<arch>` bridge binaries (linux amd64/arm64/armv7,
+  darwin amd64/arm64, windows amd64) and their `SHA256SUMS` entries; run one against
+  the candidate (`--url https://…:8443/mcp --ca-fingerprint …`) from Claude Desktop
+  or `claude mcp add`, following [cmd/piworker-mcp/README.md](../cmd/piworker-mcp/README.md).
 - [x] On the owner's Pi, test the real local-package installer lifecycle, failed
   update recovery, reboot and preserved session/variables/flow execution.
 - [ ] Complete browser setup/editing and hardware checks on the Pi. Secret

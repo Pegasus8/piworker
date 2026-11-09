@@ -1,6 +1,6 @@
 # ADR-0011: Native HTTPS by default with a local CA
 
-**Status:** Accepted
+**Status:** Accepted; the plain-listener rule for `/mcp` and the presented chain are superseded by [ADR-0016](0016-mcp-only-over-https-with-ca-in-chain.md)
 **Date:** 2026-11-08
 **Deciders:** maintainer
 **Design:** [docs/design/mcp.md §2](../design/mcp.md) · tracks issue #287

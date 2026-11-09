@@ -125,7 +125,7 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
   `toolName` on `Start` (duplicate → `node.ErrResourceConflict` → 409) and
   releases it on `Stop`.
 
-### Agent tools (MCP; ADR-0009…0015, `docs/design/mcp.md`)
+### Agent tools (MCP; ADR-0009…0017, `docs/design/mcp.md`)
 - A flow becomes a tool through a `trigger-tool` node (input schema, `confirm`,
   limits) answered by `action-reply`. `internal/toolschema` compiles the closed
   schema subset and validates arguments; `flow/risk.go` (`AnalyzeTools`) rates
@@ -141,6 +141,20 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
   grants, approvals and audit live in SQLite (`api_tokens`, `agent_approvals`,
   `mcp_audit`, `mcp_rejections`). Agent-supplied text is shown in the editor as
   plain text with hidden characters escaped (`components/agent/AgentText.vue`).
+- `internal/mcpserver` serves `/mcp` (outside `/api`, so no CSRF/request guard):
+  go-sdk Streamable HTTP, stateless, JSON responses, one cached `*mcp.Server`
+  per token holding only what `service.Tools.List` allows plus the built-in
+  `pw_*` tools and prompts (`StaticTool`/`StaticPrompt`; read tools wrap
+  `service.Reads`). Middleware order: loopback (TLS off) → Host → Origin →
+  write deadline → Bearer (own failure limiter) → per-token bucket → scope.
+  Unknown and hidden tool names both go to the service (same `not_found`).
+  `mountMCP` (`main.go`) registers it before the UI catch-all; with
+  `mcp.enabled = false` it answers a JSON 404.
+- `cmd/piworker-mcp` is the stdio bridge for Claude Desktop: pure Go
+  (`CGO_ENABLED=0`, a test enforces it), a protocol-agnostic JSON-RPC relay
+  that pins the CA; built for six OS/arch pairs by `make build-mcp-bridge-all`.
+- Background polls from the editor send `X-PiWorker-Background: 1` (or use a
+  passive path) so they never extend the session (ADR-0017).
 
 ### Storage, auth, config
 - `internal/storage`: SQLite tuned in `buildDSN` (WAL, `busy_timeout`,
@@ -156,7 +170,8 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
   certificate under `tls/` next to the DB (re-checked every 10 minutes and on
   SIGHUP; custom mode reloads its files on SIGHUP). `addr` (:8443) serves HTTPS;
   `http_addr` (:8080) 308-redirects except `/piworker-ca.crt`, GET/HEAD
-  `/api/health` and, with `webhooks_http`, `/webhooks/`. Flags `-tls`,
+  `/api/health` and, with `webhooks_http`, `/webhooks/`; `/mcp` there is refused
+  with 400, never redirected (ADR-0016). Auto mode presents [server cert, CA]. Flags `-tls`,
   `-http-addr`, `-tls-regenerate-ca`; code in `main_tls.go`,
   `internal/config/tls.go`, `internal/api/tls.go`. A Host allowlist
   (`internal/api/hostguard.go`, `allowed_hosts`, ADR-0014) guards everything
