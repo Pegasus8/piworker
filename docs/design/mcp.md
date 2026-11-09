@@ -751,11 +751,90 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   property's values only when agents may read it (AgentVisible and not
   Sensitive), and otherwise only risks, hosts, secret names and risk-switch
   booleans.
-- `pw_dry_run`: instantiates the flow with `Registry.Derive` stubs for output
-  nodes and triggers, isolated empty variable **and secret** stores
-  (`RuntimeOption`s), no recorder; one at a time; 50 nodes / 10 s cap; returns
-  per-node trace and `wouldExecute[]`.
-- `pw_test_node`: processing nodes only, empty stores.
+- Dry-run (`flow.DryRun`, behind `pw_dry_run`). The flow is first validated
+  as deploy validates it (`validateDeployable`, the checks
+  `RuntimeManager.deploy` runs; an invalid flow is refused with the deploy's
+  error). It then runs once in a private `FlowRuntime` that is never
+  registered with the `RuntimeManager` (no tools published, no webhook path
+  or tool name claimed, no recorder, not counted in the Prometheus metrics),
+  built through `Registry.Derive`, which wraps every node: triggers never
+  start — the payload is injected at the output of the chosen enabled input
+  node (`triggerNodeId`) — and every node whose type risk or instance risk
+  (`flow.InstanceRisk`: the escalation rules of the tool analysis) is not
+  `safe` is a stub. A stub runs nothing: it records itself in `wouldExecute`
+  (node, type, risk, input preview) and emits its mock (`mocks[nodeId]`, on
+  its first output port) or nothing, in which case its branch ends there.
+  Mocks are accepted only for stubbed nodes. Through `flow.WithNodeContext`
+  the nodes get isolated variable stores (global empty, flow seeded from
+  `flowVars`; the flow's persistent store is not even loaded), an empty
+  secret store and a `node.Sandbox`. Every builtin secret lookup resolves
+  through the node's context (`secrets.FromContext`) when the node runs,
+  never in a factory, so no real secret value reaches a dry-run;
+  `missingSecrets` lists the secret names the nodes the run reached
+  reference. Asking for an isolated store with a nil one yields an empty
+  store, never the real one. In a sandbox `action-log` and `process-debug`
+  pass their input on without logging, so nothing of a dry-run reaches the
+  process log (and `action-log` escapes control characters of its message
+  everywhere, so a message cannot forge log lines).
+  - Bounds. Refused up front (`ErrDryRunInput`): more than 50 nodes or 200
+    connections, two connections between the same ports, a payload, a mock
+    or the flow variables over 64 KiB of JSON each. The wall-clock cap is
+    10 s from the call, building the nodes included (`timedOut`); the
+    private runtime stops within a second of it. The private runtime runs
+    one node at a time, queues at most 200 messages per node and routes at
+    most 200 messages (each one execution); every routed copy is charged to
+    the sandbox's data budget (32 MiB for everything a run generates: routed
+    copies, strings expressions build, rendered templates); past either
+    limit nothing more is routed (`capped`) and the run ends once the
+    messages already routed ran. No single value may exceed 1 MiB: a real
+    node's output over it, or a node that ran into a sandbox limit, is an
+    error of its step. Retries are off. Each preview (the JSON of a payload)
+    and error is cut to 2 KiB, the whole result to 64 KiB (`truncated`: a
+    preview was cut or entries left out, keeping `wouldExecute` first, then
+    `missingSecrets`, then the trace).
+  - Expressions (transform, filter, switch, set-var, join, database
+    parameters) are compiled with a guard (`expr_guard.go`): every predicate
+    body (the loops of `filter`, `map`, `count`, `reduce`, …) checks the
+    evaluation's context, so an evaluation stops once its deadline passed
+    instead of running on in the background — in every flow, not only in
+    the sandbox; in a sandbox string `+`, `repeat`, `join`, `replace`,
+    `toJSON`, `string` and `toBase64` size their result before it exists
+    and charge the sandbox, and the result is capped at 1 MiB. Templates
+    stop expanding at the sandbox's limits.
+  - The result lists, in execution order, the trace (`nodeId`, `type`,
+    `input`, `outputs[{port, preview}]`, `error`, `durationMs`, `stubbed`;
+    the trigger first, stubbed, with the payload as its output) and
+    `wouldExecute`. One dry-run or node test runs at a time process-wide;
+    another fails at once (`flow.ErrBusy`). Every node instance built is
+    closed. Work still running when the call returns — a node ignoring
+    cancellation, a goroutine a node started with `node.Go`, such as an
+    expression evaluation finishing its last step — keeps the slot until it
+    returns, so stuck or runaway sandboxed work cannot pile up.
+  - Hidden settings. The flow package only bounds previews; the service
+    redacts them for agents. Redacting derived output afterwards cannot work
+    in general (a transform can encode a value), so for an agent dry-run of
+    a stored flow or a draft (`flowId`, `draftId`) the service sets
+    `DryRunInput.Redact`, which replaces the selected config values with
+    `"<redacted>"` before the flow is validated and run: every property
+    agents may not see (`Sensitive`, not `AgentVisible`, undeclared, or of
+    an unknown type) whose value the agent did not write itself — for a
+    stored flow all of them, for a draft those equal to the base version's
+    value at the same node and property. The run then computes only on what
+    the agent may see; a redacted value that makes its node invalid fails
+    the dry-run like any invalid flow. A flow the agent sends inline holds
+    only what it wrote and is not redacted.
+- Node test (`flow.TestNode`, behind `pw_test_node`): one node of a
+  processing type whose type and instance risk are `safe` (anything else is
+  forbidden), its config checked as deploy checks it, its input and config
+  at most 64 KiB of JSON each, run once on the input with the same isolated
+  stores and sandbox, a 5 s timeout (`timedOut`; it returns then even if the
+  node ignores cancellation, and the node keeps the slot until it returns)
+  and the dry-run's bounds; it shares the dry-run's slot.
+- Secrets in strict settings. The Telegram bot token, the notification URL
+  and the database DSN cannot work without the secrets they reference:
+  deploy refuses a flow (400, naming node, setting and secret) while one of
+  them is not defined (`node.SecretRequirer`); the values themselves are
+  resolved per execution. A dry-run does not check: it stubs these nodes.
 - Approval page: per-node type and diff, agent text marked as such, risk,
   alerts for recipient/destination changes (`chatId`, `to`, topic, broker,
   URL), dynamic destinations, secrets moved between fields, new hosts, and any

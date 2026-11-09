@@ -743,11 +743,16 @@ Open **Secrets** in the flow list to store or replace credentials. Its API lists
 only names. In compatible credential fields, autocomplete inserts
 `{{secret.NAME}}`. Supported fields are Telegram's bot token, Notify's URL,
 Database's DSN, and the username/password fields of Email, MQTT Publish and MQTT
-Subscribe. These references resolve when the node is created: stop and redeploy
-an existing flow after rotating a secret; missing references resolve to an
-empty string.
+Subscribe. These references resolve when the node uses them (every Telegram
+message, Notify request and e-mail; the first Database query and the MQTT
+connection), so a rotated secret applies without a redeploy, except to a
+Database or MQTT connection that is already open. A flow whose Telegram bot
+token, Notify URL or Database DSN names a secret that does not exist is refused
+at deploy (and such a node fails if the secret is deleted later); in the
+optional Email and MQTT credentials a missing secret resolves to an empty
+string.
 
-Two places read secrets on every use instead, so rotation applies at once:
+Two places have further rules:
 
 - **HTTP Request**: header values (`Authorization: Bearer {{secret.api_token}}`)
   and the URL's `user:password@` part and query string

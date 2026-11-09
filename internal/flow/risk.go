@@ -616,18 +616,9 @@ func (r *FlowRuntime) toolSpecs() map[string]node.ToolSpec {
 	return specs
 }
 
-// analyzeRuntimeTools runs the tool risk analysis on a runtime about to
-// start: error issues fail the deploy (a *ValidationError), warnings are
-// logged, and the tools are kept for Tools.
-func (m *RuntimeManager) analyzeRuntimeTools(rt *FlowRuntime) error {
-	specs := rt.toolSpecs()
-	if len(specs) == 0 {
-		return nil
-	}
-	tools, issues := AnalyzeTools(rt.flow, m.registry, specs)
-	if err := issueError(issues); err != nil {
-		return err
-	}
+// keepTools logs the warning issues of a deploy's tool analysis and keeps
+// its tools for Tools.
+func (m *RuntimeManager) keepTools(rt *FlowRuntime, tools []ToolInfo, issues []Issue) {
 	for _, i := range issues {
 		m.logger.Warn().
 			Str("flowID", rt.flow.ID).
@@ -636,7 +627,6 @@ func (m *RuntimeManager) analyzeRuntimeTools(rt *FlowRuntime) error {
 			Msg(i.Message)
 	}
 	rt.tools = tools
-	return nil
 }
 
 // Tools returns the tools published by the running flows, sorted by tool
@@ -667,4 +657,15 @@ func (m *RuntimeManager) Tools() (version uint64, tools []ToolInfo) {
 // definition order. The slice is a copy; Schema and OutputSchema are shared.
 func (r *FlowRuntime) Tools() []ToolInfo {
 	return append([]ToolInfo(nil), r.tools...)
+}
+
+// InstanceRisk returns the risk of one node: its type's declared risk, raised
+// by the instance rules of the tool analysis (a dynamic destination or
+// allowPrivate on HTTP and notify nodes, MQTT and files as shared state). An
+// unregistered type, or one without a declared risk, is privileged. The
+// dry-run uses it to decide which nodes it stubs.
+func InstanceRisk(n *Node, reg *node.Registry) node.Risk {
+	a := toolAnalysis{risk: node.RiskSafe, issues: newIssueSet()}
+	a.visit(0, n, reg, false)
+	return a.risk
 }

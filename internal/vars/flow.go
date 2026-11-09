@@ -8,10 +8,19 @@ import (
 
 type flowStoreKey struct{}
 
+// WithFlowStore supplies the flow variable store (scope "flow") of the
+// execution: the runtime passes the flow's persistent store, a sandboxed
+// execution an isolated one.
 func WithFlowStore(ctx context.Context, store *Store) context.Context {
 	return context.WithValue(ctx, flowStoreKey{}, store)
 }
+
+// FlowFromContext returns the flow variable store carried by ctx, or nil when
+// there is none (or ctx is nil).
 func FlowFromContext(ctx context.Context) *Store {
+	if ctx == nil {
+		return nil
+	}
 	s, _ := ctx.Value(flowStoreKey{}).(*Store)
 	return s
 }

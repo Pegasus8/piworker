@@ -84,7 +84,7 @@ func (t *WebhookTrigger) Validate() error {
 // undefined secret fails the start (and so the deploy).
 func (t *WebhookTrigger) Start(ctx context.Context, out chan<- *types.Message) error {
 	if t.token != "" {
-		if _, err := expandSecretsStrict(t.token); err != nil {
+		if _, err := expandSecretsStrict(ctx, t.token); err != nil {
 			return fmt.Errorf("webhook token: %w", err)
 		}
 	}
@@ -151,7 +151,7 @@ func (t *WebhookTrigger) handle(req webhook.Request) webhook.Result {
 	// rejects every request instead of disabling the check. Constant-time
 	// comparison so response timing doesn't leak how much of a guess was right.
 	if t.token != "" {
-		expected, err := expandSecretsStrict(t.token)
+		expected, err := expandSecretsStrict(ctx, t.token) // ctx: the one Start was given
 		if err != nil || expected == "" {
 			if t.tokenUnresolved.CompareAndSwap(false, true) {
 				t.log.Warn().Err(err).Str("path", t.path).Msg("webhook token resolves to nothing; rejecting every request until its secret is set")

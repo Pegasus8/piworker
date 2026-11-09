@@ -20,18 +20,19 @@ import (
 // through renderTemplateWith, which only offers it placeholders of the
 // template itself: text that came from the message is never resolved.
 type requestSecrets struct {
-	nonce  string   // random per request, so a payload cannot forge a sentinel
-	refs   []string // secret names referenced by the URL, by sentinel index
-	values []string // every resolved value, to redact them from errors
-	err    error    // first missing secret
+	store  *secrets.Store // the store of the node's context (secrets.FromContext)
+	nonce  string         // random per request, so a payload cannot forge a sentinel
+	refs   []string       // secret names referenced by the URL, by sentinel index
+	values []string       // every resolved value, to redact them from errors
+	err    error          // first missing secret
 }
 
-func newRequestSecrets() (*requestSecrets, error) {
+func newRequestSecrets(ctx context.Context) (*requestSecrets, error) {
 	b := make([]byte, 12)
 	if _, err := rand.Read(b); err != nil {
 		return nil, fmt.Errorf("cannot generate request nonce: %w", err)
 	}
-	return &requestSecrets{nonce: hex.EncodeToString(b)}, nil
+	return &requestSecrets{store: secrets.FromContext(ctx), nonce: hex.EncodeToString(b)}, nil
 }
 
 // secretRef returns NAME for a {{secret.NAME}} placeholder.
@@ -44,7 +45,7 @@ func secretRef(parts []string) (string, bool) {
 
 // lookup returns the current value of a secret, recording a missing one.
 func (s *requestSecrets) lookup(name string) string {
-	v, ok := secrets.DefaultStore.Get(name)
+	v, ok := s.store.Get(name)
 	if !ok {
 		if s.err == nil {
 			s.err = fmt.Errorf("secret %q is not defined (referenced as {{secret.%s}})", name, name)

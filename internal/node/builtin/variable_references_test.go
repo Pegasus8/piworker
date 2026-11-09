@@ -19,8 +19,8 @@ func TestVariableReferencesInExpressionsAndTemplates(t *testing.T) {
 	out, err := n.Process(context.Background(), types.NewMessage(5, types.DataTypeNumber))
 	require.NoError(t, err)
 	require.EqualValues(t, 30, out[0].Payload)
-	require.Equal(t, "limit=25", renderTemplate("limit={{vars.threshold-test}}", types.NewMessage(nil, types.DataTypeAny)))
-	require.NotContains(t, renderTemplate("{{secret.PRIVATE_TEST}}", types.NewMessage(nil, types.DataTypeAny)), "never-in-payload")
+	require.Equal(t, "limit=25", renderTemplate("limit={{vars.threshold-test}}", types.NewMessage(nil, types.DataTypeAny), context.Background()))
+	require.NotContains(t, renderTemplate("{{secret.PRIVATE_TEST}}", types.NewMessage(nil, types.DataTypeAny), context.Background()), "never-in-payload")
 }
 
 func TestFlowScopeDoesNotFallBackToGlobals(t *testing.T) {

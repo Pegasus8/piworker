@@ -102,8 +102,8 @@ func NewMqttAction(config map[string]interface{}) (node.Node, error) {
 		BaseNode: base,
 		broker:   broker,
 		clientID: resolveMqttClientID(base.GetConfigString("clientId", ""), "piworker-pub"),
-		username: expandSecrets(base.GetConfigString("username", "")),
-		password: expandSecrets(base.GetConfigString("password", "")),
+		username: base.GetConfigString("username", ""), // {{secret.NAME}} resolved on connect
+		password: base.GetConfigString("password", ""),
 		topic:    topic,
 		payload:  base.GetConfigString("payload", "{{payload}}"),
 		qos:      qos,
@@ -130,7 +130,8 @@ func (a *MqttAction) ensureClient(ctx context.Context) (mqtt.Client, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.client == nil {
-		a.client = mqtt.NewClient(newMqttClientOptions(a.broker, a.clientID, a.username, a.password))
+		a.client = mqtt.NewClient(newMqttClientOptions(a.broker, a.clientID,
+			expandSecrets(ctx, a.username), expandSecrets(ctx, a.password)))
 	}
 	if !a.client.IsConnected() {
 		if err := waitMqttToken(ctx, a.client.Connect(), mqttConnectTimeout); err != nil {

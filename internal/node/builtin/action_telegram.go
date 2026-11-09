@@ -29,8 +29,9 @@ type TelegramAction struct {
 func NewTelegramAction(config map[string]interface{}) (node.Node, error) {
 	base := node.NewBaseNode(config)
 
-	// Resolve {{secret.NAME}} so the token can be kept out of the flow blob.
-	botToken := expandSecrets(base.GetConfigString("botToken", ""))
+	// The token may be {{secret.NAME}} (kept out of the flow blob); it is
+	// resolved per request (Process).
+	botToken := base.GetConfigString("botToken", "")
 	if botToken == "" {
 		return nil, fmt.Errorf("botToken is required")
 	}
@@ -64,7 +65,15 @@ func (a *TelegramAction) Process(ctx context.Context, msg *types.Message) ([]*ty
 	}
 	bodyBytes, _ := json.Marshal(payload)
 
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", a.botToken)
+	// The token's secret comes from the store of the node's context.
+	botToken, err := expandSecretsStrict(ctx, a.botToken)
+	if err != nil {
+		return nil, fmt.Errorf("botToken: %w", err)
+	}
+	if botToken == "" {
+		return nil, fmt.Errorf("botToken resolves to an empty value")
+	}
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
 	// The bot token is part of the URL; keep it out of every error message.
 	const shownURL = "https://api.telegram.org/bot<redacted>/sendMessage"
 
@@ -73,13 +82,13 @@ func (a *TelegramAction) Process(ctx context.Context, msg *types.Message) ([]*ty
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", redactURLError(err, url, shownURL, a.botToken))
+		return nil, fmt.Errorf("failed to create request: %w", redactURLError(err, url, shownURL, botToken))
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return nil, node.Transient(fmt.Errorf("telegram request failed: %w", redactURLError(err, url, shownURL, a.botToken)))
+		return nil, node.Transient(fmt.Errorf("telegram request failed: %w", redactURLError(err, url, shownURL, botToken)))
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))

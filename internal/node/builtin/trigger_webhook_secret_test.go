@@ -82,11 +82,11 @@ func TestWebhookTokenFailsClosed(t *testing.T) {
 
 func TestExpandSecretsStrict(t *testing.T) {
 	setSecret(t, "tok", "abc")
-	v, err := expandSecretsStrict("x-{{secret.tok}}-{{payload}}")
+	v, err := expandSecretsStrict(context.Background(), "x-{{secret.tok}}-{{payload}}")
 	require.NoError(t, err)
 	assert.Equal(t, "x-abc-{{payload}}", v)
 
-	_, err = expandSecretsStrict("{{secret.absent}}")
+	_, err = expandSecretsStrict(context.Background(), "{{secret.absent}}")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `"absent"`)
 }
