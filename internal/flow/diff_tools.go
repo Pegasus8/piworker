@@ -26,7 +26,7 @@ func toolPathAlerts(g, gb *varGraph, nextOrder []*diffNode, paired map[string]*d
 		if d.live() == nil || d.n.Type != "trigger-tool" || g.running[d.n.ID] != d {
 			continue
 		}
-		why := ""
+		var why string
 		b := paired[d.key].live()
 		if b == nil || gb.running[b.n.ID] != b {
 			why = "the tool is new or was enabled"
@@ -37,7 +37,7 @@ func toolPathAlerts(g, gb *varGraph, nextOrder []*diffNode, paired map[string]*d
 			continue
 		}
 		add(d.order, Alert{Kind: AlertToolPathChanged, NodeID: d.n.ID,
-			Message: fmt.Sprintf("what tool node %s runs changed (a published tool is the admin's: its grant and approvals stay bound to it): %s", d.n.ID, why)})
+			Message: fmt.Sprintf("what tool node %s runs changed, and a published tool is the admin's: %s", d.n.ID, why)})
 	}
 }
 
