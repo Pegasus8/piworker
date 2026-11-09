@@ -79,6 +79,61 @@ test('a background reload of the list marks itself so the session is not extende
   expect(calls[2].headers).toBeUndefined()
 })
 
+test('a background reload keeps the pages loaded with Load more and says the list is out of date', async () => {
+  routes['GET /agent/drafts'] = (c) => {
+    const p = c.params as { beforeId?: string }
+    return p.beforeId ? { drafts: [draft('c')], nextBefore: '' } : { drafts: [draft('a'), draft('b')], nextBefore: 'b' }
+  }
+  const store = useDraftsStore()
+  await store.fetchDrafts('all')
+  // While only the first page is shown, a background reload replaces it.
+  expect(await store.fetchDrafts('all', { background: true })).toBe(true)
+  expect(store.outdated).toBe(false)
+  await store.loadMore()
+  expect(store.drafts.map(d => d.id)).toEqual(['a', 'b', 'c'])
+  const before = calls.length
+
+  // An agent saves a draft: the badge's count changes and the page asks
+  // for a background reload. It would replace the list with the first
+  // page, so it is skipped and the page offers a refresh instead.
+  expect(await store.fetchDrafts('all', { background: true })).toBe(false)
+  expect(calls.length).toBe(before)
+  expect(store.drafts.map(d => d.id)).toEqual(['a', 'b', 'c'])
+  expect(store.outdated).toBe(true)
+
+  // Refreshing by hand reads the first page again.
+  routes['GET /agent/drafts'] = () => ({ drafts: [draft('n'), draft('a')], nextBefore: 'a' })
+  expect(await store.fetchDrafts('all')).toBe(true)
+  expect(store.drafts.map(d => d.id)).toEqual(['n', 'a'])
+  expect(store.outdated).toBe(false)
+})
+
+test('a background reload never discards a Load more in flight', async () => {
+  routes['GET /agent/drafts'] = (c) => {
+    const p = c.params as { beforeId?: string }
+    return p.beforeId ? { drafts: [draft('c')], nextBefore: '' } : { drafts: [draft('a'), draft('b')], nextBefore: 'b' }
+  }
+  const store = useDraftsStore()
+  await store.fetchDrafts('all')
+  let release = () => {}
+  const realGet = apiClient.get
+  apiClient.get = async (url: string, config?: { params?: unknown; headers?: Record<string, string> }) => {
+    if ((config?.params as { beforeId?: string })?.beforeId) await new Promise<void>(resolve => { release = resolve })
+    return realGet(url, config)
+  }
+  try {
+    const more = store.loadMore()
+    await new Promise(r => setTimeout(r, 0))
+    expect(await store.fetchDrafts('all', { background: true })).toBe(false)
+    expect(store.outdated).toBe(true)
+    release()
+    await more
+    expect(store.drafts.map(d => d.id)).toEqual(['a', 'b', 'c'])
+  } finally {
+    apiClient.get = realGet
+  }
+})
+
 test('a slower, older list never replaces a newer one', async () => {
   const gates: Record<string, () => void> = {}
   routes['GET /agent/drafts'] = (c) => ({ drafts: [draft((c.params as { status: string }).status)], nextBefore: '' })

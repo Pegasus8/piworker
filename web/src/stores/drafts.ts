@@ -50,12 +50,24 @@ export const useDraftsStore = defineStore('drafts', () => {
   const detail = ref<DraftDetail | null>(null)
 
   const hasMore = computed(() => nextBefore.value !== '')
+  /** A background reload was skipped to keep the pages loaded with Load more: offer a refresh. */
+  const outdated = ref(false)
+  // Pages shown (the first page and each Load more), and Load more
+  // requests in flight.
+  let pages = 0
+  let loadingMore = 0
 
   // Lists can overlap (filter changes, refreshes, the badge's background
   // reloads); only the latest one is shown. Returns false, without throwing,
-  // when the response was superseded.
+  // when the response was superseded, or when a background reload was
+  // skipped: it would replace pages the admin loaded with Load more (or is
+  // loading) by the first page, so it only marks the list outdated.
   let listSeq = 0
   async function fetchDrafts(status: DraftFilter = filter.value, opts: { background?: boolean } = {}): Promise<boolean> {
+    if (opts.background && (pages > 1 || loadingMore > 0)) {
+      outdated.value = true
+      return false
+    }
     const seq = ++listSeq
     try {
       const { data } = await apiClient.get('/agent/drafts', {
@@ -66,6 +78,8 @@ export const useDraftsStore = defineStore('drafts', () => {
       drafts.value = data.data?.drafts ?? []
       nextBefore.value = data.data?.nextBefore ?? ''
       filter.value = status
+      pages = 1
+      outdated.value = false
       return true
     } catch (e) {
       if (seq !== listSeq) return false
@@ -76,12 +90,18 @@ export const useDraftsStore = defineStore('drafts', () => {
   async function loadMore(): Promise<void> {
     if (!nextBefore.value) return
     const seq = ++listSeq
-    const { data } = await apiClient.get('/agent/drafts', {
-      params: { status: filter.value, limit: DRAFT_PAGE_SIZE, beforeId: nextBefore.value }
-    })
-    if (seq !== listSeq) return
-    drafts.value = [...drafts.value, ...(data.data?.drafts ?? [])]
-    nextBefore.value = data.data?.nextBefore ?? ''
+    loadingMore++
+    try {
+      const { data } = await apiClient.get('/agent/drafts', {
+        params: { status: filter.value, limit: DRAFT_PAGE_SIZE, beforeId: nextBefore.value }
+      })
+      if (seq !== listSeq) return
+      drafts.value = [...drafts.value, ...(data.data?.drafts ?? [])]
+      nextBefore.value = data.data?.nextBefore ?? ''
+      pages++
+    } finally {
+      loadingMore--
+    }
   }
 
   // One draft at a time: a late response for a draft the admin left is
@@ -147,5 +167,5 @@ export const useDraftsStore = defineStore('drafts', () => {
     refreshBadge()
   }
 
-  return { drafts, filter, nextBefore, hasMore, detail, fetchDrafts, loadMore, fetchDraft, clearDraft, approve, reject }
+  return { drafts, filter, nextBefore, hasMore, outdated, detail, fetchDrafts, loadMore, fetchDraft, clearDraft, approve, reject }
 })

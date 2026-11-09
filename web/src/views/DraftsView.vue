@@ -4,7 +4,7 @@
 // come from agents and are rendered as plain text only.
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import { AlertTriangle, Ban, CheckCircle2, Clock, FileDiff, RefreshCw, XCircle } from 'lucide-vue-next'
+import { AlertTriangle, Ban, CheckCircle2, Clock, FileDiff, Info, RefreshCw, XCircle } from 'lucide-vue-next'
 import { Badge, Button, Label, Select } from '@/components/ui'
 import AgentNav from '@/components/agent/AgentNav.vue'
 import AgentText from '@/components/agent/AgentText.vue'
@@ -67,7 +67,9 @@ onBeforeUnmount(() => clearInterval(clock))
 watch(filter, () => load())
 // New drafts arrive through the badge's polling. Agents can change the count
 // at will, so this reload is a background request: an open tab alone must
-// not keep the session alive.
+// not keep the session alive. With pages loaded by Load more, the store
+// skips it (it would replace them by the first page) and the page offers a
+// refresh instead.
 watch(() => agent.pendingDrafts, (count, before) => {
   if (count !== before && filter.value !== 'decided') void load({ background: true })
 })
@@ -112,6 +114,11 @@ const alertLabel = (n: number) => `${n} alert${n === 1 ? '' : 's'}`
         </div>
 
         <p v-if="loadError" role="alert" class="text-sm text-destructive">{{ loadError }}</p>
+        <div v-if="drafts.outdated" role="status" class="flex flex-wrap items-center gap-2 rounded-md border bg-muted p-3 text-sm">
+          <Info class="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span class="min-w-0 flex-1">Drafts changed since this list loaded. Refreshing shows them, starting again from the newest.</span>
+          <Button variant="outline" size="sm" :disabled="loading" @click="load()"><RefreshCw class="mr-2 h-4 w-4" aria-hidden="true" />Refresh</Button>
+        </div>
         <p v-if="loading && !drafts.drafts.length" role="status" class="text-sm text-muted-foreground">Loading drafts…</p>
         <p v-else-if="!loadError && !drafts.drafts.length" class="rounded-md bg-muted p-6 text-center text-sm text-muted-foreground">
           {{ filter !== 'pending' ? 'No drafts to show.'
