@@ -44,7 +44,7 @@ const diff = {
 
 const detail = (over: Record<string, unknown> = {}) => ({
   ...summary(), issues: [{ path: '/nodes/tg1', code: 'tool_delay_exceeds_timeout', severity: 'warning', message: 'A warning ' + XSS }],
-  running: false, diff, lastApprovedVersion: 2,
+  running: false, nameChange: { before: 'Garage', after: 'Garage door' + XSS }, descriptionChange: null, diff, lastApprovedVersion: 2,
   diffApproved: { ...diff, alerts: [diff.alerts[1]] },
   flow: { id: 'f1', name: 'Garage', nodes: [{ id: 'tg1', type: 'action-telegram', config: { chatId: '12345' } }], connections: [] }, ...over
 })
@@ -163,6 +163,9 @@ test('a draft is reviewed alerts first and approved with Deploy now', async ({ p
   await expect(http.getByText('https://evil.example/' + XSS)).toBeVisible()
   await expect(changes.getByText('Moved on the canvas.')).toBeVisible()
   await expect(changes.getByText('w1 · output → Telegram (tg1) · input')).toBeVisible()
+  // A rename is a change too, shown as agent text.
+  const rename = changes.getByRole('table', { name: 'Name and description' })
+  await expect(rename.getByRole('row', { name: /Name/ })).toContainText('Garage door' + XSS)
   await expect(page.getByRole('region', { name: /Compared with the version you last approved/ })).toBeVisible()
   await expect(page.getByText('A warning ' + XSS)).toBeVisible()
   await expect(page.locator('img')).toHaveCount(0)
@@ -177,6 +180,7 @@ test('a draft is reviewed alerts first and approved with Deploy now', async ({ p
   await expect(dialog).toContainText('Compared with the current version, 3: Risk raised from Safe to External; 4 alerts')
   await expect(dialog).toContainText('Compared with version 2, the one you last approved: Risk raised from Safe to External; 1 alert: New host.')
   await expect(dialog).toContainText('Approving also approves these earlier agent changes.')
+  await expect(dialog).toContainText('It renames the flow from “Garage” to “Garage door' + XSS + '”.')
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
   await dialog.getByRole('button', { name: 'Approve and deploy' }).click()
   await expect.poll(() => last(requests, 'POST', '/agent/drafts/d1/approve')?.body).toEqual({ deploy: true })

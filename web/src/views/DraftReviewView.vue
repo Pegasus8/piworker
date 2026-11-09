@@ -27,7 +27,8 @@ import { useAuthStore } from '@/stores/auth'
 import { countHidden, formatDateTime, formatRelative, jsonText, visibleText } from '@/lib/agentAccess'
 import {
   applyOutcome, approvalBlock, approveConfirmText, diffBasis, draftIcon, draftState, draftVersionText, fieldPaths,
-  issueCountsLabel, issueCounts, nodeNames, proposedSettings, riskChange, severityInfo, type ApplyResult, type FlowIssue
+  issueCountsLabel, issueCounts, nodeNames, proposedSettings, riskChange, severityInfo, textChanges, type ApplyResult,
+  type FlowIssue
 } from '@/lib/drafts'
 
 /** The longest rejection reason the server accepts (service.MaxRejectReasonChars). */
@@ -63,6 +64,8 @@ const basis = computed(() => d.value ? diffBasis(d.value) : null)
 const fieldsNow = computed(() => fieldPaths(d.value?.diff))
 const fieldsApproved = computed(() => fieldPaths(d.value?.diffApproved))
 const proposed = computed(() => proposedSettings(d.value?.flow))
+// The flow's name and description the draft changes (a rename can disguise a flow).
+const textRows = computed(() => d.value ? textChanges(d.value) : [])
 const isPending = computed(() => d.value?.status === 'pending')
 // A running flow is always redeployed: the box is checked and locked then.
 const willDeploy = computed(() => !!d.value && (d.value.running || deployNow.value))
@@ -298,6 +301,23 @@ async function reject() {
           <section v-if="basis" aria-labelledby="changes-heading" :aria-describedby="isPending ? undefined : 'draft-basis'" class="space-y-2">
             <h3 id="changes-heading" class="text-sm font-semibold">{{ basis.heading }}</h3>
             <p class="text-xs text-muted-foreground">Credentials are never shown; settings marked Destination say where the flow sends data or connects.</p>
+            <div v-if="textRows.length" class="overflow-x-auto rounded-md border p-3">
+              <table class="w-full min-w-[18rem] table-fixed text-left text-sm">
+                <caption class="mb-1 text-left text-sm font-semibold">Name and description</caption>
+                <thead class="text-xs text-muted-foreground">
+                  <tr><th scope="col" class="w-1/4 py-1 pr-2 font-medium">Field</th><th scope="col" class="py-1 pr-2 font-medium">Before</th><th scope="col" class="py-1 font-medium">After</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="r in textRows" :key="r.field" class="border-t align-top">
+                    <th scope="row" class="py-1.5 pr-2 font-normal">{{ r.label }}</th>
+                    <td v-for="(v, side) in [r.before, r.after]" :key="side" class="py-1.5 pr-2">
+                      <span v-if="!v" class="text-muted-foreground">(empty)</span>
+                      <span v-else class="whitespace-pre-wrap break-words"><AgentText :text="v" /></span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
             <DraftDiff :diff="d.diff" :names="names" label="Changes" />
           </section>
 

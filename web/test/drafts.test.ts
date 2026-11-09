@@ -25,6 +25,7 @@ import {
   riskChange,
   riskInfo,
   severityInfo,
+  textChanges,
   HIDDEN_VALUE,
   type DiffReport,
   type DraftDetail,
@@ -201,7 +202,8 @@ test('a diff is summarised in words', () => {
   const conn = { id: 'c1', sourceNode: 'a', sourcePort: 'output', targetNode: 'b', targetPort: 'input' }
   expect(diffSummary(emptyDiff({ nodes, connections: { added: [conn], removed: null as any } })))
     .toBe('2 nodes added, 1 node changed, 1 connection added')
-  expect(diffSummary(emptyDiff())).toBe('No changes')
+  // A rename alone is no node change: the summary says what it counts.
+  expect(diffSummary(emptyDiff())).toBe('No node or connection changes')
 })
 
 test('field rows label settings, hide Sensitive values and flag destinations', () => {
@@ -392,6 +394,24 @@ test('the approval confirmation also compares with the version you last approved
   // Without alerts since the approved version, it says that too.
   const quiet = approveConfirmText({ ...d, diffApproved: emptyDiff({ riskBefore: 'external', riskAfter: 'external' }) }, false)
   expect(quiet).toContain('Compared with version 3, the one you last approved: Risk unchanged: External; no alerts.')
+})
+
+test('a rename and a new description are listed, and the confirmation names the new name', () => {
+  expect(textChanges(detail())).toEqual([])
+  expect(textChanges(detail({ nameChange: null, descriptionChange: null }))).toEqual([])
+  const d = detail({ nameChange: { before: 'Garage', after: 'Gate‮' }, descriptionChange: { before: '', after: 'Opens it' } })
+  expect(textChanges(d)).toEqual([
+    { field: 'name', label: 'Name', before: 'Garage', after: 'Gate‮' },
+    { field: 'description', label: 'Description', before: '', after: 'Opens it' }
+  ])
+  const text = approveConfirmText(d, false)
+  expect(text).toContain('It renames the flow from “Garage” to “Gate\\u202E”.')
+  expect(text).toContain('It changes the flow\'s description.')
+  // A new flow's name is already in the sentence that creates it.
+  const created = approveConfirmText(detail({ isNew: true, flowId: '', flowName: 'Lights', nameChange: { before: '', after: 'Lights' } }), false)
+  expect(created).not.toContain('renames')
+  expect(approveConfirmText(detail({ isNew: true, flowId: '', flowName: 'Lights', descriptionChange: { before: '', after: 'x' } }), false))
+    .not.toContain('description')
 })
 
 test('the outcome of an approval or rollback says what was saved and whether it runs', () => {

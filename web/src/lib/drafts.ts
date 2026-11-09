@@ -107,6 +107,12 @@ export interface DraftList {
   nextBefore: string
 }
 
+/** A text field a draft changes (agent text). */
+export interface TextChange {
+  before: string
+  after: string
+}
+
 /** GET /api/agent/drafts/{id}: recomputed on read against the current version. */
 export interface DraftDetail extends DraftSummary {
   /** The agent's whole note. */
@@ -114,6 +120,9 @@ export interface DraftDetail extends DraftSummary {
   issues: FlowIssue[] | null
   /** The flow runs: approving redeploys it whatever "deploy" says. */
   running: boolean
+  /** The proposed name and description where they differ from the current version's (null, or absent on an older server: unchanged). */
+  nameChange?: TextChange | null
+  descriptionChange?: TextChange | null
   diff: DiffReport
   /** The newest version you approved (0: none). */
   lastApprovedVersion: number
@@ -378,7 +387,7 @@ export function groupNodes(diff: DiffReport): NodeGroup[] {
     .filter(g => g.nodes.length > 0)
 }
 
-/** "2 nodes added, 1 node changed, 1 connection added", or "No changes". */
+/** "2 nodes added, 1 node changed, 1 connection added", or "No node or connection changes". */
 export function diffSummary(diff: DiffReport): string {
   const nodes = diff.nodes ?? []
   const parts: string[] = []
@@ -390,7 +399,7 @@ export function diffSummary(diff: DiffReport): string {
   const removed = diff.connections?.removed?.length ?? 0
   if (added) parts.push(`${plural(added, 'connection')} added`)
   if (removed) parts.push(`${plural(removed, 'connection')} removed`)
-  return parts.length ? parts.join(', ') : 'No changes'
+  return parts.length ? parts.join(', ') : 'No node or connection changes'
 }
 
 /** A field path as a label: "config.url" → setting "url". */
@@ -456,6 +465,19 @@ export function nodeNames(...diffs: (DiffReport | null | undefined)[]): Map<stri
   const names = new Map<string, string>()
   for (const d of diffs) for (const n of d?.nodes ?? []) if (!names.has(n.nodeId)) names.set(n.nodeId, n.typeName || n.type)
   return names
+}
+
+export interface TextChangeRow extends TextChange {
+  field: 'name' | 'description'
+  label: string
+}
+
+/** The flow's name and description the draft changes, for the changes section. */
+export function textChanges(d: Pick<DraftDetail, 'nameChange' | 'descriptionChange'>): TextChangeRow[] {
+  const rows: TextChangeRow[] = []
+  if (d.nameChange) rows.push({ field: 'name', label: 'Name', before: d.nameChange.before, after: d.nameChange.after })
+  if (d.descriptionChange) rows.push({ field: 'description', label: 'Description', ...d.descriptionChange })
+  return rows
 }
 
 // --- Issues ----------------------------------------------------------------
@@ -679,10 +701,15 @@ export function approveConfirmText(d: DraftDetail, deploy: boolean): string {
   const saved = d.isNew
     ? `“${name}” is created as a new flow from this draft by “${visibleText(d.tokenName || d.tokenId)}”.`
     : `“${name}” is saved as a new version from this draft by “${visibleText(d.tokenName || d.tokenId)}”.`
+  // A rename can disguise a flow: say it here too (a new flow's name is in "saved").
+  const renamed = !d.isNew && d.nameChange
+    ? ` It renames the flow from “${visibleText(d.nameChange.before)}” to “${visibleText(d.nameChange.after)}”.`
+    : ''
+  const described = !d.isNew && d.descriptionChange ? ' It changes the flow\'s description.' : ''
   const runs = d.running
     ? 'The flow is running, so it is redeployed with this version.'
     : deploy ? 'It is deployed right away.' : 'It is not deployed.'
-  return `${compared} ${saved} ${runs}`
+  return `${compared} ${saved}${renamed}${described} ${runs}`
 }
 
 /** What an approval or rollback did, for OperationFeedback. */
