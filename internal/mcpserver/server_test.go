@@ -318,8 +318,17 @@ func TestStaticTools(t *testing.T) {
 	assert.Equal(t, true, res["isError"])
 	assert.Equal(t, "unavailable", errorCode(structured))
 
-	// The scope check refuses built-in tools of a scope the token lacks.
-	requireJSONError(t, e.serve(withToken(rpc(callBody("pw_echo", `{"word":"hi"}`)), callToken)), http.StatusForbidden)
+	// A built-in tool of a scope the token lacks is unknown to it: called,
+	// it gets exactly the answer (and the audit) of a name that does not
+	// exist, from the tool service.
+	e.tools.call = func(_ context.Context, _ service.Actor, ref service.ToolRef, _ map[string]any) (flow.CallResult, error) {
+		return flow.CallResult{}, &service.ToolError{Kind: service.ErrToolNotFound, Message: fmt.Sprintf("unknown tool %q", ref.Name)}
+	}
+	hidden, _ := called(t, e, callToken, "pw_echo", `{"word":"hi"}`)
+	unknown, _ := called(t, e, callToken, "pw_nothing", `{"word":"hi"}`)
+	assert.Equal(t, true, hidden["isError"])
+	assert.Equal(t, strings.ReplaceAll(fmt.Sprint(hidden), "pw_echo", "X"), strings.ReplaceAll(fmt.Sprint(unknown), "pw_nothing", "X"))
+	assert.EqualValues(t, 2, e.tools.calls.Load())
 }
 
 func TestStaticToolRegistrationIsChecked(t *testing.T) {

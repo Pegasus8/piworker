@@ -440,8 +440,10 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   limited, so a client sharing the address cannot lock out known agents;
   per-token token bucket (30/min, burst 10 → 429 +
   `Retry-After`); scope check (call or read, or the scope of a registered
-  built-in tool or prompt; a `tools/call` needs the tool's scope — call for
-  any flow tool name → 403). The scope check parses the body strictly, like
+  built-in tool or prompt; a `tools/call` needs the call scope → 403, unless
+  it names a built-in tool of a scope the token holds: to a token, a
+  built-in tool of a scope it lacks is an unknown name, neither listed nor
+  callable, and calling it gets the `not_found` result of any unknown name). The scope check parses the body strictly, like
   the SDK (case-sensitive names; duplicate names → 400, JSON-RPC `-32700`).
 - `/mcp` is outside `/api`: the ADR-0002 request guard and CSRF do not apply
   (Bearer only; the router never allows `Authorization` in a CORS preflight).

@@ -50,10 +50,12 @@ func (h *Handler) servesAnyScope(actor service.Actor) bool {
 	return false
 }
 
-// scopeOfTool is the scope a tools/call of name needs: a built-in tool's
-// own, call for any other name (flow tools, hidden or unknown alike).
-func (h *Handler) scopeOfTool(name string) string {
-	if st := h.staticTool(name); st != nil {
+// scopeOfTool is the scope a tools/call of name by actor needs: a built-in
+// tool's own when the token holds it, call for any other name. Flow tools,
+// hidden or unknown, and built-in tools of a scope the token lacks are
+// alike: the token may not know whether they exist.
+func (h *Handler) scopeOfTool(name string, actor service.Actor) string {
+	if st := h.staticTool(name); st != nil && actor.HasScope(st.Scope) {
 		return st.Scope
 	}
 	return storage.ScopeCall
@@ -288,10 +290,9 @@ func (h *Handler) routeUnheldTools(actor service.Actor, held, skipped map[string
 				// its output schema, and the agent was never shown it.
 				return unknownTool(call.Params.Name), nil
 			}
-			if st := h.staticTool(call.Params.Name); st != nil {
-				return errorResult(&service.ToolError{Kind: service.ErrPermissionDenied,
-					Message: fmt.Sprintf("this token does not have the %s scope", st.Scope)}), nil
-			}
+			// Hidden and unknown flow tools, and built-in tools of a scope
+			// the token lacks (no flow tool has a pw_ name, so the service
+			// answers them as unknown, like any name it does not know).
 			return h.callFlowTool(ctx, actor, call.Params.Name, call.Params.Arguments, nil), nil
 		}
 	}

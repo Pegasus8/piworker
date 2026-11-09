@@ -266,9 +266,9 @@ func (h *Handler) limitRate(next http.Handler) http.Handler {
 }
 
 // checkScope refuses tokens without a scope the endpoint serves, and tool
-// calls naming a tool whose scope the token lacks: a built-in tool's own
-// scope, call for any other name (so hidden and unknown flow tools are
-// alike). It also refuses what the SDK would serve outside the protocol
+// calls without the call scope, unless they name a built-in tool of a scope
+// the token holds (so hidden and unknown flow tools, and built-in tools of
+// other scopes, are alike). It also refuses what the SDK would serve outside the protocol
 // versions /mcp negotiates: JSON-RPC batches (removed in 2025-06-18; they
 // would also let one request carry many calls past the per-token rate
 // limit), and requests other than initialize without an
@@ -334,7 +334,7 @@ func (h *Handler) checkMessage(w http.ResponseWriter, r *http.Request, actor ser
 			"subscriptions/listen is not supported: PiWorker's lists do not change while a client is connected (listChanged is false)")
 		return false
 	case m.Method == "tools/call":
-		if scope := h.scopeOfTool(m.Params.Name); !actor.HasScope(scope) {
+		if scope := h.scopeOfTool(m.Params.Name, actor); !actor.HasScope(scope) {
 			writeJSONError(w, http.StatusForbidden, fmt.Sprintf("This token does not have the %s scope needed to call %q", scope, shorten(m.Params.Name, maxToolNameLength)))
 			return false
 		}
