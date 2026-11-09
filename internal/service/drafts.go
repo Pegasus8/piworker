@@ -239,7 +239,7 @@ func (a *Authoring) GetDraftDetail(ctx context.Context, actor Actor, draftID str
 	detail := DraftDetail{
 		DraftSummary: draftSummary(d, current),
 		Note:         d.Note,
-		Issues:       a.proposalIssues(ctx, &proposal{base: base, next: proposed, issues: a.unknownSecretIssues(base, proposed)}),
+		Issues:       a.proposalIssues(ctx, &proposal{base: base, next: proposed, issues: a.unknownSecretIssues(proposed, changedValues(base, proposed))}),
 		Diff:         flow.Diff(base, proposed, a.registry),
 		Flow:         hideSensitiveLiterals(a.registry, shown),
 	}

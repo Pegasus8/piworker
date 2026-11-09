@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -76,6 +77,60 @@ func TestCreateAndGetFlowDraft(t *testing.T) {
 
 	_, err = s.GetFlowDraft("missing")
 	require.ErrorIs(t, err, ErrFlowDraftNotFound)
+}
+
+// A draft keeps the list of the base values its author did not write (the
+// service's: which hidden values to keep hidden from it).
+func TestFlowDraftKeepsItsKeptList(t *testing.T) {
+	s, tok := newDraftFixture(t)
+	f := createTestFlow("base")
+	require.NoError(t, s.CreateFlow(f))
+	d := draftFor(tok.ID, f.ID, 1)
+	d.KeptJSON = json.RawMessage(`[["calc","template"]]`)
+	created, err := s.CreateFlowDraft(d)
+	require.NoError(t, err)
+	got, err := s.GetFlowDraft(created.ID)
+	require.NoError(t, err)
+	assert.JSONEq(t, `[["calc","template"]]`, string(got.KeptJSON))
+
+	created, err = s.CreateFlowDraft(draftFor(tok.ID, f.ID, 1))
+	require.NoError(t, err)
+	got, err = s.GetFlowDraft(created.ID)
+	require.NoError(t, err)
+	assert.JSONEq(t, `[]`, string(got.KeptJSON), "none")
+
+	bad := draftFor(tok.ID, f.ID, 1)
+	bad.KeptJSON = json.RawMessage(`nope`)
+	_, err = s.CreateFlowDraft(bad)
+	require.ErrorIs(t, err, ErrInvalidFlowDraft)
+}
+
+// Databases whose flow_drafts table predates kept_json gain the column; their
+// drafts keep nothing.
+func TestFlowDraftKeptMigration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "drafts.db")
+	old, err := sql.Open("sqlite3", path)
+	require.NoError(t, err)
+	_, err = old.Exec(`
+		CREATE TABLE flow_drafts (
+			id TEXT PRIMARY KEY, seq INTEGER NOT NULL, flow_id TEXT NOT NULL DEFAULT '',
+			base_version INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
+			author_token_id TEXT NOT NULL, author_token_name TEXT NOT NULL DEFAULT '', status TEXT NOT NULL,
+			risk TEXT NOT NULL DEFAULT '', issues_json TEXT NOT NULL DEFAULT '[]', alerts_json TEXT NOT NULL DEFAULT '[]',
+			reason TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, decided_at INTEGER, applied_version INTEGER
+		);
+		INSERT INTO flow_drafts (id, seq, data, author_token_id, status, created_at) VALUES ('old', 1, '{"name":"n"}', 'tok', 'pending', 1);
+	`)
+	require.NoError(t, err)
+	require.NoError(t, old.Close())
+	for i := range 2 { // the second open runs the migration again
+		store, err := NewSQLiteStore(path)
+		require.NoError(t, err, "open %d", i)
+		got, err := store.GetFlowDraft("old")
+		require.NoError(t, err)
+		assert.JSONEq(t, `[]`, string(got.KeptJSON))
+		require.NoError(t, store.Close())
+	}
 }
 
 func TestCreateFlowDraftRejectsBadInput(t *testing.T) {

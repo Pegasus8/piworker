@@ -42,7 +42,7 @@ const (
 	// MaxDraftDataBytes bounds the stored proposed flow (the service limits
 	// what an agent sends to 512 KiB; resolved values may add to it).
 	MaxDraftDataBytes = 1 << 20
-	// MaxDraftReportBytes bounds the stored issues and alerts (each).
+	// MaxDraftReportBytes bounds the stored issues, alerts and kept list (each).
 	MaxDraftReportBytes = 256 << 10
 	// MaxDraftNoteBytes bounds the agent's note (2000 characters).
 	MaxDraftNoteBytes = 8 << 10
@@ -85,10 +85,14 @@ type FlowDraft struct {
 	Risk            string          `json:"risk"`
 	IssuesJSON      json.RawMessage `json:"issues"`
 	AlertsJSON      json.RawMessage `json:"alerts"`
-	Reason          string          `json:"reason,omitempty"`
-	CreatedAt       time.Time       `json:"createdAt"`
-	DecidedAt       *time.Time      `json:"decidedAt,omitempty"`
-	AppliedVersion  int             `json:"appliedVersion,omitempty"` // the version an approval saved
+	// KeptJSON is a JSON list the service stores with the draft (the base
+	// values its author did not write); "[]" when empty. GetFlowDraft
+	// returns it, ListFlowDrafts does not.
+	KeptJSON       json.RawMessage `json:"kept,omitempty"`
+	Reason         string          `json:"reason,omitempty"`
+	CreatedAt      time.Time       `json:"createdAt"`
+	DecidedAt      *time.Time      `json:"decidedAt,omitempty"`
+	AppliedVersion int             `json:"appliedVersion,omitempty"` // the version an approval saved
 }
 
 // FlowDraftFilter selects drafts for ListFlowDrafts. Status is "" or
@@ -113,6 +117,7 @@ const flowDraftsSchema = `
 		risk              TEXT NOT NULL DEFAULT '',
 		issues_json       TEXT NOT NULL DEFAULT '[]',
 		alerts_json       TEXT NOT NULL DEFAULT '[]',
+		kept_json         TEXT NOT NULL DEFAULT '[]',
 		reason            TEXT NOT NULL DEFAULT '',
 		created_at        INTEGER NOT NULL,
 		decided_at        INTEGER,
@@ -123,6 +128,19 @@ const flowDraftsSchema = `
 	CREATE INDEX IF NOT EXISTS idx_flow_drafts_flow ON flow_drafts(flow_id, status);
 	CREATE INDEX IF NOT EXISTS idx_flow_drafts_status ON flow_drafts(status, decided_at);
 `
+
+// migrateFlowDrafts adds the columns newer versions need to an existing
+// flow_drafts table. It is idempotent.
+func migrateFlowDrafts(db *sql.DB) error {
+	has, err := historyHasColumn(db, "flow_drafts", "kept_json")
+	if err != nil || has {
+		return err
+	}
+	if _, err := db.Exec(`ALTER TABLE flow_drafts ADD COLUMN kept_json TEXT NOT NULL DEFAULT '[]'`); err != nil {
+		return fmt.Errorf("failed to add flow_drafts.kept_json: %w", err)
+	}
+	return nil
+}
 
 func invalidDraft(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrInvalidFlowDraft, fmt.Sprintf(format, args...))
@@ -222,6 +240,10 @@ func (s *SQLiteStore) CreateFlowDraft(d FlowDraft) (*FlowDraft, error) {
 	if err != nil {
 		return nil, err
 	}
+	kept, err := draftReport("kept list", d.KeptJSON)
+	if err != nil {
+		return nil, err
+	}
 	if d.ID == "" {
 		d.ID = uuid.NewString()
 	}
@@ -231,7 +253,7 @@ func (s *SQLiteStore) CreateFlowDraft(d FlowDraft) (*FlowDraft, error) {
 	}
 	d.CreatedAt = time.Unix(d.CreatedAt.Unix(), 0).UTC()
 	d.Status = DraftPending
-	d.IssuesJSON, d.AlertsJSON = json.RawMessage(issues), json.RawMessage(alerts)
+	d.IssuesJSON, d.AlertsJSON, d.KeptJSON = json.RawMessage(issues), json.RawMessage(alerts), json.RawMessage(kept)
 
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -271,10 +293,10 @@ func (s *SQLiteStore) CreateFlowDraft(d FlowDraft) (*FlowDraft, error) {
 	}
 	_, err = tx.Exec(`
 		INSERT INTO flow_drafts (id, seq, flow_id, base_version, data, note, author_token_id, author_token_name,
-			status, risk, issues_json, alerts_json, created_at)
-		VALUES (?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM flow_drafts), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			status, risk, issues_json, alerts_json, kept_json, created_at)
+		VALUES (?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM flow_drafts), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, d.ID, d.FlowID, d.BaseVersion, string(d.Data), d.Note, d.AuthorTokenID, d.AuthorTokenName,
-		d.Status, d.Risk, issues, alerts, d.CreatedAt.Unix())
+		d.Status, d.Risk, issues, alerts, kept, d.CreatedAt.Unix())
 	if err != nil {
 		if isUniqueViolation(err) {
 			return nil, invalidDraft("draft %s already exists", d.ID)
@@ -301,7 +323,7 @@ func draftColumns(withData bool) string {
 	cols := `id, flow_id, base_version, COALESCE(json_extract(data, '$.name'), ''), note, author_token_id, author_token_name,
 		status, risk, issues_json, alerts_json, reason, created_at, decided_at, applied_version`
 	if withData {
-		cols += `, data`
+		cols += `, data, kept_json`
 	}
 	return cols
 }
@@ -314,12 +336,12 @@ func scanFlowDraft(row rowScanner, withData bool) (*FlowDraft, error) {
 		created        int64
 		decided        sql.NullInt64
 		applied        sql.NullInt64
-		data           string
+		data, kept     string
 	)
 	dest := []any{&d.ID, &d.FlowID, &d.BaseVersion, &name, &d.Note, &d.AuthorTokenID, &d.AuthorTokenName,
 		&d.Status, &d.Risk, &issues, &alerts, &d.Reason, &created, &decided, &applied}
 	if withData {
-		dest = append(dest, &data)
+		dest = append(dest, &data, &kept)
 	}
 	if err := row.Scan(dest...); err != nil {
 		return nil, err
@@ -334,7 +356,7 @@ func scanFlowDraft(row rowScanner, withData bool) (*FlowDraft, error) {
 		d.AppliedVersion = int(applied.Int64)
 	}
 	if withData {
-		d.Data = json.RawMessage(data)
+		d.Data, d.KeptJSON = json.RawMessage(data), json.RawMessage(kept)
 	}
 	return &d, nil
 }

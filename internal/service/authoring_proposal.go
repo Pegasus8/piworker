@@ -64,7 +64,21 @@ type proposal struct {
 	// issues are the authoring issues (IssueSensitiveLiteral,
 	// IssueUnresolvedRedaction, IssueUnknownSecret).
 	issues []flow.Issue
+	// wrote holds, by node and property, the values the agent wrote (never
+	// the sentinel): a whole flow's config values, the configs of add_node
+	// ops and the patches of update_node ops (the patch, not the merged
+	// result).
+	wrote map[propKey][]any
+	// kept marks the properties of next that hold base content the agent
+	// did not write: resolved from "<redacted>", left alone by the ops, or
+	// an object patch merged into the base's object. Only these may be
+	// compared with the base: comparing what the agent wrote would let it
+	// confirm a guess of a value it may not read.
+	kept map[propKey]bool
 }
+
+// propKey names a config property of a node.
+type propKey struct{ node, prop string }
 
 // resolveProposal builds and checks the proposed flow of an agent: request
 // shape and limits (invalid_arguments), the base (flow_not_found, the
@@ -115,24 +129,38 @@ func (a *Authoring) resolveProposal(req proposalRequest) (*proposal, error) {
 		p.base = base
 	}
 
+	p.wrote, p.kept = map[propKey][]any{}, map[propKey]bool{}
+	var opsOrigin map[propKey]valueOrigin
+	var replaced map[string]bool
 	if asIs {
 		next, err := cloneFlow(p.base)
 		if err != nil {
 			return nil, fmt.Errorf("copy flow: %w", err)
 		}
 		p.next = next
+		for i := range next.Nodes {
+			for prop := range next.Nodes[i].Config {
+				p.kept[propKey{next.Nodes[i].ID, prop}] = true
+			}
+		}
 	} else if hasOps {
 		next, issues := flow.ApplyOps(p.base, req.ops, a.registry)
 		if len(issues) > 0 {
 			return nil, &ToolError{Kind: ErrInvalidArguments, Message: "the ops cannot be applied", FlowIssues: issues}
 		}
 		p.next = next
+		opsOrigin, replaced = opWrites(p.base, req.ops, p.wrote)
 	} else {
 		next, err := cloneFlow(req.flow)
 		if err != nil {
 			return nil, toolError(ErrInvalidArguments, "the flow cannot be read")
 		}
 		a.normalizeNodes(next)
+		for i := range next.Nodes {
+			for prop, v := range next.Nodes[i].Config {
+				recordWrite(p.wrote, propKey{next.Nodes[i].ID, prop}, v)
+			}
+		}
 		if p.base != nil {
 			if next.Name == "" {
 				next.Name = p.base.Name
@@ -167,17 +195,104 @@ func (a *Authoring) resolveProposal(req proposalRequest) (*proposal, error) {
 		return nil, toolError(ErrInvalidArguments, fmt.Sprintf("the flow has %d connections; at most %d", len(next.Connections), MaxDraftConnections))
 	}
 
-	p.issues = a.resolveRedactions(p.base, next)
+	p.issues = a.resolveRedactions(p.base, next, p.kept)
+	if opsOrigin != nil {
+		// What the ops left alone (or merged into) on the base's nodes is
+		// the base's.
+		for i := range next.Nodes {
+			n := &next.Nodes[i]
+			if replaced[n.ID] || baseNode(p.base, n) == nil {
+				continue
+			}
+			for prop := range n.Config {
+				if opsOrigin[propKey{n.ID, prop}] != fromAgent {
+					p.kept[propKey{n.ID, prop}] = true
+				}
+			}
+		}
+	}
 	if req.editor {
 		p.issues = nil
 		return p, nil
 	}
-	if err := a.authorRestrictions(p.base, next); err != nil {
+	if err := a.authorRestrictions(p.base, next, p.kept); err != nil {
 		return nil, err
 	}
-	p.issues = append(p.issues, a.sensitiveLiteralIssues(p.base, next)...)
-	p.issues = append(p.issues, a.unknownSecretIssues(p.base, next)...)
+	p.issues = append(p.issues, a.sensitiveLiteralIssues(next, p.wrote)...)
+	p.issues = append(p.issues, a.unknownSecretIssues(next, p.wrote)...)
 	return p, nil
+}
+
+// valueOrigin says where the config value of an ops proposal comes from.
+type valueOrigin int
+
+const (
+	fromBase  valueOrigin = iota // untouched (the zero value)
+	fromAgent                    // written by the agent
+	mergedIn                     // an object patch merged into the base's object
+)
+
+// recordWrite records v as written by the agent at k (the sentinel and null
+// write nothing).
+func recordWrite(wrote map[propKey][]any, k propKey, v any) {
+	if v == nil {
+		return
+	}
+	if s, ok := v.(string); ok && s == RedactedValue {
+		return
+	}
+	wrote[k] = append(wrote[k], v)
+}
+
+// opWrites replays the config writes of ops on base: it records the values
+// the agent wrote in wrote and returns where each written property's value
+// comes from (absent: untouched, the base's) and the node IDs whose base
+// node was removed or added again (nothing of theirs is the base's but what
+// a sentinel resolves).
+func opWrites(base *flow.Flow, ops []flow.Op, wrote map[propKey][]any) (map[propKey]valueOrigin, map[string]bool) {
+	origin := map[propKey]valueOrigin{}
+	replaced := map[string]bool{}
+	baseObject := func(id, prop string) bool {
+		if base == nil || replaced[id] {
+			return false
+		}
+		if b := base.GetNode(id); b != nil {
+			_, ok := b.Config[prop].(map[string]any)
+			return ok
+		}
+		return false
+	}
+	for _, op := range ops {
+		switch op.Op {
+		case flow.OpAddNode:
+			if op.Node == nil {
+				continue
+			}
+			replaced[op.Node.ID] = true
+			for prop, v := range op.Node.Config {
+				k := propKey{op.Node.ID, prop}
+				recordWrite(wrote, k, v)
+				origin[k] = fromAgent
+			}
+		case flow.OpRemoveNode:
+			replaced[op.NodeID] = true
+		case flow.OpUpdateNode:
+			for prop, v := range op.Config {
+				k := propKey{op.NodeID, prop}
+				recordWrite(wrote, k, v)
+				_, patch := v.(map[string]any)
+				switch {
+				case v == RedactedValue:
+					origin[k] = fromBase // resolved to the base's value
+				case patch && origin[k] != fromAgent && baseObject(op.NodeID, prop):
+					origin[k] = mergedIn
+				default:
+					origin[k] = fromAgent
+				}
+			}
+		}
+	}
+	return origin, replaced
 }
 
 // staleBase is the conflict of a proposal based on another version.
@@ -321,9 +436,9 @@ func pointerEscape(s string) string { return pointerEscaper.Replace(s) }
 
 // resolveRedactions replaces every top-level config value "<redacted>" of
 // next (what the read views show of a hidden value) with base's value of
-// that property at the same node ID and type. A sentinel without a base
-// value is an IssueUnresolvedRedaction.
-func (a *Authoring) resolveRedactions(base, next *flow.Flow) []flow.Issue {
+// that property at the same node ID and type, marking it kept. A sentinel
+// without a base value is an IssueUnresolvedRedaction.
+func (a *Authoring) resolveRedactions(base, next *flow.Flow, kept map[propKey]bool) []flow.Issue {
 	var issues []flow.Issue
 	for i := range next.Nodes {
 		n := &next.Nodes[i]
@@ -335,6 +450,7 @@ func (a *Authoring) resolveRedactions(base, next *flow.Flow) []flow.Issue {
 			if b != nil {
 				if bv, ok := b.Config[prop]; ok {
 					n.Config[prop] = cloneJSONValue(bv)
+					kept[propKey{n.ID, prop}] = true
 					continue
 				}
 			}
@@ -406,33 +522,43 @@ func secretOnly(v any) bool {
 	return false
 }
 
-// sensitiveLiteralIssues reports the Sensitive properties of next whose
-// value an agent set (it differs from base's at the same node and type) to
-// anything but {{secret.NAME}} references. The message never quotes it.
-func (a *Authoring) sensitiveLiteralIssues(base, next *flow.Flow) []flow.Issue {
+// sensitiveLiteralIssues reports the Sensitive properties of next where the
+// agent wrote (wrote) anything but {{secret.NAME}} references, whether or
+// not it equals the base's value: exempting an equal value would confirm a
+// guess of the admin's credential. The message never quotes the value.
+func (a *Authoring) sensitiveLiteralIssues(next *flow.Flow, wrote map[propKey][]any) []flow.Issue {
 	var issues []flow.Issue
-	for i := range next.Nodes {
-		n := &next.Nodes[i]
-		schema := a.schemaOf(n.Type)
-		if schema == nil {
+	for _, k := range sortedPropKeys(wrote) {
+		n := next.GetNode(k.node)
+		if n == nil {
 			continue
 		}
-		b := baseNode(base, n)
-		for _, prop := range sortedKeys(n.Config) {
-			p, ok := schema.Properties[prop]
-			if !ok || !p.Sensitive {
-				continue
-			}
-			v := n.Config[prop]
-			if b != nil && sameJSON(v, b.Config[prop]) {
-				continue // the admin's value, kept
-			}
+		schema := a.schemaOf(n.Type)
+		if schema == nil || !schema.Properties[k.prop].Sensitive {
+			continue
+		}
+		for _, v := range wrote[k] {
 			if !secretOnly(v) {
-				issues = append(issues, sensitiveLiteral(configPointer(n.ID, prop)))
+				issues = append(issues, sensitiveLiteral(configPointer(k.node, k.prop)))
+				break
 			}
 		}
 	}
 	return issues
+}
+
+func sortedPropKeys[T any](m map[propKey]T) []propKey {
+	keys := make([]propKey, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].node != keys[j].node {
+			return keys[i].node < keys[j].node
+		}
+		return keys[i].prop < keys[j].prop
+	})
+	return keys
 }
 
 func sensitiveLiteral(path string) flow.Issue {
@@ -474,31 +600,46 @@ func referencedSecrets(v any) []string {
 	return names
 }
 
-// unknownSecretIssues warns about the secret references an agent wrote (in
-// values that differ from base's) to secrets that are not defined: the admin
-// may define them before approving. Only names are shown.
-func (a *Authoring) unknownSecretIssues(base, next *flow.Flow) []flow.Issue {
+// unknownSecretIssues warns about the secret references in the values
+// written (wrote, by node and property of next) to secrets that are not
+// defined: the admin may define them before approving. Only names are shown,
+// and only of what was written: the names in settings agents cannot read
+// are not revealed.
+func (a *Authoring) unknownSecretIssues(next *flow.Flow, wrote map[propKey][]any) []flow.Issue {
 	var issues []flow.Issue
-	for i := range next.Nodes {
-		n := &next.Nodes[i]
-		b := baseNode(base, n)
-		for _, prop := range sortedKeys(n.Config) {
-			v := n.Config[prop]
-			if b != nil && sameJSON(v, b.Config[prop]) {
+	for _, k := range sortedPropKeys(wrote) {
+		if next.GetNode(k.node) == nil {
+			continue
+		}
+		for _, name := range referencedSecrets(wrote[k]) {
+			if _, ok := a.secrets.Get(name); ok {
 				continue
 			}
-			for _, name := range referencedSecrets(v) {
-				if _, ok := a.secrets.Get(name); ok {
-					continue
-				}
-				issues = append(issues, flow.Issue{
-					Path: configPointer(n.ID, prop), Code: IssueUnknownSecret, Severity: flow.IssueWarning,
-					Message: fmt.Sprintf("secret %q is not defined: the admin must define it before the flow can use it", capText(name, maxViewIDBytes)),
-				})
-			}
+			issues = append(issues, flow.Issue{
+				Path: configPointer(k.node, k.prop), Code: IssueUnknownSecret, Severity: flow.IssueWarning,
+				Message: fmt.Sprintf("secret %q is not defined: the admin must define it before the flow can use it", capText(name, maxViewIDBytes)),
+			})
 		}
 	}
 	return issues
+}
+
+// changedValues is what the editor's view of a stored proposal counts as
+// written: the config values of next that differ from base's at the same
+// node and type.
+func changedValues(base, next *flow.Flow) map[propKey][]any {
+	out := map[propKey][]any{}
+	for i := range next.Nodes {
+		n := &next.Nodes[i]
+		b := baseNode(base, n)
+		for prop, v := range n.Config {
+			if b != nil && sameJSON(v, b.Config[prop]) {
+				continue
+			}
+			out[propKey{n.ID, prop}] = []any{v}
+		}
+	}
+	return out
 }
 
 // forbiddenChange is the refusal of a change the author scope may not make.
@@ -510,9 +651,11 @@ func forbiddenChange(path, what string) *ToolError {
 // the author scope may not change: trigger-tool and action-reply nodes
 // (added, changed or removed: they define the tools agents call; moving one
 // changes nothing), a webhook trigger's path or Sensitive settings (its
-// token) or turning one on, a RiskSwitch property turned on (enabling a
-// node counts as adding it), and the legacy Variables.
-func (a *Authoring) authorRestrictions(base, next *flow.Flow) *ToolError {
+// token: any value written there, equal to the base's or not, since agents
+// may not read them; only what kept marks stays) or turning one on, a
+// RiskSwitch property turned on (enabling a node counts as adding it), and
+// the legacy Variables.
+func (a *Authoring) authorRestrictions(base, next *flow.Flow, kept map[propKey]bool) *ToolError {
 	isTool := func(t string) bool { return t == toolTriggerType || t == toolReplyType }
 	toolWhat := "add, change or remove trigger-tool or action-reply nodes (they define the tools agents call)"
 	if base != nil {
@@ -554,8 +697,18 @@ func (a *Authoring) authorRestrictions(base, next *flow.Flow) *ToolError {
 				}
 			}
 			for _, prop := range props {
-				bv, nv := b.Config[prop], n.Config[prop]
-				if !(unsetValue(bv) && unsetValue(nv)) && !sameJSON(bv, nv) {
+				bv, inBase := b.Config[prop]
+				nv, inNext := n.Config[prop]
+				switch {
+				case !inNext:
+					if !unsetValue(bv) {
+						return forbiddenChange(configPointer(n.ID, prop), webhookWhat) // removed
+					}
+				case kept[propKey{n.ID, prop}]:
+					// the base's value, which the agent did not write
+				case !inBase && unsetValue(nv):
+					// nothing written over nothing
+				default:
 					return forbiddenChange(configPointer(n.ID, prop), webhookWhat)
 				}
 			}

@@ -269,9 +269,12 @@ func TestSaveDraftAuthorRestrictions(t *testing.T) {
 	}
 
 	// The legacy variables: a whole flow without them keeps them; another
-	// value is forbidden.
+	// value is forbidden. (The flow as the read views show it: the webhook's
+	// hidden settings as the sentinel.)
 	whole := tooled
 	whole.Variables = nil
+	nodeOf(whole, "hook").Config["path"] = RedactedValue
+	nodeOf(whole, "hook").Config["token"] = RedactedValue
 	_, err := e.a.SaveDraft(t.Context(), agent, DraftInput{FlowID: base.ID, BaseVersion: 1, Flow: whole})
 	require.NoError(t, err, "absent variables keep the base's")
 	whole.Variables = map[string]any{"legacy": "changed"}
