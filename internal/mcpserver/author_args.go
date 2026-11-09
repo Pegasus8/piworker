@@ -55,9 +55,9 @@ func typeArg(description string) *argSchema   { return pattern(description, type
 // own name rule (service.MaxDraftNameChars) is the service's.
 const maxFlowNameChars = 256
 
-// viewTruncatedValue is what the read views (service, reads_redact.go)
-// show for a value they cut: a string ends with "…" and it, an object or
-// list too large is replaced by it.
+// viewTruncatedValue marks a value the read views (service,
+// reads_redact.go) cut: a long string ends with "…<truncated>", an object or
+// list too large is replaced by "<truncated>".
 const viewTruncatedValue = "<truncated>"
 
 func positionArg() *argSchema {
