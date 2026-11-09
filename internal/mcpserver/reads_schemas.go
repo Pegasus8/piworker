@@ -102,7 +102,7 @@ const (
 		`"tools":{"type":"integer","description":"Tools published by the running flows."},` +
 		`"mcp":{"type":"object","required":["maxInflight","maxResultBytes"],"properties":{` +
 		`"maxInflight":{"type":"integer","description":"Tool calls running at once, all tokens together."},` +
-		`"maxResultBytes":{"type":"integer","description":"Larger tool results are truncated (bytes)."}}},` +
+		`"maxResultBytes":{"type":"integer","description":"Flow tool replies larger than this are truncated (bytes); the built-in tools have bounds of their own."}}},` +
 		`"agentDeploy":{"type":"string","enum":["off","low","all"],"description":"What agents may deploy."},` +
 		`"disk":{"type":"object","required":["freeBytes","totalBytes"],"description":"The data directory's file system.",` +
 		`"properties":{"freeBytes":` + integerSchema + `,"totalBytes":` + integerSchema + `}},` +

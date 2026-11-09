@@ -217,12 +217,17 @@ func TestGetFlowBoundsVisibleValues(t *testing.T) {
 	assert.Equal(t, truncatedMark, view.Nodes[1].Config["inputSchema"], "a large visible object is replaced by the marker")
 }
 
+// A flow of any size is shown within maxReadViewBytes (its JSON): its
+// structure first (nodes, then connections, then tools, each in order),
+// then the node configs in node order while they fit.
 func TestGetFlowBoundsTheWholeView(t *testing.T) {
 	e := newReadsEnv(t)
 	f := flow.NewFlow("huge")
 	value := strings.Repeat("v", maxVisibleValueBytes-64)
+	longID := strings.Repeat("i", maxViewIDBytes-4)
 	for i := range maxViewNodes + 5 {
 		n := flow.NewNode("process-debug", flow.NodeCategoryProcessing)
+		n.ID = fmt.Sprintf("%s%04d", longID, i)
 		n.Config = map[string]any{"name": value}
 		f.AddNode(*n)
 		if i > 0 {
@@ -236,11 +241,35 @@ func TestGetFlowBoundsTheWholeView(t *testing.T) {
 
 	view, err := e.reads.GetFlow(context.Background(), EditorActor(), f.ID)
 	require.NoError(t, err)
+	assert.LessOrEqual(t, len(mustJSON(t, view)), maxReadViewBytes)
 	assert.True(t, view.Truncated)
-	assert.Len(t, view.Nodes, maxViewNodes)
-	assert.Len(t, view.Connections, maxViewConnections)
+	assert.NotEmpty(t, view.Nodes)
+	assert.Less(t, len(view.Nodes), maxViewNodes, "nodes past the budget are left out")
+	assert.Equal(t, f.Nodes[len(view.Nodes)-1].ID, view.Nodes[len(view.Nodes)-1].ID, "the first nodes, in order")
 	assert.Equal(t, maxViewNodes+5, view.TotalNodes)
 	assert.Equal(t, len(f.Connections), view.TotalConnections)
+	for _, n := range view.Nodes {
+		assert.True(t, n.ConfigOmitted)
+		assert.Nil(t, n.Config)
+	}
+
+	// A smaller flow: every node and connection, and the first configs.
+	small := flow.NewFlow("big configs")
+	for i := range 30 {
+		n := flow.NewNode("process-debug", flow.NodeCategoryProcessing)
+		n.Config = map[string]any{"name": value}
+		small.AddNode(*n)
+		if i > 0 {
+			small.AddConnection(*flow.NewConnection(small.Nodes[i-1].ID, "output", n.ID, "input"))
+		}
+	}
+	e.save(small)
+	view, err = e.reads.GetFlow(context.Background(), EditorActor(), small.ID)
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(mustJSON(t, view)), maxReadViewBytes)
+	assert.True(t, view.Truncated)
+	assert.Len(t, view.Nodes, 30)
+	assert.Len(t, view.Connections, 29)
 	omitted := 0
 	for _, n := range view.Nodes {
 		if n.ConfigOmitted {
@@ -249,8 +278,9 @@ func TestGetFlowBoundsTheWholeView(t *testing.T) {
 		}
 	}
 	assert.Positive(t, omitted, "configs beyond the budget are omitted")
+	assert.Less(t, omitted, 30)
 	assert.False(t, view.Nodes[0].ConfigOmitted, "the first nodes keep their configs")
-	assert.Less(t, len(mustJSON(t, view)), maxViewConfigBytes+maxViewNodes*1024+maxViewConnections*512)
+	assert.True(t, view.Nodes[29].ConfigOmitted)
 }
 
 func TestGetFlowIsDeterministic(t *testing.T) {

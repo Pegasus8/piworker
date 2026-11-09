@@ -18,9 +18,6 @@ const (
 	maxViewConnections = 400
 	// maxViewTools caps the tools shown.
 	maxViewTools = 100
-	// maxViewConfigBytes is the budget of the shown node configs (their
-	// JSON text); the configs of the nodes past it are omitted.
-	maxViewConfigBytes = 128 << 10
 	// maxViewIDBytes bounds IDs, types and port names.
 	maxViewIDBytes = 256
 )
@@ -83,8 +80,11 @@ type ToolView struct {
 
 // GetFlow shows a stored flow: its nodes with their default-deny redacted
 // configs and type risks, its connections, and the tools it publishes while
-// running. Known secret values never appear; the view is bounded
-// (maxViewNodes, maxViewConnections, maxViewConfigBytes).
+// running. Known secret values never appear. The view is bounded
+// (maxViewNodes, maxViewConnections, maxViewTools) and its JSON within
+// maxReadViewBytes: the structure first (nodes without their configs, then
+// connections, then tools, each in order while they fit), then the node
+// configs in node order while they fit (the others are omitted).
 func (r *Reads) GetFlow(ctx context.Context, actor Actor, flowID string) (FlowView, error) {
 	if err := r.authorize(ctx, actor); err != nil {
 		return FlowView{}, err
@@ -106,45 +106,35 @@ func (r *Reads) GetFlow(ctx context.Context, actor Actor, flowID string) (FlowVi
 		TotalNodes:       len(f.Nodes),
 		TotalConnections: len(f.Connections),
 	}
-	budget := maxViewConfigBytes
+	budget := newViewBudget(view)
+	schemas := make([]*node.ConfigSchema, 0, cap(view.Nodes))
 	for i := range f.Nodes {
-		if i == maxViewNodes {
-			view.Truncated = true
-			break
-		}
 		n := &f.Nodes[i]
-		nv := NodeView{ID: id(n.ID), Type: id(n.Type), Enabled: n.Enabled, Position: n.Position}
+		nv := NodeView{ID: id(n.ID), Type: id(n.Type), Enabled: n.Enabled, Position: n.Position, ConfigOmitted: true}
 		var schema *node.ConfigSchema
 		if info, ok := r.registry.Get(n.Type); ok {
 			nv.Name, nv.Risk, schema = red.text(info.Name), info.Risk, info.Config
 		}
-		cfg := configView(red, schema, n.Config)
-		data, err := marshalNoEscape(cfg)
-		if err != nil || len(data) > budget {
-			nv.ConfigOmitted = true
+		if i == maxViewNodes || !budget.takeElement(nv) {
 			view.Truncated = true
-		} else {
-			budget -= len(data)
-			nv.Config = cfg
+			break
 		}
 		view.Nodes = append(view.Nodes, nv)
+		schemas = append(schemas, schema)
 	}
 	for i, c := range f.Connections {
-		if i == maxViewConnections {
-			view.Truncated = true
-			break
-		}
-		view.Connections = append(view.Connections, ConnectionView{
+		cv := ConnectionView{
 			ID: id(c.ID), SourceNode: id(c.SourceNode), SourcePort: id(c.SourcePort),
 			TargetNode: id(c.TargetNode), TargetPort: id(c.TargetPort),
-		})
-	}
-	for i, ti := range r.toolsByFlow()[f.ID] {
-		if i == maxViewTools {
+		}
+		if i == maxViewConnections || !budget.takeElement(cv) {
 			view.Truncated = true
 			break
 		}
-		view.Tools = append(view.Tools, ToolView{
+		view.Connections = append(view.Connections, cv)
+	}
+	for i, ti := range r.toolsByFlow()[f.ID] {
+		tv := ToolView{
 			Name:          capText(red.text(ti.ToolName), maxViewIDBytes),
 			TriggerNodeID: id(ti.TriggerNodeID),
 			Title:         capText(red.text(ti.Title), maxFlowNameBytes),
@@ -153,7 +143,22 @@ func (r *Reads) GetFlow(ctx context.Context, actor Actor, flowID string) (FlowVi
 			Fingerprint:   red.text(ti.Fingerprint),
 			Confirm:       ti.Confirm,
 			TimeoutMs:     ti.Timeout.Milliseconds(),
-		})
+		}
+		if i == maxViewTools || !budget.takeElement(tv) {
+			view.Truncated = true
+			break
+		}
+		view.Tools = append(view.Tools, tv)
+	}
+	// A shown config replaces "config":null,"configOmitted":true.
+	const omitted = len(`null,"configOmitted":true`)
+	for i := range view.Nodes {
+		cfg := configView(red, schemas[i], f.Nodes[i].Config)
+		if !budget.take(jsonLen(cfg) - omitted) {
+			view.Truncated = true
+			continue
+		}
+		view.Nodes[i].Config, view.Nodes[i].ConfigOmitted = cfg, false
 	}
 	return view, nil
 }

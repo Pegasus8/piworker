@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -18,9 +19,6 @@ const (
 	maxRunsPerPage     = 100
 	// maxRunFieldBytes bounds one recorded text field (a node error).
 	maxRunFieldBytes = 2 << 10
-	// maxRunViewBytes is the budget of a GetRun's events (their JSON text);
-	// the events past it are left out (RunView.Truncated).
-	maxRunViewBytes = 64 << 10
 	// maxActorTokenBytes bounds a token name shown as a run's actor.
 	maxActorTokenBytes = 128
 	// runEventsPage is how many events GetRun reads at a time, until its
@@ -80,7 +78,7 @@ type RunView struct {
 	// TotalEvents counts the recorded events, shown or not.
 	TotalEvents int `json:"totalEvents"`
 	// Truncated reports that the last events were left out to keep the
-	// view within maxRunViewBytes.
+	// view's JSON within maxReadViewBytes.
 	Truncated bool `json:"truncated"`
 }
 
@@ -99,7 +97,8 @@ type RunEvent struct {
 // ListRuns lists the recorded runs of a stored flow, newest first. limit is
 // clamped to [1, maxRunsPerPage] (default defaultRunsPerPage); before, when
 // set, is the ID of a run of the flow, and the page starts after it (use
-// RunList.NextBefore).
+// RunList.NextBefore). A page whose JSON would exceed maxReadViewBytes ends
+// early, its NextBefore continuing after its last run.
 func (r *Reads) ListRuns(ctx context.Context, actor Actor, flowID string, limit int, before string) (RunList, error) {
 	if err := r.authorize(ctx, actor); err != nil {
 		return RunList{}, err
@@ -124,18 +123,29 @@ func (r *Reads) ListRuns(ctx context.Context, actor Actor, flowID string, limit 
 		return RunList{}, fmt.Errorf("list runs: %w", err)
 	}
 	red := r.redactor(r.sensitiveValues(f)...)
+	budget := newViewBudget(out)
 	for i, run := range runs {
 		if i == limit {
 			out.NextBefore = out.Runs[limit-1].ID
 			break
 		}
-		out.Runs = append(out.Runs, runSummary(red, run))
+		s := runSummary(red, run)
+		// A run is shown if there is room for it and for its ID as the
+		// page's nextBefore, in case it ends the page.
+		size, cursor := jsonLen(s)+1, len(`,"nextBefore":`)+jsonLen(s.ID)
+		if len(out.Runs) > 0 && size+cursor > budget.left {
+			out.NextBefore = out.Runs[len(out.Runs)-1].ID // the page ends early
+			break
+		}
+		budget.take(size)
+		out.Runs = append(out.Runs, s)
 	}
 	return out, nil
 }
 
 // GetRun shows a recorded run of a stored flow with its node events (in
-// order, errors redacted and bounded, the whole within maxRunViewBytes). A
+// order, errors redacted and bounded, the whole JSON within
+// maxReadViewBytes). A
 // run of another flow is unknown.
 func (r *Reads) GetRun(ctx context.Context, actor Actor, flowID, runID string) (RunView, error) {
 	if err := r.authorize(ctx, actor); err != nil {
@@ -177,8 +187,8 @@ func (r *Reads) GetRun(ctx context.Context, actor Actor, flowID, runID string) (
 		}
 		return recordedText(red, *hidden, s, maxRunFieldBytes, longest)
 	}
-	view := RunView{RunSummary: runSummary(red, *run), Events: []RunEvent{}}
-	budget := maxRunViewBytes
+	view := RunView{RunSummary: runSummary(red, *run), Events: []RunEvent{}, TotalEvents: math.MaxInt} // the longest count
+	budget := newViewBudget(view)
 	var after int64
 pages:
 	for {
@@ -196,12 +206,10 @@ pages:
 				Error:      errorText(e.Error),
 				At:         e.CreatedAt.UTC(),
 			}
-			data, err := marshalNoEscape(ev)
-			if err != nil || len(data) > budget {
+			if !budget.takeElement(ev) {
 				view.Truncated = true
 				break pages
 			}
-			budget -= len(data)
 			view.Events = append(view.Events, ev)
 		}
 		if len(events) < runEventsPage {

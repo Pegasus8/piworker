@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -22,6 +23,10 @@ import (
 
 // Bounds of the read views.
 const (
+	// maxReadViewBytes bounds the JSON of each read view: an MCP result
+	// carries it twice (structured content and text block), and clients
+	// cap what a tool may return (Claude Code: 25,000 tokens by default).
+	maxReadViewBytes = 64 << 10
 	// maxListedFlows caps ListFlows (FlowList.Truncated reports the rest).
 	maxListedFlows = 200
 	// maxFlowNameBytes bounds a flow name shown to agents.
@@ -214,7 +219,8 @@ type RunPointer struct {
 	StartedAt time.Time `json:"startedAt"`
 }
 
-// ListFlows lists the stored flows (newest first, capped), with their state,
+// ListFlows lists the stored flows (newest first, capped at maxListedFlows
+// and to the ones whose JSON fits in maxReadViewBytes), with their state,
 // size, published tools and latest run.
 func (r *Reads) ListFlows(ctx context.Context, actor Actor) (FlowList, error) {
 	if err := r.authorize(ctx, actor); err != nil {
@@ -234,7 +240,9 @@ func (r *Reads) ListFlows(ctx context.Context, actor Actor) (FlowList, error) {
 	base := r.redactor()
 	running := r.runningSet()
 	tools := r.toolsByFlow()
-	out := FlowList{Flows: make([]FlowSummary, 0, len(flows)), Total: total, Truncated: total > len(flows)}
+	out := FlowList{Flows: make([]FlowSummary, 0, len(flows)), Total: total}
+	budget := newViewBudget(out)
+	out.Truncated = total > len(flows)
 	for _, f := range flows {
 		// Like every view of a flow, its summary also redacts the
 		// credentials typed literally into its Sensitive settings.
@@ -254,6 +262,10 @@ func (r *Reads) ListFlows(ctx context.Context, actor Actor) (FlowList, error) {
 			s.Tools = append(s.Tools, capText(red.text(ti.ToolName), maxViewIDBytes))
 		}
 		s.LastRun = r.lastRun(f.ID)
+		if !budget.takeElement(s) {
+			out.Truncated = true // the newest flows that fit
+			break
+		}
 		out.Flows = append(out.Flows, s)
 	}
 	return out, nil
@@ -322,4 +334,36 @@ func (r *Reads) flowName(red secretRedactor, name string) string {
 // bytes.
 func agentText(red secretRedactor, s string, limit int) string {
 	return capText(hideURLsInText(red.text(s)), limit)
+}
+
+// viewBudget counts the JSON bytes a read view may still grow by within
+// maxReadViewBytes.
+type viewBudget struct{ left int }
+
+// newViewBudget starts from the view's JSON without its elements (its
+// lists empty, its flags false: the longer value).
+func newViewBudget(empty any) viewBudget {
+	return viewBudget{left: maxReadViewBytes - jsonLen(empty)}
+}
+
+// take reserves n bytes if they are left.
+func (b *viewBudget) take(n int) bool {
+	if n > b.left {
+		return false
+	}
+	b.left -= n
+	return true
+}
+
+// takeElement reserves the bytes of v as one more list element (its JSON
+// and a comma) if they are left.
+func (b *viewBudget) takeElement(v any) bool { return b.take(jsonLen(v) + 1) }
+
+// jsonLen is the length of v's JSON (unbounded when v cannot be encoded).
+func jsonLen(v any) int {
+	data, err := marshalNoEscape(v)
+	if err != nil {
+		return math.MaxInt
+	}
+	return len(data)
 }

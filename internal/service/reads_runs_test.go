@@ -244,7 +244,44 @@ func TestGetRunCapsErrorsAndTheRun(t *testing.T) {
 	assert.Equal(t, len(events), run.TotalEvents)
 	assert.Less(t, len(run.Events), len(events))
 	assert.Equal(t, "n0", run.Events[0].NodeID, "the first events are kept")
-	assert.LessOrEqual(t, len(mustJSON(t, run)), maxRunViewBytes+1024)
+	assert.LessOrEqual(t, len(mustJSON(t, run)), maxReadViewBytes, "the whole view, summary included")
+}
+
+// A page of runs with long ids stays within maxReadViewBytes: it ends
+// early, and its nextBefore continues after its last run, so paging still
+// lists every run once.
+func TestListRunsBoundsThePage(t *testing.T) {
+	e := newReadsEnv(t)
+	f := manualFlow("long ids")
+	f.ID = strings.Repeat("f", maxViewIDBytes)
+	e.save(f)
+	token := "token:" + strings.Repeat("t", maxActorTokenBytes)
+	for i := range maxRunsPerPage {
+		e.addRun(f.ID, fmt.Sprintf("%03d%s", i, strings.Repeat("r", maxViewIDBytes-3)), token, time.Duration(i)*time.Second, time.Millisecond, "success")
+	}
+	ctx := context.Background()
+	seen := map[string]bool{}
+	before := ""
+	for pages := 0; ; pages++ {
+		require.Less(t, pages, maxRunsPerPage, "paging ends")
+		page, err := e.reads.ListRuns(ctx, EditorActor(), f.ID, maxRunsPerPage, before)
+		require.NoError(t, err)
+		assert.LessOrEqual(t, len(mustJSON(t, page)), maxReadViewBytes)
+		require.NotEmpty(t, page.Runs)
+		for _, r := range page.Runs {
+			assert.False(t, seen[r.ID], "listed twice: %s", r.ID)
+			seen[r.ID] = true
+		}
+		if pages == 0 {
+			assert.Less(t, len(page.Runs), maxRunsPerPage, "the first page ends early")
+		}
+		if page.NextBefore == "" {
+			break
+		}
+		assert.Equal(t, page.Runs[len(page.Runs)-1].ID, page.NextBefore)
+		before = page.NextBefore
+	}
+	assert.Len(t, seen, maxRunsPerPage)
 }
 
 // Secret values that leaked into recorded node errors or token names are

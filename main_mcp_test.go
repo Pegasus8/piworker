@@ -763,6 +763,50 @@ func TestMCPReadToolsEndToEnd(t *testing.T) {
 	assert.Equal(t, strings.ReplaceAll(hiddenErr.Error(), "diagnose_flow", "X"), strings.ReplaceAll(unknownErr.Error(), "diagnose_flows", "X"))
 }
 
+// The answer of pw_get_flow for a flow at every bound (nodes, connections,
+// id lengths, config values) stays small enough for clients that cap tool
+// output: the view's JSON, its text block, is at most 64 KiB, and the
+// whole answer (the view twice, escaped) a few times that.
+func TestMCPReadResultsAreBounded(t *testing.T) {
+	app := newMCPApp(t, true)
+	f := flow.NewFlow(strings.Repeat("N", 300))
+	f.ID = strings.Repeat("F", 256)
+	for i := range 220 {
+		n := flow.NewNode("process-debug", flow.NodeCategoryProcessing)
+		n.ID = fmt.Sprintf("%04d%s", i, strings.Repeat("i", 252))
+		n.Config = map[string]any{"name": strings.Repeat("<v>", 3000)}
+		f.AddNode(*n)
+	}
+	for i := range 450 {
+		c := flow.NewConnection(f.Nodes[i%200].ID, strings.Repeat("o", 256), f.Nodes[(i+1)%200].ID, strings.Repeat("p", 256))
+		c.ID = fmt.Sprintf("%04d%s", i, strings.Repeat("c", 252))
+		f.AddConnection(*c)
+	}
+	require.NoError(t, app.store.CreateFlow(f))
+	_, raw := app.token(t, "reader", []string{storage.ScopeRead})
+	session, err := app.connect(t, raw, "")
+	require.NoError(t, err)
+
+	res := callTool(t, session, "pw_get_flow", map[string]any{"flowId": f.ID})
+	require.False(t, res.IsError)
+	text := res.Content[0].(*mcp.TextContent).Text
+	assert.LessOrEqual(t, len(text), 64<<10, "the view's JSON")
+	assert.Equal(t, true, structured(t, res)["truncated"])
+
+	resp, body := app.post(t, raw, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"pw_get_flow","arguments":{"flowId":"`+f.ID+`"}}}`, at0618)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.LessOrEqual(t, len(body), 3*(64<<10), "the whole answer")
+	for _, tool := range []string{"pw_list_flows", "pw_list_runs"} {
+		args := map[string]any{"flowId": f.ID}
+		if tool == "pw_list_flows" {
+			args = nil
+		}
+		res := callTool(t, session, tool, args)
+		require.False(t, res.IsError, tool)
+		assert.LessOrEqual(t, len(res.Content[0].(*mcp.TextContent).Text), 64<<10, tool)
+	}
+}
+
 // A flow saved by an older version with a client-chosen id (spaces, '/',
 // non-ASCII) is listed and can be read back with the id the list shows.
 func TestMCPReadsLegacyFlowIDs(t *testing.T) {

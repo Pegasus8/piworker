@@ -297,15 +297,18 @@ Shared by REST and MCP (thin adapters):
   values (literal, URL-encoded, base64) and URLs (`urlWithoutSecrets`).
 - `Tools.Result(actor, runID)`: only the actor that started the run.
 - Read views (phase 2), `service.Reads`, for the editor and tokens with the
-  `read` scope (others: `forbidden`); JSON with camelCase fields, bounded,
-  in a deterministic order:
-  - `ListFlows`: the newest 200 flows (`total`, `truncated`) with id, name,
+  `read` scope (others: `forbidden`); JSON with camelCase fields, bounded
+  (each view's JSON at most 64 KiB besides the limits below), in a
+  deterministic order:
+  - `ListFlows`: the newest 200 flows that fit (`total`, `truncated`) with id, name,
     state (`running`, `stopped`, or `failed`: meant to run but not running),
     node count, tool names (at most 20, `toolCount`) and the latest run.
   - `GetFlow`: nodes (id, type, type name, enabled, position, type risk,
     config), connections and the running tools (risk, annotations,
-    fingerprint, confirm, timeout); at most 200 nodes, 400 connections,
-    100 tools and 128 KiB of config (`truncated`). Config redaction is
+    fingerprint, confirm, timeout); at most 200 nodes, 400 connections and
+    100 tools, the structure first (nodes, connections, tools, each in
+    order while they fit), then the node configs in node order while they
+    fit (`configOmitted`; `truncated`). Config redaction is
     default-deny: a property is shown only when its schema marks it
     `AgentVisible` and not `Sensitive`; every other present value,
     undeclared properties, every property of an unknown type, and whole
@@ -313,7 +316,8 @@ Shared by REST and MCP (thin adapters):
     sentinel drafts read as "keep the base value", §10). A shown value is
     cut to 8 KiB.
   - `ListRuns(flowId, limit ≤ 100, before)` newest first (`nextBefore` is the
-    next page's cursor) and `GetRun(flowId, runId)`: status, actor
+    next page's cursor; a page that would exceed 64 KiB ends early) and
+    `GetRun(flowId, runId)`: status, actor
     (`trigger`, `editor`, or `agent` with the token's name), timings,
     counts, and the node events in order (node, type, phase, duration,
     error ≤ 2 KiB, the run ≤ 64 KiB). `GetRun` reads a bounded part of a
@@ -454,8 +458,10 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   no formats or type unions, kept in step with the Go types by a test).
   The views' refusals are `isError` results (`flow_not_found`,
   `run_not_found`; `forbidden` cannot occur, the tools are only served to
-  the read scope). The views are bounded by their own limits (§6), not by
-  `max_result_bytes`, which caps flow replies. Read calls are not audited.
+  the read scope). The views are bounded by their own limits (§6: each
+  view's JSON is at most 64 KiB, so a result, which carries it twice, stays
+  within what clients accept from a tool), not by `max_result_bytes`, which
+  caps flow replies. Read calls are not audited.
   Prompt `diagnose_flow{flowId}` (scope read, `mcpserver.ReadPrompts`): one
   user message with the §6 text; a missing, malformed or extra argument and
   an unknown flow are `-32602`.

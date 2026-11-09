@@ -270,6 +270,24 @@ func TestListFlowsIsCapped(t *testing.T) {
 	assert.Equal(t, mustJSON(t, list), mustJSON(t, again), "the order is deterministic")
 }
 
+// Long names and ids are listed within maxReadViewBytes: the newest flows
+// that fit.
+func TestListFlowsBoundsTheWholeList(t *testing.T) {
+	e := newReadsEnv(t)
+	for i := range maxListedFlows {
+		f := manualFlow(fmt.Sprintf("%03d %s", i, strings.Repeat("n", maxFlowNameBytes)))
+		f.ID = fmt.Sprintf("%03d%s", i, strings.Repeat("i", maxViewIDBytes))
+		e.save(f)
+	}
+	list, err := e.reads.ListFlows(context.Background(), EditorActor())
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(mustJSON(t, list)), maxReadViewBytes)
+	assert.True(t, list.Truncated)
+	assert.Equal(t, maxListedFlows, list.Total)
+	assert.NotEmpty(t, list.Flows)
+	assert.Less(t, len(list.Flows), maxListedFlows)
+}
+
 func TestListFlowsRedactsSecretsInNames(t *testing.T) {
 	e := newReadsEnv(t)
 	require.NoError(t, e.secrets.Set("API", "hunter2-Value!"))
