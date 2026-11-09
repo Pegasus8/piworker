@@ -9,6 +9,7 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
+	"github.com/Pegasus8/piworker/internal/secrets"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -203,6 +204,10 @@ func TestDeployAndLintShareTheirChecks(t *testing.T) {
 				lintNode("sv", "set-var", map[string]any{"key": "k", "value": "payload"}))
 			f.Connections = append(f.Connections, lintConn("c2", "tool", "output", "sv", "input"))
 		}, flow.IssueToolGlobalVariable, validation, "nodes[3].config.scope: set-var writes the global variable"},
+		{"undefined secret", func(f *flow.Flow) {
+			f.Nodes = append(f.Nodes, lintNode("tg", "action-telegram", map[string]any{
+				"botToken": "{{secret.pw_lint_undefined}}", "chatId": "42"}))
+		}, flow.IssueUndefinedSecret, validation, `config.botToken references secret "pw_lint_undefined", which is not defined`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -331,4 +336,34 @@ func TestLintDoesNotCallAConnectedTriggerUnconnected(t *testing.T) {
 	f.Nodes = append(f.Nodes, lintNode("ghost", "nope", nil))
 	f.Connections = []flow.Connection{lintConn("c1", "tool", "output", "typed", "input"), lintConn("c2", "tool", "output", "ghost", "input")}
 	assert.Contains(t, issueKeys(flow.Lint(f, node.DefaultRegistry)), "error:"+flow.IssueTriggerNotConnected+"@/nodes/tool")
+}
+
+// Lint checks the secrets strict settings require (node.SecretRequirer)
+// against the store deploy resolves them in: the context's
+// (secrets.FromContext), the process-wide store for Lint. The issue names the
+// secret, never a value.
+func TestLintChecksRequiredSecretsInTheContextStore(t *testing.T) {
+	f := flow.NewFlow("secrets")
+	f.Nodes = []flow.Node{
+		lintNode("tick", "trigger-interval", map[string]any{"interval": float64(1000)}),
+		lintNode("tg", "action-telegram", map[string]any{"botToken": "{{secret.pw_lint_tg}}", "chatId": "42"}),
+	}
+	f.Connections = []flow.Connection{lintConn("c1", "tick", "output", "tg", "input")}
+
+	issues := flow.Lint(f, node.DefaultRegistry)
+	require.Equal(t, []string{"error:" + flow.IssueUndefinedSecret + "@/nodes/tg/config/botToken"}, issueKeys(issues))
+	assert.Contains(t, issues[0].Message, `"pw_lint_tg"`)
+
+	store := secrets.NewStore()
+	require.NoError(t, store.Set("pw_lint_tg", "123:very-secret-token"))
+	ctx := secrets.WithStore(context.Background(), store)
+	assert.Empty(t, flow.LintContext(ctx, f, node.DefaultRegistry))
+	m := flow.NewRuntimeManager(node.DefaultRegistry, zerolog.Nop())
+	require.NoError(t, m.Deploy(ctx, f), "a flow without Lint errors deploys")
+	require.NoError(t, m.Undeploy(f.ID))
+
+	// An empty store (a sandbox's) lacks every secret.
+	empty := secrets.WithStore(context.Background(), secrets.NewStore())
+	assert.Equal(t, []string{"error:" + flow.IssueUndefinedSecret + "@/nodes/tg/config/botToken"},
+		issueKeys(flow.LintContext(empty, f, node.DefaultRegistry)))
 }

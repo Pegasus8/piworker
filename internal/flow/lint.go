@@ -1,6 +1,7 @@
 package flow
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Pegasus8/piworker/internal/node"
+	"github.com/Pegasus8/piworker/internal/secrets"
 )
 
 // Flow linting (docs/design/mcp.md §10, ADR-0007). Deploy and Lint run the
@@ -54,7 +56,21 @@ const (
 	// ±MaxPosition. Positions do not affect a run, so deploy does not check
 	// them; Lint and ApplyOps do.
 	IssueInvalidPosition = "invalid_position"
+	// IssueUndefinedSecret: a setting that cannot work without its secrets
+	// (node.SecretRequirer: a bot token, a notification URL, a DSN)
+	// references a secret the store does not define. The message names the
+	// secret, never a value. Unlike the other errors it depends on the
+	// secret store, not on the definition: the admin may define the secret
+	// later (see EnvironmentIssue).
+	IssueUndefinedSecret = "undefined_secret"
 )
+
+// EnvironmentIssue reports whether an issue depends on the environment the
+// flow is checked in (the secrets defined) rather than on its definition:
+// such an error still blocks a deploy, but not a dry-run (whose secret store
+// is empty by design) or the storing of a draft (the admin may define the
+// secret before approving it).
+func EnvironmentIssue(i Issue) bool { return i.Code == IssueUndefinedSecret }
 
 // finding is one problem a deploy-time check found, located by indexes so
 // that both deploy's legacy paths ("nodes[2].config.url") and Lint's
@@ -189,6 +205,65 @@ func instantiateNodes(f *Flow, reg *node.Registry, skip map[int]bool) (map[int]n
 		instances[i] = inst
 	}
 	return instances, out
+}
+
+// closeInstances closes, in node order, the instances holding resources
+// (node.Closer, ADR-0008) that a check built and will not run. Close errors
+// are ignored: the instances never ran.
+func closeInstances(instances map[int]node.Node) {
+	idx := make([]int, 0, len(instances))
+	for i := range instances {
+		idx = append(idx, i)
+	}
+	sort.Ints(idx)
+	for _, i := range idx {
+		if c, ok := instances[i].(node.Closer); ok {
+			_ = c.Close()
+		}
+	}
+}
+
+// requiredSecretFindings reports every secret a strict setting
+// (node.SecretRequirer) of the instances (by node index) references and
+// store does not define, in node ID order, then property, then order of
+// appearance (deploy's order); the err is the *ValidationError deploy
+// returns. Only names are reported, never values.
+func requiredSecretFindings(f *Flow, instances map[int]node.Node, store *secrets.Store) []finding {
+	idx := make([]int, 0, len(instances))
+	for i := range instances {
+		idx = append(idx, i)
+	}
+	sort.Slice(idx, func(a, b int) bool {
+		if f.Nodes[idx[a]].ID != f.Nodes[idx[b]].ID {
+			return f.Nodes[idx[a]].ID < f.Nodes[idx[b]].ID
+		}
+		return idx[a] < idx[b]
+	})
+	var out []finding
+	for _, i := range idx {
+		req, ok := instances[i].(node.SecretRequirer)
+		if !ok {
+			continue
+		}
+		required := req.RequiredSecrets()
+		props := make([]string, 0, len(required))
+		for prop := range required {
+			props = append(props, prop)
+		}
+		sort.Strings(props)
+		n := &f.Nodes[i]
+		for _, prop := range props {
+			for _, name := range required[prop] {
+				if _, defined := store.Get(name); defined {
+					continue
+				}
+				msg := fmt.Sprintf("config.%s references secret %q, which is not defined", prop, name)
+				err := NewValidationError("node %s (%s): %s", n.ID, n.Type, msg)
+				out = append(out, nodeFinding(i, prop, IssueUndefinedSecret, IssueError, msg, err))
+			}
+		}
+	}
+	return out
 }
 
 // minHiddenLength is the shortest setting value hideValues replaces in
@@ -428,10 +503,20 @@ func callTriggerFindings(f *Flow, nodes map[string]node.Node, active func(id str
 // in a deterministic order: flow-level issues first, then nodes in
 // definition order, then connections in definition order; within one
 // location by path, errors before warnings, then code and message. It never
-// modifies f and never returns nil. Messages never quote the values of
-// Sensitive properties. A flow without error issues deploys, except for
-// what only starting it can tell (an exclusive resource already taken: 409).
+// modifies f and never returns nil; the node instances it builds are closed
+// before it returns. Messages never quote the values of Sensitive
+// properties. The secrets strict settings require are checked against
+// secrets.DefaultStore, the store deploy resolves them in (LintContext takes
+// the context's). A flow without error issues deploys, except for what only
+// starting it can tell (an exclusive resource already taken: 409).
 func Lint(f *Flow, reg *node.Registry) []Issue {
+	return LintContext(context.Background(), f, reg)
+}
+
+// LintContext is Lint checking the secrets strict settings require
+// (IssueUndefinedSecret) against the store of ctx (secrets.FromContext,
+// DefaultStore when ctx carries none), exactly as deploy checks them.
+func LintContext(ctx context.Context, f *Flow, reg *node.Registry) []Issue {
 	if f == nil {
 		return []Issue{}
 	}
@@ -449,6 +534,7 @@ func Lint(f *Flow, reg *node.Registry) []Issue {
 		skip[fd.node] = true
 	}
 	instances, instFindings := instantiateNodes(f, reg, skip)
+	defer closeInstances(instances)
 	all = append(all, instFindings...)
 
 	// Structure, with the ports and triggers deploy would see: the
@@ -521,6 +607,9 @@ func Lint(f *Flow, reg *node.Registry) []Issue {
 	}
 	_, tools := analyzeTools(f, reg, specs)
 	all = append(all, tools...)
+
+	// Secrets the strict settings cannot work without (deploy's last check).
+	all = append(all, requiredSecretFindings(f, instances, secrets.FromContext(ctx))...)
 
 	all = append(all, positionFindings(f)...)
 	return lintIssues(f, reg, all)

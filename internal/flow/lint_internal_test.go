@@ -1,12 +1,14 @@
 package flow
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/Pegasus8/piworker/internal/node"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,6 +32,41 @@ func leakyRegistry(t *testing.T) *node.Registry {
 		return nil, fmt.Errorf("cannot log in to %v as %v with headers %v (pin %v)", cfg["host"], cfg["password"], headers["Authorization"], cfg["pin"])
 	}))
 	return reg
+}
+
+// Lint builds node instances to validate them, as deploy does; it closes the
+// ones holding resources (node.Closer, ADR-0008) before it returns, and so
+// does a deploy that fails while building them.
+func TestLintClosesTheNodesItBuilds(t *testing.T) {
+	res := &closingNode{BaseNode: node.NewBaseNode(nil)}
+	trig := &closingTrigger{lifecycleTrigger: lifecycleTrigger{BaseNode: node.NewBaseNode(nil)}}
+	reg := node.NewRegistry()
+	require.NoError(t, reg.Register(node.NodeTypeInfo{Type: "trig", Name: "trig", Category: NodeCategoryInput, Risk: node.RiskSafe},
+		func(map[string]any) (node.Node, error) { return trig, nil }))
+	require.NoError(t, reg.Register(node.NodeTypeInfo{Type: "res", Name: "res", Category: NodeCategoryOutput, Risk: node.RiskSafe},
+		func(map[string]any) (node.Node, error) { return res, nil }))
+	require.NoError(t, reg.Register(node.NodeTypeInfo{Type: "broken", Name: "broken", Category: NodeCategoryOutput, Risk: node.RiskSafe},
+		func(map[string]any) (node.Node, error) { return nil, errors.New("broken") }))
+
+	f := NewFlow("closers")
+	f.AddNode(*NewNode("trig", NodeCategoryInput))
+	f.AddNode(*NewNode("res", NodeCategoryOutput))
+	assert.Empty(t, Lint(f, reg))
+	assert.Equal(t, int32(1), res.closed.Load())
+	assert.Equal(t, int32(1), trig.closed.Load())
+
+	f.AddNode(*NewNode("broken", NodeCategoryOutput))
+	_, err := NewFlowRuntime(f, reg)
+	require.ErrorIs(t, err, ErrInvalidNodeConfig)
+	assert.Equal(t, int32(2), res.closed.Load(), "a failed build closes what it built")
+	assert.Equal(t, int32(2), trig.closed.Load())
+
+	// A deploy refused after the build (no trigger) closes the instances.
+	lone := NewFlow("no-trigger")
+	lone.AddNode(*NewNode("res", NodeCategoryOutput))
+	err = NewRuntimeManager(reg, zerolog.Nop()).Deploy(context.Background(), lone)
+	require.ErrorIs(t, err, ErrNoTriggerNodes)
+	assert.Equal(t, int32(3), res.closed.Load(), "a refused deploy closes what it built")
 }
 
 func TestLintNeverEchoesSensitiveValues(t *testing.T) {

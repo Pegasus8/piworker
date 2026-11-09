@@ -367,6 +367,7 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 	// shares); the first node that fails is the deploy error.
 	instances, findings := instantiateNodes(f, registry, nil)
 	if err := firstError(findings); err != nil {
+		closeInstances(instances)
 		return nil, err
 	}
 	for i := range f.Nodes {
@@ -1258,14 +1259,18 @@ func (m *RuntimeManager) deploy(ctx context.Context, f *Flow, extra ...RuntimeOp
 	// Validate against the ports supplied by the instantiated nodes, not a
 	// possibly missing or stale cache in an imported/editor definition, then
 	// the tool risk analysis (ADR-0013): security checks, never lenient.
+	// These are Lint's collectors (ADR-0007): a flow Lint finds no error in
+	// passes them. A refused flow's instances never run and are closed.
 	tools, issues, err := validateDeployable(rt, m.registry)
 	if err != nil {
+		rt.closeNodes()
 		metrics.RecordFlowDeployment(false)
 		return err
 	}
 	// Settings that cannot work without their secrets (a bot token, a DSN)
 	// fail the deploy while one is missing, not every execution.
 	if err := checkRequiredSecrets(ctx, rt); err != nil {
+		rt.closeNodes()
 		metrics.RecordFlowDeployment(false)
 		return err
 	}
