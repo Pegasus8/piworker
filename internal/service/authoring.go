@@ -126,6 +126,10 @@ type Authoring struct {
 	// views holds the read views' redaction rules (registry and secrets
 	// only: Authoring never calls its views).
 	views *Reads
+	// dryRun and testNode are flow.DryRun and flow.TestNode (tests replace
+	// them).
+	dryRun   func(context.Context, *flow.Flow, *node.Registry, flow.DryRunInput) (flow.DryRunResult, error)
+	testNode func(context.Context, *node.Registry, string, map[string]any, any) (flow.TestNodeResult, error)
 }
 
 // NewAuthoring returns the authoring and deploy service.
@@ -150,6 +154,7 @@ func NewAuthoring(opts AuthoringOptions) *Authoring {
 		a.now = time.Now
 	}
 	a.views = &Reads{registry: a.registry, secrets: a.secrets, now: a.now}
+	a.dryRun, a.testNode = flow.DryRun, flow.TestNode
 	return a
 }
 
@@ -430,8 +435,118 @@ type DraftFlowView struct {
 // GetDraft shows an agent with the author scope one of its own drafts
 // (another token's, or an unknown one: not_found; the editor: forbidden, it
 // uses GetDraftDetail). Audited.
-func (a *Authoring) GetDraft(ctx context.Context, actor Actor, draftID string) (DraftView, error) {
-	return DraftView{}, notImplemented("get draft")
+func (a *Authoring) GetDraft(ctx context.Context, actor Actor, draftID string) (_ DraftView, err error) {
+	args := &authorArgs{DraftID: draftID}
+	defer a.audited(actor, AuthorToolGetDraft, args, a.now(), nil)(&err)
+	if err := a.authorizeAuthor(ctx, actor, false); err != nil {
+		return DraftView{}, err
+	}
+	d, err := a.ownDraft(actor, draftID)
+	if err != nil {
+		return DraftView{}, err
+	}
+	args.FlowID = d.FlowID
+	f, err := flow.FromJSON(d.Data)
+	if err != nil {
+		return DraftView{}, fmt.Errorf("decode draft %s: %w", d.ID, err)
+	}
+	red := a.proposalRedactor(f)
+	view := DraftView{
+		DraftID:        d.ID,
+		Status:         d.Status,
+		Reason:         agentText(red, d.Reason, maxAgentIssueBytes),
+		Risk:           node.Risk(d.Risk),
+		Issues:         decodeList[flow.Issue](d.IssuesJSON),
+		Alerts:         decodeList[flow.Alert](d.AlertsJSON),
+		FlowID:         d.FlowID,
+		BaseVersion:    d.BaseVersion,
+		AppliedVersion: d.AppliedVersion,
+		Note:           d.Note,
+		CreatedAt:      d.CreatedAt,
+		DecidedAt:      d.DecidedAt,
+		Flow:           a.draftFlowView(red, d.FlowID, f),
+	}
+	return view, nil
+}
+
+// ownDraft reads a draft of the agent's token: another token's, like an
+// unknown one, is not_found.
+func (a *Authoring) ownDraft(actor Actor, draftID string) (*storage.FlowDraft, error) {
+	d, err := a.store.GetFlowDraft(draftID)
+	if errors.Is(err, storage.ErrFlowDraftNotFound) || (err == nil && actor.isAgent() && d.AuthorTokenID != actor.TokenID) {
+		return nil, unknownDraft(draftID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get draft: %w", err)
+	}
+	return d, nil
+}
+
+func unknownDraft(draftID string) *ToolError {
+	return toolError(ErrToolNotFound, fmt.Sprintf("unknown draft %q", capText(draftID, maxViewIDBytes)))
+}
+
+// decodeList decodes a stored JSON list (an empty list when it cannot).
+func decodeList[T any](raw json.RawMessage) []T {
+	out := []T{}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &out); err != nil || out == nil {
+			return []T{}
+		}
+	}
+	return out
+}
+
+// draftFlowView is a proposed flow as agents see it: GetFlow's nodes
+// (default-deny redacted configs, type risks) and connections, bounded the
+// same way (the structure first, then the configs while they fit).
+func (a *Authoring) draftFlowView(red secretRedactor, flowID string, f *flow.Flow) DraftFlowView {
+	id := func(s string) string { return capText(red.text(s), maxViewIDBytes) }
+	view := DraftFlowView{
+		ID:               id(flowID),
+		Name:             a.views.flowName(red, f.Name),
+		Nodes:            make([]NodeView, 0, min(len(f.Nodes), maxViewNodes)),
+		Connections:      make([]ConnectionView, 0, min(len(f.Connections), maxViewConnections)),
+		TotalNodes:       len(f.Nodes),
+		TotalConnections: len(f.Connections),
+	}
+	budget := newViewBudget(view)
+	schemas := make([]*node.ConfigSchema, 0, cap(view.Nodes))
+	for i := range f.Nodes {
+		n := &f.Nodes[i]
+		nv := NodeView{ID: id(n.ID), Type: id(n.Type), Enabled: n.Enabled, Position: n.Position, ConfigOmitted: true}
+		var schema *node.ConfigSchema
+		if info, ok := a.registry.Get(n.Type); ok {
+			nv.Name, nv.Risk, schema = red.text(info.Name), info.Risk, info.Config
+		}
+		if i == maxViewNodes || !budget.takeElement(nv) {
+			view.Truncated = true
+			break
+		}
+		view.Nodes = append(view.Nodes, nv)
+		schemas = append(schemas, schema)
+	}
+	for i, c := range f.Connections {
+		cv := ConnectionView{
+			ID: id(c.ID), SourceNode: id(c.SourceNode), SourcePort: id(c.SourcePort),
+			TargetNode: id(c.TargetNode), TargetPort: id(c.TargetPort),
+		}
+		if i == maxViewConnections || !budget.takeElement(cv) {
+			view.Truncated = true
+			break
+		}
+		view.Connections = append(view.Connections, cv)
+	}
+	const omitted = len(`null,"configOmitted":true`)
+	for i := range view.Nodes {
+		cfg := configView(red, schemas[i], f.Nodes[i].Config)
+		if !budget.take(jsonLen(cfg) - omitted) {
+			view.Truncated = true
+			continue
+		}
+		view.Nodes[i].Config, view.Nodes[i].ConfigOmitted = cfg, false
+	}
+	return view
 }
 
 // DryRunRequest is a dry-run (pw_dry_run) of exactly one of Flow (inline),
@@ -459,8 +574,163 @@ type DryRunRequest struct {
 // values); the editor sees them unredacted except secret values. Busy maps
 // to busy, flow.ErrDryRunInput to invalid_arguments. Audited (outcome only,
 // no payloads).
-func (a *Authoring) DryRun(ctx context.Context, actor Actor, req DryRunRequest) (flow.DryRunResult, error) {
-	return flow.DryRunResult{}, notImplemented("dry run")
+func (a *Authoring) DryRun(ctx context.Context, actor Actor, req DryRunRequest) (_ flow.DryRunResult, err error) {
+	args := &authorArgs{FlowID: req.FlowID, DraftID: req.DraftID, TriggerNodeID: req.TriggerNodeID}
+	defer a.audited(actor, AuthorToolDryRun, args, a.now(), nil)(&err)
+	if err := a.authorizeAuthor(ctx, actor, true); err != nil {
+		return flow.DryRunResult{}, err
+	}
+	given := 0
+	for _, set := range []bool{req.Flow != nil, req.DraftID != "", req.FlowID != ""} {
+		if set {
+			given++
+		}
+	}
+	if given != 1 {
+		return flow.DryRunResult{}, toolError(ErrInvalidArguments, "send exactly one of flow, draftId and flowId")
+	}
+	in := flow.DryRunInput{TriggerNodeID: req.TriggerNodeID, Payload: req.Payload, Mocks: req.Mocks, FlowVars: req.FlowVars}
+	var (
+		f *flow.Flow
+		// hiddenOf is the flow whose hidden values the agent did not
+		// write (redacted from what it sees).
+		hiddenOf *flow.Flow
+	)
+	switch {
+	case req.Flow != nil:
+		if err := checkJSONSize("the flow", req.Flow); err != nil {
+			return flow.DryRunResult{}, err
+		}
+		if f, err = cloneFlow(req.Flow); err != nil {
+			return flow.DryRunResult{}, toolError(ErrInvalidArguments, "the flow cannot be read")
+		}
+		a.normalizeNodes(f)
+	case req.FlowID != "":
+		if f, err = a.loadFlow(req.FlowID); err != nil {
+			return flow.DryRunResult{}, err
+		}
+		hiddenOf = f
+		if actor.isAgent() {
+			in.Redact = a.hiddenSetting
+		}
+	default:
+		d, err := a.ownDraft(actor, req.DraftID)
+		if err != nil {
+			return flow.DryRunResult{}, err
+		}
+		args.FlowID = d.FlowID
+		if f, err = flow.FromJSON(d.Data); err != nil {
+			return flow.DryRunResult{}, fmt.Errorf("decode draft %s: %w", d.ID, err)
+		}
+		if d.FlowID != "" && actor.isAgent() {
+			base, err := a.store.GetFlowVersion(d.FlowID, d.BaseVersion)
+			switch {
+			case err == nil:
+				hiddenOf = base.Flow
+				in.Redact = a.keptHiddenSetting(base.Flow)
+			case errors.Is(err, storage.ErrFlowVersionNotFound):
+				// The base version was pruned: hide every hidden
+				// setting rather than guess what the agent wrote.
+				in.Redact = a.hiddenSetting
+			default:
+				return flow.DryRunResult{}, fmt.Errorf("get base version: %w", err)
+			}
+		}
+	}
+	res, err := a.dryRun(secrets.WithStore(ctx, a.secrets), f, a.registry, in)
+	if err != nil {
+		return flow.DryRunResult{}, a.sandboxError(err)
+	}
+	return a.redactDryRun(actor, f, hiddenOf, res), nil
+}
+
+// hiddenSetting reports a config property agents may not read (Sensitive,
+// not AgentVisible, undeclared, or of an unknown type): the read views
+// show it as "<redacted>".
+func (a *Authoring) hiddenSetting(n *flow.Node, prop string) bool {
+	schema := a.schemaOf(n.Type)
+	if schema == nil {
+		return true
+	}
+	p, ok := schema.Properties[prop]
+	return !ok || !p.AgentVisible || p.Sensitive
+}
+
+// keptHiddenSetting reports the hidden settings of a draft that hold the
+// base version's value at the same node and property: what the agent kept
+// (it never saw them), not what it wrote.
+func (a *Authoring) keptHiddenSetting(base *flow.Flow) func(n *flow.Node, prop string) bool {
+	return func(n *flow.Node, prop string) bool {
+		if !a.hiddenSetting(n, prop) {
+			return false
+		}
+		b := base.GetNode(n.ID)
+		if b == nil {
+			return false
+		}
+		bv, ok := b.Config[prop]
+		return ok && sameJSON(bv, n.Config[prop])
+	}
+}
+
+// sandboxError maps a dry-run's or node test's refusal: busy (the one
+// sandbox slot), invalid_arguments (what was asked: flow.ErrDryRunInput, an
+// unknown type), forbidden (a node that cannot be tested).
+func (a *Authoring) sandboxError(err error) error {
+	red := a.views.redactor()
+	msg := func() string { return capText(hideURLsInText(red.text(err.Error())), maxAgentIssueBytes) }
+	switch {
+	case errors.Is(err, flow.ErrBusy):
+		return toolError(ErrBusy, "another dry-run or node test is in progress; retry in a few seconds")
+	case errors.Is(err, flow.ErrDryRunInput), errors.Is(err, flow.ErrInvalidNodeType):
+		return toolError(ErrInvalidArguments, msg())
+	case errors.Is(err, flow.ErrTestNodeForbidden):
+		return toolError(ErrPermissionDenied, msg())
+	}
+	return err
+}
+
+// sandboxRedactor redacts what a dry-run or node test shows: known secret
+// values (for everyone) and, for agents, the credentials typed into the
+// Sensitive settings of the flows involved, the hidden values of hiddenOf
+// (what the agent did not write) and URLs past their host.
+func (a *Authoring) sandboxRedactor(actor Actor, ran, hiddenOf *flow.Flow) func(string) string {
+	if !actor.isAgent() {
+		red := a.views.redactor()
+		return red.text
+	}
+	values := a.views.secretValues()
+	for _, f := range []*flow.Flow{ran, hiddenOf} {
+		if f != nil {
+			values = append(values, a.views.sensitiveValues(f)...)
+		}
+	}
+	if hiddenOf != nil {
+		values = append(values, a.views.hiddenValues(hiddenOf)...)
+	}
+	red := valuesRedactor(values)
+	return func(s string) string { return hideURLsInText(red.text(s)) }
+}
+
+// redactDryRun redacts a dry-run's result for actor (sandboxRedactor),
+// keeping each preview and error within flow.DryRunPreviewBytes.
+func (a *Authoring) redactDryRun(actor Actor, ran, hiddenOf *flow.Flow, res flow.DryRunResult) flow.DryRunResult {
+	text := a.sandboxRedactor(actor, ran, hiddenOf)
+	cut := func(s string) string { return cutText(text(s), flow.DryRunPreviewBytes) }
+	for i := range res.Issues {
+		res.Issues[i].Message = cut(res.Issues[i].Message)
+	}
+	for i := range res.Trace {
+		st := &res.Trace[i]
+		st.Input, st.Error = cut(st.Input), cut(st.Error)
+		for j := range st.Outputs {
+			st.Outputs[j].Preview = cut(st.Outputs[j].Preview)
+		}
+	}
+	for i := range res.WouldExecute {
+		res.WouldExecute[i].Input = cut(res.WouldExecute[i].Input)
+	}
+	return res
 }
 
 // TestNodeRequest is a node test (pw_test_node).
@@ -476,6 +746,38 @@ type TestNodeRequest struct {
 // flow.ErrInvalidNodeType and flow.ErrDryRunInput to invalid_arguments, busy
 // to busy; config problems are the result's issues. Outputs are redacted for
 // agents like a dry-run's. Audited (outcome only).
-func (a *Authoring) TestNode(ctx context.Context, actor Actor, req TestNodeRequest) (flow.TestNodeResult, error) {
-	return flow.TestNodeResult{}, notImplemented("test node")
+func (a *Authoring) TestNode(ctx context.Context, actor Actor, req TestNodeRequest) (_ flow.TestNodeResult, err error) {
+	args := &authorArgs{Type: req.Type}
+	defer a.audited(actor, AuthorToolTestNode, args, a.now(), nil)(&err)
+	if err := a.authorizeAuthor(ctx, actor, true); err != nil {
+		return flow.TestNodeResult{}, err
+	}
+	if schema := a.schemaOf(req.Type); schema != nil && actor.isAgent() {
+		var issues []flow.Issue
+		for _, prop := range sortedKeys(req.Config) {
+			if p, ok := schema.Properties[prop]; ok && p.Sensitive && !secretOnly(req.Config[prop]) {
+				issues = append(issues, sensitiveLiteral("/config/"+pointerEscape(prop)))
+			}
+		}
+		if len(issues) > 0 {
+			return flow.TestNodeResult{}, &ToolError{Kind: ErrInvalidArguments, FlowIssues: issues,
+				Message: "credential settings may only hold {{secret.NAME}} references"}
+		}
+	}
+	res, err := a.testNode(ctx, a.registry, req.Type, req.Config, req.Input)
+	if err != nil {
+		return flow.TestNodeResult{}, a.sandboxError(err)
+	}
+	text := a.sandboxRedactor(actor, nil, nil)
+	red := a.views.redactor()
+	cut := func(s string) string { return cutText(text(s), flow.DryRunPreviewBytes) }
+	for i := range res.Issues {
+		// The config is the caller's own: only secret values are hidden.
+		res.Issues[i].Message = cutText(red.text(res.Issues[i].Message), flow.DryRunPreviewBytes)
+	}
+	for i := range res.Outputs {
+		res.Outputs[i].Preview = cut(res.Outputs[i].Preview)
+	}
+	res.Error = cut(res.Error)
+	return res, nil
 }
