@@ -623,9 +623,46 @@ export NODE_EXTRA_CA_CERTS=~/piworker-ca.crt
 claude mcp add --transport http --scope user piworker https://raspberrypi.local:8443/mcp \
   --header "Authorization: Bearer pwk_…"
 ```
-Claude Desktop: stdio bridge `piworker-mcp` (pure Go, `CGO_ENABLED=0`,
-darwin/windows/linux builds) with `--url`, `--token-file`, `--ca-file` /
-`--ca-fingerprint` pinning; it relays tools and prompts.
+Claude Desktop: stdio bridge `piworker-mcp` (`cmd/piworker-mcp`, usage in its
+README; pure Go, `CGO_ENABLED=0`, enforced by a test; `make
+build-mcp-bridge-all` builds linux amd64/arm64/armv7, darwin amd64/arm64 and
+windows amd64, attached to releases) with `--url`, `--token-file`, `--ca-file`
+/ `--ca-fingerprint` pinning, `--timeout`.
+- It is a protocol-version-agnostic JSON-RPC relay, not an SDK proxy: each
+  stdin line is POSTed unchanged with the Bearer token, `Accept: application/json,
+  text/event-stream` and `MCP-Protocol-Version` (from the request's `_meta`, else
+  from the `initialize` answer; `Mcp-Method`/`Mcp-Name` from 2026-07-28), and
+  JSON or SSE answers are written to stdout one per line. So tools, prompts and
+  anything else relay unchanged. No session id, no GET stream, no batches.
+- `--url` is https, or plain http to a loopback IP literal only; no
+  credentials, query or fragment. The token comes only from `--token-file`
+  (starts with `pwk_`, trimmed, BOM skipped; refused when group/others have
+  any access on Unix, or when its DACL lets anyone but the user, SYSTEM and
+  Administrators read or change it on Windows); `~` is expanded. Neither is
+  ever logged or echoed, and a flag value that looks like a token is refused
+  without being echoed.
+- One trust anchor per connection, verified for the `--url` host: the pinned CA
+  (file, filtered by the fingerprint when both are given) or the system roots.
+  `internal/tlsca` presents [server certificate, CA] in auto mode, so a CA
+  pinned by fingerprint alone is found in the handshake before the first
+  request, and a presented root that does not match stops the bridge before
+  any request; only a server presenting no root (e.g. custom mode with a
+  leaf-only file) gets an unauthenticated GET of `/piworker-ca.crt`. Only a
+  certificate with that SHA-256 is used. No HTTP proxy, no redirects. Errors
+  never quote an unverified server (Go checks the host name before the
+  signature): a certificate's names are listed only when its chain verifies
+  against the trust anchor.
+- Up to 8 HTTP requests at once, 64 queued, answered in completion order;
+  `notifications/cancelled` aborts the matching POST (stateless servers cannot
+  match a forwarded one) and drops its answer; nothing is retried. From
+  2026-07-28 the aborted POST cancels the call on PiWorker
+  (`PropagateRequestCancellation`); with earlier protocol versions go-sdk
+  v1.8.0 lets the call run to its end, so a cancelled call may still take
+  effect. HTTP
+  401/403/404/429/5xx become JSON-RPC errors `-32000` with clear text and
+  `data.httpStatus` (429: `data.retryAfter`); other JSON-RPC error bodies pass
+  through. Limits: 4 MiB per stdin message, 16 MiB per answer, 2 min per
+  request; at stdin EOF, in-flight requests get 10 s, then exit 0.
 
 ## 13. Testing
 
