@@ -597,6 +597,16 @@ so turn HTTPS on (`mode = "auto"`) to connect from other computers.
 - Agents never manage tokens, settings or approvals, and never read secrets
   or variables. **Agent deploy** is off by default; turning it on needs your
   password and is a risk you accept for every token with the deploy scope.
+- What agents read hides secret values by comparing text with them. So an
+  agent whose token has the author, deploy (with **Agent deploy** at low or
+  all) and read scopes can save a guess of a secret's value in a flow or a
+  run and see whether it comes back hidden, and a granted tool that repeats
+  its arguments in its reply allows the same with the call scope. Only short
+  values can be guessed this way: give secrets 16 characters or more (the
+  **Secrets** dialog marks shorter ones and the **Agents** page counts
+  them), and store credentials as secrets rather than typing them into
+  settings, where they are hidden the same way but never checked
+  ([ADR-0021](docs/adr/0021-agent-views-never-confirm-a-guess.md)).
 - Client-side confirmations are a convenience, not a control: use
   `confirm: admin` for anything that needs your approval.
 
@@ -740,10 +750,11 @@ names are also suggested in their scope, even before they have a value.
 Playground tests read copies of both scopes; testing Set Variable does not mutate live values.
 
 Open **Secrets** in the flow list to store or replace credentials. Its API lists
-only names. In compatible credential fields, autocomplete inserts
-`{{secret.NAME}}`. Supported fields are Telegram's bot token, Notify's URL,
-Database's DSN, and the username/password fields of Email, MQTT Publish and MQTT
-Subscribe. These references resolve when the node uses them (every Telegram
+only names and marks values shorter than 16 characters (never values or
+lengths; see the AI agents [security notes](#security-notes)). In compatible
+credential fields, autocomplete inserts `{{secret.NAME}}`. Supported fields are
+Telegram's bot token, Notify's URL, Database's DSN, and the username/password
+fields of Email, MQTT Publish and MQTT Subscribe. These references resolve when the node uses them (every Telegram
 message, Notify request and e-mail; the first Database query and the MQTT
 connection), so a rotated secret applies without a redeploy, except to a
 Database or MQTT connection that is already open. A flow whose Telegram bot

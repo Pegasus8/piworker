@@ -348,6 +348,28 @@ Shared by REST and MCP (thin adapters):
   path segments, query values and userinfo of their URLs (parts under 8
   bytes are kept, but a URL password of 4). An unknown flow is
   `flow_not_found`.
+  Hiding by comparison leaves a guessing oracle, accepted (ADR-0021): an
+  agent that can put its own text where a view shows it and read it back
+  learns whether the text holds a known value (`"<redacted>"`). That takes
+  `author`, `deploy` at `low` or `all` and `read`: a visible setting or the
+  name of a flow it deploys from its own draft, or an error a run of that
+  flow records (without `deploy`, a draft the admin approves, each round).
+  Every occurrence is hidden, so one round tests many candidates. Tool
+  results (`Tools.Call`) are redacted the same way: a granted tool whose
+  reply or error repeats its arguments does the same with `call` alone.
+  Only short, guessable values are practical to guess; values under 4
+  bytes are never hidden (`minSecretLength`). The views keep comparing
+  because stored flows and real runs hold real secret values that only
+  comparison catches (resolved references, variables, `$env`, node
+  outputs). The residual is mitigated by warnings: `GET /api/secrets`
+  answers `{secrets: [{name, short}], shortBelow}`, `short` for a value of
+  fewer than `secrets.ShortValueRunes` (16) runes, never a value or a
+  length; the editor's secrets dialog marks short secrets (and a short
+  value as it is typed) with an icon and words, and the Agents page
+  explains the residual next to `low` and `all` and counts the short
+  secrets (read with the page, not polled). Credentials typed into
+  `Sensitive` settings are redaction targets too, but nothing checks their
+  length: they belong in secrets.
 - Drafts/dry-run (phase 3), deploy policy (agent deploy).
 - REST twin: `POST /api/flows/{id}/call/{nodeId}` (editor "Test tool").
 
@@ -1177,10 +1199,11 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   a global variable receives or to a tool path that reads global variables:
   `global_variable_write`, `global_variable_read`), `all`
   (any flow, including privileged). Changing it needs password step-up and
-  shows the risk text; tokens need the `deploy` scope (only grantable when
-  not `off`). Every agent deploy is audited, marked "deployed by agent" in
-  the editor, and the admin can roll back to the last admin-approved version
-  in one click.
+  shows the risk text (at `low` and `all` also the guessing residual of the
+  read views and how many secrets are short, §6); tokens need the `deploy`
+  scope (only grantable when not `off`). Every agent deploy is audited,
+  marked "deployed by agent" in the editor, and the admin can roll back to
+  the last admin-approved version in one click.
 
 ### Service contract — authoring, drafts, agent deploy (`internal/service`)
 
@@ -1406,10 +1429,14 @@ toggling a running flow on records nothing (it deploys nothing). A
     either, H7); `before` values (the base's) are redacted as the read
     views redact them, other `after` values are what the agent wrote or may
     read. URLs are cut past their host and each message is at most 2 KiB.
-    Open: the read views (§6) still redact known values from a stored
-    flow, which includes what an agent wrote once a version holds it (an
-    approved draft, or one it deployed itself at `low` or `all`); closing
-    that needs per-setting provenance across versions.
+    Open, accepted (ADR-0021): the read views (§6) still hide known
+    values in a stored flow and its runs by comparison, including in what
+    an agent wrote once a version holds it (one it deployed itself at
+    `low` or `all`, or a draft the admin approved), so an agent with
+    `read` can confirm a guess that way. Only short values are practical
+    to guess; the editor marks short secrets and counts them next to the
+    `low` and `all` levels (§6). Closing it would need per-setting
+    provenance across versions, or taint tracking at run time.
     Storage errors map to `conflict` (the base moved meanwhile),
     `flow_not_found`, `forbidden` (the 21st pending draft, a revoked token)
     and `invalid_arguments` (too large to store). A new flow's draft has no
