@@ -148,9 +148,11 @@ func TestDraftApprovalAndAgentDeployEndToEnd(t *testing.T) {
 
 	// Agent deploys go through the editor's lifecycle: after shutdown began
 	// they are refused like the editor's.
+	_, err = services.authoring.Stop(t.Context(), agent, flowID)
+	require.NoError(t, err)
 	app.flows.BeginShutdown()
 	_, err = services.authoring.Deploy(t.Context(), agent, service.DeployRequest{FlowID: flowID})
-	require.Error(t, err)
+	require.ErrorIs(t, err, service.ErrUnavailable, "503 from the editor's lifecycle path")
 }
 
 // Without authentication there are no drafts, but the version history and
