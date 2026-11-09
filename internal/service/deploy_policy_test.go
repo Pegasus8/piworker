@@ -412,6 +412,22 @@ func TestDeployRechecksUnderTheLock(t *testing.T) {
 	_, err = e.a.Deploy(t.Context(), other, DeployRequest{FlowID: base.ID})
 	requireKind(t, err, ErrPermissionDenied)
 	assert.Empty(t, e.life.deploys)
+
+	// Lowered from all to low meanwhile: what all allowed is not deployed,
+	// and a draft is neither saved nor closed.
+	require.NoError(t, e.store.SetAgentDeployLevel(storage.AgentDeployAll))
+	saved := e.draft(other, DraftInput{FlowID: base.ID, BaseVersion: 2, Ops: []flow.Op{
+		{Op: flow.OpUpdateNode, NodeID: "calc", Config: map[string]any{"expression": "payload - 1"}},
+	}})
+	e.life.inLock = func() { require.NoError(t, e.store.SetAgentDeployLevel(storage.AgentDeployLow)) }
+	_, err = e.a.Deploy(t.Context(), other, DeployRequest{FlowID: base.ID, DraftID: saved.DraftID})
+	te = requireKind(t, err, ErrPermissionDenied)
+	assert.Contains(t, te.Message, "level changed")
+	assert.Empty(t, e.life.deploys)
+	assert.Equal(t, 2, mustFlow(t, e, base.ID).Version, "nothing saved")
+	d, err := e.store.GetFlowDraft(saved.DraftID)
+	require.NoError(t, err)
+	assert.Equal(t, storage.DraftPending, d.Status)
 }
 
 // The flow is linted first: any Lint error, an undefined secret included,

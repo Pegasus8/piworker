@@ -295,3 +295,73 @@ func TestRunningReadsWithoutTheLock(t *testing.T) {
 	}))
 	assert.True(t, h.Running(f.ID))
 }
+
+// failDeploymentMarkers makes every RecordDeployment fail (a SQLite trigger:
+// the handler's store is the real one).
+func failDeploymentMarkers(t *testing.T, store *storage.SQLiteStore) {
+	t.Helper()
+	_, err := store.DB().Exec(`
+		CREATE TRIGGER fail_marker_insert BEFORE INSERT ON flow_deployments BEGIN SELECT RAISE(ABORT, 'marker refused'); END;
+		CREATE TRIGGER fail_marker_update BEFORE UPDATE ON flow_deployments BEGIN SELECT RAISE(ABORT, 'marker refused'); END;`)
+	require.NoError(t, err)
+}
+
+// A deployment whose marker cannot be recorded is undone, so what runs is
+// always attributed: a first deploy ends stopped with its old state, a
+// restart stopped with its running intent (read views: failed); 500 either
+// way, through the editor's request and the lifecycle interface alike.
+func TestDeployUndoneWhenTheMarkerFails(t *testing.T) {
+	t.Run("first deploy", func(t *testing.T) {
+		server, store := createTestServer(t)
+		h := server.handler
+		t.Cleanup(h.manager.StopAll)
+		f := createTestFlow("unmarked")
+		require.NoError(t, store.CreateFlow(f))
+		failDeploymentMarkers(t, store)
+
+		err := lifecycleCall(t, h, func(l service.LockedLifecycle) error {
+			_, err := l.Deploy(context.Background(), f.ID, agentDeployer, false)
+			return err
+		})
+		le := requireLifecycleStatus(t, err, http.StatusInternalServerError)
+		assert.Nil(t, le.ToolError(), "an internal failure, not a refusal")
+		assert.False(t, h.Running(f.ID))
+		stored, err := store.GetFlow(f.ID)
+		require.NoError(t, err)
+		assert.Equal(t, flow.FlowStateInactive, stored.State, "the old state is restored")
+
+		rr := performRequest(server, http.MethodPost, "/api/flows/"+f.ID+"/deploy", nil)
+		assert.Equal(t, http.StatusInternalServerError, rr.Code, rr.Body.String())
+		assert.False(t, h.Running(f.ID))
+		d, err := store.GetDeployment(f.ID)
+		require.NoError(t, err)
+		assert.Nil(t, d)
+	})
+	t.Run("restart", func(t *testing.T) {
+		server, store := createTestServer(t)
+		h := server.handler
+		t.Cleanup(h.manager.StopAll)
+		f := createTestFlow("unmarked restart")
+		require.NoError(t, store.CreateFlow(f))
+		require.NoError(t, lifecycleCall(t, h, func(l service.LockedLifecycle) error {
+			_, err := l.Deploy(context.Background(), f.ID, agentDeployer, false)
+			return err
+		}))
+		f.Name = "v2"
+		require.NoError(t, store.UpdateFlow(f))
+		failDeploymentMarkers(t, store)
+
+		err := lifecycleCall(t, h, func(l service.LockedLifecycle) error {
+			_, err := l.Deploy(context.Background(), f.ID, agentDeployer, true)
+			return err
+		})
+		requireLifecycleStatus(t, err, http.StatusInternalServerError)
+		assert.False(t, h.Running(f.ID), "the unattributed instance is stopped")
+		stored, err := store.GetFlow(f.ID)
+		require.NoError(t, err)
+		assert.Equal(t, flow.FlowStateRunning, stored.State, "the running intent is kept")
+		d, err := store.GetDeployment(f.ID)
+		require.NoError(t, err)
+		assert.Equal(t, 1, d.Version, "the marker still names the last recorded deployment")
+	})
+}
