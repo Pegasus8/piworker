@@ -82,6 +82,10 @@ type TokenVerifier interface {
 	// VerifyCached accepts a token from the verifier's cache alone, never
 	// looking one up in the store (ok false: not decided).
 	VerifyCached(raw string) (info agentauth.TokenInfo, ok bool, err error)
+	// KnownID reports whether id names a real (active) token, without
+	// reading a token, so the failure limiter can keep real tokens apart
+	// from made-up ones.
+	KnownID(id string) (bool, error)
 	Epoch() int64
 }
 

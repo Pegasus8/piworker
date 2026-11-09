@@ -37,9 +37,17 @@ func (c *fakeClock) Advance(d time.Duration) {
 // countingStore wraps a real store and counts the calls the verifier makes.
 type countingStore struct {
 	*storage.SQLiteStore
-	gets, epochs, touches atomic.Int32
-	onGet                 func(id string)
-	failGet, failEpoch    error
+	gets, epochs, touches, lists atomic.Int32
+	onGet                        func(id string)
+	failGet, failEpoch, failList error
+}
+
+func (c *countingStore) ListAPITokens() ([]storage.APIToken, error) {
+	c.lists.Add(1)
+	if c.failList != nil {
+		return nil, c.failList
+	}
+	return c.SQLiteStore.ListAPITokens()
 }
 
 func (c *countingStore) GetAPIToken(id string) (*storage.APIToken, error) {
@@ -505,4 +513,53 @@ func TestVerifyCached(t *testing.T) {
 	_, ok, err = v.VerifyCached(other)
 	require.NoError(t, err)
 	assert.False(t, ok, "expired")
+}
+
+// KnownID tells the ids of active tokens from made-up ones without reading
+// a token: callers limit lookups of unknown ids per client address, and must
+// never refuse a real token for what others sent from that address. Asking
+// about ids it does not know reads the token list at most once an epoch
+// interval, so a made-up id costs nothing more and a new token is known
+// within an interval.
+func TestKnownID(t *testing.T) {
+	v, cs, clock := newVerifier(t)
+	a, _ := createToken(t, cs.SQLiteStore, storage.NewAPIToken{Name: "a"})
+	madeUp := strings.Repeat("z", len(a.ID))
+
+	known, err := v.KnownID(a.ID)
+	require.NoError(t, err)
+	assert.True(t, known)
+	assert.EqualValues(t, 1, cs.lists.Load())
+	for range 5 {
+		known, err = v.KnownID(madeUp)
+		require.NoError(t, err)
+		assert.False(t, known)
+	}
+	assert.EqualValues(t, 1, cs.lists.Load(), "made-up ids read the list at most once an interval")
+	assert.Zero(t, cs.gets.Load(), "no token is read")
+
+	b, _ := createToken(t, cs.SQLiteStore, storage.NewAPIToken{Name: "b"})
+	known, _ = v.KnownID(b.ID)
+	assert.False(t, known, "not listed yet")
+	clock.Advance(DefaultEpochInterval)
+	known, _ = v.KnownID(b.ID)
+	assert.True(t, known, "listed again an interval later")
+	assert.EqualValues(t, 2, cs.lists.Load())
+
+	// Revoked and expired tokens drop out on the next list.
+	require.NoError(t, cs.SQLiteStore.RevokeAPIToken(a.ID, t0))
+	clock.Advance(DefaultEpochInterval)
+	_, _ = v.KnownID(madeUp)
+	known, _ = v.KnownID(a.ID)
+	assert.False(t, known, "revoked")
+	clock.Advance(storage.DefaultAPITokenLifetime)
+	_, _ = v.KnownID(madeUp)
+	known, _ = v.KnownID(b.ID)
+	assert.False(t, known, "expired")
+
+	// A store failure is an error, not an answer.
+	clock.Advance(DefaultEpochInterval)
+	cs.failList = errors.New("disk on fire")
+	_, err = v.KnownID(madeUp)
+	assert.Error(t, err)
 }

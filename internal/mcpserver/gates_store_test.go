@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"net/http"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -45,4 +46,41 @@ func TestDeployLevelChangeRebuildsCachedServers(t *testing.T) {
 	assert.Contains(t, names(listed(t, e, raw)), "pw_deploy_thing")
 	require.NoError(t, store.SetAgentDeployLevel(storage.AgentDeployOff))
 	assert.NotContains(t, names(listed(t, e, raw)), "pw_deploy_thing", "turned off again")
+}
+
+// With the real store and verifier, behind a local reverse proxy (TLS off,
+// every request from 127.0.0.1): a client sending one made-up token every 6
+// seconds keeps the address limited, and every revocation empties the
+// verifier's cache, yet the agent is served on every request.
+func TestProxiedAgentsAreNeverLockedOut(t *testing.T) {
+	store, err := storage.NewSQLiteStore(filepath.Join(t.TempDir(), "mcp.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { store.Close() })
+	clock := newClock()
+	_, raw, err := store.CreateAPIToken(storage.NewAPIToken{Name: "agent", Scopes: []string{storage.ScopeCall}}, clock.Now())
+	require.NoError(t, err)
+	verifier := agentauth.NewTokenVerifier(store, agentauth.WithClock(clock.Now))
+	h, err := New(Options{Tools: &fakeTools{version: 1}, Tokens: verifier, Logger: zerolog.Nop(), Now: clock.Now, RequestBurst: 1000})
+	require.NoError(t, err)
+	e := &testEnv{t: t, h: h}
+	proxied := func(token string) *http.Request {
+		r := withToken(rpc(listToolsBody), token)
+		r.RemoteAddr = "127.0.0.1:40000"
+		return r
+	}
+
+	for i := range 10 {
+		requireJSONError(t, e.serve(proxied(madeUpToken(i))), http.StatusUnauthorized)
+	}
+	for i := range 20 {
+		_, other, err := store.CreateAPIToken(storage.NewAPIToken{Name: "other", Scopes: []string{storage.ScopeCall}}, clock.Now())
+		require.NoError(t, err)
+		id, _, _ := storage.ParseAPIToken(other)
+		require.NoError(t, store.RevokeAPIToken(id, clock.Now())) // bumps the epoch
+		clock.Advance(6 * time.Second)
+		requireJSONError(t, e.serve(proxied(madeUpToken(10+i))), http.StatusUnauthorized)
+		requireJSONError(t, e.serve(proxied(madeUpToken(10+i))), http.StatusTooManyRequests)
+		_, rpcErr := rpcResult(t, e.serve(proxied(raw)))
+		require.Nil(t, rpcErr, "round %d", i)
+	}
 }

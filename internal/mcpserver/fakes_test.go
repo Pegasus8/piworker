@@ -121,6 +121,31 @@ func (v *fakeVerifier) bumpEpoch() {
 	v.epoch++
 }
 
+// KnownID knows the ids of the tokens of its map.
+func (v *fakeVerifier) KnownID(id string) (bool, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	for _, info := range v.tokens {
+		if info.ID == id {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// forget empties the cache, as an epoch change does.
+func (v *fakeVerifier) forget() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	clear(v.cached)
+}
+
+// madeUpToken is a well-formed token of no real token (i < 32*32).
+func madeUpToken(i int) string {
+	const alphabet = "abcdefghijklmnopqrstuvwxyz234567"
+	return "pwk_madeupmadeupm" + string(alphabet[i/32%32]) + string(alphabet[i%32]) + "x_" + strings.Repeat("q", 52)
+}
+
 var errStoreDown = io.ErrUnexpectedEOF
 
 // fakeTools lists every tool to agents with the call scope and answers calls

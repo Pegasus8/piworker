@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -188,27 +189,27 @@ func TestVerifierFailureIsUnavailable(t *testing.T) {
 }
 
 // Failed authentications are limited per client address (not by the login
-// limiter): after 10 a minute the client gets 429 until the window frees,
-// even with a good token, and the verifier is not consulted.
+// limiter): after 10 a minute the client's lookups of made-up tokens get 429
+// until the window frees, and the verifier is not consulted.
 func TestAuthFailureLimiter(t *testing.T) {
 	e := newTestEnv(t)
 	for i := range 10 {
-		requireJSONError(t, e.serve(withToken(rpc(listToolsBody), badToken)), http.StatusUnauthorized)
-		_ = i
+		requireJSONError(t, e.serve(withToken(rpc(listToolsBody), madeUpToken(i))), http.StatusUnauthorized)
 	}
 	before := e.verifier.calls.Load()
-	w := e.serve(withToken(rpc(listToolsBody), callToken))
+	w := e.serve(withToken(rpc(listToolsBody), badToken))
 	requireJSONError(t, w, http.StatusTooManyRequests)
 	assert.Equal(t, "6", w.Header().Get("Retry-After"))
+	requireJSONError(t, e.serve(withToken(rpc(listToolsBody), "pwk_malformed")), http.StatusTooManyRequests)
 	assert.Equal(t, before, e.verifier.calls.Load(), "blocked clients never reach the token store")
 
-	other := withToken(rpc(listToolsBody), callToken)
+	other := withToken(rpc(listToolsBody), badToken)
 	other.RemoteAddr = "192.168.1.99:1"
-	_, rpcErr := rpcResult(t, e.serve(other))
-	assert.Nil(t, rpcErr, "other clients are not affected")
+	requireJSONError(t, e.serve(other), http.StatusUnauthorized) // "other clients are not affected"
 
 	e.clock.Advance(6 * time.Second)
-	_, rpcErr = rpcResult(t, e.serve(withToken(rpc(listToolsBody), callToken)))
+	requireJSONError(t, e.serve(withToken(rpc(listToolsBody), badToken)), http.StatusUnauthorized)
+	_, rpcErr := rpcResult(t, e.serve(withToken(rpc(listToolsBody), callToken)))
 	assert.Nil(t, rpcErr)
 
 	// Requests without credentials are not guesses and do not count.
@@ -238,9 +239,72 @@ func TestAuthFailureLimiterKeepsServingKnownTokens(t *testing.T) {
 
 	_, rpcErr = rpcResult(t, e.serve(from(withToken(rpc(listToolsBody), callToken), agent)))
 	assert.Nil(t, rpcErr, "a known token is served while its /64 is limited")
+	_, rpcErr = rpcResult(t, e.serve(from(withToken(rpc(listToolsBody), otherToken), agent)))
+	assert.Nil(t, rpcErr, "an uncached real token is looked up all the same")
+}
+
+// What a client sends from an address shared with agents (every request
+// through a local reverse proxy comes from 127.0.0.1; IPv6 clients share a
+// /64) never holds back the lookups of real tokens: their ids have a failure
+// budget of their own per address. After a restart, a revocation or a grant
+// change empties the verifier's cache, and new tokens were never in it, so
+// agents need a lookup then. Made-up tokens keep sharing the address's
+// budget, so they cost at most 10 lookups a minute.
+func TestAuthFailureLimiterNeverLocksOutRealTokens(t *testing.T) {
+	e := newTestEnv(t, func(o *Options) { o.TLS = false })
+	proxied := func(r *http.Request) *http.Request {
+		r.RemoteAddr = "127.0.0.1:40000"
+		r.Host = "piworker.local"
+		return r
+	}
+	// The attacker spends the address's budget, then what refills.
+	limit := func(n int) {
+		for i := range n {
+			requireJSONError(t, e.serve(proxied(withToken(rpc(listToolsBody), madeUpToken(i)))), http.StatusUnauthorized)
+		}
+		requireJSONError(t, e.serve(proxied(withToken(rpc(listToolsBody), badToken))), http.StatusTooManyRequests)
+	}
+	limit(10)
+	for _, raw := range []string{callToken, otherToken, e.verifier.add("newnewnewnewnewn")} {
+		_, rpcErr := rpcResult(t, e.serve(proxied(withToken(rpc(listToolsBody), raw))))
+		assert.Nil(t, rpcErr, "a real token never verified before is served")
+	}
+	e.verifier.forget() // an epoch change
+	for range 20 {
+		e.clock.Advance(6 * time.Second)
+		limit(1) // the attacker keeps the address limited
+		_, rpcErr := rpcResult(t, e.serve(proxied(withToken(rpc(listToolsBody), callToken))))
+		require.Nil(t, rpcErr, "served after the cache was cleared")
+		e.verifier.forget()
+	}
 	calls := e.verifier.calls.Load()
-	requireJSONError(t, e.serve(from(withToken(rpc(listToolsBody), otherToken), agent)), http.StatusTooManyRequests)
-	assert.Equal(t, calls, e.verifier.calls.Load(), "an unknown one needs a lookup, which is refused")
+	requireJSONError(t, e.serve(proxied(withToken(rpc(listToolsBody), madeUpToken(99)))), http.StatusTooManyRequests)
+	assert.Equal(t, calls, e.verifier.calls.Load(), "made-up tokens are still not looked up")
+}
+
+// Wrong secrets for a real token's id are limited for that id and address:
+// they hold back neither other tokens from that address nor that token from
+// other addresses.
+func TestAuthFailuresOfARealIDAreLimitedForThatID(t *testing.T) {
+	e := newTestEnv(t)
+	id, _, ok := storage.ParseAPIToken(callToken)
+	require.True(t, ok)
+	wrong := "pwk_" + id + "_" + strings.Repeat("x", 52)
+	for range 10 {
+		requireJSONError(t, e.serve(withToken(rpc(listToolsBody), wrong)), http.StatusUnauthorized)
+	}
+	requireJSONError(t, e.serve(withToken(rpc(listToolsBody), wrong)), http.StatusTooManyRequests)
+	// An attacker who knows the id (shown in the editor and the logs) can
+	// hold back that token's lookups from the address it sends from.
+	requireJSONError(t, e.serve(withToken(rpc(listToolsBody), callToken)), http.StatusTooManyRequests)
+
+	_, rpcErr := rpcResult(t, e.serve(withToken(rpc(listToolsBody), otherToken)))
+	assert.Nil(t, rpcErr, "other tokens from the address")
+	elsewhere := withToken(rpc(listToolsBody), callToken)
+	elsewhere.RemoteAddr = "192.168.1.99:1"
+	_, rpcErr = rpcResult(t, e.serve(elsewhere))
+	assert.Nil(t, rpcErr, "the token from another address")
+	requireJSONError(t, e.serve(withToken(rpc(listToolsBody), madeUpToken(1))), http.StatusUnauthorized)
 }
 
 // The failure budget is reserved before a lookup, so concurrent lookups

@@ -400,6 +400,9 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   `agent_deploy` also bumps it so cached per-token MCP servers are rebuilt.
 - In-memory cache of verified tokens; evicted on revoke; a `tokens_epoch`
   setting re-checked every 5 s covers revocations from other processes.
+  The verifier also keeps the ids of the active tokens (`KnownID`, for the
+  `/mcp` failure limiter, §8), listed on first use and again when asked
+  about an id it does not hold, at most once per epoch interval.
 - Recovery-code redemption and password change revoke all tokens (password
   change: unless "keep agent tokens" is ticked), in the server process.
 - API (cookie): `GET/POST /api/agent/tokens`, `DELETE /api/agent/tokens/{id}`,
@@ -576,11 +579,24 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   401 + `WWW-Authenticate: Bearer realm="piworker"` and a JSON body; 503 when
   the token store cannot be read; tokens never logged) with its own
   per-client failure limiter (10 failures a minute per IP, IPv6 per /64, then
-  429 + `Retry-After`): every token lookup in the store reserves a unit of the
-  client's budget first and gives it back unless the token was bad, so
-  concurrent guesses cannot all pass; tokens the verifier already holds in its
-  cache (`VerifyCached`, no lookup) are served even while their client is
-  limited, so a client sharing the address cannot lock out known agents;
+  429 + `Retry-After`): every token lookup in the store reserves a unit of a
+  budget first and gives it back unless the token was bad, so concurrent
+  lookups cannot all pass. Token secrets are 256 bits, so the limiter does
+  not stop guessing: it bounds the store reads and log lines of bad tokens,
+  and must never let a client lock out the agents sharing its address
+  (every client behind a local HTTPS reverse proxy is 127.0.0.1, IPv6
+  clients share a /64). Tokens the verifier holds in its cache
+  (`VerifyCached`, no lookup) are served whatever their client's budget;
+  a well-formed token whose id names a real token (`KnownID`: the ids of the
+  active tokens, listed without reading a token, again when asked about an
+  unknown id at most once per epoch interval, so a new token is known
+  within 5 s) draws on a budget of its own for that address, so agents
+  are looked up even after a restart or an epoch change (a revocation, a
+  grant change) emptied the cache; made-up and malformed tokens share the
+  address's budget. Residuals: wrong secrets for a real token's id (shown
+  in the editor and the logs) hold back that token's lookups from the
+  sender's address, and a token used less than 5 s after its creation from
+  a limited address may get 429 once;
   per-token token bucket (30/min, burst 10 → 429 +
   `Retry-After`); scope check (call or read, or the scope of a registered
   built-in tool or prompt that the settings serve now — author with
