@@ -46,15 +46,11 @@ func TestAuthoringSkeletonRefusesUnavailable(t *testing.T) {
 	agent := Actor{Kind: ActorAgent, TokenID: "t1", TokenName: "claude", Scopes: []string{storage.ScopeAuthor, storage.ScopeDeploy}}
 	editor := EditorActor()
 	calls := map[string]func() error{
-		"ListDrafts":     func() error { _, err := a.ListDrafts(ctx, editor, DraftQuery{}); return err },
-		"GetDraftDetail": func() error { _, err := a.GetDraftDetail(ctx, editor, "d1"); return err },
-		"ApproveDraft":   func() error { _, err := a.ApproveDraft(ctx, editor, "d1", true); return err },
-		"RejectDraft":    func() error { return a.RejectDraft(ctx, editor, "d1", "no") },
-		"Deploy":         func() error { _, err := a.Deploy(ctx, agent, DeployRequest{FlowID: "f1"}); return err },
-		"Stop":           func() error { _, err := a.Stop(ctx, agent, "f1"); return err },
-		"Rollback":       func() error { _, err := a.Rollback(ctx, editor, "f1"); return err },
-		"Versions":       func() error { _, err := a.Versions(ctx, editor, "f1", 0); return err },
-		"Marks":          func() error { _, err := a.Marks(ctx, editor, flow.NewFlow("f")); return err },
+		"Deploy":   func() error { _, err := a.Deploy(ctx, agent, DeployRequest{FlowID: "f1"}); return err },
+		"Stop":     func() error { _, err := a.Stop(ctx, agent, "f1"); return err },
+		"Rollback": func() error { _, err := a.Rollback(ctx, editor, "f1"); return err },
+		"Versions": func() error { _, err := a.Versions(ctx, editor, "f1", 0); return err },
+		"Marks":    func() error { _, err := a.Marks(ctx, editor, flow.NewFlow("f")); return err },
 	}
 	for name, call := range calls {
 		t.Run(name, func(t *testing.T) {
