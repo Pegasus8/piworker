@@ -12,18 +12,27 @@ MCP lets AI agents (Claude Code, Claude Desktop, other MCP clients) use it:
 1. **Flows as tools (call).** The admin publishes deployed flows as typed MCP
    tools (`trigger-tool → … → action-reply`). Agents supply *data* only, validated
    against a closed JSON Schema subset; never graph or config.
-2. **Observe (read).** Agents inspect flows, runs and system status, with
-   default-deny redaction.
-3. **Author (author).** Agents draft flows; the admin approves in the editor.
+2. **Observe (read).** Agents inspect flows, runs and system status (§6, §8),
+   with default-deny redaction: secrets, typed credentials, settings not
+   marked `AgentVisible` and variables stay hidden, and run errors are shown
+   only for versions the admin approved (ADR-0022, ADR-0023).
+3. **Author (author, with `mcp.author_enabled`).** Agents validate flows,
+   dry-run them in a sandbox, test single nodes and save drafts; the admin
+   reviews and approves drafts in the editor. Every definition save is a
+   version, and the admin can roll back to the version last approved (§10).
 4. **Agent deploy (deploy) — opt-in risk.** Off by default. The admin may accept
-   the risk of letting agents deploy/stop flows, at one of two levels.
+   the risk of letting agents deploy and stop flows and apply their own
+   drafts, at one of two levels: `low` (bounded risk, no change the admin
+   has not approved to destinations, secrets, credentials, rates, shared
+   variables, published tools or what changed nodes read) or `all` (§10).
 5. **Native HTTPS by default** with a local CA generated on first start, so MCP
    (and the editor) are encrypted and the server identity can be verified.
 
 Non-goals: OAuth / public exposure, Bearer tokens on `/api`, one tool per node
-type, raw GPIO/shell/I2C tools, reading secrets or variables over MCP, the
-legacy HTTP+SSE transport, `subscriptions/listen`, an LLM/agent node in flows,
-an MCP client node (`action-mcp-call`, deferred to its own design).
+type, raw GPIO/shell/I2C tools, reading secrets or variables over MCP, agents
+writing flows other than through drafts, the legacy HTTP+SSE transport,
+`subscriptions/listen`, an LLM/agent node in flows, an MCP client node
+(`action-mcp-call`, which would need its own design).
 
 ## 2. Native HTTPS (local CA)
 
@@ -1520,9 +1529,9 @@ toggling a running flow on records nothing (it deploys nothing). A
   authoring issues and `flow.Risk`; `valid` means `flow.BlockingIssues` is
   empty (an `undefined_secret` error still blocks a deploy until the admin
   defines the secret). Request problems `SaveDraft` refuses outright are
-  refused the same way. Nothing is stored. `ops` and `flowId` extend the
-  contract's `{flow}`; `flowId` alone validates the current version as it
-  is. The editor's proposals are linted only (no author restrictions, no
+  refused the same way. Nothing is stored. Besides a whole `flow`, it
+  takes `ops` with a `flowId`, and `flowId` alone validates the current
+  version as it is. The editor's proposals are linted only (no author restrictions, no
   authoring issues: the admin may type a credential).
 - `SaveDraft` (`service.RedactedValue` = `"<redacted>"`): an existing flow
   needs `baseVersion` = its current version (else `conflict` with
@@ -1796,7 +1805,7 @@ toggling a running flow on records nothing (it deploys nothing). A
   it counts every built-in tool's (§8); the service counts none. The
   editor's calls are not audited (they are not agents').
 
-**Editor REST** (section D of the wave contract; session cookie, CSRF on
+**Editor REST** (session cookie, CSRF on
 writes, `{success, data}` envelope; errors as above; `api.DraftsHandler`
 over `service.Authoring` as the editor; the drafts routes exist with
 authentication, the versions and rollback routes always; an invalid
@@ -1839,7 +1848,7 @@ cut short by the browser going away):
   (with `version`) plus `"deployment": {"version", "actorKind",
   "tokenName"?, "deployedAt"} | null` and `"agentChanged": bool` (H6).
 
-**MCP** (section E, `internal/mcpserver/author.go`, `deploy.go`,
+**MCP** (`internal/mcpserver/author.go`, `deploy.go`,
 `nodetypes.go`; §8 has the argument contracts): each built-in tool's
 arguments are the request's JSON (`pw_validate_flow` → `Validate`,
 `pw_save_draft` → `SaveDraft`, `pw_get_draft{draftId}` → `GetDraft`,
@@ -1864,7 +1873,7 @@ real router over TLS with the SDK client, and the editor REST), and checks
 the endpoint's raw `tools/list` for an author+deploy token against the
 adapter's golden file.
 
-**Hand-offs from the foundations (binding).** H1 the low policy also
+**Binding rules H1–H9** (referred to above). H1 the low policy also
 refuses `credentialed_request_changed`. H2 `SaveDraft` and `ApproveDraft`
 refuse a proposal with blocking Lint errors (re-linted at approval against
 the current registry). H3 an agent deploy or stop re-checks the token and
@@ -1881,8 +1890,7 @@ non-`Sensitive` properties; the editor's full values come from the field
 diffs (`Sensitive` as `<hidden>`); disabled nodes count as absent for
 alerts. H8 deploy's required-secret check is a Lint collector:
 `undefined_secret`. H9 every expression loop checks its context (about 3×
-on tight loops) and the sandbox bounds data; kept, to be recorded in an
-ADR.
+on tight loops) and the sandbox bounds data (ADR-0020).
 
 ## 11. Configuration
 
@@ -1899,15 +1907,34 @@ cert_file = ""
 key_file = ""
 
 [mcp]
-enabled = false
+enabled = false        # mount /mcp; requires auth = true
 lan_access = false     # only relevant when tls.mode = "off"
-max_inflight = 4
-max_result_bytes = 16384
-author_enabled = false
+max_inflight = 4       # agent calls at once, 1-64 (each token at most 2)
+max_result_bytes = 16384  # 1024-1048576
+author_enabled = false # the author scope, tools and prompt
 ```
 Environment: `PIWORKER_TLS_MODE`, `PIWORKER_HTTP_ADDR`, `PIWORKER_ALLOWED_HOSTS`,
-`PIWORKER_MCP_ENABLED`, … (strict booleans). The agent deploy level lives in the
-`settings` table (editor, step-up), not in the TOML.
+`PIWORKER_MCP_ENABLED`, `PIWORKER_MCP_LAN_ACCESS`, `PIWORKER_MCP_MAX_INFLIGHT`,
+`PIWORKER_MCP_MAX_RESULT_BYTES`, `PIWORKER_MCP_AUTHOR_ENABLED`, … (strict
+booleans; ADR-0004). The `[mcp]` section applies at start: `mcp.enabled`
+without authentication and values out of range stop startup.
+
+- `mcp.author_enabled` (default false): only then can a token get the
+  `author` scope (`POST /api/agent/tokens` answers 403 otherwise), does
+  `/mcp` list the author tools and `author_flow`, and does
+  `service.Authoring` serve agents. Turning it off later hides the tools
+  and refuses the calls of tokens that still hold the scope.
+- `agent_deploy` (`off`, the default, `low` or `all`; §10) is not in the
+  TOML, the environment or the flags: it is the `agent_deploy` key of the
+  `settings` table, changed only with `PUT /api/agent/settings
+  {agentDeploy, password}` (password step-up; the Agents page). The change
+  bumps `tokens_epoch` in the same transaction, so `/mcp` re-reads the
+  level on the next request; a value that cannot be read lists no deploy
+  tools and deploys nothing.
+  The `deploy` scope can be granted only while the level is not `off`
+  (403 otherwise); at `off` tokens that hold it see no deploy tools and
+  their calls are refused. `GET /api/agent/settings` also reports
+  `authorEnabled`, `mcpEnabled` and `lanAccess` (read-only there).
 
 ## 12. Clients
 
@@ -1920,11 +1947,19 @@ claude mcp add --transport http --scope user piworker https://raspberrypi.local:
   --header "Authorization: Bearer pwk_…"
 NODE_EXTRA_CA_CERTS=~/piworker-ca.crt claude
 ```
+Claude Code can also run the bridge below as a stdio server (`claude mcp add
+--scope user piworker -- /usr/local/bin/piworker-mcp --url … --token-file …
+--ca-fingerprint …`), which pins the CA for PiWorker only and trusts it
+nowhere else.
+
 Claude Desktop: stdio bridge `piworker-mcp` (`cmd/piworker-mcp`, usage in its
 README; pure Go, `CGO_ENABLED=0`, enforced by a test; `make
-build-mcp-bridge-all` builds linux amd64/arm64/armv7, darwin amd64/arm64 and
-windows amd64, attached to releases) with `--url`, `--token-file`, `--ca-file`
-/ `--ca-fingerprint` pinning, `--timeout`.
+build-mcp-bridge-all` builds `piworker-mcp-linux-amd64`, `-linux-arm64`,
+`-linux-armv7`, `-darwin-amd64`, `-darwin-arm64` and
+`-windows-amd64.exe`, which CI checksums in `SHA256SUMS` and attaches to
+releases) with `--url`, `--token-file`, `--ca-file` / `--ca-fingerprint`
+pinning, `--timeout` (per request, default 2 min) and `--version` (the
+build's version).
 - It is a protocol-version-agnostic JSON-RPC relay, not an SDK proxy: each
   stdin line is POSTed unchanged with the Bearer token, `Accept: application/json,
   text/event-stream` and `MCP-Protocol-Version` (from the request's `_meta`, else
@@ -1973,13 +2008,36 @@ windows amd64, attached to releases) with `--url`, `--token-file`, `--ca-file`
 
 ## 13. Testing
 
-TDD throughout; `-race` for runtime and service. E2E in `main_mcp_test.go`
-with a real `mcp.NewClient` over `StreamableClientTransport` against
-`httptest.NewTLSServer`-style setup using the generated CA: filtered
-`ListTools`, annotations, `CallTool` structured content, invalid args → isError,
-401/403 cases, hidden tool not callable, foreign `runId` rejected, approval
-flow, read redaction canaries (one canary per string/map config field of every
-registered node type), drafts round-trip, agent-deploy policy levels.
+TDD throughout; CI runs `go test -race ./...` (the runtime, the service and
+the endpoint have concurrency tests). Unit tests sit next to each package
+(`internal/flow` Lint, Diff, dry-run and node test; `internal/service`
+authoring, drafts, the deploy policy with a test per alert kind
+`low` refuses, and the echo tests of ADR-0021; `internal/mcpserver`
+arguments, gates and middleware; `internal/node/builtin` the schema
+policy). End to end, `main_mcp_test.go` drives the real router as `main`
+builds it, served by `httptest.NewTLSServer`, with a real `mcp.NewClient`
+over `StreamableClientTransport` and with raw JSON-RPC posts: filtered
+`ListTools`, annotations, `CallTool` structured content, invalid arguments
+→ `isError`, 401/403 cases, Bearer tokens refused on `/api`, `/mcp` outside
+the request guard, mounting with MCP off, refused protocol versions and
+batches, the plain listener refusing `/mcp`, hidden tools not callable, a
+foreign `runId` rejected, the approval flow, the read tools, their audit
+and bounds, `diagnose_flow`, read redaction canaries (one canary per
+string/map config field of every registered node type), the author and
+deploy tool gates, `pw_list_node_types`, validation, drafts reviewed and
+approved in the editor, save-draft refusals, dry-run and node test, secret
+values echoed back as sent, the agent deploy levels, undefined secrets
+blocking deploys, the re-check under the lifecycle lock and revocation
+voiding drafts. The local CA and both listeners are exercised by
+`main_tls_test.go` (redirects, the CA download, custom mode,
+regeneration); the bridge's tests relay to a real go-sdk server behind TLS
+with a test CA, pinned by file and by fingerprint, and `TestBridgeIsPureGo`
+keeps the bridge free of cgo. The editor
+has unit tests (`web/test`: the agent and drafts stores, draft
+presentation, flow marks and versions, secrets) and Playwright specs of
+the Agents and Drafts pages, the markers and the version history against
+a mocked `/api` (`web/e2e/agent-access.spec.ts`,
+`web/e2e/agent-drafts.spec.ts`).
 
 Golden raw JSON-RPC exchanges (`TestMCPProtocolGolden`,
 `testdata/mcp_exchanges_<version>.golden.json`) for 2025-06-18, 2025-11-25
@@ -2014,7 +2072,7 @@ errors.
 
 Binary sizes (`-trimpath -ldflags "-s -w"`, cgo with
 `gcc-aarch64-linux-gnu`/`gcc-arm-linux-gnueabihf`; not committed), measured
-in wave 5 against `revival`: linux/arm64 22.75 MiB (+3.64 MiB, +19%),
+on 2026-11-09 against `revival`: linux/arm64 22.75 MiB (+3.64 MiB, +19%),
 linux/arm (GOARM=7) 23.19 MiB (+3.66 MiB), linux/amd64 23.99 MiB (+3.98
 MiB); the `piworker-mcp` bridge 6.1 to 6.8 MiB per platform (six, `make
 build-mcp-bridge-all`).
