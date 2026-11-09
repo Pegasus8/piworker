@@ -196,6 +196,47 @@ func TestDiffAlertsGlobalVariableReads(t *testing.T) {
 		{name: "a global read off the tool's path", base: toolFlow(nil), next: toolFlow(func(f *flow.Flow) {
 			diffNodeOf(f, "side").Config["expression"] = `vars["door_code"]`
 		})},
+		// What feeds the path from outside reaches the reply too: a join
+		// emits the tool call's message (its correlation ID) with every
+		// source's payload.
+		{name: "a global read joined into the path", base: toolFlow(nil), next: toolFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "side").Config["expression"] = `vars["door_code"]`
+			f.Nodes = append(f.Nodes, lintNode("j", "process-join", map[string]any{"mode": "source", "sources": "side,calc"}))
+			f.Connections = []flow.Connection{
+				lintConn("c1", "tool", "output", "calc", "input"),
+				lintConn("c3", "t", "output", "side", "input"),
+				lintConn("c4", "calc", "output", "j", "input"),
+				lintConn("c5", "side", "output", "j", "input"),
+				lintConn("c6", "j", "output", "reply", "input"),
+			}
+		}), alert: true},
+		{name: "a global read aggregated into the path", base: toolFlow(nil), next: toolFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "side").Config["expression"] = `vars["door_code"]`
+			f.Nodes = append(f.Nodes, lintNode("agg", "process-aggregate", map[string]any{"count": float64(2)}))
+			f.Connections = []flow.Connection{
+				lintConn("c1", "tool", "output", "calc", "input"),
+				lintConn("c3", "t", "output", "side", "input"),
+				lintConn("c4", "calc", "output", "agg", "input"),
+				lintConn("c5", "side", "output", "agg", "input"),
+				lintConn("c6", "agg", "output", "reply", "input"),
+			}
+		}), alert: true},
+		{name: "an approved fan-in whose source starts reading globals", base: joinedToolFlow(nil), next: joinedToolFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "side").Config["expression"] = `vars["door_code"]`
+		}), alert: true},
+		{name: "an approved fan-in reading globals left alone", base: joinedToolFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "side").Config["expression"] = `vars["setpoint"]`
+		}), next: joinedToolFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "side").Config["expression"] = `vars["setpoint"]`
+		})},
+		{name: "a global read written to a flow variable the path reads", base: toolFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "calc").Config["expression"] = `flowVars["leak"]`
+		}), next: toolFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "calc").Config["expression"] = `flowVars["leak"]`
+			diffNodeOf(f, "side").Config["expression"] = `vars["door_code"]`
+			f.Nodes = append(f.Nodes, lintNode("fv", "set-var", map[string]any{"scope": "flow", "key": "leak", "value": "payload"}))
+			f.Connections = append(f.Connections, lintConn("c4", "side", "output", "fv", "input"))
+		}), alert: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -216,4 +257,22 @@ func TestDiffAlertsGlobalVariableReads(t *testing.T) {
 			assert.NotContains(t, got[0].Message, "door_code", "values agents may not read stay out of alerts")
 		})
 	}
+}
+
+// joinedToolFlow is toolFlow whose reply joins the tool's path with the
+// other branch.
+func joinedToolFlow(change func(f *flow.Flow)) *flow.Flow {
+	return toolFlow(func(f *flow.Flow) {
+		f.Nodes = append(f.Nodes, lintNode("j", "process-join", map[string]any{"mode": "source", "sources": "side,calc"}))
+		f.Connections = []flow.Connection{
+			lintConn("c1", "tool", "output", "calc", "input"),
+			lintConn("c3", "t", "output", "side", "input"),
+			lintConn("c4", "calc", "output", "j", "input"),
+			lintConn("c5", "side", "output", "j", "input"),
+			lintConn("c6", "j", "output", "reply", "input"),
+		}
+		if change != nil {
+			change(f)
+		}
+	})
 }

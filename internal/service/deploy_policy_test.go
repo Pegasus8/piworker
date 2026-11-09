@@ -63,8 +63,16 @@ func TestLowDeployPolicy(t *testing.T) {
 		change func(f *flow.Flow)
 		refuse string // an alert kind, or "privileged"; "" allows
 	}{
-		"a transform changed": {func(f *flow.Flow) { nodeOf(f, "calc").Config["expression"] = "payload * 2" }, ""},
-		"no change at all":    {func(*flow.Flow) {}, ""},
+		"a transform off the request's path": {func(f *flow.Flow) {
+			addNode(f, "side", "process-transform", map[string]any{"expression": "payload * 2"})
+			connect(f, "start", "side")
+		}, ""},
+		"no change at all": {func(*flow.Flow) {}, ""},
+		// The request's body is the message: what feeds it decides what the
+		// approved credential sends.
+		"the message the credential sends": {func(f *flow.Flow) {
+			nodeOf(f, "calc").Config["expression"] = "{temp: 20, all: vars}"
+		}, flow.AlertCredentialedRequestChanged},
 		"destination changed": {func(f *flow.Flow) {
 			nodeOf(f, "call").Config["url"] = "https://api.example.com/hook/other"
 		}, flow.AlertDestinationChanged},
@@ -168,6 +176,16 @@ func TestLowDeployRefusesGlobalVariableWrites(t *testing.T) {
 		"a tool's path changed, reading no global": {base: toolReplyFlow, ops: []flow.Op{
 			{Op: flow.OpUpdateNode, NodeID: "answer", Config: map[string]any{"expression": "payload"}},
 		}},
+		// A join emits the tool call's message with every source's payload:
+		// a branch reading globals joined into the path reaches the reply.
+		"a global read joined into a tool's path": {base: toolSideFlow, ops: []flow.Op{
+			{Op: flow.OpUpdateNode, NodeID: "side", Config: map[string]any{"expression": `vars["door_code"]`}},
+			{Op: flow.OpAddNode, Node: &flow.OpNode{ID: "j", Type: "process-join", Config: map[string]any{"mode": "source", "sources": "side,answer"}}},
+			{Op: flow.OpDisconnect, SourceNode: "answer", SourcePort: "output", TargetNode: "reply", TargetPort: "input"},
+			{Op: flow.OpConnect, SourceNode: "answer", SourcePort: "output", TargetNode: "j", TargetPort: "input"},
+			{Op: flow.OpConnect, SourceNode: "side", SourcePort: "output", TargetNode: "j", TargetPort: "input"},
+			{Op: flow.OpConnect, SourceNode: "j", SourcePort: "output", TargetNode: "reply", TargetPort: "input"},
+		}, refuse: true, kind: flow.AlertGlobalVariableRead},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -212,6 +230,16 @@ func toolReplyFlow() *flow.Flow {
 	addNode(f, "reply", "action-reply", nil)
 	connect(f, "tool", "answer")
 	connect(f, "answer", "reply")
+	return f
+}
+
+// toolSideFlow is toolReplyFlow with a separate branch from a manual
+// trigger.
+func toolSideFlow() *flow.Flow {
+	f := toolReplyFlow()
+	addNode(f, "start", "trigger-manual", nil)
+	addNode(f, "side", "process-transform", map[string]any{"expression": "payload"})
+	connect(f, "start", "side")
 	return f
 }
 
@@ -305,7 +333,8 @@ func TestLowDeployMayNotReplaceAPrivilegedFlow(t *testing.T) {
 	}
 
 	// A flow the stop rule allows may be replaced: a running external flow
-	// restarts with the agent's draft.
+	// restarts with the agent's draft (a branch beside the credentialed
+	// request).
 	e := newAuthEnv(t)
 	e.setLevel(storage.AgentDeployLow)
 	base := e.create(lightsFlow())
@@ -313,7 +342,8 @@ func TestLowDeployMayNotReplaceAPrivilegedFlow(t *testing.T) {
 	_, err := e.a.Deploy(t.Context(), agent, DeployRequest{FlowID: base.ID})
 	require.NoError(t, err)
 	change := e.draft(agent, DraftInput{FlowID: base.ID, BaseVersion: 1, Ops: []flow.Op{
-		{Op: flow.OpUpdateNode, NodeID: "calc", Config: map[string]any{"expression": "payload + 1"}},
+		{Op: flow.OpAddNode, Node: &flow.OpNode{ID: "side", Type: "process-transform", Config: map[string]any{"expression": "payload + 1"}}},
+		{Op: flow.OpConnect, SourceNode: "start", SourcePort: "output", TargetNode: "side", TargetPort: "input"},
 	}})
 	res, err := e.a.Deploy(t.Context(), agent, DeployRequest{FlowID: base.ID, DraftID: change.DraftID})
 	require.NoError(t, err)

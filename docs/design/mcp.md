@@ -919,7 +919,17 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   that is not exactly `{{secret.NAME}}`), `credentialed_request_changed` (on
   a node that uses a credential in the base, a secret reference or a
   Sensitive value, an `Operation` property changed or a new input was
-  connected: the approved credential would be used for something else),
+  connected: the approved credential would be used for something else;
+  also when anything upstream of such a node with `Operation` properties
+  changed — a running node feeding it, through connections or the
+  flow-scope set-vars when a node feeding it reads flow variables, was
+  added, enabled or reconfigured, or a connection into that part was added:
+  a request's body is usually a template over the message — and, for any
+  such node whose response reaches an `action-reply` (through connections
+  or flow variables), when the node itself or a node between it and the
+  reply changed, or a connection into that part from the node or that
+  part was added: what the credential reveals goes back to the agent
+  calling the tool; one alert per node),
   `rate_changed` (on a flow whose risk is above safe, a `Rate` property of
   a running node added, removed or changed, or a running node with one
   added, removed, enabled or disabled: a daily request with the admin's
@@ -935,11 +945,14 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   reconfigured, or a connection into that part was added; one alert per
   writer, `after` the variable's name), `global_variable_read` (a running
   `trigger-tool`'s path — the running part its trigger reaches through
-  connections, whose result goes back to the agent that calls it — reads
-  global variables (a `get-var` whose scope is not `flow`, or config text
-  naming `vars`, `flowVars` or `$env`: it errs on the side of yes) and
-  changed: a node on it added, enabled or reconfigured, or a connection
-  into it added; one alert per tool). The two global variable alerts are
+  connections and flow variables, together with everything that feeds that
+  part, through connections and the flow-scope set-vars: a join or an
+  aggregate emits the call's message with what another branch sent, and
+  the result goes back to the agent that calls it — reads global variables
+  (a `get-var` whose scope is not `flow`, or config text naming `vars`,
+  `flowVars` or `$env`: it errs on the side of yes) and changed: a node of
+  it added, enabled or reconfigured, or a connection into one added; one
+  alert per tool). The two global variable alerts are
   listed after the field alerts.
   The rate alert covers the settings whose purpose is the rate; connections,
   filter conditions and thresholds also change how many messages reach a

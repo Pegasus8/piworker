@@ -593,3 +593,154 @@ func TestDiffFlagsCredentialedRequestChanges(t *testing.T) {
 		})
 	}
 }
+
+// credFlow is a manual trigger, a transform shaping a message and an HTTP
+// POST that sends it with a credential (its body is the message).
+func credFlow(change func(f *flow.Flow)) *flow.Flow {
+	f := diffFlow(
+		trigger(),
+		lintNode("calc", "process-transform", map[string]any{"expression": "{temp: 20}"}),
+		lintNode("h", "action-http", map[string]any{"url": "https://api.example.com/hook", "method": "POST",
+			"headers": map[string]any{"Authorization": "{{secret.api_key}}"}, "body": "{{payload}}"}),
+		lintNode("side", "process-transform", map[string]any{"expression": "payload"}),
+		lintNode("fv", "set-var", map[string]any{"scope": "flow", "key": "count", "value": "1"}),
+	)
+	f.Connections = []flow.Connection{
+		lintConn("c1", "t", "output", "calc", "input"),
+		lintConn("c2", "calc", "output", "h", "input"),
+		lintConn("c3", "t", "output", "side", "input"),
+		lintConn("c4", "side", "output", "fv", "input"),
+	}
+	if change != nil {
+		change(f)
+	}
+	return f
+}
+
+// A request's body is usually a template over the message: what an approved
+// credential sends changes with anything that feeds the request.
+func TestDiffFlagsChangesUpstreamOfCredentialedRequests(t *testing.T) {
+	cases := []struct {
+		name       string
+		base, next *flow.Flow
+		alert      bool
+	}{
+		{name: "nothing changed", base: credFlow(nil), next: credFlow(nil)},
+		{name: "the message shaped upstream changed", base: credFlow(nil), next: credFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "calc").Config["expression"] = "{temp: 20, all: vars}"
+		}), alert: true},
+		{name: "a new input upstream", base: credFlow(nil), next: credFlow(func(f *flow.Flow) {
+			f.Nodes = append(f.Nodes, lintNode("t2", "trigger-manual", nil))
+			f.Connections = append(f.Connections, lintConn("c5", "t2", "output", "calc", "input"))
+		}), alert: true},
+		{name: "a flow variable read upstream, written elsewhere", base: credFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "calc").Config["expression"] = `flowVars["count"]`
+		}), next: credFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "calc").Config["expression"] = `flowVars["count"]`
+			diffNodeOf(f, "fv").Config["value"] = "vars"
+		}), alert: true},
+		{name: "a change on another branch", base: credFlow(nil), next: credFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "side").Config["expression"] = "payload * 2"
+		})},
+		{name: "no credential", base: credFlow(func(f *flow.Flow) {
+			delete(diffNodeOf(f, "h").Config, "headers")
+		}), next: credFlow(func(f *flow.Flow) {
+			delete(diffNodeOf(f, "h").Config, "headers")
+			diffNodeOf(f, "calc").Config["expression"] = "{temp: 20, all: vars}"
+		})},
+		{name: "a credential the base did not use", base: credFlow(func(f *flow.Flow) {
+			delete(diffNodeOf(f, "h").Config, "headers")
+		}), next: credFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "calc").Config["expression"] = "{temp: 20, all: vars}"
+		})},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := flow.Diff(tc.base, tc.next, node.DefaultRegistry)
+			var got []flow.Alert
+			for _, a := range r.Alerts {
+				if a.Kind == flow.AlertCredentialedRequestChanged {
+					got = append(got, a)
+				}
+			}
+			if !tc.alert {
+				assert.Empty(t, got, "alerts: %v", r.Alerts)
+				return
+			}
+			require.Len(t, got, 1, "alerts: %v", r.Alerts)
+			assert.Equal(t, "h", got[0].NodeID)
+			assert.Empty(t, got[0].Path)
+			assert.NotContains(t, got[0].Message, "vars", "values agents may not read stay out of alerts")
+		})
+	}
+}
+
+// credToolFlow is a tool whose answer is a credentialed request's response,
+// shaped by a transform.
+func credToolFlow(change func(f *flow.Flow)) *flow.Flow {
+	f := diffFlow(
+		lintNode("tool", "trigger-tool", map[string]any{"toolName": "status"}),
+		lintNode("h", "action-http", map[string]any{"url": "https://api.example.com/items", "method": "GET",
+			"headers": map[string]any{"Authorization": "{{secret.api_key}}"}, "outputMode": "status"}),
+		lintNode("shape", "process-transform", map[string]any{"expression": "payload.status"}),
+		lintNode("reply", "action-reply", nil),
+		trigger(),
+		lintNode("side", "process-transform", map[string]any{"expression": "payload"}),
+	)
+	f.Connections = []flow.Connection{
+		lintConn("c1", "tool", "output", "h", "input"),
+		lintConn("c2", "h", "output", "shape", "input"),
+		lintConn("c3", "shape", "output", "reply", "input"),
+		lintConn("c4", "t", "output", "side", "input"),
+	}
+	if change != nil {
+		change(f)
+	}
+	return f
+}
+
+// What a credentialed request returns goes back to the agent that calls the
+// tool: widening what reaches the reply (the request's own output, or a
+// node between it and the reply) changes what the credential reveals.
+func TestDiffFlagsWidenedCredentialedResponses(t *testing.T) {
+	cases := []struct {
+		name       string
+		base, next *flow.Flow
+		alert      bool
+	}{
+		{name: "nothing changed", base: credToolFlow(nil), next: credToolFlow(nil)},
+		{name: "the request returns more", base: credToolFlow(nil), next: credToolFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "h").Config["outputMode"] = "full"
+		}), alert: true},
+		{name: "the shaping widened", base: credToolFlow(nil), next: credToolFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "shape").Config["expression"] = "payload"
+		}), alert: true},
+		{name: "a node off the response's way changed", base: credToolFlow(nil), next: credToolFlow(func(f *flow.Flow) {
+			diffNodeOf(f, "side").Config["expression"] = "payload * 2"
+		})},
+		{name: "a response that reaches no reply", base: credToolFlow(func(f *flow.Flow) {
+			f.Connections = f.Connections[:2]
+		}), next: credToolFlow(func(f *flow.Flow) {
+			f.Connections = f.Connections[:2]
+			diffNodeOf(f, "shape").Config["expression"] = "payload"
+		})},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := flow.Diff(tc.base, tc.next, node.DefaultRegistry)
+			var got []flow.Alert
+			for _, a := range r.Alerts {
+				if a.Kind == flow.AlertCredentialedRequestChanged {
+					got = append(got, a)
+				}
+			}
+			if !tc.alert {
+				assert.Empty(t, got, "alerts: %v", r.Alerts)
+				return
+			}
+			require.Len(t, got, 1, "alerts: %v", r.Alerts)
+			assert.Equal(t, "h", got[0].NodeID)
+			assert.Contains(t, got[0].Message, "agent")
+		})
+	}
+}

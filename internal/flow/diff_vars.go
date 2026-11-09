@@ -17,11 +17,13 @@ import "fmt"
 // was added.
 const AlertGlobalVariableWrite = "global_variable_write"
 
-// AlertGlobalVariableRead: what a running tool's path (the running part of
-// the flow its trigger reaches through connections) reads from global
+// AlertGlobalVariableRead: what a running tool's path reads from global
 // variables goes back to the agent that calls it, and that path changed
-// and reads global variables: a node on it was added, enabled or
-// reconfigured, or a connection into it was added.
+// and reads global variables. The path is the running part of the flow its
+// trigger reaches (through connections and flow variables) together with
+// everything that feeds it (a join or an aggregate emits the call's message
+// with what another branch sent); it changed when a node of it was added,
+// enabled or reconfigured, or a connection into one was added.
 const AlertGlobalVariableRead = "global_variable_read"
 
 // varGraph is the running part of a proposed flow, as the global variable
@@ -32,8 +34,10 @@ type varGraph struct {
 	feeds     map[string][]*diffNode // target ID → the running nodes connected into it
 	fedBy     map[string][]*diffNode // source ID → the running nodes it connects to
 	newInput  map[string]bool        // target IDs of added connections between running nodes
-	// flowWriters are the running set-vars of scope flow.
-	flowWriters []*diffNode
+	added     []Connection           // the added connections between running nodes
+	// flowWriters are the running set-vars of scope flow; flowReaders the
+	// running nodes that read flow variables.
+	flowWriters, flowReaders []*diffNode
 }
 
 func newVarGraph(next *Flow, baseByKey map[string]*diffNode, nextOrder []*diffNode, added []Connection) *varGraph {
@@ -46,8 +50,11 @@ func newVarGraph(next *Flow, baseByKey map[string]*diffNode, nextOrder []*diffNo
 		if _, ok := g.running[d.n.ID]; !ok {
 			g.running[d.n.ID] = d
 		}
-		if d.n.Type == "set-var" && configString(d.n.Config, "scope") == "flow" {
+		if isFlowWriter(d.n) {
 			g.flowWriters = append(g.flowWriters, d)
+		}
+		if readsFlowVariables(d.n) {
+			g.flowReaders = append(g.flowReaders, d)
 		}
 	}
 	for _, c := range next.Connections {
@@ -59,16 +66,80 @@ func newVarGraph(next *Flow, baseByKey map[string]*diffNode, nextOrder []*diffNo
 	for _, c := range added {
 		if g.running[c.SourceNode] != nil && g.running[c.TargetNode] != nil {
 			g.newInput[c.TargetNode] = true
+			g.added = append(g.added, c)
 		}
 	}
 	return g
 }
 
+func isFlowWriter(n *Node) bool {
+	return n.Type == "set-var" && configString(n.Config, "scope") == "flow"
+}
+
+// downstream returns the running nodes start reaches, start excluded, in
+// walk order: through connections, and through flow variables (a
+// flow-scope set-var reached reaches every running node that reads flow
+// variables).
+func (g *varGraph) downstream(start *diffNode) []*diffNode {
+	seen := map[*diffNode]bool{start: true}
+	queue := []*diffNode{start}
+	var out []*diffNode
+	flowVarsWalked := false
+	for len(queue) > 0 {
+		d := queue[0]
+		queue = queue[1:]
+		next := g.fedBy[d.n.ID]
+		if !flowVarsWalked && isFlowWriter(d.n) {
+			flowVarsWalked = true
+			next = append(append([]*diffNode{}, next...), g.flowReaders...)
+		}
+		for _, u := range next {
+			if !seen[u] {
+				seen[u] = true
+				out = append(out, u)
+				queue = append(queue, u)
+			}
+		}
+	}
+	return out
+}
+
+// closure returns from and every running node that feeds one of them,
+// through connections and, once a node of the set reads flow variables,
+// through the flow-variable writers (and what feeds them), in walk order.
+func (g *varGraph) closure(from []*diffNode) []*diffNode {
+	seen := map[*diffNode]bool{}
+	var out, queue []*diffNode
+	for _, d := range from {
+		if !seen[d] {
+			seen[d] = true
+			out = append(out, d)
+			queue = append(queue, d)
+		}
+	}
+	flowVarsWalked := false
+	for len(queue) > 0 {
+		d := queue[0]
+		queue = queue[1:]
+		upstream := g.feeds[d.n.ID]
+		if !flowVarsWalked && readsFlowVariables(d.n) {
+			flowVarsWalked = true
+			upstream = append(append([]*diffNode{}, upstream...), g.flowWriters...)
+		}
+		for _, u := range upstream {
+			if !seen[u] {
+				seen[u] = true
+				out = append(out, u)
+				queue = append(queue, u)
+			}
+		}
+	}
+	return out
+}
+
 // globalVariableAlerts adds the alerts of global variable writes and of
 // global variable reads through tools.
-func globalVariableAlerts(next *Flow, baseByKey map[string]*diffNode, nextOrder []*diffNode,
-	added []Connection, add func(order int, a Alert)) {
-	g := newVarGraph(next, baseByKey, nextOrder, added)
+func globalVariableAlerts(g *varGraph, nextOrder []*diffNode, add func(order int, a Alert)) {
 	for _, d := range nextOrder {
 		if d.live() == nil {
 			continue
@@ -141,30 +212,22 @@ func (g *varGraph) upstreamChange(w *diffNode) string {
 }
 
 // readAlert raises AlertGlobalVariableRead for the tool trigger tool when
-// the running part of the flow it reaches reads global variables and
-// differs from base (a node added, enabled or reconfigured, or a connection
-// into it added).
+// its path — the running part of the flow it reaches and everything that
+// feeds that part (closure) — reads global variables and differs from base
+// (a node added, enabled or reconfigured, or a connection into one added).
 func (g *varGraph) readAlert(tool *diffNode, add func(order int, a Alert)) {
-	seen := map[*diffNode]bool{tool: true}
-	queue := []*diffNode{tool}
 	reads, changed := false, ""
-	for len(queue) > 0 {
-		d := queue[0]
-		queue = queue[1:]
-		for _, u := range g.fedBy[d.n.ID] {
-			if seen[u] {
-				continue
+	for _, u := range g.closure(g.downstream(tool)) {
+		if u == tool {
+			continue
+		}
+		reads = reads || readsGlobalVariables(u.n)
+		if changed == "" {
+			if change := nodeChange(u, g.baseByKey[u.key]); change != "" {
+				changed = fmt.Sprintf("node %s (%s), on it or feeding it, %s", u.n.ID, u.n.Type, change)
+			} else if g.newInput[u.n.ID] {
+				changed = fmt.Sprintf("a connection into node %s (%s), on it or feeding it, was added", u.n.ID, u.n.Type)
 			}
-			seen[u] = true
-			reads = reads || readsGlobalVariables(u.n)
-			if changed == "" {
-				if change := nodeChange(u, g.baseByKey[u.key]); change != "" {
-					changed = fmt.Sprintf("node %s (%s) on it %s", u.n.ID, u.n.Type, change)
-				} else if g.newInput[u.n.ID] {
-					changed = fmt.Sprintf("a connection into node %s (%s) on it was added", u.n.ID, u.n.Type)
-				}
-			}
-			queue = append(queue, u)
 		}
 	}
 	if !reads || changed == "" {
@@ -200,6 +263,80 @@ func nodeChange(d, b *diffNode) string {
 	for _, key := range configKeys(b, d) {
 		if !sameValue(b.n.Config[key], d.n.Config[key]) {
 			return "changed"
+		}
+	}
+	return ""
+}
+
+// credentialedFlowAlerts adds AlertCredentialedRequestChanged for running
+// nodes that use a credential in the base (credentialed) and have no such
+// alert yet (alerted, by node key): what the credential sends may change
+// when anything that feeds a node with Operation properties changed (a
+// request's body is usually a template over the message), and what it
+// reveals may change when its response reaches an action-reply (the agent
+// calling the tool) and the node itself, or a node between it and the
+// reply, changed.
+func credentialedFlowAlerts(g *varGraph, nextOrder []*diffNode, alerted map[string]bool, add func(order int, a Alert)) {
+	for _, d := range nextOrder {
+		if d.live() == nil || alerted[d.key] {
+			continue
+		}
+		if b := g.baseByKey[d.key].live(); b == nil || !b.credentialed() {
+			continue
+		}
+		if d.hasOperation() {
+			if why := g.upstreamChange(d); why != "" {
+				alerted[d.key] = true
+				add(d.order, Alert{Kind: AlertCredentialedRequestChanged, NodeID: d.n.ID,
+					Message: fmt.Sprintf("what node %s (%s) sends with the credential it uses may change: %s", d.n.ID, d.n.Type, why)})
+				continue
+			}
+		}
+		if why := g.responseChange(d); why != "" {
+			alerted[d.key] = true
+			add(d.order, Alert{Kind: AlertCredentialedRequestChanged, NodeID: d.n.ID,
+				Message: fmt.Sprintf("the response of node %s (%s), which uses a credential, goes back to the agent that calls a tool, and what is returned may change: %s",
+					d.n.ID, d.n.Type, why)})
+		}
+	}
+}
+
+// responseChange describes how what running node c returns to an agent may
+// have changed ("" when it reaches no action-reply, or nothing changed): c
+// itself, or a node between it and a reply (downstream of c and feeding a
+// reply) was added, enabled or reconfigured, or a connection from c or such
+// a node into that part was added.
+func (g *varGraph) responseChange(c *diffNode) string {
+	down := g.downstream(c)
+	var replies []*diffNode
+	for _, u := range down {
+		if u.n.Type == "action-reply" {
+			replies = append(replies, u)
+		}
+	}
+	if len(replies) == 0 {
+		return ""
+	}
+	if change := nodeChange(c, g.baseByKey[c.key]); change != "" {
+		return fmt.Sprintf("the node %s", change)
+	}
+	toReply := map[string]bool{}
+	for _, u := range g.closure(replies) {
+		toReply[u.n.ID] = true
+	}
+	from := map[string]bool{c.n.ID: true}
+	for _, u := range down {
+		if !toReply[u.n.ID] {
+			continue
+		}
+		from[u.n.ID] = true
+		if change := nodeChange(u, g.baseByKey[u.key]); change != "" {
+			return fmt.Sprintf("node %s (%s), between it and the reply, %s", u.n.ID, u.n.Type, change)
+		}
+	}
+	for _, conn := range g.added {
+		if from[conn.SourceNode] && toReply[conn.TargetNode] {
+			return fmt.Sprintf("a connection from node %s into node %s, between it and the reply, was added", conn.SourceNode, conn.TargetNode)
 		}
 	}
 	return ""

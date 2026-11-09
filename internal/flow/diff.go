@@ -583,6 +583,7 @@ func diffAlerts(report DiffReport, next *Flow, baseByKey, nextByKey map[string]*
 
 	alertedHosts := map[string]bool{}
 	alertedSecrets := map[string]bool{}
+	credAlerted := map[string]bool{} // node keys with a credentialed_request_changed alert
 	for _, d := range nextOrder {
 		b := baseByKey[d.key]
 		if d.n.Enabled && instanceRisk(d.n, reg) == node.RiskPrivileged &&
@@ -667,6 +668,7 @@ func diffAlerts(report DiffReport, next *Flow, baseByKey, nextByKey map[string]*
 					Message: fmt.Sprintf("%s of node %s holds a literal credential instead of a {{secret.NAME}} reference", key, d.n.ID)})
 			}
 			if credentialed && changed && isOperation(b, d, key) {
+				credAlerted[d.key] = true
 				add(d.order, values(Alert{Kind: AlertCredentialedRequestChanged, NodeID: d.n.ID, Path: path,
 					Message: fmt.Sprintf("changes what node %s (%s) does with the credential it uses (%s)", d.n.ID, d.n.Type, key)}, true, true))
 			}
@@ -685,20 +687,23 @@ func diffAlerts(report DiffReport, next *Flow, baseByKey, nextByKey map[string]*
 
 	// A new input into a running, credentialed request changes what the
 	// credential sends.
-	inputAlerted := map[string]bool{}
 	for _, c := range report.Connections.Added {
 		d := firstLive(nextOrder, c.TargetNode)
-		if d == nil || inputAlerted[d.key] || !d.hasOperation() {
+		if d == nil || credAlerted[d.key] || !d.hasOperation() {
 			continue
 		}
 		if b := baseByKey[d.key].live(); b != nil && b.credentialed() {
-			inputAlerted[d.key] = true
+			credAlerted[d.key] = true
 			add(d.order, Alert{Kind: AlertCredentialedRequestChanged, NodeID: d.n.ID,
 				Message: fmt.Sprintf("connects a new input into node %s (%s), which sends with a credential: what it sends changes", d.n.ID, d.n.Type)})
 		}
 	}
 
-	globalVariableAlerts(next, baseByKey, nextOrder, report.Connections.Added, add)
+	// So do changes upstream of it, and what its response returns to an
+	// agent; global variables are shared state (diff_vars.go).
+	g := newVarGraph(next, baseByKey, nextOrder, report.Connections.Added)
+	credentialedFlowAlerts(g, nextOrder, credAlerted, add)
+	globalVariableAlerts(g, nextOrder, add)
 
 	sort.SliceStable(list, func(i, j int) bool {
 		x, y := list[i], list[j]
