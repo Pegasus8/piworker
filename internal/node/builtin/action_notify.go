@@ -30,8 +30,9 @@ type NotifyAction struct {
 func NewNotifyAction(config map[string]interface{}) (node.Node, error) {
 	base := node.NewBaseNode(config)
 
-	// Webhook URLs (Discord/Slack) embed a token, so resolve {{secret.NAME}}.
-	url := expandSecrets(base.GetConfigString("url", ""))
+	// Webhook URLs (Discord/Slack) embed a token, so the URL may use
+	// {{secret.NAME}}: it is resolved per request (Process).
+	url := base.GetConfigString("url", "")
 	if url == "" {
 		return nil, fmt.Errorf("url is required")
 	}
@@ -81,12 +82,19 @@ func (a *NotifyAction) Process(ctx context.Context, msg *types.Message) ([]*type
 		body = bytes.NewReader(b)
 	}
 
+	// The URL's secrets come from the store of the node's context; a missing
+	// one fails the request instead of posting to a truncated URL.
+	target, err := expandSecretsStrict(ctx, a.url)
+	if err != nil {
+		return nil, fmt.Errorf("notification URL: %w", err)
+	}
+
 	reqCtx, cancel := context.WithTimeout(ctx, a.timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, a.url, body)
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, target, body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", redactURLError(err, a.url, displayURL(a.url)))
+		return nil, fmt.Errorf("failed to create request: %w", redactURLError(err, target, displayURL(target)))
 	}
 	req.Header.Set("Content-Type", contentType)
 	for k, v := range extraHeaders {
@@ -98,7 +106,7 @@ func (a *NotifyAction) Process(ctx context.Context, msg *types.Message) ([]*type
 		// Connection-level failures are transient and safe to retry (the POST is
 		// idempotent enough for a best-effort notification).
 		// The webhook URL usually embeds its token, so it is redacted.
-		return nil, node.Transient(fmt.Errorf("notification request failed: %w", redactURLError(err, a.url, displayURL(a.url))))
+		return nil, node.Transient(fmt.Errorf("notification request failed: %w", redactURLError(err, target, displayURL(target))))
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
@@ -106,7 +114,7 @@ func (a *NotifyAction) Process(ctx context.Context, msg *types.Message) ([]*type
 	// A rejected notification (bad webhook, revoked token, rate limit) must
 	// fail the node rather than report success. 5xx and 429 are transient.
 	if resp.StatusCode >= 400 {
-		statusErr := fmt.Errorf("notification webhook %s returned HTTP %d", displayURL(a.url), resp.StatusCode)
+		statusErr := fmt.Errorf("notification webhook %s returned HTTP %d", displayURL(target), resp.StatusCode)
 		if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
 			return nil, node.Transient(statusErr)
 		}
@@ -138,15 +146,18 @@ func notifyActionConfigSchema() node.ConfigSchema {
 		Properties: map[string]node.ConfigProperty{
 			"url": {
 				Type:        "string",
+				Destination: true,
 				Title:       "Webhook URL",
-				Description: "The Discord/Slack/ntfy webhook URL",
+				Description: "The Discord/Slack/ntfy webhook URL (it embeds a token; use {{secret.NAME}})",
+				Sensitive:   true,
 			},
 			"format": {
-				Type:        "string",
-				Title:       "Format",
-				Description: "Payload format for the destination service",
-				Default:     "discord",
-				Enum:        []string{"discord", "slack", "ntfy", "raw"},
+				Type:         "string",
+				Title:        "Format",
+				Description:  "Payload format for the destination service",
+				Default:      "discord",
+				Enum:         []string{"discord", "slack", "ntfy", "raw"},
+				AgentVisible: true,
 			},
 			"message": {
 				Type:        "string",
@@ -161,10 +172,12 @@ func notifyActionConfigSchema() node.ConfigSchema {
 				Default:     "",
 			},
 			"allowPrivate": {
-				Type:        "boolean",
-				Title:       "Allow Private Addresses",
-				Description: "Allow notifying loopback/private hosts (off by default to prevent SSRF)",
-				Default:     false,
+				Type:         "boolean",
+				RiskSwitch:   true,
+				Title:        "Allow Private Addresses",
+				Description:  "Allow notifying loopback/private hosts (off by default to prevent SSRF)",
+				Default:      false,
+				AgentVisible: true,
 			},
 		},
 		Required: []string{"url"},
@@ -214,6 +227,7 @@ are transient and retried. The webhook URL's path and query (where services
 put their token) are redacted from error messages.
 `,
 		Category: types.NodeCategoryOutput,
+		Risk:     node.RiskExternal,
 		Inputs:   []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny, Required: true}},
 		Outputs:  []types.Port{{ID: "output", Name: "Output", DataType: types.DataTypeAny, Multiple: true}},
 		Config:   &schema,

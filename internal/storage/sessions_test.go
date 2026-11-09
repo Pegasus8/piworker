@@ -80,3 +80,51 @@ func TestSetupClaimIsAtomic(t *testing.T) {
 	require.NoError(t, s.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count))
 	require.Equal(t, 1, count)
 }
+
+// A passive check (touch=false: the badge poll, live streams) only reads, so
+// it must not take SQLite's write lock: with another process holding it
+// (piworkerctl, -recover-account), the check still answers at once instead
+// of waiting for busy_timeout.
+func TestPassiveSessionCheckDoesNotTakeTheWriteLock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.db")
+	s, err := NewSQLiteUserStore(path)
+	require.NoError(t, err)
+	defer s.Close()
+	require.NoError(t, s.CreateUser(&types.User{Username: "admin", PasswordHash: "hash"}))
+	now := time.Now().Truncate(time.Second)
+	token, err := s.CreateSession("admin", "hash", now)
+	require.NoError(t, err)
+
+	other, err := openDB(path)
+	require.NoError(t, err)
+	defer other.Close()
+	writer, err := other.Begin() // BEGIN IMMEDIATE: holds the write lock
+	require.NoError(t, err)
+	defer writer.Rollback() //nolint:errcheck // released at the end
+
+	done := make(chan error, 1)
+	go func() {
+		session, err := s.GetSession(token, now.Add(time.Minute), false)
+		if err == nil && session.Username != "admin" {
+			err = ErrSessionNotFound
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		require.NoError(t, writer.Rollback())
+		<-done
+		t.Fatal("a passive session check waited for another writer")
+	}
+
+	// It still never revives an expired session: the delete waits for the
+	// lock like any write, once it is released.
+	require.NoError(t, writer.Rollback())
+	_, err = s.GetSession(token, now.Add(SessionIdleTimeout+time.Minute), false)
+	require.ErrorIs(t, err, ErrSessionNotFound)
+	var left int
+	require.NoError(t, s.db.QueryRow("SELECT COUNT(*) FROM auth_sessions").Scan(&left))
+	require.Equal(t, 0, left, "an expired session is deleted when found")
+}

@@ -17,7 +17,7 @@ export interface NodeTypeConfig {
 export interface ConfigField {
   key: string
   label: string
-  type: 'text' | 'number' | 'select' | 'boolean' | 'textarea' | 'cron'
+  type: 'text' | 'number' | 'integer' | 'select' | 'boolean' | 'textarea' | 'cron' | 'keyvalue' | 'json'
   required?: boolean
   default?: any
   options?: { label: string; value: string }[]
@@ -46,6 +46,12 @@ export interface Flow {
   description?: string
   state?: 'active' | 'inactive' | 'running' | 'failed'
   running?: boolean
+  /** Server-controlled definition version; a save sends the one it loaded (stale → 409). */
+  version?: number
+  /** The last deployment (null: none recorded). */
+  deployment?: DeploymentMark | null
+  /** The current version was saved by an agent and not approved by the admin. */
+  agentChanged?: boolean
   nodes: FlowNode[]
   edges: FlowEdge[]
   createdAt: string
@@ -59,8 +65,45 @@ export interface FlowListItem {
   state?: 'active' | 'inactive' | 'running' | 'failed'
   running: boolean
   nodeCount: number
+  /** The version the list shows; turning the flow on sends it (stale → 409). */
+  version?: number
+  deployment?: DeploymentMark | null
+  agentChanged?: boolean
   createdAt: string
   updatedAt: string
+}
+
+// --- Versions and deployment marks (docs/design/mcp.md §10) ---
+
+/** Who deployed a flow last, and which version (service.DeploymentView). */
+export interface DeploymentMark {
+  version: number
+  actorKind: 'editor' | 'agent' | string
+  /** The agent's token name (agents only). */
+  tokenName?: string
+  deployedAt: string
+}
+
+/** One stored version of a flow, newest first (GET /api/flows/{id}/versions). */
+export interface VersionEntry {
+  version: number
+  actorKind: 'editor' | 'agent' | string
+  tokenId?: string
+  tokenName?: string
+  /** Saved or approved by the admin (an agent's own version never is). */
+  adminApproved: boolean
+  note?: string
+  draftId?: string
+  createdAt: string
+  /** The deployment marker names this version. */
+  deployed: boolean
+}
+
+export interface VersionList {
+  current: number
+  /** The newest admin-approved version (0: none). */
+  lastAdminApproved: number
+  versions: VersionEntry[]
 }
 
 // --- Observability ---
@@ -90,6 +133,8 @@ export interface FlowRun {
   status: 'running' | 'success' | 'error'
   nodeCount: number
   errorCount: number
+  /** Who started it: "editor", "token:<name>", or absent when the trigger fired (see lib/runActor). */
+  actor?: string
 }
 
 // NodeEventRecord is one persisted node-execution event within a run.
@@ -118,9 +163,32 @@ export interface NodeTestResult {
   error?: string
   durMs?: number
 }
+/** The result of a tool call (flow.CallResult), e.g. the editor's "Test tool". */
+export interface CallResult {
+  status: 'completed' | 'completed_no_reply' | 'error' | 'running' | 'expired' | 'approval_required' | 'rejected'
+  runId: string
+  result?: unknown
+  error?: { nodeId?: string; nodeType?: string; message: string }
+  durationMs: number
+}
 export interface NodeTestDraft {
   mode: 'json' | 'text'
   payload: string
   topic: string
   metadata: string
+}
+
+/** GET /api/tls: how PiWorker serves HTTPS and what a device must trust. */
+export interface TLSInfo {
+  mode: 'auto' | 'custom' | 'off'
+  caFingerprint: string
+  sans: string[]
+  notAfter: string | null
+  caCertUrl: string
+  /** Port HTTPS is served on; null when TLS is off or unknown. */
+  httpsPort: number | null
+  /** Plain HTTP port (redirect listener, or the only one with TLS off); null when none. */
+  httpPort: number | null
+  /** Set when the local CA is close to (or past) its expiry. */
+  warning?: string
 }

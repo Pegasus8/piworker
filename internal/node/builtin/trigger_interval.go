@@ -144,11 +144,14 @@ func (t *IntervalTrigger) GetConfigSchema() node.ConfigSchema {
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
 			"interval": {
-				Type:        "number",
-				Title:       "Interval (ms)",
-				Description: "Time between triggers in milliseconds",
-				Default:     1000,
-				Minimum:     &min,
+				Type:         "number",
+				Title:        "Interval (ms)",
+				Description:  "Time between triggers, in milliseconds (minimum 100)",
+				Default:      1000,
+				Minimum:      &min,
+				Unit:         "milliseconds",
+				AgentVisible: true,
+				Rate:         true,
 			},
 		},
 		Required: []string{"interval"},
@@ -199,6 +202,7 @@ Each tick produces a message with:
 - Rate-limited operations
 `,
 		Category: types.NodeCategoryInput,
+		Risk:     node.RiskSafe,
 		Inputs:   nil,
 		Outputs: []types.Port{
 			{

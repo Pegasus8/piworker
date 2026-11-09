@@ -10,8 +10,7 @@ BACKUPS=/var/backups/piworker
 UNIT=/etc/systemd/system/piworker.service
 LOCK=/run/lock/piworker-install.lock
 RELEASES=https://github.com/Pegasus8/piworker/releases
-HEALTH_URL=${PIWORKER_HEALTH_URL:-http://127.0.0.1:8080/api/health}
-work='' backup='' rollback=0
+work='' backup='' rollback=0 newconfig='' health_url=''
 
 die() { echo "PiWorker: $*" >&2; exit 1; }
 usage() {
@@ -19,22 +18,34 @@ usage() {
 Usage: sudo piworkerctl install [vVERSION]
        sudo piworkerctl update [vVERSION]
        sudo piworkerctl uninstall
+       sudo piworkerctl tls on|off
 
 Install/update defaults to the latest stable GitHub release.
 Uninstall preserves accounts, flows, configuration and backups.
 Requires Linux with systemd, glibc 2.35+, curl and tar.
 Supports x86_64, aarch64 and ARMv7 (not ARMv6).
-Set PIWORKER_HEALTH_URL if you change the default HTTP address.
+PiWorker serves HTTPS (port 8443) with its own local CA; port 8080 redirects.
+"tls off" switches to plain HTTP (recovery, or behind your own proxy); "tls on"
+restores HTTPS with the local CA. Both restart the service.
+The health check follows addr and [tls] mode in the configuration; set
+PIWORKER_HEALTH_URL to override it.
 Set PIWORKER_RELEASE_DIR to use local release files (explicit vVERSION required).
 EOF
 }
 
 action=${1:-help}
-version=${2:-}
+version='' tlsmode=''
 case "$action" in
     help|-h|--help) usage; exit 0 ;;
-    install|update) [ "$#" -le 2 ] || die "Too many arguments." ;;
+    install|update) [ "$#" -le 2 ] || die "Too many arguments."; version=${2:-} ;;
     uninstall) [ "$#" -eq 1 ] || die "Uninstall takes no options; data is always preserved." ;;
+    tls)
+        [ "$#" -eq 2 ] || die "Usage: sudo piworkerctl tls on|off"
+        case "$2" in
+            on) tlsmode=auto ;;
+            off) tlsmode=off ;;
+            *) die "Usage: sudo piworkerctl tls on|off" ;;
+        esac ;;
     *) usage >&2; exit 1 ;;
 esac
 if [ -n "$version" ]; then
@@ -67,6 +78,7 @@ cleanup() {
         fi
     fi
     [ -z "$work" ] || rm -rf "$work"
+    [ -z "$newconfig" ] || rm -f "$newconfig"
     rm -f "$BIN/piworker.new" "$BIN/piworkerctl.new"
     rmdir "$LOCK"
     exit "$result"
@@ -74,6 +86,99 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+# toml_value SECTION KEY: the quoted string value of KEY in [SECTION] of the
+# configuration ("" is the top level). Enough for the keys this script reads.
+toml_value() {
+    [ -f "$CONFIG/piworker.toml" ] || return 0
+    awk -v section="$1" -v key="$2" '
+        /^[[:space:]]*\[/ { current = $0; gsub(/^[[:space:]]*\[[[:space:]]*|[[:space:]]*\].*$/, "", current); next }
+        current == section && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+            value = $0; sub(/^[^=]*=[[:space:]]*"/, "", value); sub(/".*$/, "", value); print value; exit
+        }' "$CONFIG/piworker.toml"
+}
+listen_port() { local addr; addr=$(toml_value "" addr); addr=${addr:-:8443}; echo "${addr##*:}"; }
+tls_mode() { local mode; mode=$(toml_value tls mode); echo "${mode:-auto}"; }
+
+# healthy checks the local health endpoint as the configuration serves it:
+# HTTPS verified against the local CA (auto), HTTPS on loopback without
+# verification (custom: the certificate may not name 127.0.0.1), or HTTP (off).
+healthy() {
+    local url=${PIWORKER_HEALTH_URL:-} mode tls=()
+    mode=$(tls_mode)
+    if [ -z "$url" ]; then
+        if [ "$mode" = off ]; then
+            url=http://127.0.0.1:$(listen_port)/api/health
+        else
+            url=https://127.0.0.1:$(listen_port)/api/health
+        fi
+    fi
+    if [[ "$url" == https://* ]]; then
+        if [ "$mode" = auto ]; then tls=(--cacert "$DATA/tls/ca.crt"); else tls=(--insecure); fi
+    fi
+    health_url=$url
+    curl --fail --silent --show-error --noproxy '*' --connect-timeout 2 --max-time 3 "${tls[@]}" "$url" >/dev/null 2>&1
+}
+wait_healthy() {
+    local attempt
+    for ((attempt=0; attempt<15; attempt++)); do
+        if systemctl is-active --quiet piworker.service && healthy; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+# ca_fingerprint prints the local CA fingerprint in PiWorker's format.
+ca_fingerprint() {
+    local out
+    command -v openssl >/dev/null && [ -f "$DATA/tls/ca.crt" ] || return 1
+    out=$(openssl x509 -in "$DATA/tls/ca.crt" -noout -fingerprint -sha256 2>/dev/null) || return 1
+    out=${out#*=}
+    [[ "$out" =~ ^([0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2}$ ]] || return 1
+    printf 'SHA256:%s\n' "${out^^}"
+}
+print_access() {
+    local port mode host fingerprint
+    port=$(listen_port)
+    mode=$(tls_mode)
+    host=$(hostname 2>/dev/null || cat /proc/sys/kernel/hostname)
+    host=${host%%.*}.local
+    if [ "$mode" = off ]; then
+        echo "PiWorker is running without HTTPS. Open http://$host:$port (or http://<device-address>:$port)."
+        return 0
+    fi
+    echo "Open https://$host:$port (or https://<device-address>:$port). Plain http:// (port 8080 by default) redirects there."
+    [ "$mode" = auto ] || return 0
+    if fingerprint=$(ca_fingerprint); then
+        echo "CA fingerprint: $fingerprint"
+    else
+        echo "CA fingerprint: sudo journalctl -u piworker | grep 'CA fingerprint'"
+    fi
+    echo "Trust the CA once per device (compare the fingerprint): https://$host:$port/trust"
+}
+
+# set_tls_mode writes [tls] mode right after the section header (adding the
+# section if needed) and keeps every other line of the configuration.
+set_tls_mode() {
+    newconfig=$(mktemp "$CONFIG/.piworker.toml.XXXXXX")
+    awk -v mode="$1" '
+        function emit() { print "mode = \"" mode "\""; done = 1 }
+        /^[[:space:]]*\[/ {
+            name = $0; gsub(/^[[:space:]]*\[[[:space:]]*|[[:space:]]*\].*$/, "", name)
+            intls = (name == "tls"); print
+            if (intls && !done) emit()
+            next
+        }
+        intls && /^[[:space:]]*mode[[:space:]]*=/ { next }
+        { print }
+        END { if (!done) { print ""; print "[tls]"; emit() } }' "$CONFIG/piworker.toml" > "$newconfig"
+    chown root:piworker "$newconfig"
+    chmod 640 "$newconfig"
+    mv -f "$newconfig" "$CONFIG/piworker.toml"
+    newconfig=''
+}
 
 managed=0
 [ ! -f "$CONFIG/installed-version" ] || managed=1
@@ -83,6 +188,14 @@ if [ "$action" = uninstall ]; then
     rm -f "$UNIT" "$BIN/piworker" "$BIN/piworkerctl" "$CONFIG/installed-version"
     systemctl daemon-reload
     echo "PiWorker uninstalled. Data: $DATA; configuration: $CONFIG; backups: $BACKUPS."
+    exit 0
+fi
+if [ "$action" = tls ]; then
+    [ "$managed" = 1 ] || die "No managed installation found. Edit [tls] mode in your piworker.toml instead."
+    set_tls_mode "$tlsmode"
+    systemctl restart piworker.service
+    wait_healthy || die "Health check failed at $health_url. Inspect journalctl -u piworker."
+    print_access
     exit 0
 fi
 if [ "$managed" = 0 ]; then
@@ -151,8 +264,14 @@ install -d -m 750 "$DATA"
 chown piworker:piworker "$DATA"
 if [ ! -f "$CONFIG/piworker.toml" ]; then
     cat > "$CONFIG/piworker.toml" <<'EOF'
-addr = ":8080"
+# HTTPS with a local CA on 8443; plain HTTP on 8080 redirects to it.
+# Recovery: sudo piworkerctl tls off
+addr = ":8443"
+http_addr = ":8080"
 auth = true
+
+[tls]
+mode = "auto"
 EOF
 fi
 chown root:piworker "$CONFIG" "$CONFIG/piworker.toml"
@@ -204,20 +323,13 @@ else
     install -m 755 "$work/piworkerctl" "$BIN/piworkerctl"
     systemctl enable --now piworker.service
 fi
-healthy=0
-for ((attempt=0; attempt<15; attempt++)); do
-    if systemctl is-active --quiet piworker.service &&
-       curl --fail --silent --show-error --noproxy '*' --connect-timeout 2 --max-time 3 "$HEALTH_URL" >/dev/null 2>&1; then
-        healthy=1
-        break
-    fi
-    sleep 1
-done
-[ "$healthy" = 1 ] || die "Health check failed at $HEALTH_URL. Inspect journalctl -u piworker."
+wait_healthy || die "Health check failed at $health_url. Inspect journalctl -u piworker."
 install -m 755 "$work/piworkerctl" "$BIN/piworkerctl.new"
 mv -f "$BIN/piworkerctl.new" "$BIN/piworkerctl"
 printf '%s\n' "$version" > "$CONFIG/installed-version"
 rollback=0
-echo "PiWorker $version is running. Open http://<device-address>:8080 (or your configured address)."
+echo "PiWorker $version is running."
+print_access
 echo "First setup code: sudo journalctl -u piworker -n 50 --no-pager"
 echo "Update: sudo piworkerctl update | Uninstall (keep data): sudo piworkerctl uninstall"
+echo "HTTPS problems: sudo piworkerctl tls off (plain HTTP) | sudo piworkerctl tls on"

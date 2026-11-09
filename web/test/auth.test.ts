@@ -10,7 +10,10 @@ Object.defineProperty(globalThis, 'localStorage', { value: {
  setItem: (k: string, v: string) => saved.set(k, v),
  removeItem: (k: string) => saved.delete(k)
 }, configurable: true })
-mock.module('../src/composables/useApi', () => ({ useApi: () => ({
+// bun keeps a mocked module's export names for the whole run, so every
+// mock of useApi exports the same names (apiClient too): a later file
+// whose stores import apiClient would otherwise fail to link.
+mock.module('../src/composables/useApi', () => ({ apiClient: {}, useApi: () => ({
  getAuthStatus: async () => ({ enabled: true, setupRequired }),
  getSession: async () => { if (!session) throw { response: { status: 401 } }; return session },
  login: async () => { session = { username: 'owner' }; return session },

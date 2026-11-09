@@ -92,29 +92,38 @@ type DatabaseAction struct {
 	*node.BaseNode
 
 	driverName string
-	dsn        string
+	dsn        string // template: may use {{secret.NAME}}
 	query      string
 	exec       bool
 	params     *vm.Program
 
-	dbMu sync.Mutex
-	db   *sql.DB // shared pool reference, held from first use until Close
+	dbMu  sync.Mutex
+	db    *sql.DB // shared pool reference, held from first use until Close
+	dbDSN string  // the resolved DSN db was acquired with (its pool key)
 }
 
 // The runtime closes nodes implementing node.Closer when a flow stops.
 var _ node.Closer = (*DatabaseAction)(nil)
 
 // database returns this node's reference to the shared pool, acquiring it on
-// first use.
-func (a *DatabaseAction) database() (*sql.DB, error) {
+// first use. The DSN's secrets come from the store of ctx (the node's
+// context); a missing one fails instead of opening another database.
+func (a *DatabaseAction) database(ctx context.Context) (*sql.DB, error) {
 	a.dbMu.Lock()
 	defer a.dbMu.Unlock()
 	if a.db == nil {
-		db, err := acquireDB(a.driverName, a.dsn)
+		dsn, err := expandSecretsStrict(ctx, a.dsn)
+		if err != nil {
+			return nil, fmt.Errorf("dsn: %w", err)
+		}
+		if dsn == "" {
+			return nil, fmt.Errorf("dsn resolves to an empty value")
+		}
+		db, err := acquireDB(a.driverName, dsn)
 		if err != nil {
 			return nil, err
 		}
-		a.db = db
+		a.db, a.dbDSN = db, dsn
 	}
 	return a.db, nil
 }
@@ -127,7 +136,7 @@ func (a *DatabaseAction) Close() error {
 		return nil
 	}
 	a.db = nil
-	return releaseDB(a.driverName, a.dsn)
+	return releaseDB(a.driverName, a.dbDSN)
 }
 
 // NewDatabaseAction creates a DatabaseAction from configuration.
@@ -138,9 +147,9 @@ func NewDatabaseAction(config map[string]interface{}) (node.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	// DSN may hold credentials, so resolve {{secret.NAME}} (never templated from
-	// payload).
-	dsn := expandSecrets(base.GetConfigString("dsn", ""))
+	// DSN may hold credentials, so it may use {{secret.NAME}} (never templated
+	// from payload); it is resolved on first use, through the node's context.
+	dsn := base.GetConfigString("dsn", "")
 	if dsn == "" {
 		return nil, fmt.Errorf("dsn is required")
 	}
@@ -169,7 +178,7 @@ func NewDatabaseAction(config map[string]interface{}) (node.Node, error) {
 
 // Process executes the query/statement and returns rows or affected counts.
 func (a *DatabaseAction) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
-	db, err := a.database()
+	db, err := a.database(ctx)
 	if err != nil {
 		// sql.Open only validates the driver/DSN; it doesn't connect.
 		return nil, fmt.Errorf("failed to open database: %w", err)
@@ -280,26 +289,33 @@ func databaseActionConfigSchema() node.ConfigSchema {
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
 			"driver": {
-				Type:        "string",
-				Title:       "Driver",
-				Description: "Database driver",
-				Default:     "sqlite",
-				Enum:        []string{"sqlite", "postgres", "mysql"},
+				Type:            "string",
+				Title:           "Driver",
+				Description:     "Database driver (sqlite3 and postgresql are accepted aliases)",
+				Default:         "sqlite",
+				Enum:            []string{"sqlite", "postgres", "mysql", "sqlite3", "postgresql"},
+				CaseInsensitive: true,
+				AgentVisible:    true,
 			},
 			"dsn": {
 				Type:        "string",
+				Destination: true,
 				Title:       "DSN",
 				Description: "Connection string (supports {{secret.NAME}} for credentials)",
+				Sensitive:   true,
 			},
 			"mode": {
-				Type:        "string",
-				Title:       "Mode",
-				Description: "query returns rows; exec returns affected-row counts",
-				Default:     "query",
-				Enum:        []string{"query", "exec"},
+				Type:            "string",
+				Title:           "Mode",
+				Description:     "query returns rows; exec returns affected-row counts",
+				Default:         "query",
+				Enum:            []string{"query", "exec"},
+				CaseInsensitive: true,
+				AgentVisible:    true,
 			},
 			"query": {
 				Type:        "string",
+				Operation:   true,
 				Title:       "SQL",
 				Description: "SQL statement with ? / $1 placeholders for parameters",
 			},
@@ -362,6 +378,7 @@ params: [payload.sensor, payload.threshold]
 ` + "```" + `
 `,
 		Category: types.NodeCategoryOutput,
+		Risk:     node.RiskPrivileged,
 		Inputs:   []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny, Required: true}},
 		Outputs:  []types.Port{{ID: "output", Name: "Output", DataType: types.DataTypeAny, Multiple: true}},
 		Config:   &schema,

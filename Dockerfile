@@ -73,13 +73,20 @@ RUN mkdir -p /app/data && chown -R piworker:piworker /app
 # Switch to non-root user
 USER piworker
 
-# Expose port
-EXPOSE 8080
+# HTTPS (local CA kept in the data volume under tls/) and the plain HTTP
+# listener that redirects to it and serves /piworker-ca.crt and webhooks.
+# Publish both unchanged; add the host's name or address to
+# PIWORKER_TLS_HOSTS so the certificate covers it.
+EXPOSE 8443 8080
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/api/health || exit 1
+# Health check: a liveness probe over loopback, so the certificate is not
+# verified here. Follows PIWORKER_ADDR and PIWORKER_TLS_MODE.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD port="${PIWORKER_ADDR:-:8443}"; port="${port##*:}"; \
+        if [ "${PIWORKER_TLS_MODE:-auto}" = off ]; then url="http://127.0.0.1:$port/api/health"; \
+        else url="https://127.0.0.1:$port/api/health"; fi; \
+        wget -q --spider --no-check-certificate "$url" || exit 1
 
 # Default command
 ENTRYPOINT ["./piworker"]
-CMD ["-addr", ":8080", "-db", "/app/data/piworker.db"]
+CMD ["-db", "/app/data/piworker.db"]

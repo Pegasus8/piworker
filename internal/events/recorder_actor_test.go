@@ -1,0 +1,186 @@
+package events
+
+import (
+	"context"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/Pegasus8/piworker/internal/flow"
+	"github.com/Pegasus8/piworker/internal/node"
+	"github.com/Pegasus8/piworker/internal/types"
+	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// withActor sets the actor the executor copies from the input message's
+// "actor" meta onto the event.
+func withActor(e flow.NodeEvent, actor string) flow.NodeEvent {
+	e.Actor = actor
+	return e
+}
+
+func TestRecorderRecordsRunActor(t *testing.T) {
+	store := newFakeStore()
+	rec := NewRecorder(store, WithHub(NewHub()))
+
+	rec.persist(withActor(runningEvent("called", "f1", "n1", "x"), "token:bot"), time.Now())
+	rec.persist(runningEvent("plain", "f1", "n1", "x"), time.Now())
+
+	assert.Equal(t, "token:bot", store.getRun("called").Actor)
+	assert.Equal(t, "", store.getRun("plain").Actor)
+}
+
+// TestRecorderDoesNotReadInputMeta: persist runs on the recorder goroutine
+// while the node that received Input may still be using (and changing) it, so
+// the actor must come from the event itself, never from Input.Meta. Run with
+// -race.
+func TestRecorderDoesNotReadInputMeta(t *testing.T) {
+	store := newFakeStore()
+	rec := NewRecorder(store, WithHub(NewHub()))
+
+	e := runningEvent("r1", "f1", "n1", "x")
+	e.Input.SetMeta("actor", "token:bot")
+	e.Actor = "token:bot"
+	msg := e.Input // still owned by the node
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range 1000 {
+			msg.SetMeta("progress", i)
+		}
+	}()
+	rec.persist(e, time.Now())
+	<-done
+	assert.Equal(t, "token:bot", store.getRun("r1").Actor)
+
+	// The actor is the event's: meta alone is not read.
+	other := runningEvent("r2", "f1", "n1", "x")
+	other.Input.SetMeta("actor", "token:meta-only")
+	rec.persist(other, time.Now())
+	assert.Equal(t, "", store.getRun("r2").Actor)
+}
+
+// TestRecorderFillsActorFromLaterEvent: when the first event seen for a run
+// carries no actor (e.g. a node built a fresh message), a later one fills it.
+func TestRecorderFillsActorFromLaterEvent(t *testing.T) {
+	store := newFakeStore()
+	rec := NewRecorder(store, WithHub(NewHub()))
+
+	first := runningEvent("r1", "f1", "n1", "x")
+	first.Input = nil
+	rec.persist(first, time.Now())
+	assert.Equal(t, "", store.getRun("r1").Actor)
+
+	rec.persist(withActor(successEvent("r1", "f1", "n2", "x"), "editor"), time.Now())
+	assert.Equal(t, "editor", store.getRun("r1").Actor)
+	assert.Equal(t, 2, store.upserts("r1"), "the run is upserted again only to fill the actor")
+
+	rec.persist(withActor(successEvent("r1", "f1", "n3", "x"), "editor"), time.Now())
+	assert.Equal(t, 2, store.upserts("r1"), "no further upserts once the actor is known")
+}
+
+// callableTrigger is a minimal node.Emitter trigger for the end-to-end test.
+type callableTrigger struct {
+	*node.BaseNode
+	mu  sync.Mutex
+	out chan<- *types.Message
+}
+
+func (c *callableTrigger) Process(context.Context, *types.Message) ([]*types.Message, error) {
+	return nil, nil
+}
+func (c *callableTrigger) Ports() (inputs, outputs []types.Port) {
+	return nil, []types.Port{{ID: "output", DataType: types.DataTypeObject}}
+}
+func (c *callableTrigger) Start(_ context.Context, out chan<- *types.Message) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.out = out
+	return nil
+}
+func (c *callableTrigger) Stop() error { return nil }
+func (c *callableTrigger) Emit(ctx context.Context, msg *types.Message) error {
+	c.mu.Lock()
+	out := c.out
+	c.mu.Unlock()
+	msg.SourcePort = "output"
+	select {
+	case out <- msg:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+type sinkNode struct{ *node.BaseNode }
+
+func (sinkNode) Process(context.Context, *types.Message) ([]*types.Message, error) { return nil, nil }
+func (sinkNode) Ports() (inputs, outputs []types.Port) {
+	return []types.Port{{ID: "input", DataType: types.DataTypeAny}}, nil
+}
+
+// TestCalledRunActorReachesHistory: the actor of FlowRuntime.Call and the
+// version of the definition the runtime runs end up on the persisted run.
+func TestCalledRunActorReachesHistory(t *testing.T) {
+	store := newFakeStore()
+	rec := NewRecorder(store, WithHub(NewHub()), WithFlushInterval(5*time.Millisecond))
+	ctx, cancel := context.WithCancel(context.Background())
+	recDone := make(chan struct{})
+	go func() { rec.Run(ctx); close(recDone) }()
+	defer func() { cancel(); <-recDone }()
+
+	reg := node.NewRegistry()
+	require.NoError(t, reg.Register(node.NodeTypeInfo{Type: "tool", Name: "tool", Category: types.NodeCategoryInput},
+		func(map[string]interface{}) (node.Node, error) {
+			return &callableTrigger{BaseNode: node.NewBaseNode(nil)}, nil
+		}))
+	require.NoError(t, reg.Register(node.NodeTypeInfo{Type: "sink", Name: "sink", Category: types.NodeCategoryOutput},
+		func(map[string]interface{}) (node.Node, error) { return sinkNode{node.NewBaseNode(nil)}, nil }))
+
+	f := flow.NewFlow("called")
+	f.Version = 3
+	trig := flow.NewNode("tool", types.NodeCategoryInput)
+	sink := flow.NewNode("sink", types.NodeCategoryOutput)
+	f.AddNode(*trig)
+	f.AddNode(*sink)
+	f.AddConnection(*flow.NewConnection(trig.ID, "output", sink.ID, "input"))
+
+	rt, err := flow.NewFlowRuntime(f, reg, flow.WithLogger(zerolog.Nop()), flow.WithObserver(rec.Observe))
+	require.NoError(t, err)
+	require.NoError(t, rt.Start(context.Background()))
+	defer func() { _ = rt.Stop() }()
+
+	res, err := rt.Call(context.Background(), flow.CallRequest{TriggerNodeID: trig.ID, Actor: "token:bot", Timeout: 3 * time.Second})
+	require.NoError(t, err)
+	require.Equal(t, flow.CallStatusCompletedNoReply, res.Status)
+
+	require.Eventually(t, func() bool {
+		run := store.getRun(res.RunID)
+		return run.Status == flow.NodePhaseSuccess
+	}, 3*time.Second, 5*time.Millisecond)
+	run := store.getRun(res.RunID)
+	assert.Equal(t, f.ID, run.FlowID)
+	assert.Equal(t, "token:bot", run.Actor)
+	assert.Equal(t, 3, run.FlowVersion)
+}
+
+// The run records the version its first event reports (the executor's,
+// ADR-0022); later events do not change it.
+func TestRecorderRecordsTheRunsFlowVersion(t *testing.T) {
+	store := newFakeStore()
+	rec := NewRecorder(store, WithHub(NewHub()))
+
+	first := runningEvent("r1", "f1", "n1", "x")
+	first.FlowVersion = 4
+	rec.persist(first, time.Now())
+	later := withActor(successEvent("r1", "f1", "n1", "x"), "editor")
+	later.FlowVersion = 4
+	rec.persist(later, time.Now())
+	rec.persist(runningEvent("unknown", "f1", "n1", "x"), time.Now())
+
+	assert.Equal(t, 4, store.getRun("r1").FlowVersion)
+	assert.Equal(t, "editor", store.getRun("r1").Actor)
+	assert.Equal(t, 0, store.getRun("unknown").FlowVersion)
+}

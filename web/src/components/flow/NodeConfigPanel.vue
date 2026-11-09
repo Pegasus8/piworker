@@ -5,10 +5,14 @@ import { useNodeTypesStore } from '@/stores/nodeTypes'
 import { Button, Input, Label, Select, Switch, ScrollArea, Dialog } from '@/components/ui'
 import { X, Save, Trash2 } from 'lucide-vue-next'
 import ReferenceInput from './ReferenceInput.vue'
+import KeyValueInput from './KeyValueInput.vue'
+import JsonInput from './JsonInput.vue'
+import { integerFromInput, setConfigValue } from '@/lib/configValues'
 import { referenceMode, referenceOptions } from '@/lib/references'
 import { useApi } from '@/composables/useApi'
 import NodeDocumentation from './NodeDocumentation.vue'
 import NodePlayground from './NodePlayground.vue'
+import TestTool from './TestTool.vue'
 import type { NodeTestDraft } from '@/types'
 
 const flowsStore = useFlowsStore()
@@ -41,10 +45,17 @@ async function loadReferences() {
  if (request !== referencesRequest) return
  variableNames.value = result[0].status === 'fulfilled' ? Object.keys(result[0].value || {}) : []
  flowVariableNames.value = result[2].status === 'fulfilled' ? Object.keys(result[2].value || {}) : []
- secretNames.value = result[1].status === 'fulfilled' ? result[1].value : []
+ secretNames.value = result[1].status === 'fulfilled' ? result[1].value.secrets.map(s => s.name) : []
  referencesError.value = result.some(r => r.status === 'rejected') ? 'Some references could not be loaded. You can still edit the field.' : ''
 }
+// JSON fields whose text does not parse: their value is not applied, so
+// "Apply changes" waits until they are fixed.
+const invalidFields = ref<string[]>([])
+function setInvalid(key: string, invalid: boolean) {
+  invalidFields.value = invalid ? [...new Set([...invalidFields.value, key])] : invalidFields.value.filter(k => k !== key)
+}
 watch(() => selectedNode.value?.id, id => {
+ invalidFields.value = []
  referencesRequest++; variableNames.value = []; flowVariableNames.value = []; secretNames.value = []; referencesError.value = ''
  if (id) void loadReferences()
 })
@@ -69,11 +80,13 @@ watch(
   { immediate: true, deep: true }
 )
 
+// undefined removes the setting, so the node uses its default.
 function updateField(key: string, value: any) {
-  localConfig.value[key] = value
+  setConfigValue(localConfig.value, key, value)
 }
 
 function handleSave() {
+  if (invalidFields.value.length) return
   if (selectedNode.value) {
     flowsStore.updateNodeConfig(selectedNode.value.id, { ...localConfig.value })
     flowsStore.selectNode(null)
@@ -127,7 +140,9 @@ onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
         <section class="min-w-0 space-y-4 lg:sticky lg:top-0 lg:self-start">
           <div><h3 class="font-semibold">Configuration</h3><p class="mt-1 text-sm text-muted-foreground">Apply changes to update the draft. Save the flow to keep them.</p></div>
           <p v-if="referencesError" role="alert" class="text-sm text-destructive">{{ referencesError }} <Button size="sm" variant="outline" @click="loadReferences">Retry references</Button></p>
-          <div v-for="field in nodeTypeConfig.configSchema" :key="field.key">
+          <!-- Keyed per node: field editors with their own state (JSON text and
+               its error) start fresh for each node. -->
+          <div v-for="field in nodeTypeConfig.configSchema" :key="`${selectedNode.id}:${field.key}`">
             <Label :for="field.key" class="mb-2 block">
               {{ field.label }}
               <span v-if="field.required" aria-hidden="true" class="text-destructive">*</span>
@@ -150,8 +165,41 @@ onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
               :id="field.key"
               :aria-required="field.required"
               type="number"
-              :model-value="localConfig[field.key] ?? 0"
-              :placeholder="field.placeholder"
+              :model-value="localConfig[field.key] ?? ''"
+              :placeholder="field.default !== undefined ? `Default: ${field.default}` : ''"
+              @update:model-value="(v) => updateField(field.key, v === '' ? undefined : v)"
+            />
+
+            <!-- Integer Input: stores whole numbers -->
+            <Input
+              v-else-if="field.type === 'integer'"
+              :id="field.key"
+              :aria-required="field.required"
+              type="number"
+              step="1"
+              inputmode="numeric"
+              :model-value="localConfig[field.key] ?? ''"
+              :placeholder="field.default !== undefined ? `Default: ${field.default}` : ''"
+              @update:model-value="(v) => updateField(field.key, integerFromInput(String(v)))"
+            />
+
+            <!-- JSON object (e.g. a tool's input schema) -->
+            <JsonInput
+              v-else-if="field.type === 'json'"
+              :id="field.key"
+              :label="field.label"
+              :required="field.required"
+              :model-value="localConfig[field.key]"
+              @update:model-value="(v) => updateField(field.key, v)"
+              @update:invalid="(bad) => setInvalid(field.key, bad)"
+            />
+
+            <!-- Name/value pairs (object settings such as HTTP headers) -->
+            <KeyValueInput
+              v-else-if="field.type === 'keyvalue'"
+              :id="field.key"
+              :label="field.label"
+              :model-value="localConfig[field.key]"
               @update:model-value="(v) => updateField(field.key, v)"
             />
 
@@ -185,6 +233,16 @@ onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
             </div>
           </div>
 
+          <!-- Agent tools: call the deployed tool (REST twin of an MCP call). -->
+          <TestTool
+            v-if="selectedNode.data.nodeType === 'trigger-tool'"
+            :key="`test-tool:${selectedNode.id}`"
+            :flow-id="flowsStore.currentFlow?.id || undefined"
+            :node-id="selectedNode.id"
+            :schema="selectedNode.data.config?.inputSchema"
+            :running="!!flowsStore.currentFlow?.running"
+            :dirty="flowsStore.isDirty"
+          />
         </section>
         <NodePlayground :flow-id="flowsStore.currentFlow?.id || undefined" v-if="isProcessing" :key="selectedNode.id" :node-type="selectedNode.data.nodeType" :config="localConfig" :draft="playgroundDrafts[selectedNode.id]" @draft="playgroundDrafts[selectedNode.id] = $event" />
         </div>
@@ -205,7 +263,10 @@ onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
         <Button variant="outline" size="sm" @click="handleCancel">
           Cancel
         </Button>
-        <Button size="sm" class="col-span-2" @click="handleSave">
+        <p v-if="invalidFields.length" role="status" class="col-span-2 text-xs text-destructive sm:self-center">
+          Fix the JSON in {{ invalidFields.length === 1 ? 'one field' : `${invalidFields.length} fields` }} to apply changes.
+        </p>
+        <Button size="sm" class="col-span-2" :disabled="invalidFields.length > 0" @click="handleSave">
           <Save class="mr-2 h-4 w-4" />
           Apply changes
         </Button>

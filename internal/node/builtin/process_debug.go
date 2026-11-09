@@ -38,8 +38,29 @@ func NewDebugProcess(config map[string]interface{}) (node.Node, error) {
 	return process, nil
 }
 
-// Process inspects and logs the message, optionally passing it through.
+// Process inspects and logs the message, optionally passing it through. In
+// a sandbox (a dry-run or node test, node.InSandbox) nothing is logged: what
+// a sandboxed flow carries never reaches the process log.
 func (p *DebugProcess) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
+	if !node.InSandbox(ctx) {
+		p.log(msg)
+	}
+
+	// If passThrough is enabled, forward the message
+	if p.passThrough {
+		outputMsg := msg.Clone()
+		outputMsg.SourcePort = "output"
+		outputMsg.SetMeta("debugged", true)
+		outputMsg.SetMeta("debugName", p.name)
+		return []*types.Message{outputMsg}, nil
+	}
+
+	// Otherwise, terminate the message here
+	return nil, nil
+}
+
+// log writes msg to the process log.
+func (p *DebugProcess) log(msg *types.Message) {
 	// Build the log event
 	event := p.logger.Info().
 		Str("debugName", p.name).
@@ -70,18 +91,6 @@ func (p *DebugProcess) Process(ctx context.Context, msg *types.Message) ([]*type
 	}
 
 	event.Msg("Debug node received message")
-
-	// If passThrough is enabled, forward the message
-	if p.passThrough {
-		outputMsg := msg.Clone()
-		outputMsg.SourcePort = "output"
-		outputMsg.SetMeta("debugged", true)
-		outputMsg.SetMeta("debugName", p.name)
-		return []*types.Message{outputMsg}, nil
-	}
-
-	// Otherwise, terminate the message here
-	return nil, nil
 }
 
 // Ports returns the port definitions for this node.
@@ -114,28 +123,32 @@ func (p *DebugProcess) GetConfigSchema() node.ConfigSchema {
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
 			"name": {
-				Type:        "string",
-				Title:       "Debug Name",
-				Description: "Identifier shown in logs to distinguish multiple debug nodes",
-				Default:     "Debug",
+				Type:         "string",
+				Title:        "Debug Name",
+				Description:  "Identifier shown in logs to distinguish multiple debug nodes",
+				Default:      "Debug",
+				AgentVisible: true,
 			},
 			"logPayload": {
-				Type:        "boolean",
-				Title:       "Log Payload",
-				Description: "Include the message payload in logs",
-				Default:     true,
+				Type:         "boolean",
+				Title:        "Log Payload",
+				Description:  "Include the message payload in logs",
+				Default:      true,
+				AgentVisible: true,
 			},
 			"logMeta": {
-				Type:        "boolean",
-				Title:       "Log Metadata",
-				Description: "Include message metadata in logs",
-				Default:     true,
+				Type:         "boolean",
+				Title:        "Log Metadata",
+				Description:  "Include message metadata in logs",
+				Default:      true,
+				AgentVisible: true,
 			},
 			"passThrough": {
-				Type:        "boolean",
-				Title:       "Pass Through",
-				Description: "Forward the message to the next node (disable to stop flow here)",
-				Default:     true,
+				Type:         "boolean",
+				Title:        "Pass Through",
+				Description:  "Forward the message to the next node (disable to stop flow here)",
+				Default:      true,
+				AgentVisible: true,
 			},
 		},
 		Required: []string{},
@@ -200,6 +213,7 @@ When passThrough=true, adds:
 - Terminating test flows
 `,
 		Category: types.NodeCategoryProcessing,
+		Risk:     node.RiskSafe,
 		Inputs: []types.Port{
 			{
 				ID:       "input",

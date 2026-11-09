@@ -62,15 +62,53 @@ type ConfigSchema struct {
 	Required   []string                  `json:"required,omitempty"`
 }
 
-// ConfigProperty describes a single configuration property.
+// ConfigProperty describes a single configuration property. CheckConfig
+// enforces Type, Enum, Minimum and Maximum when a flow is deployed.
+//
+// Type "object" is a map of name/value pairs (the editor edits it as rows,
+// e.g. HTTP headers); "json" is a free-form JSON object the editor edits as
+// JSON text and stores parsed (e.g. a tool's input schema).
 type ConfigProperty struct {
-	Type        string      `json:"type"`                  // string, number, boolean, array, object
+	Type        string      `json:"type"`                  // string, number, integer, boolean, array, object, json ("" = any)
 	Title       string      `json:"title"`                 // Human-readable title
-	Description string      `json:"description,omitempty"` // Help text
+	Description string      `json:"description,omitempty"` // Help text; states the unit of numeric values
 	Default     interface{} `json:"default,omitempty"`     // Default value
-	Enum        []string    `json:"enum,omitempty"`        // For select inputs
+	Enum        []string    `json:"enum,omitempty"`        // For select inputs; matched exactly unless CaseInsensitive
 	Minimum     *float64    `json:"minimum,omitempty"`     // For number inputs
 	Maximum     *float64    `json:"maximum,omitempty"`     // For number inputs
+	Unit        string      `json:"unit,omitempty"`        // Unit of a numeric value (e.g. "milliseconds"), quoted in errors
+	// CaseInsensitive lets Enum values match in any case. Set it only when the
+	// node itself normalises the value's case (e.g. strings.ToUpper).
+	CaseInsensitive bool `json:"caseInsensitive,omitempty"`
+
+	// Sensitive marks a credential (password, token, DSN, secret-bearing URL,
+	// …). Its value is never echoed in errors, and agent-authored drafts may
+	// only set it to a {{secret.NAME}} reference.
+	Sensitive bool `json:"sensitive,omitempty"`
+	// AgentVisible marks a value that is harmless to show to MCP agents.
+	// The default (false) means the value is redacted in agent read views.
+	AgentVisible bool `json:"agentVisible,omitempty"`
+	// Destination marks where the node sends data or connects: URLs, hosts,
+	// brokers, topics, recipients, chat ids, file paths written, webhook
+	// paths, pins and buses written. The draft approval page and the low
+	// agent-deploy policy flag changes to it (flow.Diff).
+	Destination bool `json:"destination,omitempty"`
+	// RiskSwitch marks an opt-in that widens what the node may do
+	// (allowPrivate, allowDashArgs, TLS-verification bypasses, …). Turning
+	// one on is flagged by flow.Diff, and agent drafts may not turn it on.
+	RiskSwitch bool `json:"riskSwitch,omitempty"`
+	// Operation marks what selects the action a request performs at its
+	// destination (an HTTP method or body, an SQL statement), as opposed to
+	// message content. flow.Diff flags a change to it on a node that uses a
+	// credential (credentialed_request_changed): the approved credential
+	// would be used for something else.
+	Operation bool `json:"operation,omitempty"`
+	// Rate marks what sets how often a trigger fires or how many messages
+	// a node lets through: an interval, a cron expression, a rate limit, a
+	// batch size, a cooldown. flow.Diff flags a change to it, or a node
+	// with one added or removed, on a flow that reaches other services
+	// (rate_changed): how often it sends is the admin's to approve.
+	Rate bool `json:"rate,omitempty"`
 }
 
 // BaseNode provides a common implementation for simple nodes.

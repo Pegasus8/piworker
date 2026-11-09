@@ -14,6 +14,7 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
+	"github.com/Pegasus8/piworker/internal/service"
 	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
@@ -72,16 +73,32 @@ type APIResponse struct {
 	Message string      `json:"message,omitempty"`
 }
 
-// ListFlowsResponse contains the list of flows.
+// ListFlowsResponse contains the list of flows, each with its marks (the
+// last deployment and whether an agent changed it, docs/design/mcp.md §10).
 type ListFlowsResponse struct {
-	Flows []*flow.Flow `json:"flows"`
-	Total int          `json:"total"`
+	Flows []service.FlowWithMarks `json:"flows"`
+	Total int                     `json:"total"`
 }
 
 // FlowStatusResponse contains the status of a flow.
 type FlowStatusResponse struct {
 	Flow    *flow.Flow `json:"flow"`
 	Running bool       `json:"running"`
+}
+
+// FlowDetailResponse is GET /api/flows/{id}: the flow with its marks.
+type FlowDetailResponse struct {
+	Flow    service.FlowWithMarks `json:"flow"`
+	Running bool                  `json:"running"`
+}
+
+// withMarks adds a stored flow's marks.
+func (h *FlowsHandler) withMarks(f *flow.Flow) (service.FlowWithMarks, error) {
+	marks, err := service.FlowMarksOf(h.store, f)
+	if err != nil {
+		return service.FlowWithMarks{}, err
+	}
+	return service.FlowWithMarks{Flow: f, FlowMarks: marks}, nil
 }
 
 // writeJSON writes a JSON response.
@@ -96,10 +113,23 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 
 // writeError writes an error response.
 func writeError(w http.ResponseWriter, status int, message string) {
+	writeErrorData(w, status, message, nil)
+}
+
+// writeErrorData writes an error response that also carries data the client
+// needs to recover (e.g. the current version after a stale save).
+func writeErrorData(w http.ResponseWriter, status int, message string, data any) {
 	writeJSON(w, status, APIResponse{
 		Success: false,
 		Error:   message,
+		Data:    data,
 	})
+}
+
+// VersionConflictData is the data of a 409 from a save whose version is not
+// the stored one.
+type VersionConflictData struct {
+	CurrentVersion int `json:"currentVersion"`
 }
 
 // writeSuccess writes a success response.
@@ -125,13 +155,20 @@ func (h *FlowsHandler) ListFlows(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if flows == nil {
-		flows = []*flow.Flow{}
+	out := make([]service.FlowWithMarks, 0, len(flows))
+	for _, f := range flows {
+		m, err := h.withMarks(f)
+		if err != nil {
+			h.logger.Error().Err(err).Str("flowID", f.ID).Msg("Failed to read the flow's marks")
+			writeError(w, http.StatusInternalServerError, "Failed to list flows")
+			return
+		}
+		out = append(out, m)
 	}
 
 	writeSuccess(w, http.StatusOK, ListFlowsResponse{
-		Flows: flows,
-		Total: len(flows),
+		Flows: out,
+		Total: len(out),
 	}, "")
 }
 
@@ -287,9 +324,15 @@ func (h *FlowsHandler) GetFlow(w http.ResponseWriter, r *http.Request) {
 	if rt, ok := h.manager.GetRuntime(id); ok {
 		running = rt.IsRunning()
 	}
+	marked, err := h.withMarks(f)
+	if err != nil {
+		h.logger.Error().Err(err).Str("flowID", id).Msg("Failed to read the flow's marks")
+		writeError(w, http.StatusInternalServerError, "Failed to get flow")
+		return
+	}
 
-	writeSuccess(w, http.StatusOK, FlowStatusResponse{
-		Flow:    f,
+	writeSuccess(w, http.StatusOK, FlowDetailResponse{
+		Flow:    marked,
 		Running: running,
 	}, "")
 }
@@ -342,11 +385,28 @@ func (h *FlowsHandler) UpdateFlow(w http.ResponseWriter, r *http.Request) {
 	f.CreatedAt = existing.CreatedAt
 	f.UpdatedAt = time.Now()
 
-	// Don't trust the client's state field. The flow is not running (guarded
-	// above), so never persist a "running" state coming from the request body.
-	f.State = flow.FlowStateInactive
+	// The client's state field is ignored: a definition save keeps the
+	// stored state (restart intent), which only deploy, stop and toggle
+	// change.
 
-	if err := h.store.UpdateFlow(&f); err != nil {
+	// The version the editor loaded, when sent, must still be the stored one:
+	// a save never silently overwrites a definition it did not see (an agent
+	// change, another tab). Absent (0) skips the check, for scripts.
+	expected := f.Version
+	if _, err := h.store.UpdateFlowVersioned(&f, expected, storage.VersionMeta{
+		ActorKind: storage.VersionActorEditor, AdminApproved: true,
+	}); err != nil {
+		var conflict *storage.VersionConflictError
+		if errors.As(err, &conflict) {
+			writeErrorData(w, http.StatusConflict,
+				"The flow was changed since you loaded it; reload it to see the current version",
+				VersionConflictData{CurrentVersion: conflict.Current})
+			return
+		}
+		if errors.Is(err, storage.ErrFlowNotFound) {
+			writeError(w, http.StatusNotFound, "Flow not found")
+			return
+		}
 		h.logger.Error().Err(err).Str("flowID", id).Msg("Failed to update flow")
 		writeError(w, http.StatusInternalServerError, "Failed to update flow")
 		return
@@ -391,9 +451,18 @@ func (h *FlowsHandler) DeleteFlow(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, http.StatusOK, nil, "Flow deleted successfully")
 }
 
-// ToggleRequest is the request body for toggling a flow.
+// ToggleRequest is the request body for toggling a flow. Version, when set,
+// is the definition version the client shows: turning the flow on fails
+// with 409 when another one was saved since.
 type ToggleRequest struct {
 	Enabled bool `json:"enabled"`
+	Version int  `json:"version,omitempty"`
+}
+
+// DeployRequest is the optional request body of a deploy: the definition
+// version the client shows (0 or absent: no check).
+type DeployRequest struct {
+	Version int `json:"version,omitempty"`
 }
 
 // ToggleFlow toggles a flow on or off.
@@ -405,17 +474,27 @@ func (h *FlowsHandler) ToggleFlow(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid JSON payload")
 		return
 	}
-	h.changeRunning(w, r, req.Enabled, false)
+	h.changeRunning(w, r, req.Enabled, false, req.Version)
 }
 
-// DeployFlow deploys a saved definition; repeated explicit deployment conflicts.
+// DeployFlow deploys a saved definition; repeated explicit deployment
+// conflicts. An optional body {"version": N} names the version the client
+// shows: a stale one is a 409 with the current version, so nobody deploys a
+// definition they never saw (an approved draft or an agent's version saved
+// meanwhile). Without it there is no check.
 func (h *FlowsHandler) DeployFlow(w http.ResponseWriter, r *http.Request) {
-	h.changeRunning(w, r, true, true)
+	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodySize)
+	var req DeployRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "Invalid JSON payload")
+		return
+	}
+	h.changeRunning(w, r, true, true, req.Version)
 }
 
 // StopFlow stops a running flow and removes its restart intent.
 func (h *FlowsHandler) StopFlow(w http.ResponseWriter, r *http.Request) {
-	h.changeRunning(w, r, false, true)
+	h.changeRunning(w, r, false, true, 0)
 }
 
 // BeginShutdown makes every later deploy/toggle-on request fail with 503. It
@@ -427,73 +506,29 @@ func (h *FlowsHandler) BeginShutdown() {
 	h.shuttingDown = true
 }
 
-func (h *FlowsHandler) changeRunning(w http.ResponseWriter, r *http.Request, wantRunning, strict bool) {
+// changeRunning deploys (wantRunning) or stops the flow of the request.
+// expected, when not 0, is the definition version the client shows: a
+// deploy of another stored version is refused with 409 (stopping needs no
+// check).
+//
+// It is the lifecycle path agent deploys share (flows_lifecycle.go): a
+// deployment it makes is recorded as the editor's.
+func (h *FlowsHandler) changeRunning(w http.ResponseWriter, r *http.Request, wantRunning, strict bool, expected int) {
 	h.lifecycleMu.Lock()
 	defer h.lifecycleMu.Unlock()
-	if wantRunning && h.shuttingDown {
-		writeError(w, http.StatusServiceUnavailable, "PiWorker is shutting down")
-		return
-	}
 	id := mux.Vars(r)["id"]
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "Flow ID is required")
-		return
-	}
-	f, err := h.store.GetFlow(id)
-	if err != nil {
-		if err == storage.ErrFlowNotFound {
-			writeError(w, http.StatusNotFound, "Flow not found")
-		} else {
-			writeError(w, http.StatusInternalServerError, "Failed to get flow")
-		}
-		return
-	}
-	rt, exists := h.manager.GetRuntime(id)
-	running := exists && rt.IsRunning()
-	if strict && running == wantRunning {
-		if running {
-			writeError(w, http.StatusConflict, "Flow is already running")
-		} else {
-			writeError(w, http.StatusConflict, "Flow is not running")
-		}
-		return
-	}
+	var (
+		f   *flow.Flow
+		ref *lifecycleRefusal
+	)
 	if wantRunning {
-		if !running {
-			if err := h.manager.Deploy(r.Context(), f); err != nil {
-				writeError(w, deployErrorStatus(err), "Failed to deploy flow: "+err.Error())
-				return
-			}
-		}
-		f.State = flow.FlowStateRunning
-		if err := h.store.UpdateFlow(f); err != nil {
-			// A newly started flow must not continue after a failed deployment response.
-			if !running {
-				if rollbackErr := h.manager.Undeploy(id); rollbackErr != nil {
-					h.logger.Error().Err(rollbackErr).Msg("Failed to roll back deployment")
-				}
-			}
-			writeError(w, http.StatusInternalServerError, "Failed to persist flow state")
-			return
-		}
+		f, ref = h.startLocked(r.Context(), id, expected, strict, false, editorDeployer)
 	} else {
-		oldState := f.State
-		f.State = flow.FlowStateInactive
-		// Persist stop intent first: if storage is unavailable, leave execution alone.
-		if err := h.store.UpdateFlow(f); err != nil {
-			writeError(w, http.StatusInternalServerError, "Failed to persist flow state")
-			return
-		}
-		if exists {
-			if err := h.manager.Undeploy(id); err != nil {
-				f.State = oldState
-				if rollbackErr := h.store.UpdateFlow(f); rollbackErr != nil {
-					h.logger.Error().Err(rollbackErr).Msg("Failed to restore flow state")
-				}
-				writeError(w, http.StatusInternalServerError, "Failed to stop flow")
-				return
-			}
-		}
+		f, ref = h.stopLocked(id, strict)
+	}
+	if ref != nil {
+		ref.write(w)
+		return
 	}
 	writeSuccess(w, http.StatusOK, FlowStatusResponse{Flow: f, Running: wantRunning}, "")
 }
@@ -686,10 +721,12 @@ func deployErrorStatus(err error) int {
 	case errors.As(err, &verr),
 		errors.Is(err, flow.ErrNoTriggerNodes),
 		errors.Is(err, flow.ErrInvalidNodeType),
+		errors.Is(err, flow.ErrInvalidNodeConfig),
 		errors.Is(err, flow.ErrInvalidConnection):
 		return http.StatusBadRequest
 	case errors.Is(err, flow.ErrFlowStillStopping),
-		errors.Is(err, flow.ErrFlowAlreadyRunning):
+		errors.Is(err, flow.ErrFlowAlreadyRunning),
+		errors.Is(err, flow.ErrResourceConflict):
 		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError

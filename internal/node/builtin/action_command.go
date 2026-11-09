@@ -40,9 +40,10 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 type CommandAction struct {
 	*node.BaseNode
 
-	command string
-	shell   string
-	timeout time.Duration
+	command   string
+	shell     string
+	timeout   time.Duration
+	allowDash bool // allowDashArgs: let placeholder values start with '-'
 }
 
 // NewCommandAction creates a new CommandAction with the given configuration.
@@ -59,10 +60,11 @@ func NewCommandAction(config map[string]interface{}) (node.Node, error) {
 	}
 
 	action := &CommandAction{
-		BaseNode: base,
-		command:  base.GetConfigString("command", ""),
-		shell:    base.GetConfigString("shell", "/bin/sh"),
-		timeout:  time.Duration(timeoutSec) * time.Second,
+		BaseNode:  base,
+		command:   base.GetConfigString("command", ""),
+		shell:     base.GetConfigString("shell", "/bin/sh"),
+		timeout:   time.Duration(timeoutSec) * time.Second,
+		allowDash: base.GetConfigBool("allowDashArgs", false),
 	}
 
 	return action, nil
@@ -79,7 +81,7 @@ func (a *CommandAction) Process(ctx context.Context, msg *types.Message) ([]*typ
 	defer cancel()
 
 	// Bind values as data, never as shell source.
-	expandedCommand, values, err := bindCommand(a.command, msg)
+	expandedCommand, values, err := bindCommand(a.command, msg, a.allowDash)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +170,7 @@ func (a *CommandAction) Validate() error {
 	if a.command == "" {
 		return fmt.Errorf("command is required")
 	}
-	_, _, err := bindCommand(a.command, &types.Message{})
+	_, _, err := bindCommand(a.command, &types.Message{}, a.allowDash)
 	return err
 }
 
@@ -185,18 +187,29 @@ func (a *CommandAction) GetConfigSchema() node.ConfigSchema {
 				Description: "Shell command to execute. Use {{payload}}, {{topic}}, {{meta.key}} for variable substitution.",
 			},
 			"shell": {
-				Type:        "string",
-				Title:       "Shell",
-				Description: "Path to the shell interpreter",
-				Default:     "/bin/sh",
+				Type:         "string",
+				Title:        "Shell",
+				Description:  "Path to the shell interpreter",
+				Default:      "/bin/sh",
+				AgentVisible: true,
 			},
 			"timeout": {
-				Type:        "number",
-				Title:       "Timeout (seconds)",
-				Description: "Maximum execution time in seconds",
-				Default:     30,
-				Minimum:     &minTimeout,
-				Maximum:     &maxTimeout,
+				Type:         "number",
+				Title:        "Timeout (seconds)",
+				Description:  "Maximum execution time, in seconds (1-3600)",
+				Default:      30,
+				Minimum:      &minTimeout,
+				Maximum:      &maxTimeout,
+				Unit:         "seconds",
+				AgentVisible: true,
+			},
+			"allowDashArgs": {
+				Type:         "boolean",
+				RiskSwitch:   true,
+				Title:        "Allow values starting with '-'",
+				Description:  "Risky: let a placeholder that begins an argument take a value starting with '-', which most programs read as an option (e.g. -rf). Only enable it when the command ends its options with -- before the placeholders. Not needed behind literal text such as temp={{payload}}.",
+				Default:      false,
+				AgentVisible: true,
 			},
 		},
 		Required: []string{"command"},
@@ -220,6 +233,7 @@ Runs commands using a POSIX-compatible shell on the host. Placeholder values are
 | command | string | - | Shell command to execute (required) |
 | shell | string | /bin/sh | Path to shell interpreter |
 | timeout | number | 30 | Max execution time in seconds (1-3600) |
+| allowDashArgs | boolean | false | Allow placeholder values that start with ` + "`-`" + ` (risky, see below) |
 
 On Unix systems (including Linux and macOS), timeout or flow cancellation stops
 the shell and children in its process group. Commands that deliberately detach
@@ -245,6 +259,14 @@ Placeholders inside command substitutions, parameter/arithmetic expansions,
 here-documents, here-strings, or other unsupported shell constructs are rejected
 before any command executes. Do not backslash-escape placeholders. Pass the value
 to an ordinary command argument instead.
+
+A placeholder value that starts with ` + "`-`" + ` is refused by default when the
+placeholder begins its argument, because the program would read it as an
+option (` + "`-rf`" + `, ` + "`--output=/etc/passwd`" + `). Behind literal text in the same
+argument it is allowed, so ` + "`echo \"temp={{payload}}\"`" + `, ` + "`--value={{payload}}`" + ` and
+` + "`/tmp/{{payload}}`" + ` accept negative numbers. If the command really expects such
+values as whole arguments, end its options with ` + "`--`" + ` before the placeholders
+(` + "`grep -- {{payload}} file`" + `) and set **allowDashArgs** to true.
 
 The configured command is trusted shell code: do not explicitly reinterpret
 external input using eval, sh -c, or another interpreter. Positional arguments are
@@ -292,6 +314,7 @@ timeout: 10
 - System monitoring
 `,
 		Category: types.NodeCategoryOutput,
+		Risk:     node.RiskPrivileged,
 		Inputs: []types.Port{
 			{
 				ID:       "input",

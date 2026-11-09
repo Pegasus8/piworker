@@ -68,24 +68,40 @@ func (s *SQLiteUserStore) CreateSession(username, verifiedHash string, now time.
 	}
 	return token, tx.Commit()
 }
+
+// GetSession returns the live session for token. With touch it also extends
+// the session's idle expiry (activity); without it the session is only
+// checked, with a plain read that never takes SQLite's write lock (badge
+// polls and live streams check often), except to delete a session found
+// expired.
 func (s *SQLiteUserStore) GetSession(token string, now time.Time, touch bool) (*Session, error) {
 	if len(token) != 43 {
 		return nil, ErrSessionNotFound
+	}
+	if !touch {
+		session, err := readSession(s.db, token)
+		if err != nil {
+			return nil, err
+		}
+		if sessionExpired(session, now) {
+			if _, err := s.db.Exec("DELETE FROM auth_sessions WHERE token_hash=? AND (expires_at<=? OR last_seen<=?)",
+				tokenHash(token), now.Unix(), now.Unix()-int64(SessionIdleTimeout/time.Second)); err != nil {
+				return nil, err
+			}
+			return nil, ErrSessionNotFound
+		}
+		return session, nil
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	var session Session
-	err = tx.QueryRow(`SELECT s.username,s.created_at,s.last_seen,s.expires_at FROM auth_sessions s JOIN users u ON u.username=s.username WHERE token_hash=?`, tokenHash(token)).Scan(&session.Username, &session.CreatedAt, &session.LastSeen, &session.ExpiresAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrSessionNotFound
-	}
+	session, err := readSession(tx, token)
 	if err != nil {
 		return nil, err
 	}
-	if now.Unix() >= session.ExpiresAt || now.Unix() >= session.LastSeen+int64(SessionIdleTimeout/time.Second) {
+	if sessionExpired(session, now) {
 		if _, err = tx.Exec("DELETE FROM auth_sessions WHERE token_hash=?", tokenHash(token)); err != nil {
 			return nil, err
 		}
@@ -94,18 +110,58 @@ func (s *SQLiteUserStore) GetSession(token string, now time.Time, touch bool) (*
 		}
 		return nil, ErrSessionNotFound
 	}
-	if touch {
-		if _, err = tx.Exec("UPDATE auth_sessions SET last_seen=MAX(last_seen,?) WHERE token_hash=?", now.Unix(), tokenHash(token)); err != nil {
-			return nil, err
-		}
+	if _, err = tx.Exec("UPDATE auth_sessions SET last_seen=MAX(last_seen,?) WHERE token_hash=?", now.Unix(), tokenHash(token)); err != nil {
+		return nil, err
 	}
-	return &session, tx.Commit()
+	return session, tx.Commit()
+}
+
+// readSession reads the session stored for token (ErrSessionNotFound when
+// there is none or its user is gone).
+func readSession(q interface {
+	QueryRow(query string, args ...any) *sql.Row
+}, token string) (*Session, error) {
+	var session Session
+	err := q.QueryRow(`SELECT s.username,s.created_at,s.last_seen,s.expires_at FROM auth_sessions s JOIN users u ON u.username=s.username WHERE token_hash=?`, tokenHash(token)).Scan(&session.Username, &session.CreatedAt, &session.LastSeen, &session.ExpiresAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrSessionNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+// sessionExpired reports whether the session reached its absolute lifetime
+// or its idle timeout at now.
+func sessionExpired(session *Session, now time.Time) bool {
+	return now.Unix() >= session.ExpiresAt || now.Unix() >= session.LastSeen+int64(SessionIdleTimeout/time.Second)
 }
 func (s *SQLiteUserStore) DeleteSession(token string) error {
 	_, err := s.db.Exec("DELETE FROM auth_sessions WHERE token_hash=?", tokenHash(token))
 	return err
 }
-func (s *SQLiteUserStore) ChangePassword(username, oldHash, newHash string) error {
+
+// TxHook runs inside the transaction of a credential change, after the change
+// itself succeeded and before it commits. An error rolls everything back. It
+// must use only tx: the store's single connection is held by it.
+type TxHook func(tx *sql.Tx) error
+
+// runHooks runs hooks in order inside tx.
+func runHooks(tx *sql.Tx, hooks []TxHook) error {
+	for _, hook := range hooks {
+		if err := hook(tx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ChangePassword replaces the password hash when the current one is still
+// oldHash, ends every session of the user and drops their pending codes. The
+// hooks (e.g. revoking agent tokens, see RevokeAllAPITokensTx) run in the same
+// transaction, so the change and their effects commit together or not at all.
+func (s *SQLiteUserStore) ChangePassword(username, oldHash, newHash string, hooks ...TxHook) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -126,6 +182,9 @@ func (s *SQLiteUserStore) ChangePassword(username, oldHash, newHash string) erro
 		return err
 	}
 	if _, err = tx.Exec("DELETE FROM auth_codes WHERE username=?", username); err != nil {
+		return err
+	}
+	if err = runHooks(tx, hooks); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -170,7 +229,10 @@ func (s *SQLiteUserStore) NewAuthCode(purpose, username string, now time.Time) (
 }
 
 // RedeemAuthCode consumes the code and creates/resets the account atomically.
-func (s *SQLiteUserStore) RedeemAuthCode(purpose, code, username, hash string, now time.Time) error {
+// The hooks run in the same transaction only once the code was accepted and
+// the account changed: a wrong or expired code never runs them, and a failing
+// hook leaves the code unused and the account unchanged.
+func (s *SQLiteUserStore) RedeemAuthCode(purpose, code, username, hash string, now time.Time, hooks ...TxHook) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -205,6 +267,9 @@ func (s *SQLiteUserStore) RedeemAuthCode(purpose, code, username, hash string, n
 		return ErrAuthCode
 	}
 	if _, err = tx.Exec("DELETE FROM auth_sessions WHERE username=?", username); err != nil {
+		return err
+	}
+	if err = runHooks(tx, hooks); err != nil {
 		return err
 	}
 	return tx.Commit()

@@ -55,8 +55,8 @@ func NewMqttTrigger(config map[string]interface{}) (node.Node, error) {
 		BaseNode: base,
 		broker:   broker,
 		clientID: resolveMqttClientID(base.GetConfigString("clientId", ""), "piworker-sub"),
-		username: expandSecrets(base.GetConfigString("username", "")),
-		password: expandSecrets(base.GetConfigString("password", "")),
+		username: base.GetConfigString("username", ""), // {{secret.NAME}} resolved by Start
+		password: base.GetConfigString("password", ""),
 		topic:    topic,
 		qos:      qos,
 
@@ -113,7 +113,7 @@ func (t *MqttTrigger) Start(ctx context.Context, out chan<- *types.Message) erro
 		}
 	}
 
-	opts := newMqttClientOptions(t.broker, t.clientID, t.username, t.password).
+	opts := newMqttClientOptions(t.broker, t.clientID, expandSecrets(ctx, t.username), expandSecrets(ctx, t.password)).
 		SetConnectRetry(true).
 		SetConnectRetryInterval(t.connectRetryInterval).
 		SetOnConnectHandler(func(c mqtt.Client) {
@@ -182,14 +182,15 @@ func (t *MqttTrigger) Validate() error {
 }
 
 func mqttTriggerConfigSchema() node.ConfigSchema {
+	minQoS, maxQoS := float64(0), float64(2)
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
-			"broker":   {Type: "string", Title: "Broker", Description: "Broker URL, e.g. tcp://host:1883"},
-			"topic":    {Type: "string", Title: "Topic", Description: "Topic filter to subscribe to (supports +/# wildcards)"},
-			"qos":      {Type: "number", Title: "QoS", Description: "0, 1 or 2", Default: 0},
+			"broker":   {Type: "string", Title: "Broker", Description: "Broker URL, e.g. tcp://host:1883", Destination: true},
+			"topic":    {Type: "string", Title: "Topic", Description: "Topic filter to subscribe to (supports +/# wildcards)", Destination: true},
+			"qos":      {Type: "number", Title: "QoS", Description: "0, 1 or 2", Default: 0, Minimum: &minQoS, Maximum: &maxQoS, AgentVisible: true},
 			"clientId": {Type: "string", Title: "Client ID", Description: "MQTT client id (leave empty for a unique per-node id)", Default: ""},
 			"username": {Type: "string", Title: "Username", Description: "Optional ({{secret.NAME}} supported)"},
-			"password": {Type: "string", Title: "Password", Description: "Optional ({{secret.NAME}} supported)"},
+			"password": {Type: "string", Title: "Password", Description: "Optional; use {{secret.NAME}}", Sensitive: true},
 		},
 		Required: []string{"broker", "topic"},
 	}
@@ -235,6 +236,7 @@ keeps retrying in the background.
 ` + "`{ topic, payload }`" + ` — payload is the parsed JSON or the raw string.
 `,
 		Category: types.NodeCategoryInput,
+		Risk:     node.RiskSafe,
 		Inputs:   nil,
 		Outputs:  []types.Port{{ID: "output", Name: "Output", DataType: types.DataTypeObject, Multiple: true}},
 		Config:   &schema,

@@ -122,6 +122,7 @@ payload.user.role == "admin"
 ` + "```" + `
 `,
 		Category: types.NodeCategoryProcessing,
+		Risk:     node.RiskSafe,
 		Inputs:   []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny, Required: true}},
 		Outputs: []types.Port{
 			{ID: "true", Name: "True", DataType: types.DataTypeAny, Multiple: true},

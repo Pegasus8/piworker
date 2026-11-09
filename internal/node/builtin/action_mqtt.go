@@ -102,8 +102,8 @@ func NewMqttAction(config map[string]interface{}) (node.Node, error) {
 		BaseNode: base,
 		broker:   broker,
 		clientID: resolveMqttClientID(base.GetConfigString("clientId", ""), "piworker-pub"),
-		username: expandSecrets(base.GetConfigString("username", "")),
-		password: expandSecrets(base.GetConfigString("password", "")),
+		username: base.GetConfigString("username", ""), // {{secret.NAME}} resolved on connect
+		password: base.GetConfigString("password", ""),
 		topic:    topic,
 		payload:  base.GetConfigString("payload", "{{payload}}"),
 		qos:      qos,
@@ -130,7 +130,8 @@ func (a *MqttAction) ensureClient(ctx context.Context) (mqtt.Client, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.client == nil {
-		a.client = mqtt.NewClient(newMqttClientOptions(a.broker, a.clientID, a.username, a.password))
+		a.client = mqtt.NewClient(newMqttClientOptions(a.broker, a.clientID,
+			expandSecrets(ctx, a.username), expandSecrets(ctx, a.password)))
 	}
 	if !a.client.IsConnected() {
 		if err := waitMqttToken(ctx, a.client.Connect(), mqttConnectTimeout); err != nil {
@@ -197,16 +198,17 @@ func (a *MqttAction) Validate() error {
 }
 
 func mqttActionConfigSchema() node.ConfigSchema {
+	minQoS, maxQoS := float64(0), float64(2)
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
-			"broker":   {Type: "string", Title: "Broker", Description: "Broker URL, e.g. tcp://host:1883"},
-			"topic":    {Type: "string", Title: "Topic", Description: "Topic to publish to (supports {{templates}})"},
+			"broker":   {Type: "string", Title: "Broker", Description: "Broker URL, e.g. tcp://host:1883", Destination: true},
+			"topic":    {Type: "string", Title: "Topic", Description: "Topic to publish to (supports {{templates}})", Destination: true},
 			"payload":  {Type: "string", Title: "Payload", Description: "Message payload (supports {{templates}})", Default: "{{payload}}"},
-			"qos":      {Type: "number", Title: "QoS", Description: "0, 1 or 2", Default: 0},
-			"retained": {Type: "boolean", Title: "Retained", Description: "Set the retained flag", Default: false},
+			"qos":      {Type: "number", Title: "QoS", Description: "0, 1 or 2", Default: 0, Minimum: &minQoS, Maximum: &maxQoS, AgentVisible: true},
+			"retained": {Type: "boolean", Title: "Retained", Description: "Set the retained flag", Default: false, AgentVisible: true},
 			"clientId": {Type: "string", Title: "Client ID", Description: "MQTT client id (leave empty for a unique per-node id)", Default: ""},
 			"username": {Type: "string", Title: "Username", Description: "Optional ({{secret.NAME}} supported)"},
-			"password": {Type: "string", Title: "Password", Description: "Optional ({{secret.NAME}} supported)"},
+			"password": {Type: "string", Title: "Password", Description: "Optional; use {{secret.NAME}}", Sensitive: true},
 		},
 		Required: []string{"broker", "topic"},
 	}
@@ -242,6 +244,7 @@ Publishes the rendered payload to an MQTT topic. Credentials support
 | username/password | string | - | Optional credentials |
 `,
 		Category: types.NodeCategoryOutput,
+		Risk:     node.RiskExternal,
 		Inputs:   []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny, Required: true}},
 		Outputs:  []types.Port{{ID: "output", Name: "Output", DataType: types.DataTypeAny, Multiple: true}},
 		Config:   &schema,

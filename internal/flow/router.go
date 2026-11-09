@@ -55,6 +55,9 @@ type MessageRouter struct {
 	// timeout, so the owner can account for work that will never execute.
 	onDrop func(RoutedMessage)
 
+	// noMetrics keeps drops out of the process-wide metrics.
+	noMetrics bool
+
 	logger zerolog.Logger
 
 	mu     sync.RWMutex
@@ -84,6 +87,14 @@ func WithSendTimeout(timeout time.Duration) RouterOption {
 func WithDropHandler(fn func(RoutedMessage)) RouterOption {
 	return func(r *MessageRouter) {
 		r.onDrop = fn
+	}
+}
+
+// withoutRouterMetrics keeps the router's drops out of the process-wide
+// metrics (a dry-run's private runtime).
+func withoutRouterMetrics() RouterOption {
+	return func(r *MessageRouter) {
+		r.noMetrics = true
 	}
 }
 
@@ -246,7 +257,9 @@ func (r *MessageRouter) send(sourceNode string, routed RoutedMessage) {
 	case r.output <- routed:
 	case <-timer.C:
 		atomic.AddInt64(&r.messagesDropped, 1)
-		metrics.IncrementMessagesDropped()
+		if !r.noMetrics {
+			metrics.IncrementMessagesDropped()
+		}
 		r.logger.Warn().
 			Str("sourceNode", sourceNode).
 			Str("targetNode", routed.TargetNode).

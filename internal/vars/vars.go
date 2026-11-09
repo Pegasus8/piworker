@@ -115,13 +115,24 @@ func clone(v interface{}) interface{} {
 
 type storeKey struct{}
 
-// WithStore supplies an isolated variable store for a preview execution.
+// WithStore supplies an isolated global variable store for a sandboxed
+// execution (node test, dry-run): every node lookup of a global variable goes
+// through FromContext. A nil store means an empty one (isolation fails
+// closed: never the real store).
 func WithStore(ctx context.Context, store *Store) context.Context {
+	if store == nil {
+		store = NewStore()
+	}
 	return context.WithValue(ctx, storeKey{}, store)
 }
+
+// FromContext returns the global variable store carried by ctx (see
+// WithStore), or DefaultStore when there is none (or ctx is nil).
 func FromContext(ctx context.Context) *Store {
-	if store, ok := ctx.Value(storeKey{}).(*Store); ok {
-		return store
+	if ctx != nil {
+		if store, ok := ctx.Value(storeKey{}).(*Store); ok && store != nil {
+			return store
+		}
 	}
 	return DefaultStore
 }

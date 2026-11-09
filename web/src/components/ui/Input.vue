@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { cn } from '@/lib/utils'
+import { numberFromInput } from '@/lib/configValues'
 
 interface Props {
   modelValue?: string | number
@@ -27,9 +28,11 @@ const classes = computed(() =>
   )
 )
 
+// A cleared (or invalid) number input emits '' rather than Number('') = 0, so
+// callers can tell "unset" from an explicit 0.
 function handleInput(event: Event) {
   const target = event.target as HTMLInputElement
-  emit('update:modelValue', props.type === 'number' ? Number(target.value) : target.value)
+  emit('update:modelValue', props.type === 'number' ? (numberFromInput(target.value) ?? '') : target.value)
 }
 </script>
 

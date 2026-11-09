@@ -10,6 +10,7 @@ const api = useApi()
 const current = ref('')
 const password = ref('')
 const confirm = ref('')
+const keepAgentTokens = ref(false)
 const busy = ref(false)
 const error = ref('')
 const valid = computed(() => {
@@ -20,9 +21,9 @@ async function save() {
  if (!valid.value) return
  busy.value = true; error.value = ''
  try {
-  await api.changePassword(current.value, password.value)
+  await api.changePassword(current.value, password.value, keepAgentTokens.value)
   auth.clearAuth()
-  current.value = ''; password.value = ''; confirm.value = ''
+  current.value = ''; password.value = ''; confirm.value = ''; keepAgentTokens.value = false
   await router.replace('/login?changed=1')
  } catch (e: any) {
   if (e.response?.status === 401) { auth.clearAuth(); await router.replace('/login') }
@@ -44,8 +45,17 @@ async function save() {
      <div class="space-y-2"><Label for="new">New password</Label><Input id="new" v-model="password" type="password" autocomplete="new-password" :disabled="busy" /></div>
      <p class="text-xs text-muted-foreground">Use at least 8 characters (maximum 72 bytes).</p>
      <div class="space-y-2"><Label for="confirm">Confirm password</Label><Input id="confirm" v-model="confirm" type="password" autocomplete="new-password" :disabled="busy" /></div>
+     <div class="space-y-1">
+      <label class="flex items-center gap-2 text-sm font-medium"><input id="keep-agent-tokens" v-model="keepAgentTokens" type="checkbox" class="h-4 w-4 accent-primary" :disabled="busy" />Keep agent tokens</label>
+      <p class="text-xs text-muted-foreground">Otherwise every agent token is revoked; leave this off if your password or a token may have leaked.</p>
+     </div>
      <Button type="submit" class="w-full" :disabled="busy || !valid">{{ busy ? 'Saving…' : 'Change password' }}</Button>
     </form>
+   </Card>
+   <Card class="p-6">
+    <h2 class="text-lg font-semibold mb-2">HTTPS and this device</h2>
+    <p class="text-sm text-muted-foreground mb-4">Download PiWorker's certificate authority, check its fingerprint and trust it on your computers and phones.</p>
+    <Button variant="outline" @click="router.push('/trust')">Trust this device</Button>
    </Card>
   </div>
  </main>

@@ -2,7 +2,7 @@
 import VariablesDialog from '@/components/VariablesDialog.vue'
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
-import { useFlowsStore } from '@/stores/flows'
+import { useFlowsStore, FlowVersionConflictError } from '@/stores/flows'
 import { useObservabilityStore } from '@/stores/observability'
 import { FlowCanvas, NodePalette, NodeConfigPanel, ActivityPanel } from '@/components/flow'
 import { Button, Input, Badge, Dialog } from '@/components/ui'
@@ -12,13 +12,16 @@ import {
   Play,
   Square,
   Settings,
-  Workflow
+  Workflow,
+  History
 } from 'lucide-vue-next'
 
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import OperationFeedback from '@/components/ui/OperationFeedback.vue'
 import ManualRunDialog from '@/components/flow/ManualRunDialog.vue'
 import ConnectionsDialog from '@/components/flow/ConnectionsDialog.vue'
+import VersionHistoryDialog from '@/components/flow/VersionHistoryDialog.vue'
+import FlowMarks from '@/components/agent/FlowMarks.vue'
 import { useFeedback } from '@/composables/useFeedback'
 const confirmation = ref<InstanceType<typeof ConfirmDialog>>()
 const canvas = ref<InstanceType<typeof FlowCanvas>>()
@@ -38,6 +41,9 @@ const obs = useObservabilityStore()
 
 const showSettings = ref(false)
 const showVariables = ref(false)
+// Version history and rollback to the version you last approved; a rollback
+// reloads the flow (the dialog warns that unsaved changes are discarded).
+const showHistory = ref(false)
 const isSaving = ref(false)
 
 const flowId = computed(() => route.params.id as string | undefined)
@@ -75,16 +81,43 @@ onUnmounted(() => {
 async function handleSave(): Promise<boolean> {
   if (!flowsStore.currentFlow || isSaving.value) return false
   isSaving.value = true
+  let conflict: FlowVersionConflictError | null = null
   const saved = await run(async () => {
     if (!flowsStore.currentFlow!.id) {
       const flow = await flowsStore.createFlow(flowsStore.currentFlow!.name, flowsStore.currentFlow!.description)
       flowsStore.currentFlow!.id = flow.id
+      flowsStore.currentFlow!.version = flow.version
       await router.replace(`/editor/${flow.id}`)
     }
-    await flowsStore.saveFlow()
+    try {
+      await flowsStore.saveFlow()
+    } catch (e) {
+      if (e instanceof FlowVersionConflictError) conflict = e
+      throw e
+    }
   }, 'Flow saved.', 'Could not save the flow. Your changes are still here. Try again.')
   isSaving.value = false
+  if (conflict) await offerReload(conflict, 'saved')
   return saved
+}
+
+// A save never silently overwrites, and a deploy never runs, a version saved
+// since this editor loaded the flow (an approved agent draft, another tab):
+// offer to reload it, which discards the changes made here, or to keep
+// editing.
+async function offerReload(conflict: FlowVersionConflictError, action: 'saved' | 'deployed') {
+  feedback.value = { kind: 'error', text: `Not ${action}: this flow was changed since you opened it (now version ${conflict.currentVersion}).` }
+  const reload = await confirmation.value?.ask(
+    'This flow was changed elsewhere',
+    action === 'saved'
+      ? `Version ${conflict.currentVersion} was saved after you opened this flow. Reload it to see that version; the changes you made here will be lost. Cancel keeps your changes on screen, unsaved.`
+      : `Version ${conflict.currentVersion} was saved after you opened this flow, so it was not deployed. Reload it to review that version before deploying it.`,
+    'Reload', 'Cancel')
+  if (reload && flowId.value) {
+    flowsStore.isDirty = false
+    await flowsStore.fetchFlow(flowId.value)
+    feedback.value = { kind: 'success', text: `Reloaded version ${flowsStore.currentFlow?.version ?? conflict.currentVersion}.` }
+  }
 }
 
 async function handleDeploy() {
@@ -93,7 +126,16 @@ async function handleDeploy() {
     await run(() => flowsStore.stopFlow(), 'Flow stopped.', 'Could not stop the flow. Try again.')
   } else {
     if ((!flowsStore.currentFlow?.id || flowsStore.isDirty) && !await handleSave()) return
-    await run(() => flowsStore.deployFlow(), 'Flow deployed.', 'Could not deploy the flow. Check its configuration and try again.')
+    let conflict: FlowVersionConflictError | null = null
+    await run(async () => {
+      try {
+        await flowsStore.deployFlow()
+      } catch (e) {
+        if (e instanceof FlowVersionConflictError) conflict = e
+        throw e
+      }
+    }, 'Flow deployed.', 'Could not deploy the flow. Check its configuration and try again.')
+    if (conflict) await offerReload(conflict, 'deployed')
   }
 }
 function handleBack() { router.push('/') }
@@ -151,6 +193,8 @@ function updateFlowDescription(value: string | number) {
 
       <div class="flex flex-wrap items-center gap-2">
         <Badge v-if="flowsStore.currentFlow" :variant="flowsStore.currentFlow.state === 'failed' ? 'destructive' : 'secondary'">{{ isRunning ? 'Running' : flowsStore.currentFlow.state === 'failed' ? 'Failed' : 'Stopped' }}</Badge>
+        <FlowMarks v-if="flowsStore.currentFlow?.id" :flow="flowsStore.currentFlow" />
+        <span v-if="flowsStore.currentFlow?.version" class="text-xs text-muted-foreground">Version {{ flowsStore.currentFlow.version }}</span>
 
         <Button variant="outline" size="sm" @click="showSettings = true">
           <Settings class="mr-2 h-4 w-4" />
@@ -188,6 +232,7 @@ function updateFlowDescription(value: string | number) {
       <Button class="md:hidden" size="sm" variant="outline" @click="showNodes = true">Add nodes</Button>
       <Button size="sm" variant="outline" @click="showVariables = true">Variables</Button>
       <Button size="sm" variant="outline" @click="showConnections = true">Connections</Button>
+      <Button v-if="flowId" size="sm" variant="outline" @click="showHistory = true"><History class="mr-2 h-4 w-4" aria-hidden="true" />History</Button>
       <Button v-if="flowsStore.nodes.some(n => n.data.nodeType === 'trigger-manual' && n.data.enabled !== false)" size="sm" variant="outline" :disabled="!isRunning || flowsStore.isDirty" :title="!isRunning ? 'Deploy the flow first' : flowsStore.isDirty ? 'Stop and save changes before running manually' : 'Send a message through this flow'" @click="showManualRun = true">Run manually</Button>
       <span class="self-center text-xs text-muted-foreground">{{ flowsStore.nodes.length }} nodes · {{ flowsStore.edges.length }} connections</span>
     </nav>
@@ -214,6 +259,14 @@ function updateFlowDescription(value: string | number) {
     <VariablesDialog v-model:open="showVariables" :flow-id="flowsStore.currentFlow?.id || undefined" />
     <ManualRunDialog v-model:open="showManualRun" />
     <ConnectionsDialog v-model:open="showConnections" />
+    <VersionHistoryDialog
+      v-if="flowId && flowsStore.currentFlow"
+      v-model:open="showHistory"
+      :flow-id="flowId"
+      :flow-name="flowsStore.currentFlow.name"
+      :running="isRunning"
+      :dirty="flowsStore.isDirty"
+    />
     <Dialog v-model:open="showNodes" title="Add nodes" class="p-0">
       <div class="flex h-[65dvh] flex-col"><div class="flex justify-end p-2"><Button variant="ghost" size="sm" @click="showNodes = false">Done</Button></div><div class="min-h-0 flex-1"><NodePalette @add="addNode" /></div></div>
     </Dialog>

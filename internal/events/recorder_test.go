@@ -18,19 +18,36 @@ import (
 type fakeStore struct {
 	mu         sync.Mutex
 	runs       map[string]storage.FlowRun
+	upsertsBy  map[string]int
 	events     []storage.NodeEventRecord
 	pruneCalls int
 }
 
-func newFakeStore() *fakeStore { return &fakeStore{runs: map[string]storage.FlowRun{}} }
+func newFakeStore() *fakeStore {
+	return &fakeStore{runs: map[string]storage.FlowRun{}, upsertsBy: map[string]int{}}
+}
 
-func (f *fakeStore) UpsertFlowRun(runID, flowID string, startedAt time.Time) error {
+// StartFlowRun mirrors the SQLite semantics: insert once (with the
+// version), fill an empty actor later, never replace one.
+func (f *fakeStore) StartFlowRun(start storage.RunStart) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if _, ok := f.runs[runID]; !ok {
-		f.runs[runID] = storage.FlowRun{ID: runID, FlowID: flowID, StartedAt: startedAt, Status: "running"}
+	f.upsertsBy[start.ID]++
+	r, ok := f.runs[start.ID]
+	if !ok {
+		r = storage.FlowRun{ID: start.ID, FlowID: start.FlowID, StartedAt: start.StartedAt, Status: "running", FlowVersion: start.FlowVersion}
 	}
+	if r.Actor == "" {
+		r.Actor = start.Actor
+	}
+	f.runs[start.ID] = r
 	return nil
+}
+
+func (f *fakeStore) upserts(runID string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.upsertsBy[runID]
 }
 
 func (f *fakeStore) FinishFlowRun(runID, status string, finishedAt time.Time, nodeCount, errorCount int) error {

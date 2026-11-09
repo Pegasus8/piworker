@@ -10,7 +10,8 @@ import (
 )
 
 // SecretsHandler exposes CRUD for named secrets. Values are write-only over the
-// API: they can be set but the listing returns names only, never values.
+// API: they can be set, but the listing returns names and short marks only,
+// never values or lengths.
 type SecretsHandler struct {
 	store  *secrets.Store
 	logger zerolog.Logger
@@ -28,14 +29,32 @@ func (h *SecretsHandler) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/secrets/{name}", h.DeleteSecret).Methods(http.MethodDelete)
 }
 
-// SecretsListResponse holds the names of stored secrets (never their values).
-type SecretsListResponse struct {
-	Names []string `json:"names"`
+// SecretItem is a stored secret as the listing shows it: its name and
+// whether its value is short (secrets.IsShort), never the value or its
+// length.
+type SecretItem struct {
+	Name  string `json:"name"`
+	Short bool   `json:"short"`
 }
 
-// ListSecrets returns the names of all stored secrets.
+// SecretsListResponse lists the stored secrets by name. ShortBelow is the
+// threshold (secrets.ShortValueRunes) the editor names when it asks for a
+// longer value.
+type SecretsListResponse struct {
+	Secrets    []SecretItem `json:"secrets"`
+	ShortBelow int          `json:"shortBelow"`
+}
+
+// ListSecrets returns the stored secrets, each marked short or not, so the
+// editor can tell the admin which values an agent could confirm a guess of
+// (ADR-0021).
 func (h *SecretsHandler) ListSecrets(w http.ResponseWriter, _ *http.Request) {
-	writeSuccess(w, http.StatusOK, SecretsListResponse{Names: h.store.Names()}, "")
+	entries := h.store.List()
+	items := make([]SecretItem, 0, len(entries))
+	for _, e := range entries {
+		items = append(items, SecretItem{Name: e.Name, Short: e.Short})
+	}
+	writeSuccess(w, http.StatusOK, SecretsListResponse{Secrets: items, ShortBelow: secrets.ShortValueRunes}, "")
 }
 
 // SetSecret stores or replaces a secret value.

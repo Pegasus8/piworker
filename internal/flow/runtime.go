@@ -84,11 +84,19 @@ type NodeEvent struct {
 	NodeID   string
 	NodeType string
 	CorrID   string
-	Phase    string // NodePhaseRunning | NodePhaseSuccess | NodePhaseError
-	Input    *types.Message
-	Outputs  []*types.Message
-	Err      error
-	Duration time.Duration
+	// Actor is the run's "actor" meta (who started it, e.g. "token:bot"),
+	// copied by the executor before the node runs so observers never read
+	// Input's meta while the node may still change it. "" when unknown.
+	Actor string
+	// FlowVersion is the stored version of the definition the runtime runs
+	// (Flow.Version when the runtime was built; 0 when unknown), so the
+	// history records which version each run ran (ADR-0022).
+	FlowVersion int
+	Phase       string // NodePhaseRunning | NodePhaseSuccess | NodePhaseError
+	Input       *types.Message
+	Outputs     []*types.Message
+	Err         error
+	Duration    time.Duration
 }
 
 // NodeEventHook receives NodeEvents. It runs inline on the node executor
@@ -100,9 +108,12 @@ type NodeEventHook func(NodeEvent)
 // FlowRuntime manages the execution of a single flow.
 // Each active flow runs in its own goroutine with message passing via channels.
 type FlowRuntime struct {
-	flow   *Flow
-	router *MessageRouter
-	logger zerolog.Logger
+	flow *Flow
+	// version is flow.Version when the runtime was built: what its node
+	// events report, whatever later happens to the caller's copy.
+	version int
+	router  *MessageRouter
+	logger  zerolog.Logger
 
 	// Node instances keyed by node ID
 	nodes map[string]node.Node
@@ -163,10 +174,43 @@ type FlowRuntime struct {
 	// may still be executing nodes even though it reports not running.
 	stopTimeout time.Duration
 	drained     chan struct{}
+
+	// calls tracks runs started by Call (keyed by correlation ID). It lives on
+	// r.ctx so a reply node can find it (ReplyFromContext).
+	calls *callRegistry
+
+	// lenientConfig skips the deploy-time schema check (Flow.CheckConfig), so
+	// nodes clamp or default mismatched values as before it existed. Only
+	// RuntimeManager.Restore sets it.
+	lenientConfig bool
+
+	// tools are the tools this flow publishes, computed by the risk analysis
+	// at deploy (see validateDeployable) and immutable afterwards.
+	tools []ToolInfo
+
+	// nodeContext, when set, wraps the context every node of the runtime
+	// gets (trigger Start and Process); see WithNodeContext.
+	nodeContext func(context.Context) context.Context
+
+	// noMetrics keeps the runtime out of the process-wide metrics (see
+	// withoutMetrics).
+	noMetrics bool
+
+	// routeGate, when set, is asked before each message is routed (see
+	// withRouteGate).
+	routeGate func(msg *types.Message, copies int) bool
 }
 
 // RuntimeOption is a functional option for configuring the FlowRuntime.
 type RuntimeOption func(*FlowRuntime)
+
+// withLenientConfig makes NewFlowRuntime instantiate nodes whose config does
+// not match their schema instead of refusing the flow.
+func withLenientConfig() RuntimeOption {
+	return func(r *FlowRuntime) {
+		r.lenientConfig = true
+	}
+}
 
 // WithObserver sets the structured per-execution observer hook. The hook must
 // not block (see NodeEventHook).
@@ -174,6 +218,44 @@ func WithObserver(hook NodeEventHook) RuntimeOption {
 	return func(r *FlowRuntime) {
 		r.observer = hook
 	}
+}
+
+// WithNodeContext wraps the context every node of the runtime gets, trigger
+// Start and Process alike: wrap adds values (an isolated secret store,
+// variable stores) to the runtime's context and returns it. It must keep its
+// argument as the parent (the runtime cancels it on Stop) and should only add
+// values. When the result carries a flow variable store (vars.WithFlowStore),
+// the runtime uses it and does not load the flow's persistent store at all.
+func WithNodeContext(wrap func(context.Context) context.Context) RuntimeOption {
+	return func(r *FlowRuntime) {
+		r.nodeContext = wrap
+	}
+}
+
+// withoutMetrics keeps the runtime's executions, errors, retries and drops
+// out of the process-wide Prometheus metrics: a dry-run's private runtime
+// must not show up on the operator's dashboards and alerts.
+func withoutMetrics() RuntimeOption {
+	return func(r *FlowRuntime) {
+		r.noMetrics = true
+	}
+}
+
+// withRouteGate asks gate before each message a trigger or a node emits is
+// routed, with the number of copies routing makes of it (one per target);
+// when gate returns false the message is not routed (and not counted in its
+// run). The dry-run bounds its work with it. gate runs on the emitting
+// node's goroutine and must not block.
+func withRouteGate(gate func(msg *types.Message, copies int) bool) RuntimeOption {
+	return func(r *FlowRuntime) {
+		r.routeGate = gate
+	}
+}
+
+// routeAllowed asks the route gate, if any, whether msg may be routed as
+// copies messages.
+func (r *FlowRuntime) routeAllowed(msg *types.Message, copies int) bool {
+	return r.routeGate == nil || copies <= 0 || r.routeGate(msg, copies)
 }
 
 // WithLogger sets a custom logger for the runtime.
@@ -220,12 +302,47 @@ func WithStopTimeout(d time.Duration) RuntimeOption {
 	}
 }
 
+// WithCallExpiryGrace sets how long a called run's waiter outlives the call's
+// timeout before it expires (default DefaultCallExpiryGrace). Values <= 0 are
+// ignored.
+func WithCallExpiryGrace(d time.Duration) RuntimeOption {
+	return func(r *FlowRuntime) {
+		if d > 0 {
+			r.calls.grace = d
+		}
+	}
+}
+
+// WithMaxCallWaiters caps how many called runs (see Call) the runtime tracks
+// at once: runs still executing plus results not collected yet. Past it, the
+// uncollected result closest to its expiry is evicted, or Call fails with
+// ErrTooManyCalls. Default DefaultMaxCallWaiters; values <= 0 are ignored.
+func WithMaxCallWaiters(n int) RuntimeOption {
+	return func(r *FlowRuntime) {
+		if n > 0 {
+			r.calls.maxWaiters = n
+		}
+	}
+}
+
+// WithMaxCallResultBytes caps the serialized payload of a called run's reply:
+// a bigger reply is not stored and the call ends as an error. Default
+// DefaultMaxCallResultBytes; values <= 0 are ignored.
+func WithMaxCallResultBytes(n int) RuntimeOption {
+	return func(r *FlowRuntime) {
+		if n > 0 {
+			r.calls.maxResultBytes = n
+		}
+	}
+}
+
 // NewFlowRuntime creates a new FlowRuntime for the given flow.
 func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*FlowRuntime, error) {
 	logger := zerolog.Nop()
 
 	rt := &FlowRuntime{
 		flow:           f,
+		version:        f.Version,
 		logger:         logger,
 		nodes:          make(map[string]node.Node),
 		triggers:       make(map[string]node.TriggerNode),
@@ -238,6 +355,7 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 		stopTimeout:    DefaultStopTimeout,
 		errors:         make(chan error, 100),
 		runInflight:    make(map[string]int),
+		calls:          newCallRegistry(DefaultCallExpiryGrace),
 	}
 
 	// Apply options
@@ -245,24 +363,27 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 		opt(rt)
 	}
 
-	// Instantiate all nodes from the registry
+	// Mistyped config values fail the deploy with their path, before any node
+	// is instantiated with a silently defaulted value.
+	if !rt.lenientConfig {
+		if err := f.CheckConfig(registry); err != nil {
+			return nil, err
+		}
+	}
+
+	// Instantiate and validate every enabled node (the collector Lint
+	// shares); the first node that fails is the deploy error.
+	instances, findings := instantiateNodes(f, registry, nil)
+	if err := firstError(findings); err != nil {
+		closeInstances(instances)
+		return nil, err
+	}
 	for i := range f.Nodes {
+		nodeInstance, ok := instances[i]
+		if !ok {
+			continue // disabled
+		}
 		n := &f.Nodes[i]
-		if !n.Enabled {
-			continue
-		}
-
-		nodeInstance, err := registry.Create(n.Type, n.Config)
-		if err != nil {
-			return nil, NewNodeExecutionError(n.ID, n.Type, err)
-		}
-
-		// Enforce the documented contract that a node's configuration is
-		// validated before deploy, so an invalid config fails fast and visibly
-		// instead of running with silently-coerced values.
-		if err := nodeInstance.Validate(); err != nil {
-			return nil, NewNodeExecutionError(n.ID, n.Type, err)
-		}
 
 		n.Inputs, n.Outputs = nodeInstance.Ports()
 		rt.nodes[n.ID] = nodeInstance
@@ -285,7 +406,13 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 			active = append(active, c)
 		}
 	}
-	rt.router = NewMessageRouter(active, rt.logger, WithDropHandler(rt.releaseDropped))
+	routerOpts := []RouterOption{WithDropHandler(func(m RoutedMessage) {
+		rt.releaseDropped(m, "routing timed out (the flow is overloaded)")
+	})}
+	if rt.noMetrics {
+		routerOpts = append(routerOpts, withoutRouterMetrics())
+	}
+	rt.router = NewMessageRouter(active, rt.logger, routerOpts...)
 
 	return rt, nil
 }
@@ -305,12 +432,24 @@ func (r *FlowRuntime) Start(ctx context.Context) error {
 
 	// Use background context so the flow survives HTTP request completion.
 	// The parent ctx is only used for initial validation, not for runtime lifecycle.
-	local, err := flowvars.DefaultFlows.Get(r.flow.ID)
-	if err != nil {
-		r.mu.Unlock()
-		return fmt.Errorf("load flow variables: %w", err)
+	nodeCtx := withCallRegistry(context.Background(), r.calls)
+	if r.nodeContext != nil {
+		if wrapped := r.nodeContext(nodeCtx); wrapped != nil {
+			nodeCtx = wrapped
+		}
 	}
-	r.ctx, r.cancel = context.WithCancel(flowvars.WithFlowStore(context.Background(), local))
+	// The flow's persistent variable store, unless the node context brings
+	// its own (a sandboxed run must not load or touch the real one).
+	if flowvars.FlowFromContext(nodeCtx) == nil {
+		local, err := flowvars.DefaultFlows.Get(r.flow.ID)
+		if err != nil {
+			r.mu.Unlock()
+			return fmt.Errorf("load flow variables: %w", err)
+		}
+		nodeCtx = flowvars.WithFlowStore(nodeCtx, local)
+	}
+	r.ctx, r.cancel = context.WithCancel(nodeCtx)
+	r.calls.start()
 	r.drained = make(chan struct{})
 	r.running = true
 	r.state = FlowStateRunning
@@ -390,7 +529,17 @@ func (r *FlowRuntime) startSeeder(nodeID string) chan *types.Message {
 					return
 				}
 				corrID := r.ensureCorrelationID(msg)
-				r.runAdd(corrID, r.targetCount(nodeID, msg.SourcePort))
+				n := r.targetCount(nodeID, msg.SourcePort)
+				if !r.routeAllowed(msg, n) {
+					r.calls.runFinished(corrID)
+					continue
+				}
+				if n > 0 {
+					r.runAdd(corrID, n)
+				} else {
+					// Nothing will execute for this run: it is already over.
+					r.calls.runFinished(corrID)
+				}
 				select {
 				case <-r.ctx.Done():
 					return
@@ -427,7 +576,11 @@ func (r *FlowRuntime) Stop() error {
 // shutdown cancels the runtime, stops the given triggers, closes the router and
 // waits (bounded) for every goroutine to exit before marking it stopped.
 func (r *FlowRuntime) shutdown(triggerIDs []string) {
-	// Cancel the context to signal all goroutines to stop
+	// Release every caller still waiting for a called run ("flow stopped"),
+	// then cancel the context to signal all goroutines to stop. In this order
+	// a node that returns ctx.Err() cannot end a pending call with its own
+	// error first.
+	r.calls.stop()
 	r.cancel()
 
 	for _, nodeID := range triggerIDs {
@@ -527,8 +680,8 @@ func (r *FlowRuntime) dispatch() {
 				r.logger.Error().
 					Str("nodeID", routedMsg.TargetNode).
 					Msg("Target node not found or disabled; dropping message")
-				metrics.IncrementMessagesDropped()
-				r.releaseDropped(routedMsg)
+				r.countDrop()
+				r.releaseDropped(routedMsg, "the node is not running (not found or disabled)")
 				continue
 			}
 
@@ -539,20 +692,45 @@ func (r *FlowRuntime) dispatch() {
 					Str("msgID", routedMsg.Message.ID).
 					Int("queueLimit", r.queueLimit).
 					Msg("Node queue full; dropping message")
-				metrics.IncrementMessagesDropped()
-				r.releaseDropped(routedMsg)
+				r.countDrop()
+				r.releaseDropped(routedMsg, fmt.Sprintf("its queue is full (limit %d)", r.queueLimit))
 			}
 		}
 	}
 }
 
+// countDrop counts a dropped message in the process-wide metrics.
+func (r *FlowRuntime) countDrop() {
+	if !r.noMetrics {
+		metrics.IncrementMessagesDropped()
+	}
+}
+
+// actorOf returns msg's "actor" meta (set by Call on a run's first message
+// and inherited by its clones), or "" when it is missing or not a string.
+func actorOf(msg *types.Message) string {
+	if msg == nil {
+		return ""
+	}
+	v, _ := msg.GetMeta("actor")
+	actor, _ := v.(string)
+	return actor
+}
+
 // releaseDropped accounts for a routed message that will never execute: it
-// counts the drop and releases the message's slot in its run, so the run still
-// finishes. Every drop path (queue overflow, unknown target, router send
-// timeout) must call it exactly once per dropped message.
-func (r *FlowRuntime) releaseDropped(routedMsg RoutedMessage) {
+// counts the drop, records it as the error of a called run (reason says why),
+// and releases the message's slot in its run, so the run still finishes.
+// Every drop path (queue overflow, unknown target, router send timeout) must
+// call it exactly once per dropped message.
+func (r *FlowRuntime) releaseDropped(routedMsg RoutedMessage, reason string) {
 	r.droppedMessages.Add(1)
-	r.runDone(r.ensureCorrelationID(routedMsg.Message))
+	corrID := r.ensureCorrelationID(routedMsg.Message)
+	nodeType := ""
+	if def := r.nodeDefs[routedMsg.TargetNode]; def != nil {
+		nodeType = def.Type
+	}
+	r.calls.dropped(corrID, routedMsg.TargetNode, nodeType, reason)
+	r.runDone(corrID)
 }
 
 // DroppedMessages reports how many messages this runtime discarded.
@@ -654,11 +832,13 @@ func (r *FlowRuntime) executeNodeInSlot(routedMsg RoutedMessage, slot *semSlot) 
 	// Shared fields for every NodeEvent this execution emits; each fire point
 	// copies it and sets only Phase/Duration/Outputs/Err.
 	baseEvent := NodeEvent{
-		FlowID:   r.flow.ID,
-		NodeID:   routedMsg.TargetNode,
-		NodeType: flowNode.Type,
-		CorrID:   correlationID,
-		Input:    routedMsg.Message,
+		FlowID:      r.flow.ID,
+		NodeID:      routedMsg.TargetNode,
+		NodeType:    flowNode.Type,
+		CorrID:      correlationID,
+		Actor:       actorOf(routedMsg.Message),
+		FlowVersion: r.version,
+		Input:       routedMsg.Message,
 	}
 
 	// A panic inside a node's Process must not take down the executor goroutine
@@ -674,13 +854,17 @@ func (r *FlowRuntime) executeNodeInSlot(routedMsg RoutedMessage, slot *semSlot) 
 				Str("nodeType", flowNode.Type).
 				Bytes("stack", debug.Stack()).
 				Msg("Recovered from panic during node execution")
-			metrics.RecordNodeError(flowNode.Type)
+			if !r.noMetrics {
+				metrics.RecordNodeError(flowNode.Type)
+			}
+			panicErr := fmt.Errorf("panic: %v", rec)
 			if r.observer != nil {
 				ev := baseEvent
 				ev.Phase = NodePhaseError
-				ev.Err = fmt.Errorf("panic: %v", rec)
+				ev.Err = panicErr
 				r.observer(ev)
 			}
+			r.calls.nodeError(correlationID, routedMsg.TargetNode, flowNode.Type, panicErr)
 		}
 	}()
 
@@ -710,8 +894,10 @@ func (r *FlowRuntime) executeNodeInSlot(routedMsg RoutedMessage, slot *semSlot) 
 	duration := time.Since(startTime)
 
 	// Record metrics
-	metrics.RecordNodeExecution(flowNode.Type, duration.Seconds())
-	metrics.RecordMessageProcessed(flowNode.Type, err == nil)
+	if !r.noMetrics {
+		metrics.RecordNodeExecution(flowNode.Type, duration.Seconds())
+		metrics.RecordMessageProcessed(flowNode.Type, err == nil)
+	}
 
 	// Emit the terminal event (success/error) with timing and, on success, the
 	// outputs (used to attribute process-debug output to its canvas node).
@@ -729,7 +915,10 @@ func (r *FlowRuntime) executeNodeInSlot(routedMsg RoutedMessage, slot *semSlot) 
 	}
 
 	if err != nil {
-		metrics.RecordNodeError(flowNode.Type)
+		if !r.noMetrics {
+			metrics.RecordNodeError(flowNode.Type)
+		}
+		r.calls.nodeError(correlationID, routedMsg.TargetNode, flowNode.Type, err)
 		logger.Error().
 			Err(err).
 			Dur("duration", duration).
@@ -780,7 +969,11 @@ func (r *FlowRuntime) executeNodeInSlot(routedMsg RoutedMessage, slot *semSlot) 
 
 		// Count this output's downstream children into the run BEFORE routing them,
 		// so the counter reflects the pending work before any child can finish.
-		r.runAdd(childCorr, r.targetCount(routedMsg.TargetNode, output.SourcePort))
+		copies := r.targetCount(routedMsg.TargetNode, output.SourcePort)
+		if !r.routeAllowed(output, copies) {
+			continue
+		}
+		r.runAdd(childCorr, copies)
 		r.router.Route(routedMsg.TargetNode, output)
 	}
 }
@@ -830,7 +1023,9 @@ func (r *FlowRuntime) executeNodeWithRetry(nodeInstance node.Node, routedMsg Rou
 		}
 
 		// Record retry metric
-		metrics.RecordNodeRetry(flowNode.Type)
+		if !r.noMetrics {
+			metrics.RecordNodeRetry(flowNode.Type)
+		}
 
 		logger.Warn().
 			Err(err).
@@ -920,13 +1115,18 @@ func (r *FlowRuntime) runDone(correlationID string) {
 	}
 	r.runMu.Unlock()
 
-	if finished && r.observer != nil {
+	if !finished {
+		return
+	}
+	if r.observer != nil {
 		r.observer(NodeEvent{
-			FlowID: r.flow.ID,
-			CorrID: correlationID,
-			Phase:  NodePhaseRunFinished,
+			FlowID:      r.flow.ID,
+			CorrID:      correlationID,
+			FlowVersion: r.version,
+			Phase:       NodePhaseRunFinished,
 		})
 	}
+	r.calls.runFinished(correlationID)
 }
 
 // Drained reports whether every goroutine of the last started instance has
@@ -982,6 +1182,9 @@ type RuntimeManager struct {
 	observer    NodeEventHook
 	runtimeOpts []RuntimeOption
 	mu          sync.RWMutex
+	// toolsVersion (guarded by mu) changes whenever the set of running flows,
+	// and so the published tools, may have changed (see Tools).
+	toolsVersion uint64
 }
 
 // ManagerOption configures a RuntimeManager.
@@ -1017,8 +1220,25 @@ func NewRuntimeManager(registry *node.Registry, logger zerolog.Logger, opts ...M
 	return m
 }
 
-// Deploy creates and starts a runtime for the given flow.
+// Deploy creates and starts a runtime for the given flow. A node config that
+// does not match its schema (Flow.CheckConfig) fails the deploy.
 func (m *RuntimeManager) Deploy(ctx context.Context, f *Flow) error {
+	return m.deploy(ctx, f)
+}
+
+// Restore redeploys a flow that was running before the process restarted.
+// Unlike Deploy it does not refuse node configs that fail the schema check:
+// it returns those issues for the caller to log and starts the flow anyway,
+// with the nodes clamping or defaulting such values exactly as they did
+// before the check existed. A flow that ran before an upgrade therefore keeps
+// running after it, while the next explicit Deploy asks for a fix. Any other
+// error (unknown type, a node that cannot be created or validated) still
+// fails the restore.
+func (m *RuntimeManager) Restore(ctx context.Context, f *Flow) ([]node.ConfigIssue, error) {
+	return f.ConfigIssues(m.registry), m.deploy(ctx, f, withLenientConfig())
+}
+
+func (m *RuntimeManager) deploy(ctx context.Context, f *Flow, extra ...RuntimeOption) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1039,6 +1259,7 @@ func (m *RuntimeManager) Deploy(ctx context.Context, f *Flow) error {
 	if m.observer != nil {
 		rtOpts = append(rtOpts, WithObserver(m.observer))
 	}
+	rtOpts = append(rtOpts, extra...)
 	rt, err := NewFlowRuntime(f, m.registry, rtOpts...)
 	if err != nil {
 		metrics.RecordFlowDeployment(false)
@@ -1046,20 +1267,24 @@ func (m *RuntimeManager) Deploy(ctx context.Context, f *Flow) error {
 	}
 
 	// Validate against the ports supplied by the instantiated nodes, not a
-	// possibly missing or stale cache in an imported/editor definition. Which
-	// nodes are triggers is decided server-side — by the instance implementing
-	// node.TriggerNode or by the registered type's category — never by the
-	// client-supplied Category field.
-	if err := f.validate(func(n *Node) bool {
-		if _, ok := rt.triggers[n.ID]; ok {
-			return true
-		}
-		info, ok := m.registry.Get(n.Type)
-		return ok && info.Category == NodeCategoryInput
-	}); err != nil {
+	// possibly missing or stale cache in an imported/editor definition, then
+	// the tool risk analysis (ADR-0013): security checks, never lenient.
+	// These are Lint's collectors (ADR-0007): a flow Lint finds no error in
+	// passes them. A refused flow's instances never run and are closed.
+	tools, issues, err := validateDeployable(rt, m.registry)
+	if err != nil {
+		rt.closeNodes()
 		metrics.RecordFlowDeployment(false)
 		return err
 	}
+	// Settings that cannot work without their secrets (a bot token, a DSN)
+	// fail the deploy while one is missing, not every execution.
+	if err := checkRequiredSecrets(ctx, rt); err != nil {
+		rt.closeNodes()
+		metrics.RecordFlowDeployment(false)
+		return err
+	}
+	m.keepTools(rt, tools, issues)
 
 	// Start the runtime
 	if err := rt.Start(ctx); err != nil {
@@ -1068,6 +1293,7 @@ func (m *RuntimeManager) Deploy(ctx context.Context, f *Flow) error {
 	}
 
 	m.runtimes[f.ID] = rt
+	m.toolsVersion++
 
 	// Record metrics
 	metrics.RecordFlowDeployment(true)
@@ -1101,6 +1327,7 @@ func (m *RuntimeManager) Undeploy(flowID string) error {
 	}
 
 	delete(m.runtimes, flowID)
+	m.toolsVersion++
 	if !rt.Drained() {
 		m.stopping[flowID] = rt
 	}
@@ -1168,6 +1395,7 @@ func (m *RuntimeManager) StopAll() {
 			metrics.DecrementFlowsRunning()
 		}
 	}
+	m.toolsVersion++
 
 	m.logger.Info().Msg("All flows stopped")
 }

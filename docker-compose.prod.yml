@@ -8,7 +8,10 @@ services:
       dockerfile: Dockerfile
     image: piworker:latest
     container_name: piworker
+    # HTTPS on 8443 (local CA stored in the volume under tls/); 8080 redirects
+    # to it and serves /piworker-ca.crt and webhooks. Keep both ports unchanged.
     ports:
+      - "8443:8443"
       - "8080:8080"
     volumes:
       - piworker-data:/app/data
@@ -16,13 +19,16 @@ services:
       # Optional first-account bootstrap; otherwise use the setup code in logs.
       - PIWORKER_ADMIN_USER=${PIWORKER_ADMIN_USER:-}
       - PIWORKER_ADMIN_PASS=${PIWORKER_ADMIN_PASS:-}
+      # Names you use to open PiWorker (comma-separated). Inside the container
+      # the hostname is the container's, so list the Docker host's name here;
+      # localhost and IP addresses are always accepted.
+      - PIWORKER_ALLOWED_HOSTS=${PIWORKER_ALLOWED_HOSTS:-raspberrypi,raspberrypi.local}
+      # Names/addresses browsers use to reach this host (the container cannot
+      # see them), e.g. raspberrypi.local,192.168.1.50. Recovery: set
+      # PIWORKER_TLS_MODE=off to serve plain HTTP on 8443.
+      - PIWORKER_TLS_HOSTS=${PIWORKER_TLS_HOSTS:-}
       - TZ=America/Argentina/Buenos_Aires
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
-      interval: 30s
-      timeout: 3s
-      start_period: 10s
-      retries: 3
+    # The image's HEALTHCHECK probes /api/health over HTTPS (or HTTP when off).
     restart: unless-stopped
     # Resource limits (good for Raspberry Pi)
     deploy:

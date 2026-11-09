@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json/v2"
 	"errors"
 	"net/http"
@@ -27,6 +28,18 @@ type LoginRequest struct {
 	Password        string `json:"password"`
 	Code            string `json:"code"`
 	CurrentPassword string `json:"currentPassword"`
+	// KeepAgentTokens keeps agent API tokens valid across a password change.
+	KeepAgentTokens bool `json:"keepAgentTokens"`
+}
+
+// AgentTokenRevoker revokes every agent API token as part of a credential
+// reset (agentauth.TokenVerifier).
+type AgentTokenRevoker interface {
+	// RevokeAllInTx revokes every token inside tx, the transaction that
+	// changes the password, so both commit together or neither does.
+	RevokeAllInTx(tx *sql.Tx) error
+	// EvictAll drops cached verifications once that transaction committed.
+	EvictAll()
 }
 type AuthStatusResponse struct {
 	Enabled       bool `json:"enabled"`
@@ -41,12 +54,49 @@ type AuthHandler struct {
 	// never consume the login budget.
 	login    *loginLimiter
 	password *loginLimiter
+	// agentTokens, when set, is revoked on recovery and password change.
+	agentTokens AgentTokenRevoker
+	// secureCookies marks session cookies Secure on every response, set when
+	// PiWorker serves HTTPS itself.
+	secureCookies bool
 }
 
-func NewAuthHandler(store *storage.SQLiteUserStore, secure bool, origins []string) *AuthHandler {
+// SetAgentTokenRevoker makes account recovery, and password changes that do
+// not ask to keep them, revoke every agent token in this process.
+func (h *AuthHandler) SetAgentTokenRevoker(r AgentTokenRevoker) { h.agentTokens = r }
+
+// tokenRevocation prepares revoking every agent token in a credential
+// change's transaction. It returns the hooks to pass to the store (none when
+// revoke is false or no revoker is set), a function reporting whether the
+// revocation itself failed, and one to call after the change committed.
+func (h *AuthHandler) tokenRevocation(revoke bool) (hooks []storage.TxHook, failed func() bool, committed func()) {
+	if !revoke || h.agentTokens == nil {
+		return nil, func() bool { return false }, func() {}
+	}
+	var revokeErr error
+	hook := func(tx *sql.Tx) error {
+		revokeErr = h.agentTokens.RevokeAllInTx(tx)
+		return revokeErr
+	}
+	return []storage.TxHook{hook}, func() bool { return revokeErr != nil }, h.agentTokens.EvictAll
+}
+
+// AuthOption configures an AuthHandler.
+type AuthOption func(*AuthHandler)
+
+// WithSecureCookies marks session cookies Secure regardless of how a request
+// arrived. PiWorker enables it whenever it serves HTTPS itself.
+func WithSecureCookies(on bool) AuthOption {
+	return func(h *AuthHandler) { h.secureCookies = on }
+}
+
+func NewAuthHandler(store *storage.SQLiteUserStore, secure bool, origins []string, opts ...AuthOption) *AuthHandler {
 	h := &AuthHandler{store: store, secure: secure, origins: make(map[string]bool), login: newLoginLimiter(), password: newLoginLimiter()}
 	for _, origin := range origins {
 		h.origins[origin] = true
+	}
+	for _, opt := range opts {
+		opt(h)
 	}
 	return h
 }
@@ -143,7 +193,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, 200, map[string]string{"username": user.Username}, "")
 }
 func (h *AuthHandler) setCookie(w http.ResponseWriter, r *http.Request, value string, maxAge int) {
-	cookie := &http.Cookie{Name: sessionCookie, Value: value, Path: "/api", HttpOnly: true, Secure: h.secure || r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: maxAge}
+	cookie := &http.Cookie{Name: sessionCookie, Value: value, Path: "/api", HttpOnly: true, Secure: h.secure || h.secureCookies || r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: maxAge}
 	if maxAge < 0 {
 		cookie.Expires = time.Unix(1, 0)
 	} else {
@@ -202,16 +252,24 @@ func (h *AuthHandler) redeem(w http.ResponseWriter, r *http.Request, purpose str
 		writeError(w, 500, "Cannot set password")
 		return
 	}
-	err = h.store.RedeemAuthCode(purpose, req.Code, req.Username, hash, time.Now())
+	// Recovery assumes the account was compromised: agent tokens are revoked
+	// in the same transaction (a wrong code never reaches it).
+	hooks, revokeFailed, revoked := h.tokenRevocation(purpose == "recovery")
+	err = h.store.RedeemAuthCode(purpose, req.Code, req.Username, hash, time.Now(), hooks...)
 	if errors.Is(err, storage.ErrAuthCode) {
 		h.login.failure(ip, req.Username)
 		writeError(w, 403, "Invalid or expired code, or setup already completed")
+		return
+	}
+	if err != nil && revokeFailed() {
+		writeError(w, 500, "The password was not reset because agent tokens could not be revoked. Please retry with the same code.")
 		return
 	}
 	if err != nil {
 		writeError(w, 500, "Cannot update account")
 		return
 	}
+	revoked()
 	h.login.success(ip, req.Username)
 	h.setCookie(w, r, "", -1)
 	status := 200
@@ -256,17 +314,51 @@ func (h *AuthHandler) Password(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "Cannot set password")
 		return
 	}
-	if err = h.store.ChangePassword(user.Username, user.PasswordHash, hash); err != nil {
+	hooks, revokeFailed, revoked := h.tokenRevocation(!req.KeepAgentTokens)
+	if err = h.store.ChangePassword(user.Username, user.PasswordHash, hash, hooks...); err != nil {
+		if revokeFailed() {
+			writeError(w, 500, "The password was not changed because agent tokens could not be revoked. Please retry.")
+			return
+		}
 		writeError(w, 500, "Cannot change password. Please retry.")
 		return
 	}
+	revoked()
 	h.setCookie(w, r, "", -1)
 	writeSuccess(w, 200, nil, "")
 }
 func (h *AuthHandler) csrfAllowed(r *http.Request) bool {
 	return csrfAllowed(r, h.secure, h.origins)
 }
+
+// passiveSessionPaths are polled in the background by every open editor tab.
+// They need a valid session but are not activity: authenticating them never
+// extends the session's idle expiry, so a forgotten tab does not keep a
+// session alive past SessionIdleTimeout.
+var passiveSessionPaths = map[string]bool{
+	PendingApprovalsCountPath: true,
+}
+
+// BackgroundRequestHeader marks a request the editor sends by itself (a
+// refresh triggered by polling), not on the admin's behalf. Set to "1", the
+// session is authenticated without extending its idle expiry. A client can
+// only shorten its own session with it, so every guarded path accepts it.
+const BackgroundRequestHeader = "X-PiWorker-Background"
+
+// AuthMiddleware requires a valid session on guarded /api paths and extends
+// its idle expiry, except on passiveSessionPaths and background requests
+// (BackgroundRequestHeader), which it authenticates with the non-touching
+// variant.
 func AuthMiddleware(h *AuthHandler) mux.MiddlewareFunc {
+	return authMiddleware(h, func(r *http.Request) bool {
+		return !passiveSessionPaths[r.URL.Path] && r.Header.Get(BackgroundRequestHeader) != "1"
+	})
+}
+
+// authMiddleware authenticates the session; touch says whether a request
+// counts as activity that extends the session's idle expiry (false: the
+// session is only checked, as live event streams re-check it).
+func authMiddleware(h *AuthHandler, touch func(*http.Request) bool) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !isGuardedAPIPath(r.URL.Path) {
@@ -288,7 +380,7 @@ func AuthMiddleware(h *AuthHandler) mux.MiddlewareFunc {
 				writeError(w, 401, "Sign in to continue")
 				return
 			}
-			session, err := h.store.GetSession(cookie.Value, time.Now(), true)
+			session, err := h.store.GetSession(cookie.Value, time.Now(), touch(r))
 			if errors.Is(err, storage.ErrSessionNotFound) {
 				h.setCookie(w, r, "", -1)
 				writeError(w, 401, "Session expired. Please sign in again.")

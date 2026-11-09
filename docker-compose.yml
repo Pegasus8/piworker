@@ -24,8 +24,16 @@ services:
       - PIWORKER_ADMIN_USER=${PIWORKER_ADMIN_USER:-}
       - PIWORKER_ADMIN_PASS=${PIWORKER_ADMIN_PASS:-}
       - PIWORKER_ADDR=:8080
+      # Plain HTTP for the Vite dev proxy below. The production image and
+      # docker-compose.prod.yml serve HTTPS on 8443.
+      - PIWORKER_TLS_MODE=off
       - PIWORKER_DB=/app/data/piworker.db
       - PIWORKER_DEBUG=true
+      # Host names accepted besides localhost, the hostname and IPs. The Vite
+      # proxy passes on the Host the browser used (e.g. localhost:3000), so
+      # the editor is same-origin and needs no PIWORKER_CORS_ORIGINS; list
+      # here other names you open the dev server by.
+      - PIWORKER_ALLOWED_HOSTS=${PIWORKER_ALLOWED_HOSTS:-}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
       interval: 10s

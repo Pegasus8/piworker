@@ -15,7 +15,10 @@ import (
 // here (rather than importing the concrete *storage.SQLiteStore) keeps the
 // recorder unit-testable with a fake and documents exactly what it touches.
 type HistoryStore interface {
-	UpsertFlowRun(runID, flowID string, startedAt time.Time) error
+	// StartFlowRun records a run's start (idempotent), who started it and
+	// the version it ran; a later call fills an empty actor but never
+	// replaces one, and keeps the version.
+	StartFlowRun(start storage.RunStart) error
 	FinishFlowRun(runID, status string, finishedAt time.Time, nodeCount, errorCount int) error
 	InsertNodeEvents(batch []storage.NodeEventRecord) error
 	PruneHistory(olderThan time.Time, maxRunsPerFlow int) (int, error)
@@ -54,6 +57,8 @@ type runAgg struct {
 	lastSeen  time.Time
 	nodeCount int
 	errCount  int
+	// actor is the run's "actor" meta as recorded so far ("" = not yet seen).
+	actor string
 	// running is how many node executions of the run have started but not yet
 	// reported a terminal event. A quiet run with running > 0 is waiting on a
 	// slow node (e.g. a long process-delay), not finished.
@@ -207,12 +212,21 @@ func (r *Recorder) persist(e flow.NodeEvent, now time.Time) {
 	}
 
 	agg, ok := r.runs[e.CorrID]
-	if !ok {
-		if err := r.store.UpsertFlowRun(e.CorrID, e.FlowID, now); err != nil {
+	// The executor copied the run's actor onto the event; e.Input's meta is
+	// never read here, the node may still be using the message.
+	actor := e.Actor
+	// Upsert on the first event of a run, and again only to fill in an actor
+	// the first event did not carry.
+	if !ok || (agg.actor == "" && actor != "") {
+		start := storage.RunStart{ID: e.CorrID, FlowID: e.FlowID, Actor: actor, FlowVersion: e.FlowVersion, StartedAt: now}
+		if err := r.store.StartFlowRun(start); err != nil {
 			r.log.Warn().Err(err).Msg("upsert flow run failed")
 		}
-		agg = &runAgg{}
-		r.runs[e.CorrID] = agg
+		if !ok {
+			agg = &runAgg{}
+			r.runs[e.CorrID] = agg
+		}
+		agg.actor = actor
 	}
 	agg.lastSeen = now
 

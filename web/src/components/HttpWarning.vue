@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { RouterLink } from 'vue-router'
 import { AlertTriangle } from 'lucide-vue-next'
 
 const isHttp = window.location.protocol === 'http:'
@@ -16,6 +17,7 @@ const isHttp = window.location.protocol === 'http:'
       <strong>Unencrypted connection (HTTP).</strong>
       Passwords and sessions can be intercepted, even on a local network.
       Use only on a network you trust. Avoid public or shared networks.
+      <RouterLink to="/trust" class="font-semibold underline underline-offset-2">Set up HTTPS</RouterLink>
     </p>
   </aside>
 </template>

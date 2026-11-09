@@ -3,6 +3,7 @@ package flow
 
 import (
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,7 +67,20 @@ type Node struct {
 	Config   map[string]interface{} `json:"config"`   // Node-specific configuration
 	Inputs   []Port                 `json:"inputs"`   // Input ports
 	Outputs  []Port                 `json:"outputs"`  // Output ports
-	Enabled  bool                   `json:"enabled"`  // Whether this node is active
+	Enabled  bool                   `json:"enabled"`  // Whether this node is active; true when absent in JSON
+}
+
+// UnmarshalJSON decodes a node, treating an absent (or null) "enabled" field
+// as true. Definitions written by hand, by older editors or by agents often
+// omit it, and decoding that as false would silently drop the node.
+func (n *Node) UnmarshalJSON(data []byte) error {
+	type plainNode Node // same fields, no methods: avoids recursing into UnmarshalJSON
+	decoded := plainNode{Enabled: true}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*n = Node(decoded)
+	return nil
 }
 
 // Connection represents a link between two nodes.
@@ -87,8 +101,12 @@ type Flow struct {
 	Connections []Connection           `json:"connections"`
 	State       FlowState              `json:"state"`
 	Variables   map[string]interface{} `json:"variables,omitempty"` // Legacy definition metadata; runtime variables use the scoped variable store.
-	CreatedAt   time.Time              `json:"createdAt"`
-	UpdatedAt   time.Time              `json:"updatedAt"`
+	// Version counts the saved definitions of the flow (1 when created). It
+	// is server-controlled: storage assigns it on every definition change
+	// (not on state changes) and ignores any value a client or agent sends.
+	Version   int       `json:"version"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 
 	mu sync.RWMutex `json:"-"` // Protects concurrent access to fields
 }
@@ -212,76 +230,42 @@ func (f *Flow) Validate(reg *node.Registry) error {
 	})
 }
 
-// validate runs the structural checks and requires at least one enabled node
-// for which isTrigger reports true.
-func (f *Flow) validate(isTrigger func(*Node) bool) error {
-	// An empty flow is valid (for initial creation)
-	if len(f.Nodes) == 0 {
+// ConfigIssues checks the config of every enabled node against its registered
+// type's schema (node.CheckConfig: types, enums, bounds) and returns the
+// problems with flow-level paths such as "nodes[3].config.interval". Disabled
+// nodes are never instantiated and are skipped, as are unregistered types
+// (instantiating them reports the unknown type). It is Lint's config check.
+func (f *Flow) ConfigIssues(reg *node.Registry) []node.ConfigIssue {
+	if reg == nil {
 		return nil
 	}
-
-	nodeMap := make(map[string]*Node, len(f.Nodes))
-	for i := range f.Nodes {
-		n := &f.Nodes[i]
-		if n.ID == "" {
-			return NewValidationError("node at index %d (type %s) has an empty ID", i, n.Type)
-		}
-		if _, dup := nodeMap[n.ID]; dup {
-			return NewValidationError("duplicate node ID %s", n.ID)
-		}
-		nodeMap[n.ID] = n
+	var issues []node.ConfigIssue
+	for _, fd := range configFindings(f, reg) {
+		issues = append(issues, node.ConfigIssue{Path: fd.legacyPath(), Message: fd.msg})
 	}
+	return issues
+}
 
-	// If there are nodes, there must be at least one trigger node
-	hasTrigger := false
-	for i := range f.Nodes {
-		if f.Nodes[i].Enabled && isTrigger(&f.Nodes[i]) {
-			hasTrigger = true
-			break
-		}
+// CheckConfig returns a *ValidationError listing every ConfigIssues entry, or
+// nil when all node configs match their schemas. Deploy calls it so a mistyped
+// value fails visibly instead of a node silently using its default.
+func (f *Flow) CheckConfig(reg *node.Registry) error {
+	issues := f.ConfigIssues(reg)
+	if len(issues) == 0 {
+		return nil
 	}
-	if !hasTrigger {
-		return ErrNoTriggerNodes
+	msgs := make([]string, len(issues))
+	for i, issue := range issues {
+		msgs[i] = issue.String()
 	}
+	return NewValidationError("%s", strings.Join(msgs, "; "))
+}
 
-	// Validate all connections reference existing nodes and ports
-	connIDs := make(map[string]struct{}, len(f.Connections))
-	adjacency := make(map[string][]string)
-	for _, conn := range f.Connections {
-		if conn.ID != "" {
-			if _, dup := connIDs[conn.ID]; dup {
-				return NewValidationError("duplicate connection ID %s", conn.ID)
-			}
-			connIDs[conn.ID] = struct{}{}
-		}
-
-		sourceNode, ok := nodeMap[conn.SourceNode]
-		if !ok {
-			return NewValidationError("connection %s references non-existent source node %s", conn.ID, conn.SourceNode)
-		}
-		targetNode, ok := nodeMap[conn.TargetNode]
-		if !ok {
-			return NewValidationError("connection %s references non-existent target node %s", conn.ID, conn.TargetNode)
-		}
-		if conn.SourceNode == conn.TargetNode {
-			return NewValidationError("connection %s connects node %s to itself", conn.ID, conn.SourceNode)
-		}
-
-		// Validate ports exist
-		if !hasPort(sourceNode.Outputs, conn.SourcePort) {
-			return NewValidationError("connection %s references non-existent source port %s", conn.ID, conn.SourcePort)
-		}
-		if !hasPort(targetNode.Inputs, conn.TargetPort) {
-			return NewValidationError("connection %s references non-existent target port %s", conn.ID, conn.TargetPort)
-		}
-		adjacency[conn.SourceNode] = append(adjacency[conn.SourceNode], conn.TargetNode)
-	}
-
-	if cycle := findCycle(f.Nodes, adjacency); cycle != "" {
-		return NewValidationError("flow contains a cycle through node %s", cycle)
-	}
-
-	return nil
+// validate runs the structural checks (structureFindings, which Lint shares)
+// on the ports stored on the nodes, requiring at least one enabled node for
+// which isTrigger reports true, and returns the first problem's error.
+func (f *Flow) validate(isTrigger func(*Node) bool) error {
+	return firstError(structureFindings(f, func(i int) bool { return isTrigger(&f.Nodes[i]) }, storedPorts(f)))
 }
 
 // findCycle returns the ID of a node on a cycle, or "" if the graph is acyclic.

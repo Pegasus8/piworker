@@ -4,22 +4,30 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/Pegasus8/piworker/internal/agentauth"
 	"github.com/Pegasus8/piworker/internal/api"
 	"github.com/Pegasus8/piworker/internal/config"
 	"github.com/Pegasus8/piworker/internal/events"
 	"github.com/Pegasus8/piworker/internal/flow"
+	"github.com/Pegasus8/piworker/internal/mcpserver"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/secrets"
+	"github.com/Pegasus8/piworker/internal/service"
 	"github.com/Pegasus8/piworker/internal/storage"
+	"github.com/Pegasus8/piworker/internal/tlsca"
 	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/Pegasus8/piworker/internal/vars"
 	"github.com/Pegasus8/piworker/internal/webhook"
@@ -43,11 +51,15 @@ var (
 	recoveryUser   = flag.String("recover-account", "", "Generate a one-use password recovery code for this username, then exit")
 	setupCode      = flag.Bool("setup-code", false, "Generate a new first-installation setup code, then exit")
 	configPath     = flag.String("config", "", "Path to TOML config file (default: piworker.toml if present)")
-	listenAddr     = flag.String("addr", ":8080", "HTTP server listen address")
+	listenAddr     = flag.String("addr", ":8443", "Listen address: HTTPS, or plain HTTP with -tls=off (env: PIWORKER_ADDR)")
+	httpAddr       = flag.String("http-addr", ":8080", "Plain HTTP listener that redirects to HTTPS; empty disables it (env: PIWORKER_HTTP_ADDR)")
+	tlsMode        = flag.String("tls", "auto", "TLS mode: auto (local CA), custom or off (env: PIWORKER_TLS_MODE)")
+	tlsRegenerate  = flag.Bool("tls-regenerate-ca", false, "Replace the local CA (every device must trust the new one), then exit")
 	dbPath         = flag.String("db", "piworker.db", "SQLite database path")
 	debug          = flag.Bool("debug", false, "Enable debug logging")
 	authEnabled    = flag.Bool("auth", true, "Enable session authentication (env: PIWORKER_AUTH)")
-	allowedOrigins = flag.String("cors-origins", "http://localhost:3000,http://localhost:8080", "Comma-separated list of allowed CORS origins")
+	allowedOrigins = flag.String("cors-origins", "", "Comma-separated origins allowed cross-origin, credentialed access, e.g. http://localhost:3000 for the Vite dev server; empty allows none (env: PIWORKER_CORS_ORIGINS)")
+	allowedHosts   = flag.String("allowed-hosts", "", "Comma-separated extra Host names accepted besides localhost, the hostname, hostname.local and IPs (env: PIWORKER_ALLOWED_HOSTS)")
 	adminUser      = flag.String("admin-user", "", "Default admin username (env: PIWORKER_ADMIN_USER)")
 	adminPass      = flag.String("admin-pass", "", "Default admin password (env: PIWORKER_ADMIN_PASS)")
 )
@@ -66,12 +78,28 @@ func main() {
 	}
 	applyFlagOverrides(&cfg)
 
+	// Local maintenance commands need only the database and the data
+	// directory, not the listeners: they run before the cross-field checks so
+	// a listener or TLS conflict (which stops the server) never blocks
+	// recovering access offline.
+	if *recoveryUser != "" || *setupCode || *tlsRegenerate {
+		setupLogging(cfg.Debug)
+		runOfflineCommand(cfg)
+		return
+	}
+
+	// Cross-field checks (e.g. MCP without auth) run before anything is opened.
+	if err := cfg.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Invalid configuration")
+	}
+
 	// Configure logging
 	setupLogging(cfg.Debug)
 
 	log.Info().
 		Str("version", version).
 		Str("addr", cfg.Addr).
+		Str("tls", cfg.TLS.Mode).
 		Str("db", cfg.DBPath).
 		Msg("Starting PiWorker")
 
@@ -82,26 +110,6 @@ func main() {
 	}
 	defer store.Close()
 	log.Info().Msg("Storage initialized")
-
-	// Local-only recovery/setup commands exit before starting flows or HTTP.
-	if *recoveryUser != "" || *setupCode {
-		users, err := storage.NewSQLiteUserStoreWithDB(store.DB())
-		if err != nil {
-			log.Fatal().Err(err).Msg("Cannot open accounts")
-		}
-		purpose := "recovery"
-		username := *recoveryUser
-		if *setupCode {
-			purpose = "setup"
-			username = ""
-		}
-		code, err := users.NewAuthCode(purpose, username, time.Now())
-		if err != nil {
-			log.Fatal().Err(err).Msg("Cannot generate account code")
-		}
-		fmt.Printf("%s code (one use, expires in 30 minutes): %s\nEnter it on the PiWorker sign-in page.\n", purpose, code)
-		return
-	}
 
 	// Load persisted secrets into the process-wide store and enable write-through,
 	// so nodes can reference {{secret.NAME}} instead of embedding plaintext.
@@ -147,9 +155,6 @@ func main() {
 	// is observed.
 	runtimeManager := flow.NewRuntimeManager(registry, log.Logger, flow.WithManagerObserver(recorder.Observe))
 
-	// Restore previously running flows
-	restoreRunningFlows(store, runtimeManager)
-
 	var userStore *storage.SQLiteUserStore
 	if cfg.Auth {
 		// Share the flow store's database handle to avoid a second connection
@@ -179,24 +184,40 @@ func main() {
 		}
 	}
 
-	router, flowsHandler := buildRouter(cfg, store, runtimeManager, registry, userStore)
+	// HTTPS certificates: the local CA (auto) or the configured files (custom).
+	tlsSrc, err := newTLSSource(cfg)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Cannot set up HTTPS; to start without it use -tls=off or PIWORKER_TLS_MODE=off")
+	}
+	var tlsConf *tls.Config
+	if tlsSrc != nil {
+		tlsConf = tlsSrc.TLSConfig()
+	}
+
+	tlsHandler := newTLSHandler(cfg.TLS.Mode, tlsSrc)
+	router, flowsHandler, services := buildApp(cfg, store, runtimeManager, registry, userStore, tlsRoutes(tlsHandler))
+	// MCP audit retention (30 days, row cap): at start, then hourly.
+	go mcpserver.RunAuditRetention(appCtx, store, mcpserver.RetentionOptions{Logger: log.Logger})
+
+	// Bind before restoring flows, so a busy port fails before anything runs.
+	servers, err := listen(cfg, router, tlsConf)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Cannot listen")
+	}
+	// GET /api/tls reports the real ports (the trust page builds links from them).
+	tlsHandler.SetPorts(servers.ports())
+
+	// Restore previously running flows
+	restoreRunningFlows(store, runtimeManager)
 
 	// Setup signal handling
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	srv := newHTTPServer(cfg.Addr, router)
-
-	// Start the server in a goroutine
-	errCh := make(chan error, 1)
-	go func() {
-		log.Info().
-			Str("addr", cfg.Addr).
-			Msg("HTTP server started")
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errCh <- err
-		}
-	}()
+	errCh := make(chan error, 2)
+	servers.serve(errCh)
+	announceListeners(servers, tlsSrc)
+	watchTLS(appCtx, tlsSrc, tlsca.RefreshInterval)
 
 	// Wait for shutdown signal or error
 	select {
@@ -209,7 +230,7 @@ func main() {
 	}
 
 	log.Info().Msg("Shutting down...")
-	if err := gracefulShutdown(srv, flowsHandler, runtimeManager, 10*time.Second); err != nil {
+	if err := gracefulShutdown(servers.all(), flowsHandler, runtimeManager, 10*time.Second, services.audit.Close); err != nil {
 		log.Error().Err(err).Msg("Error during server shutdown")
 	}
 
@@ -225,40 +246,117 @@ func main() {
 	log.Info().Msg("PiWorker stopped")
 }
 
+// runOfflineCommand runs -tls-regenerate-ca, -setup-code or -recover-account
+// and exits on failure. These are local-only commands: they never start flows
+// or listeners.
+func runOfflineCommand(cfg config.Config) {
+	if *tlsRegenerate {
+		fingerprint, err := regenerateCA(cfg)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Cannot regenerate the local CA")
+		}
+		fmt.Printf("New local CA in %s\nCA fingerprint: %s\nRestart PiWorker, then trust the new CA on every device; the old one no longer works.\n", cfg.TLSDir(), fingerprint)
+		return
+	}
+
+	store, err := storage.NewSQLiteStore(cfg.DBPath)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to initialize storage")
+	}
+	defer store.Close()
+	users, err := storage.NewSQLiteUserStoreWithDB(store.DB())
+	if err != nil {
+		log.Fatal().Err(err).Msg("Cannot open accounts")
+	}
+	purpose := "recovery"
+	username := *recoveryUser
+	if *setupCode {
+		purpose = "setup"
+		username = ""
+	}
+	code, err := users.NewAuthCode(purpose, username, time.Now())
+	if err != nil {
+		log.Fatal().Err(err).Msg("Cannot generate account code")
+	}
+	fmt.Printf("%s code (one use, expires in 30 minutes): %s\nEnter it on the PiWorker sign-in page.\n", purpose, code)
+}
+
+// maxHeaderBytes caps a request's line and headers on every listener: the
+// editor's and agents' requests need a few KiB (cookies, a bearer token).
+const maxHeaderBytes = 64 << 10
+
 // newHTTPServer builds the HTTP server. Every request context derives from a
 // base context that is cancelled as soon as Shutdown begins, so long-lived
 // requests that honour r.Context() (the SSE event stream) end promptly instead
-// of holding Shutdown until its timeout.
+// of holding Shutdown until its timeout. Server errors go to zerolog, rate
+// limited, with handshake noise at debug level (serverErrorWriter). The
+// request line and headers are capped at maxHeaderBytes (Go's default is
+// 1 MiB), larger ones refused with 431 before any handler runs.
 func newHTTPServer(addr string, handler http.Handler) *http.Server {
 	baseCtx, cancelBase := context.WithCancel(context.Background())
 	srv := &http.Server{
-		Addr:         addr,
-		Handler:      handler,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
-		BaseContext:  func(net.Listener) context.Context { return baseCtx },
+		Addr:           addr,
+		Handler:        handler,
+		ReadTimeout:    15 * time.Second,
+		WriteTimeout:   15 * time.Second,
+		IdleTimeout:    60 * time.Second,
+		MaxHeaderBytes: maxHeaderBytes,
+		BaseContext:    func(net.Listener) context.Context { return baseCtx },
+		ErrorLog:       newServerErrorWriter(log.Logger, time.Now).logger(),
 	}
 	srv.RegisterOnShutdown(cancelBase)
 	return srv
 }
 
 // gracefulShutdown stops the process in dependency order: refuse new deploys,
-// drain HTTP (which cancels streams via the base context), and only then stop
-// the flows, so in-flight API calls never observe a half-stopped runtime and
-// nothing can be deployed after StopAll.
-func gracefulShutdown(srv *http.Server, flows *api.FlowsHandler, manager *flow.RuntimeManager, timeout time.Duration) error {
+// drain every HTTP server (which cancels streams via the base context), and
+// only then stop the flows, so in-flight API calls never observe a
+// half-stopped runtime and nothing can be deployed after StopAll.
+// The flushers (the MCP audit writer) run last, once nothing can record
+// anything any more, while the store is still open.
+func gracefulShutdown(srvs []*http.Server, flows *api.FlowsHandler, manager *flow.RuntimeManager, timeout time.Duration, flushers ...func(context.Context) error) error {
 	flows.BeginShutdown()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	err := srv.Shutdown(ctx)
+	errs := make([]error, len(srvs))
+	var wg sync.WaitGroup
+	for i, srv := range srvs {
+		wg.Go(func() { errs[i] = srv.Shutdown(ctx) })
+	}
+	wg.Wait()
 	manager.StopAll()
-	return err
+	flushCtx, cancelFlush := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelFlush()
+	for _, flush := range flushers {
+		errs = append(errs, flush(flushCtx))
+	}
+	return errors.Join(errs...)
+}
+
+// routerOption registers additional routes before the frontend catch-all.
+type routerOption func(*mux.Router)
+
+// appServices are the long-lived services buildApp creates besides the
+// router: the tool service shared by REST and MCP, the read views of the
+// MCP read tools, agent authoring and deploy (drafts, dry-runs, the
+// agent_deploy policy) over the editor's lifecycle path, and the MCP audit
+// writer that must be flushed on shutdown.
+type appServices struct {
+	tools     *service.Tools
+	reads     *service.Reads
+	authoring *service.Authoring
+	audit     *service.AuditWriter
 }
 
 // buildRouter wires middleware and every HTTP route. users is nil when
 // authentication is disabled.
-func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flow.RuntimeManager, registry *node.Registry, users *storage.SQLiteUserStore) (*mux.Router, *api.FlowsHandler) {
+func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flow.RuntimeManager, registry *node.Registry, users *storage.SQLiteUserStore, opts ...routerOption) (*mux.Router, *api.FlowsHandler) {
+	router, flows, _ := buildApp(cfg, store, runtimeManager, registry, users, opts...)
+	return router, flows
+}
+
+// buildApp is buildRouter that also returns the services main shuts down.
+func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flow.RuntimeManager, registry *node.Registry, users *storage.SQLiteUserStore, opts ...routerOption) (*mux.Router, *api.FlowsHandler, appServices) {
 	router := mux.NewRouter()
 
 	// CORS allowed origins (from config).
@@ -272,17 +370,70 @@ func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *
 	router.Use(api.RecoveryMiddleware(log.Logger))
 	router.Use(api.LoggingMiddleware(log.Logger))
 	router.Use(api.MetricsMiddleware)
+	// Host allowlist (DNS rebinding) before CORS, so preflights from unknown
+	// names are refused too. /webhooks/ and the CA certificate are exempt.
+	hostGuard := api.NewHostGuard(api.HostGuardOptions{AllowedHosts: cfg.AllowedHosts})
+	log.Info().Strs("hosts", hostGuard.Names()).Msg("Accepted Host names (plus any IP address)")
+	router.Use(hostGuard.Middleware)
 	router.Use(makeCorsMiddleware(corsOrigins))
 	// CSRF + JSON Content-Type enforcement for unsafe /api/ requests. Installed
 	// unconditionally: with auth disabled it is the only thing stopping a page in
 	// the admin's browser from creating and deploying flows.
 	router.Use(api.RequestGuardMiddleware(cfg.SessionSecure, cfg.CORSOrigins))
 
+	// The tool service is shared by the editor's REST twin and the MCP
+	// endpoint; agent tokens only exist with authentication.
+	var agentTokens *agentauth.TokenVerifier
+	var tokenEvictor service.TokenEvictor
 	if users != nil {
-		authHandler := api.NewAuthHandler(users, cfg.SessionSecure, cfg.CORSOrigins)
+		agentTokens = agentauth.NewTokenVerifier(store, agentauth.WithLogger(log.Logger))
+		tokenEvictor = agentTokens
+	}
+	services := appServices{audit: service.NewAuditWriter(store, service.AuditOptions{Logger: log.Logger})}
+	services.tools = service.NewTools(service.Options{
+		Runtimes:       runtimeManager,
+		Store:          store,
+		Secrets:        secrets.DefaultStore,
+		Audit:          services.audit,
+		Tokens:         tokenEvictor,
+		MaxInflight:    cfg.MCP.MaxInflight,
+		MaxResultBytes: cfg.MCP.MaxResultBytes,
+		Logger:         log.Logger,
+	})
+	// What agents with the read scope may observe (redacted, bounded,
+	// audited).
+	services.reads = service.NewReads(service.ReadsOptions{
+		Flows:    store,
+		History:  store,
+		Runtimes: runtimeManager,
+		Registry: registry,
+		Secrets:  secrets.DefaultStore,
+		Settings: store,
+		Version:  version,
+		DataDir:  filepath.Dir(cfg.DBPath),
+		MCP:      cfg.MCP,
+		Audit:    services.audit,
+	})
+
+	if users != nil {
+		// With native HTTPS the session cookie is always Secure.
+		authHandler := api.NewAuthHandler(users, cfg.SessionSecure, cfg.CORSOrigins, api.WithSecureCookies(cfg.TLSEnabled()))
 		authHandler.RegisterRoutes(router)
 		router.Use(api.AuthMiddleware(authHandler))
 		log.Info().Msg("Session authentication enabled")
+
+		// Agent tokens, approvals, audit and settings (editor side of MCP).
+		// Recovery and password changes revoke tokens through the verifier;
+		// approved tool calls run through the tool service.
+		authHandler.SetAgentTokenRevoker(agentTokens)
+		api.NewAgentHandler(store, authHandler, agentTokens, api.AgentHandlerOptions{
+			AuthorEnabled: cfg.MCP.AuthorEnabled,
+			MCPEnabled:    cfg.MCP.Enabled,
+			LANAccess:     cfg.MCP.LANAccess,
+			Executor:      services.tools,
+			Logger:        log.Logger,
+		}).RegisterRoutes(router)
+		api.NewAgentToolsHandler(runtimeManager).RegisterRoutes(router)
 	} else {
 		router.HandleFunc("/api/auth/status", api.AuthStatusHandler(false)).Methods(http.MethodGet)
 		log.Warn().Msg("Authentication disabled - API is unprotected")
@@ -291,6 +442,26 @@ func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *
 	// Register handlers
 	flowsHandler := api.NewFlowsHandler(store, runtimeManager, registry, log.Logger)
 	flowsHandler.RegisterRoutes(router)
+	// Agent authoring and deploy save and deploy through the editor's
+	// lifecycle path (one lock, the restart intent, the deployment marker).
+	services.authoring = service.NewAuthoring(service.AuthoringOptions{
+		Store:         store,
+		Lifecycle:     flowsHandler,
+		Registry:      registry,
+		Secrets:       secrets.DefaultStore,
+		Audit:         services.audit,
+		AuthorEnabled: cfg.MCP.AuthorEnabled,
+		Logger:        log.Logger,
+	})
+	drafts := api.NewDraftsHandler(services.authoring, log.Logger)
+	if users != nil {
+		// Drafts exist only with agent tokens, hence with authentication.
+		drafts.RegisterRoutes(router)
+	} else {
+		drafts.RegisterVersionRoutes(router)
+	}
+	// The editor's "Test tool" (REST twin of an MCP tool call).
+	api.NewToolCallHandler(services.tools, log.Logger).RegisterRoutes(router)
 
 	nodeTypesHandler := api.NewNodeTypesHandler(registry, log.Logger, store)
 	nodeTypesHandler.RegisterRoutes(router)
@@ -308,12 +479,20 @@ func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *
 	api.NewVariablesHandler(vars.DefaultStore).RegisterRoutes(router)
 
 	healthHandler := api.NewHealthHandler(store)
-	router.HandleFunc("/api/health", healthHandler.Health).Methods(http.MethodGet)
+	router.HandleFunc(healthPath, healthHandler.Health).Methods(http.MethodGet, http.MethodHead)
 
 	// Prometheus metrics live under /api so they share the API's auth (and the
 	// session cookie, which is scoped to /api).
 	router.Handle("/api/metrics", promhttp.Handler()).Methods(http.MethodGet)
 	log.Info().Msg("Prometheus metrics endpoint available at /api/metrics")
+
+	for _, opt := range opts {
+		opt(router)
+	}
+
+	// The author and deploy tools serve the same authoring service as the
+	// editor's drafts pages, over the editor's lifecycle path.
+	mountMCP(router, cfg, services, agentTokens, hostGuard, mcpBuiltins{authoring: services.authoring, registry: registry, settings: store})
 
 	// Webhook endpoints: trigger-webhook nodes register their paths on the shared
 	// hub, and incoming requests are dispatched to them. Public (the node's
@@ -334,7 +513,60 @@ func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *
 	// Error handlers for API routes (these are overridden by the PathPrefix above for non-API)
 	router.NotFoundHandler = http.HandlerFunc(api.NotFoundHandler)
 	router.MethodNotAllowedHandler = http.HandlerFunc(api.MethodNotAllowedHandler)
-	return router, flowsHandler
+	return router, flowsHandler, services
+}
+
+// mountMCP mounts the MCP endpoint (docs/design/mcp.md §8) at /mcp for every
+// method, before the web UI catch-all, when mcp.enabled (which requires
+// authentication, so agent tokens exist); otherwise /mcp answers a JSON 404.
+// OAuth discovery under /.well-known/ always answers a JSON 404, so clients
+// fall back to their configured Bearer token instead of an OAuth flow.
+func mountMCP(router *mux.Router, cfg config.Config, services appServices, tokens *agentauth.TokenVerifier, hosts *api.HostGuard, builtins mcpBuiltins) {
+	notFound := http.HandlerFunc(api.NotFoundHandler)
+	router.PathPrefix("/.well-known/").Handler(notFound)
+	if !cfg.MCP.Enabled || tokens == nil {
+		router.Handle(mcpserver.Path, notFound)
+		return
+	}
+	opts := mcpserver.Options{
+		Tools:          services.tools,
+		Tokens:         tokens,
+		Rejections:     services.audit,
+		StaticTools:    mcpserver.ReadTools(services.reads),
+		Prompts:        mcpserver.ReadPrompts(services.reads),
+		AuthorEnabled:  cfg.MCP.AuthorEnabled,
+		TLS:            cfg.TLSEnabled(),
+		LANAccess:      cfg.MCP.LANAccess,
+		HostAllowed:    hosts.Allowed,
+		AllowedOrigins: cfg.CORSOrigins,
+		Version:        version,
+		Logger:         log.Logger,
+	}
+	if a := builtins.authoring; a != nil {
+		// The author tools (mcp.author_enabled, scope author), the deploy
+		// tools (agent_deploy above off, scope deploy) and author_flow; the
+		// endpoint audits what runs no service (node types, the prompt).
+		opts.StaticTools = append(append(opts.StaticTools, mcpserver.AuthorTools(a, builtins.registry, services.audit)...),
+			mcpserver.DeployTools(a)...)
+		opts.Prompts = append(opts.Prompts, mcpserver.AuthorPrompts(services.audit)...)
+		opts.DeployLevel = builtins.settings
+	}
+	handler, err := mcpserver.New(opts)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Cannot set up the MCP endpoint")
+	}
+	router.Handle(mcpserver.Path, handler)
+	log.Info().Str("path", mcpserver.Path).Bool("tls", cfg.TLSEnabled()).Bool("lanAccess", cfg.MCP.LANAccess).Msg("MCP endpoint mounted")
+}
+
+// mcpBuiltins are what /mcp serves besides the flow and read tools: with
+// the authoring service, the author and deploy tools and author_flow, the
+// node types they list and the agent deploy level (settings) that gates the
+// deploy tools.
+type mcpBuiltins struct {
+	authoring *service.Authoring
+	registry  *node.Registry
+	settings  mcpserver.DeployLevelReader
 }
 
 // setupLogging configures the global logger.
@@ -362,8 +594,11 @@ func setupLogging(debugMode bool) {
 	zerolog.DefaultContextLogger = &log.Logger
 }
 
-// makeCorsMiddleware creates a CORS middleware with the given allowed origins.
-// If no origins are provided, it defaults to allowing any origin (not recommended for production).
+// makeCorsMiddleware creates a CORS middleware that grants cross-origin,
+// credentialed access to the allowed origins only, echoing the request's
+// origin. It fails closed (ADR-0004): no origins means no cross-origin
+// access, never "*" (an empty cors_origins once let any web page read the
+// API of a Pi with authentication off).
 func makeCorsMiddleware(allowedOrigins []string) mux.MiddlewareFunc {
 	// Create a set for fast lookup
 	originSet := make(map[string]bool)
@@ -375,27 +610,14 @@ func makeCorsMiddleware(allowedOrigins []string) mux.MiddlewareFunc {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
 
-			// Decide the allowed origin. With no allowlist we fall back to "*"
-			// (development mode); otherwise we echo a specific allowlisted origin.
-			allowOrigin := ""
-			if len(allowedOrigins) == 0 {
-				allowOrigin = "*"
-			} else if originSet[origin] {
-				allowOrigin = origin
+			if origin != "" && originSet[origin] {
 				w.Header().Set("Vary", "Origin")
-			}
-
-			if allowOrigin != "" {
-				w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
-				// Credentials may ONLY be combined with a specific origin, never
-				// with the "*" wildcard (the classic CORS misconfiguration).
-				if allowOrigin != "*" {
-					w.Header().Set("Access-Control-Allow-Credentials", "true")
-				}
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
 
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-PiWorker-Request")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-PiWorker-Request, "+api.BackgroundRequestHeader)
 			w.Header().Set("Access-Control-Max-Age", "86400") // 24 hours
 
 			if r.Method == http.MethodOptions {
@@ -415,6 +637,14 @@ func applyFlagOverrides(cfg *config.Config) {
 		switch f.Name {
 		case "addr":
 			cfg.Addr = *listenAddr
+		case "http-addr":
+			cfg.HTTPAddr = *httpAddr
+		case "tls":
+			// An invalid value is kept as given and reported by Validate.
+			cfg.TLS.Mode = *tlsMode
+			if mode, err := config.ParseTLSMode(*tlsMode); err == nil {
+				cfg.TLS.Mode = mode
+			}
 		case "db":
 			cfg.DBPath = *dbPath
 		case "debug":
@@ -425,6 +655,8 @@ func applyFlagOverrides(cfg *config.Config) {
 			cfg.SessionSecure = *sessionSecure
 		case "cors-origins":
 			cfg.CORSOrigins = config.SplitOrigins(*allowedOrigins)
+		case "allowed-hosts":
+			cfg.AllowedHosts = config.SplitList(*allowedHosts)
 		case "admin-user":
 			cfg.AdminUser = *adminUser
 		case "admin-pass":
@@ -433,7 +665,10 @@ func applyFlagOverrides(cfg *config.Config) {
 	})
 }
 
-// restoreRunningFlows attempts to restart flows that were running before the server stopped.
+// restoreRunningFlows attempts to restart flows that were running before the
+// server stopped. Settings that no longer pass the deploy-time schema check
+// (values saved before it existed) are logged, not fatal: the flow keeps
+// running as it did, and the next explicit deploy asks for a fix.
 func restoreRunningFlows(store *storage.SQLiteStore, manager *flow.RuntimeManager) {
 	runningFlows, err := store.GetRunningFlows()
 	if err != nil {
@@ -453,7 +688,16 @@ func restoreRunningFlows(store *storage.SQLiteStore, manager *flow.RuntimeManage
 	failed := 0
 
 	for _, f := range runningFlows {
-		if err := manager.Deploy(ctx, f); err != nil {
+		issues, err := manager.Restore(ctx, f)
+		for _, issue := range issues {
+			log.Warn().
+				Str("flowID", f.ID).
+				Str("flowName", f.Name).
+				Str("path", issue.Path).
+				Str("problem", issue.Message).
+				Msg("Restored flow has a setting that the next deploy will refuse; the node clamps or defaults it as before")
+		}
+		if err != nil {
 			log.Error().
 				Err(err).
 				Str("flowID", f.ID).
@@ -471,6 +715,9 @@ func restoreRunningFlows(store *storage.SQLiteStore, manager *flow.RuntimeManage
 				Str("flowName", f.Name).
 				Msg("Flow restored successfully")
 			restored++
+			if err := markRestored(store, f); err != nil {
+				log.Error().Err(err).Str("flowID", f.ID).Msg("Failed to record who deployed the restored version")
+			}
 		}
 	}
 
@@ -478,6 +725,27 @@ func restoreRunningFlows(store *storage.SQLiteStore, manager *flow.RuntimeManage
 		Int("restored", restored).
 		Int("failed", failed).
 		Msg("Flow restoration complete")
+}
+
+// markRestored keeps the deployment marker of a restored flow true (H6): a
+// restore is not a new deployment, so a marker that names the restored
+// version is kept; one that names another version (a redeploy that failed
+// after a save left the running intent on the newer version, such as an
+// agent's draft) is replaced by the version's own author, who saved it to
+// run. A flow without stored versions keeps its marker.
+func markRestored(store *storage.SQLiteStore, f *flow.Flow) error {
+	d, err := store.GetDeployment(f.ID)
+	if err != nil || (d != nil && d.Version == f.Version) {
+		return err
+	}
+	v, err := store.GetFlowVersion(f.ID, f.Version)
+	if errors.Is(err, storage.ErrFlowVersionNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return store.RecordDeployment(f.ID, storage.Deployment{Version: f.Version, ActorKind: v.ActorKind, TokenID: v.TokenID, TokenName: v.TokenName})
 }
 
 // ensureDefaultAdmin optionally bootstraps the first user from explicit credentials.

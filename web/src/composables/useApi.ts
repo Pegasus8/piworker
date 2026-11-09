@@ -1,5 +1,7 @@
 import axios from 'axios'
-import type { Flow, FlowListItem, FlowEvent, FlowRun, NodeEventRecord, NodeTestResult } from '@/types'
+import type { CallResult, Flow, FlowListItem, FlowEvent, FlowRun, NodeEventRecord, NodeTestResult, TLSInfo, VersionList } from '@/types'
+import type { ApplyResult } from '@/lib/drafts'
+import { secretList, type SecretList } from '@/lib/secrets'
 
 const api = axios.create({
   baseURL: '/api',
@@ -27,6 +29,10 @@ api.interceptors.response.use(
   }
 )
 
+// The configured client (CSRF header, 401 handling) for stores that keep
+// their own endpoints, such as stores/agent.ts.
+export const apiClient = api
+
 export function useApi() {
   // Flows
   async function getFlows(): Promise<FlowListItem[]> {
@@ -39,6 +45,11 @@ export function useApi() {
       state: flow.state,
       running: flow.state === 'running',
       nodeCount: flow.nodes?.length ?? 0,
+      // The version the list shows (turning the flow on sends it) and the
+      // agent marks (docs/design/mcp.md §10); an older server has none.
+      version: typeof flow.version === 'number' ? flow.version : undefined,
+      deployment: flow.deployment ?? null,
+      agentChanged: flow.agentChanged === true,
       createdAt: flow.createdAt,
       updatedAt: flow.updatedAt
     }))
@@ -66,9 +77,23 @@ export function useApi() {
     await api.delete(`/flows/${id}`)
   }
 
-  async function toggleFlow(id: string, enabled: boolean): Promise<boolean> {
-    const { data } = await api.patch(`/flows/${id}/toggle`, { enabled })
+  // version: when turning the flow on, the version the caller shows; the
+  // server answers 409 with data.currentVersion when another one was saved
+  // since (an approved draft, an agent's version, a rollback).
+  async function toggleFlow(id: string, enabled: boolean, version?: number): Promise<boolean> {
+    const { data } = await api.patch(`/flows/${id}/toggle`, enabled && version ? { enabled, version } : { enabled })
     return data.data.running
+  }
+
+  // Version history and rollback to the version the admin last approved.
+  async function getFlowVersions(id: string, limit?: number): Promise<VersionList> {
+    const { data } = await api.get(`/flows/${encodeURIComponent(id)}/versions`, limit ? { params: { limit } } : undefined)
+    return { ...data.data, versions: data.data?.versions ?? [] }
+  }
+
+  async function rollbackFlow(id: string): Promise<ApplyResult> {
+    const { data } = await api.post(`/flows/${encodeURIComponent(id)}/rollback`)
+    return data.data
   }
 
   // Flow lifecycle: duplicate / export / import.
@@ -98,10 +123,11 @@ export function useApi() {
     await api.delete(`${flowId ? `/flows/${encodeURIComponent(flowId)}` : ""}/variables/${encodeURIComponent(name)}`)
   }
 
-  // Secrets (values are write-only; the listing returns names).
-  async function getSecrets(): Promise<string[]> {
+  // Secrets (values are write-only; the listing returns names and whether
+  // each value is short, never values or lengths).
+  async function getSecrets(): Promise<SecretList> {
     const { data } = await api.get('/secrets')
-    return data.data?.names ?? []
+    return secretList(data.data)
   }
 
   async function setSecret(name: string, value: string): Promise<void> {
@@ -121,8 +147,10 @@ export function useApi() {
   // Flow execution. The deploy/stop endpoints already return the resulting
   // running state, so callers can use it directly instead of issuing a second
   // full getFlow round-trip just to read one boolean.
-  async function deployFlow(id: string): Promise<boolean> {
-    const { data } = await api.post(`/flows/${id}/deploy`)
+  // version: the definition version the caller shows; the server answers
+  // 409 with data.currentVersion when another one was saved since.
+  async function deployFlow(id: string, version?: number): Promise<boolean> {
+    const { data } = await api.post(`/flows/${id}/deploy`, version ? { version } : undefined)
     return data.data.running
   }
 
@@ -133,6 +161,13 @@ export function useApi() {
 
   async function injectNode(flowId: string, nodeId: string, payload?: unknown): Promise<void> {
     await api.post(`/flows/${flowId}/inject/${nodeId}`, payload === undefined ? {} : { payload })
+  }
+
+  // "Test tool": call a trigger-tool of a running flow as the editor (the REST
+  // twin of an agent's MCP call). Refusals reject with the API error envelope.
+  async function callTool(flowId: string, nodeId: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<CallResult> {
+    const { data } = await api.post(`/flows/${encodeURIComponent(flowId)}/call/${encodeURIComponent(nodeId)}`, { args }, { signal })
+    return data.data
   }
 
   // Debug: run a single processing node once against a sample payload.
@@ -239,8 +274,9 @@ export function useApi() {
   async function recover(username: string, password: string, code: string): Promise<void> {
     await api.post('/auth/recover', { username, password, code })
   }
-  async function changePassword(currentPassword: string, password: string): Promise<void> {
-    await api.post('/auth/password', { currentPassword, password })
+  // The server revokes every agent token on a password change unless asked to keep them.
+  async function changePassword(currentPassword: string, password: string, keepAgentTokens = false): Promise<void> {
+    await api.post('/auth/password', { currentPassword, password, keepAgentTokens })
   }
   async function logout(): Promise<void> { await api.post('/auth/logout') }
   async function getSession(): Promise<{ username: string }> {
@@ -251,6 +287,11 @@ export function useApi() {
     const { data } = await api.get('/auth/status')
     return data.data
   }
+  // HTTPS: mode, CA fingerprint and certificate details (signed-in only).
+  async function getTLSInfo(): Promise<TLSInfo> {
+    const { data } = await api.get('/tls')
+    return data.data
+  }
 
   return {
     getFlows,
@@ -259,11 +300,14 @@ export function useApi() {
     updateFlow,
     deleteFlow,
     toggleFlow,
+    getFlowVersions,
+    rollbackFlow,
     getNodeTypes,
     deployFlow,
     stopFlow,
     testNode,
     injectNode,
+    callTool,
     // Lifecycle
     duplicateFlow,
     exportFlow,
@@ -284,6 +328,7 @@ export function useApi() {
     changePassword,
     logout,
     getSession,
-    getAuthStatus
+    getAuthStatus,
+    getTLSInfo
   }
 }

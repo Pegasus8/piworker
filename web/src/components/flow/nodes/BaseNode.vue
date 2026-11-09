@@ -6,22 +6,7 @@ import { Handle, Position } from '@vue-flow/core'
 import { cn } from '@/lib/utils'
 import { useObservabilityStore } from '@/stores/observability'
 import type { NodeCategory } from '@/types'
-import {
-  Clock,
-  Webhook,
-  Radio,
-  Cpu,
-  Code,
-  GitBranch,
-  Timer,
-  FileText,
-  Globe,
-  Send,
-  Zap,
-  Bug,
-  Mail,
-  HelpCircle
-} from 'lucide-vue-next'
+import { nodeIcon } from '@/lib/nodeIcons'
 
 interface Props {
   id: string
@@ -37,23 +22,7 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const iconComponents: Record<string, any> = {
-  Clock,
-  Webhook,
-  Radio,
-  Cpu,
-  Code,
-  GitBranch,
-  Timer,
-  FileText,
-  Globe,
-  Send,
-  Zap,
-  Bug,
-  Mail
-}
-
-const IconComponent = computed(() => iconComponents[props.data.icon] || HelpCircle)
+const IconComponent = computed(() => nodeIcon(props.data.icon))
 
 const categoryColors = {
   trigger: {

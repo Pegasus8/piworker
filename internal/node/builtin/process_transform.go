@@ -59,33 +59,54 @@ func NewTransformProcess(config map[string]interface{}) (node.Node, error) {
 // timeout can cancel function calls during evaluation. Extra options (e.g.
 // expr.AsBool() for boolean conditions) are appended. Keeping the option list in
 // one place keeps the sandbox contract consistent across every node.
+//
+// The source is bounded first (checkExprSource: length and bracket
+// nesting, which expr's recursive parser does not limit). The program is
+// compiled twice: plain first, for its errors (exactly expr's
+// own), then with the expression guard (expr_guard.go), which is the program
+// returned: its loops stop when the evaluation's context ends and, in a
+// sandbox, the data it builds is bounded.
 func compileExpr(src string, extra ...expr.Option) (*vm.Program, error) {
-	opts := append([]expr.Option{
-		expr.AllowUndefinedVariables(),
-		expr.MaxNodes(DefaultExprMaxNodes),
-		expr.WithContext("ctx"),
-	}, extra...)
-	return expr.Compile(src, opts...)
+	if err := checkExprSource(src); err != nil {
+		return nil, err
+	}
+	base := func() []expr.Option {
+		return []expr.Option{
+			expr.AllowUndefinedVariables(),
+			expr.MaxNodes(DefaultExprMaxNodes),
+			expr.WithContext("ctx"),
+		}
+	}
+	if _, err := expr.Compile(src, append(base(), extra...)...); err != nil {
+		return nil, err
+	}
+	opts := append(base(), exprGuardOptions()...)
+	return expr.Compile(src, append(opts, extra...)...)
 }
 
 // evalExpr runs a compiled expression against the message with a bounded
 // timeout. WithContext("ctx") lets expr honour the deadline during function
-// calls, and running expr.Run in a goroutine guarantees the caller returns even
-// if a pathological expression gets stuck. Shared by the transform, filter,
-// switch and set-var nodes.
+// calls, the expression guard stops its loops once the deadline passed, and
+// running expr.Run in a goroutine guarantees the caller returns even if a
+// single long operation is still finishing. In a sandbox (node.SandboxFrom)
+// that goroutine is tracked by the sandbox (node.Go) and the result is
+// bounded by its per-value cap. Shared by the transform, filter, switch,
+// set-var, join and database nodes.
 func evalExpr(ctx context.Context, program *vm.Program, msg *types.Message) (interface{}, error) {
 	runCtx, cancel := context.WithTimeout(ctx, DefaultExprTimeout)
 	defer cancel()
+	sb := node.SandboxFrom(ctx)
 
 	env := map[string]interface{}{
-		"payload":   msg.Payload,
-		"vars":      vars.FromContext(ctx).Snapshot(),
-		"flowVars":  flowVariableSnapshot(ctx),
-		"meta":      msg.Meta,
-		"topic":     msg.Topic,
-		"timestamp": msg.Timestamp.Format(time.RFC3339),
-		"id":        msg.ID,
-		"ctx":       runCtx,
+		"payload":     msg.Payload,
+		"vars":        vars.FromContext(ctx).Snapshot(),
+		"flowVars":    flowVariableSnapshot(ctx),
+		"meta":        msg.Meta,
+		"topic":       msg.Topic,
+		"timestamp":   msg.Timestamp.Format(time.RFC3339),
+		"id":          msg.ID,
+		"ctx":         runCtx,
+		exprGuardName: newExprGuard(runCtx, sb),
 	}
 	if env["meta"] == nil {
 		env["meta"] = map[string]interface{}{}
@@ -96,15 +117,20 @@ func evalExpr(ctx context.Context, program *vm.Program, msg *types.Message) (int
 		err error
 	}
 	resCh := make(chan exprResult, 1)
-	go func() {
+	node.Go(ctx, func() {
 		val, err := expr.Run(program, env)
 		resCh <- exprResult{val: val, err: err}
-	}()
+	})
 
 	select {
 	case <-runCtx.Done():
 		return nil, fmt.Errorf("expression evaluation timed out after %s", DefaultExprTimeout)
 	case r := <-resCh:
+		if r.err == nil && sb != nil {
+			if err := sb.CheckValue(r.val); err != nil {
+				return nil, fmt.Errorf("expression result: %w", err)
+			}
+		}
 		return r.val, r.err
 	}
 }
@@ -267,6 +293,7 @@ The expression result becomes the new payload. Output metadata:
 - Field extraction
 `,
 		Category: types.NodeCategoryProcessing,
+		Risk:     node.RiskSafe,
 		Inputs: []types.Port{
 			{
 				ID:       "input",

@@ -146,8 +146,16 @@ CREATE TABLE IF NOT EXISTS vars (
 		);
 	`
 
-	_, err := s.db.Exec(schema)
-	return err
+	if _, err := s.db.Exec(schema); err != nil {
+		return err
+	}
+	if err := migrateHistory(s.db); err != nil {
+		return err
+	}
+	if err := migrateFlowVersions(s.db); err != nil {
+		return err
+	}
+	return s.migrateAgent()
 }
 
 // GetSetting returns a stored setting value and whether it exists.
@@ -183,8 +191,27 @@ func (s *SQLiteStore) SetSetting(key, value string) error {
 	return nil
 }
 
-// CreateFlow saves a new flow to the database.
+// CreateFlow saves a new flow to the database as version 1, recorded as an
+// editor save (admin-approved), with the state f carries (the API handlers
+// always create flows inactive). Any f.Version is ignored; on success it is
+// 1. Zero timestamps are set to now.
 func (s *SQLiteStore) CreateFlow(f *flow.Flow) error {
+	if f == nil {
+		return ErrInvalidFlowData
+	}
+	return s.createFlow(f, VersionMeta{ActorKind: VersionActorEditor, AdminApproved: true}, f.State)
+}
+
+// CreateFlowVersioned is CreateFlow with the version 1 recorded with meta
+// (an approved agent draft creating a new flow, for example; a
+// meta.DraftID is applied and closed in the same transaction, see
+// applyDraftTx). The flow is always created inactive: a definition never
+// carries restart intent.
+func (s *SQLiteStore) CreateFlowVersioned(f *flow.Flow, meta VersionMeta) error {
+	return s.createFlow(f, meta, flow.FlowStateInactive)
+}
+
+func (s *SQLiteStore) createFlow(f *flow.Flow, meta VersionMeta, state flow.FlowState) error {
 	if s.isClosed() {
 		return ErrDatabaseClosed
 	}
@@ -196,17 +223,36 @@ func (s *SQLiteStore) CreateFlow(f *flow.Flow) error {
 	if f.ID == "" {
 		return fmt.Errorf("%w: empty flow ID", ErrInvalidFlowData)
 	}
+	if err := meta.validate(); err != nil {
+		return err
+	}
 
 	data, err := json.Marshal(f)
 	if err != nil {
 		return fmt.Errorf("failed to marshal flow: %w", err)
 	}
 
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin flow creation: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+
 	now := time.Now()
-	_, err = s.db.Exec(`
-		INSERT INTO flows (id, name, description, data, state, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, f.ID, f.Name, f.Description, string(data), f.State, now, now)
+	created, updated := f.CreatedAt, f.UpdatedAt
+	if created.IsZero() {
+		created = now
+	}
+	if updated.IsZero() {
+		updated = now
+	}
+	if err := applyDraftTx(tx, meta, "", 0, 1, f.ID, now); err != nil {
+		return err
+	}
+	_, err = tx.Exec(`
+		INSERT INTO flows (id, name, description, data, state, version, created_at, updated_at)
+		VALUES (?, ?, ?, json_set(?, '$.version', 1, '$.state', ?, '$.createdAt', ?, '$.updatedAt', ?), ?, 1, ?, ?)
+	`, f.ID, f.Name, f.Description, string(data), state, jsonTime(created), jsonTime(updated), state, now, now)
 
 	if err != nil {
 		// Check for unique constraint violation
@@ -215,7 +261,17 @@ func (s *SQLiteStore) CreateFlow(f *flow.Flow) error {
 		}
 		return fmt.Errorf("failed to create flow: %w", err)
 	}
-
+	// Versions of a flow deleted earlier under the same ID must not count.
+	if _, err := tx.Exec(`DELETE FROM flow_versions WHERE flow_id = ?`, f.ID); err != nil {
+		return fmt.Errorf("failed to clear stale flow versions: %w", err)
+	}
+	if err := recordFlowVersion(tx, f.ID, meta, now); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit flow creation: %w", err)
+	}
+	f.Version, f.State, f.CreatedAt, f.UpdatedAt = 1, state, created, updated
 	return nil
 }
 
@@ -229,8 +285,11 @@ func (s *SQLiteStore) GetFlow(id string) (*flow.Flow, error) {
 		return nil, fmt.Errorf("%w: empty flow ID", ErrInvalidFlowData)
 	}
 
-	var data string
-	err := s.db.QueryRow(`SELECT data FROM flows WHERE id = ?`, id).Scan(&data)
+	var (
+		data    string
+		version int
+	)
+	err := s.db.QueryRow(`SELECT data, version FROM flows WHERE id = ?`, id).Scan(&data, &version)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrFlowNotFound
@@ -242,52 +301,22 @@ func (s *SQLiteStore) GetFlow(id string) (*flow.Flow, error) {
 	if err := json.Unmarshal([]byte(data), &f); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal flow: %w", err)
 	}
+	f.Version = version
 
 	return &f, nil
 }
 
-// UpdateFlow updates an existing flow.
+// UpdateFlow saves a new definition of an existing flow: an editor save,
+// stored as the next version (admin-approved) in one transaction. On success
+// f.Version holds the new version. Use UpdateFlowState for state changes,
+// which are not new versions.
 func (s *SQLiteStore) UpdateFlow(f *flow.Flow) error {
-	if s.isClosed() {
-		return ErrDatabaseClosed
-	}
-
-	if f == nil {
-		return ErrInvalidFlowData
-	}
-
-	if f.ID == "" {
-		return fmt.Errorf("%w: empty flow ID", ErrInvalidFlowData)
-	}
-
-	data, err := json.Marshal(f)
-	if err != nil {
-		return fmt.Errorf("failed to marshal flow: %w", err)
-	}
-
-	result, err := s.db.Exec(`
-		UPDATE flows
-		SET name = ?, description = ?, data = ?, state = ?, updated_at = ?
-		WHERE id = ?
-	`, f.Name, f.Description, string(data), f.State, time.Now(), f.ID)
-
-	if err != nil {
-		return fmt.Errorf("failed to update flow: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
-		return ErrFlowNotFound
-	}
-
-	return nil
+	_, err := s.UpdateFlowVersioned(f, 0, VersionMeta{ActorKind: VersionActorEditor, AdminApproved: true})
+	return err
 }
 
-// DeleteFlow removes a flow from the database.
+// DeleteFlow removes a flow, its run history, versions and deployment marker,
+// and voids its pending drafts, in one transaction.
 func (s *SQLiteStore) DeleteFlow(id string) error {
 	if s.isClosed() {
 		return ErrDatabaseClosed
@@ -325,6 +354,15 @@ func (s *SQLiteStore) DeleteFlow(id string) error {
 	if _, err := tx.Exec(`DELETE FROM flow_runs WHERE flow_id = ?`, id); err != nil {
 		return fmt.Errorf("failed to delete flow runs: %w", err)
 	}
+	if _, err := tx.Exec(`DELETE FROM flow_versions WHERE flow_id = ?`, id); err != nil {
+		return fmt.Errorf("failed to delete flow versions: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM flow_deployments WHERE flow_id = ?`, id); err != nil {
+		return fmt.Errorf("failed to delete flow deployment: %w", err)
+	}
+	if err := voidPendingDrafts(tx, `d.flow_id = ?`, []any{id}, DraftReasonFlowDeleted, time.Now()); err != nil {
+		return err
+	}
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit flow deletion: %w", err)
@@ -339,8 +377,11 @@ func (s *SQLiteStore) DeleteFlow(id string) error {
 func scanFlows(rows *sql.Rows) ([]*flow.Flow, error) {
 	var flows []*flow.Flow
 	for rows.Next() {
-		var id, data string
-		if err := rows.Scan(&id, &data); err != nil {
+		var (
+			id, data string
+			version  int
+		)
+		if err := rows.Scan(&id, &data, &version); err != nil {
 			return nil, fmt.Errorf("failed to scan flow: %w", err)
 		}
 
@@ -349,6 +390,7 @@ func scanFlows(rows *sql.Rows) ([]*flow.Flow, error) {
 			log.Error().Err(err).Str("flowID", id).Msg("Skipping flow with unreadable stored definition")
 			continue
 		}
+		f.Version = version
 
 		flows = append(flows, &f)
 	}
@@ -369,9 +411,9 @@ func (s *SQLiteStore) ListFlows(state *flow.FlowState) ([]*flow.Flow, error) {
 	var err error
 
 	if state != nil {
-		rows, err = s.db.Query(`SELECT id, data FROM flows WHERE state = ? ORDER BY created_at DESC`, *state)
+		rows, err = s.db.Query(`SELECT id, data, version FROM flows WHERE state = ? ORDER BY created_at DESC`, *state)
 	} else {
-		rows, err = s.db.Query(`SELECT id, data FROM flows ORDER BY created_at DESC`)
+		rows, err = s.db.Query(`SELECT id, data, version FROM flows ORDER BY created_at DESC`)
 	}
 
 	if err != nil {
@@ -396,7 +438,7 @@ func (s *SQLiteStore) ListFlowsPaginated(offset, limit int) ([]*flow.Flow, int, 
 
 	// Get paginated results
 	rows, err := s.db.Query(`
-		SELECT id, data FROM flows
+		SELECT id, data, version FROM flows
 		ORDER BY created_at DESC
 		LIMIT ? OFFSET ?
 	`, limit, offset)
@@ -423,7 +465,7 @@ func (s *SQLiteStore) SearchFlows(namePattern string) ([]*flow.Flow, error) {
 	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(namePattern)
 
 	rows, err := s.db.Query(`
-		SELECT id, data FROM flows
+		SELECT id, data, version FROM flows
 		WHERE name LIKE ? ESCAPE '\'
 		ORDER BY created_at DESC
 	`, "%"+escaped+"%")

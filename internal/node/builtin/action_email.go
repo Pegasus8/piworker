@@ -94,8 +94,8 @@ func NewEmailAction(config map[string]interface{}) (node.Node, error) {
 		host:     host,
 		port:     port,
 		tlsMode:  tlsMode,
-		username: expandSecrets(base.GetConfigString("username", "")),
-		password: expandSecrets(base.GetConfigString("password", "")),
+		username: base.GetConfigString("username", ""), // {{secret.NAME}} resolved per send
+		password: base.GetConfigString("password", ""),
 		from:     from,
 		to:       to,
 		subject:  base.GetConfigString("subject", "PiWorker notification"),
@@ -213,10 +213,12 @@ func (a *EmailAction) send(ctx context.Context, raw []byte) error {
 		}
 	}
 
-	if a.username != "" {
+	// Credentials resolve their secrets now, from the store of the node's
+	// context, so a sandboxed run never sees the real ones.
+	if username := expandSecrets(ctx, a.username); username != "" {
 		// smtp.PlainAuth refuses to send credentials over an unencrypted
 		// connection to a non-localhost server.
-		if err := c.Auth(smtp.PlainAuth("", a.username, a.password, a.host)); err != nil {
+		if err := c.Auth(smtp.PlainAuth("", username, expandSecrets(ctx, a.password), a.host)); err != nil {
 			return err
 		}
 	}
@@ -276,15 +278,16 @@ func (a *EmailAction) Validate() error {
 }
 
 func emailActionConfigSchema() node.ConfigSchema {
+	minPort, maxPort := float64(1), float64(65535)
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
-			"host":     {Type: "string", Title: "SMTP Host", Description: "SMTP server hostname"},
-			"port":     {Type: "number", Title: "SMTP Port", Description: "Submission port (587 for STARTTLS, 465 for implicit TLS)", Default: 587},
-			"tls":      {Type: "string", Title: "TLS", Description: "auto: implicit TLS on 465, STARTTLS when offered otherwise; implicit; starttls (required)", Default: "auto", Enum: []string{"auto", "implicit", "starttls"}},
-			"username": {Type: "string", Title: "Username", Description: "SMTP username (optional)", Default: ""},
-			"password": {Type: "string", Title: "Password", Description: "SMTP password (optional)", Default: ""},
+			"host":     {Type: "string", Title: "SMTP Host", Description: "SMTP server hostname", Destination: true},
+			"port":     {Type: "number", Title: "SMTP Port", Description: "Submission port (587 for STARTTLS, 465 for implicit TLS)", Default: 587, Minimum: &minPort, Maximum: &maxPort, AgentVisible: true, Destination: true},
+			"tls":      {Type: "string", Title: "TLS", Description: "auto: implicit TLS on 465, STARTTLS when offered otherwise; implicit; starttls (required)", Default: "auto", Enum: []string{"auto", "implicit", "starttls"}, CaseInsensitive: true, AgentVisible: true},
+			"username": {Type: "string", Title: "Username", Description: "SMTP username (optional; {{secret.NAME}} supported)", Default: ""},
+			"password": {Type: "string", Title: "Password", Description: "SMTP password (optional; use {{secret.NAME}})", Default: "", Sensitive: true},
 			"from":     {Type: "string", Title: "From", Description: "Sender address"},
-			"to":       {Type: "string", Title: "To", Description: "Recipient address(es), comma-separated"},
+			"to":       {Type: "string", Title: "To", Description: "Recipient address(es), comma-separated", Destination: true},
 			"subject":  {Type: "string", Title: "Subject", Description: "Subject (supports templates)", Default: "PiWorker notification"},
 			"body":     {Type: "string", Title: "Body", Description: "Body (supports templates)", Default: "{{payload}}"},
 		},
@@ -330,6 +333,7 @@ network errors are retried as transient; 5xx replies are permanent.
 | body | string | {{payload}} | Body (supports templates) |
 `,
 		Category: types.NodeCategoryOutput,
+		Risk:     node.RiskExternal,
 		Inputs:   []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny, Required: true}},
 		Outputs:  []types.Port{{ID: "output", Name: "Output", DataType: types.DataTypeAny, Multiple: true}},
 		Config:   &schema,

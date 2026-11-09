@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+
+	"github.com/Pegasus8/piworker/internal/node"
 )
 
 const (
@@ -89,7 +91,7 @@ func (h *Hub) Register(path string, handler Handler) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if _, exists := h.handlers[path]; exists {
-		return fmt.Errorf("webhook path %q is already registered", path)
+		return fmt.Errorf("%w: webhook path %q is already registered", node.ErrResourceConflict, path)
 	}
 	h.handlers[path] = handler
 	return nil

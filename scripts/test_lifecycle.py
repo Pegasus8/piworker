@@ -43,8 +43,13 @@ case "$1" in
     exit 1
   fi ;;
 esac
+case "$1" in
+  enable|start|restart) mkdir -p "$FIXTURE/var/lib/piworker/tls" && echo CA > "$FIXTURE/var/lib/piworker/tls/ca.crt" ;;
+esac
 ''')
+        self.mock("openssl", 'echo "sha256 Fingerprint=' + ":".join(["AB"] * 31 + ["0f"]) + '"')
         self.mock("curl", '''
+ALL="$*"
 out= url=
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -55,7 +60,7 @@ while [ "$#" -gt 0 ]; do
 done
 case "$url" in
   */releases/latest) printf 'https://github.com/Pegasus8/piworker/releases/tag/v2.0.0' ;;
-  */api/health) [ ! -f "$FIXTURE/fail-health" ] ;;
+  */api/health) echo "$ALL" >> "$FIXTURE/health"; [ ! -f "$FIXTURE/fail-health" ] ;;
   *) cp "$RELEASE/${url##*/}" "$out" ;;
 esac
 ''')
@@ -97,7 +102,87 @@ esac
         self.db = self.path("/var/lib/piworker/piworker.db")
         self.db.write_text("flows and accounts")
         self.config = self.path("/etc/piworker/piworker.toml")
-        self.config.write_text('addr = ":8080"\n# custom configuration\n')
+        # An existing install on the current ports (the binary refuses addr
+        # and http_addr on the same port, e.g. a lone addr = ":8080").
+        self.config.write_text('addr = ":8443"\nhttp_addr = ":8080"\n# custom configuration\n')
+
+    FINGERPRINT = "SHA256:" + ":".join(["AB"] * 31 + ["0F"])
+
+    def health_calls(self):
+        return (self.root / "health").read_text().splitlines()
+
+    def test_fresh_install_serves_https_and_prints_url_and_fingerprint(self):
+        result = self.run_ctl("install")
+        config = self.path("/etc/piworker/piworker.toml").read_text()
+        self.assertIn('addr = ":8443"', config)
+        self.assertIn('http_addr = ":8080"', config)
+        self.assertIn('[tls]\nmode = "auto"', config)
+        self.assertIn("https://", result.stdout)
+        self.assertIn(":8443", result.stdout)
+        self.assertIn("CA fingerprint: " + self.FINGERPRINT, result.stdout)
+        self.assertIn("/trust", result.stdout)
+
+    def test_health_check_uses_https_and_trusts_only_the_local_ca(self):
+        self.run_ctl("install")
+        call = self.health_calls()[-1]
+        self.assertIn("https://127.0.0.1:8443/api/health", call)
+        self.assertIn("--cacert " + str(self.path("/var/lib/piworker/tls/ca.crt")), call)
+        self.assertNotIn("--insecure", call)
+
+    def test_health_check_follows_configured_port_and_mode(self):
+        self.install()
+        self.config.write_text('addr = ":9000"\n\n[tls]\nmode = "off"\n')
+        self.bundle("new")
+        result = self.run_ctl("update", "v2.1.0")
+        self.assertIn("http://127.0.0.1:9000/api/health", self.health_calls()[-1])
+        self.assertNotIn("CA fingerprint", result.stdout)
+        self.assertIn("without HTTPS", result.stdout)
+
+    def test_health_url_override_is_respected(self):
+        self.env["PIWORKER_HEALTH_URL"] = "http://127.0.0.1:7000/api/health"
+        self.run_ctl("install")
+        self.assertIn("http://127.0.0.1:7000/api/health", self.health_calls()[-1])
+
+    def test_fingerprint_falls_back_to_the_journal_without_openssl(self):
+        self.mock("openssl", "exit 1")
+        result = self.run_ctl("install")
+        self.assertNotIn("SHA256:", result.stdout)
+        self.assertIn("journalctl -u piworker", result.stdout)
+
+    def test_tls_off_and_on_edit_only_the_mode_and_restart(self):
+        self.install()
+        self.config.write_text('addr = ":8443"\n# custom configuration\n\n[tls]\nmode = "auto"\nhosts = ["pi.home"]\n')
+        before = (self.root / "services").read_text().splitlines()
+        result = self.run_ctl("tls", "off")
+        config = self.config.read_text()
+        self.assertIn('[tls]\nmode = "off"\nhosts = ["pi.home"]', config)
+        self.assertIn("# custom configuration", config)
+        self.assertEqual(self.config.stat().st_mode & 0o777, 0o640)
+        self.assertIn("restart piworker.service", (self.root / "services").read_text().splitlines()[len(before):])
+        self.assertIn("http://127.0.0.1:8443/api/health", self.health_calls()[-1])
+        self.assertIn("without HTTPS", result.stdout)
+
+        result = self.run_ctl("tls", "on")
+        self.assertIn('[tls]\nmode = "auto"\nhosts = ["pi.home"]', self.config.read_text())
+        self.assertIn("https://127.0.0.1:8443/api/health", self.health_calls()[-1])
+        self.assertIn("CA fingerprint: " + self.FINGERPRINT, result.stdout)
+        self.assertEqual(list(self.path("/etc/piworker").glob(".piworker.toml.*")), [])
+
+    def test_tls_adds_the_section_or_mode_when_missing(self):
+        self.install()
+        self.run_ctl("tls", "off")
+        self.assertTrue(self.config.read_text().endswith('\n[tls]\nmode = "off"\n'))
+        self.config.write_text('addr = ":8443"\n\n[tls]\nhosts = []\n\n[other]\nkey = 1\n')
+        self.run_ctl("tls", "off")
+        self.assertIn('[tls]\nmode = "off"\nhosts = []\n\n[other]\nkey = 1\n', self.config.read_text())
+
+    def test_tls_requires_a_managed_install_and_a_valid_mode(self):
+        self.run_ctl("tls", "off", ok=False)
+        self.install()
+        before = self.config.read_text()
+        for args in (("tls",), ("tls", "maybe"), ("tls", "off", "extra")):
+            self.run_ctl(*args, ok=False)
+        self.assertEqual(self.config.read_text(), before)
 
     def test_install_creates_service_and_manager(self):
         self.run_ctl("install")
@@ -110,7 +195,8 @@ esac
 
     def test_local_release_never_downloads_and_requires_version(self):
         self.env["PIWORKER_RELEASE_DIR"] = str(self.release)
-        self.mock("curl", 'case "$*" in *https:*) exit 99 ;; *) exit 0 ;; esac')
+        # Only the local health check may use the network.
+        self.mock("curl", 'case "$*" in *https://127.0.0.1:*) exit 0 ;; *https:*) exit 99 ;; *) exit 0 ;; esac')
         self.run_ctl("install", ok=False)
         self.assertFalse(self.path("/usr/local/bin/piworker").exists())
         self.run_ctl("install", "v2.0.0")

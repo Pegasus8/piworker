@@ -132,10 +132,10 @@ func i2cActionConfigSchema() node.ConfigSchema {
 	minOne := float64(1)
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
-			"bus":      {Type: "string", Title: "Bus", Description: "I2C bus name; empty uses the first bus"},
-			"address":  {Type: "string", Title: "Address", Description: "Device address, e.g. 0x76"},
-			"register": {Type: "string", Title: "Register", Description: "Optional register to read from, e.g. 0xD0"},
-			"length":   {Type: "number", Title: "Length", Description: "Number of bytes to read", Default: 1, Minimum: &minOne},
+			"bus":      {Type: "string", Title: "Bus", Description: "I2C bus name; empty uses the first bus", AgentVisible: true, Destination: true},
+			"address":  {Type: "string", Title: "Address", Description: "Device address, e.g. 0x76", AgentVisible: true, Destination: true},
+			"register": {Type: "string", Title: "Register", Description: "Optional register to read from, e.g. 0xD0", AgentVisible: true, Destination: true},
+			"length":   {Type: "number", Title: "Length", Description: "Number of bytes to read", Default: 1, Minimum: &minOne, Unit: "bytes", AgentVisible: true},
 		},
 		Required: []string{"address", "length"},
 	}
@@ -178,6 +178,7 @@ supports); elsewhere the bus isn't found and the node errors clearly.
 - Poll a custom I2C peripheral
 `,
 		Category: types.NodeCategoryOutput,
+		Risk:     node.RiskPrivileged,
 		Inputs:   []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny, Required: true}},
 		Outputs:  []types.Port{{ID: "output", Name: "Output", DataType: types.DataTypeObject, Multiple: true}},
 		Config:   &schema,

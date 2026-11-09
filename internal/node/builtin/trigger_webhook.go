@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/metrics"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/Pegasus8/piworker/internal/webhook"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -22,9 +24,15 @@ type WebhookTrigger struct {
 
 	path   string
 	method string // optional method filter ("" = any)
-	token  string // optional shared secret
+	token  string // optional shared secret; may reference {{secret.NAME}}
 
 	hub *webhook.Hub
+	log zerolog.Logger
+
+	// tokenUnresolved is set while the token's secret is missing or empty, so
+	// that state is logged once when it starts and once when it ends instead
+	// of on every rejected request.
+	tokenUnresolved atomic.Bool
 
 	mu      sync.Mutex
 	running bool
@@ -48,6 +56,7 @@ func NewWebhookTrigger(config map[string]interface{}) (node.Node, error) {
 		method:   strings.ToUpper(strings.TrimSpace(base.GetConfigString("method", ""))),
 		token:    base.GetConfigString("token", ""),
 		hub:      webhook.DefaultHub,
+		log:      log.Logger,
 	}, nil
 }
 
@@ -71,8 +80,15 @@ func (t *WebhookTrigger) Validate() error {
 	return nil
 }
 
-// Start registers the webhook path on the hub.
+// Start registers the webhook path on the hub. A token referencing an
+// undefined secret fails the start (and so the deploy).
 func (t *WebhookTrigger) Start(ctx context.Context, out chan<- *types.Message) error {
+	if t.token != "" {
+		if _, err := expandSecretsStrict(ctx, t.token); err != nil {
+			return fmt.Errorf("webhook token: %w", err)
+		}
+	}
+
 	t.mu.Lock()
 	if t.running {
 		t.mu.Unlock()
@@ -130,11 +146,24 @@ func (t *WebhookTrigger) handle(req webhook.Request) webhook.Result {
 	}
 
 	// Optional shared-secret check (the hub extracts ?token=... or the
-	// X-Webhook-Token header into req.Token). Constant-time comparison so
-	// response timing doesn't leak how much of a guess was right.
-	if t.token != "" &&
-		subtle.ConstantTimeCompare([]byte(req.Token), []byte(t.token)) != 1 {
-		return webhook.Unauthorized
+	// X-Webhook-Token header into req.Token). Secrets are resolved per request
+	// so a rotated secret applies at once; one that is missing or empty
+	// rejects every request instead of disabling the check. Constant-time
+	// comparison so response timing doesn't leak how much of a guess was right.
+	if t.token != "" {
+		expected, err := expandSecretsStrict(ctx, t.token) // ctx: the one Start was given
+		if err != nil || expected == "" {
+			if t.tokenUnresolved.CompareAndSwap(false, true) {
+				t.log.Warn().Err(err).Str("path", t.path).Msg("webhook token resolves to nothing; rejecting every request until its secret is set")
+			}
+			return webhook.Unauthorized
+		}
+		if t.tokenUnresolved.CompareAndSwap(true, false) {
+			t.log.Info().Str("path", t.path).Msg("webhook token resolves again; accepting requests with the right token")
+		}
+		if subtle.ConstantTimeCompare([]byte(req.Token), []byte(expected)) != 1 {
+			return webhook.Unauthorized
+		}
 	}
 
 	t.mu.Lock()
@@ -163,7 +192,7 @@ func (t *WebhookTrigger) handle(req webhook.Request) webhook.Result {
 		return webhook.Accepted
 	default:
 		metrics.IncrementMessagesDropped()
-		log.Warn().Str("path", t.path).Msg("webhook message dropped: output channel full")
+		t.log.Warn().Str("path", t.path).Msg("webhook message dropped: output channel full")
 		return webhook.Dropped
 	}
 }
@@ -188,20 +217,23 @@ func webhookTriggerConfigSchema() node.ConfigSchema {
 		Properties: map[string]node.ConfigProperty{
 			"path": {
 				Type:        "string",
+				Destination: true,
 				Title:       "Path",
 				Description: "URL path segment under /webhooks/ (e.g. 'github-push')",
 			},
 			"method": {
-				Type:        "string",
-				Title:       "Method Filter",
-				Description: "Only accept this HTTP method; leave empty to accept any",
-				Default:     "",
+				Type:         "string",
+				Title:        "Method Filter",
+				Description:  "Only accept this HTTP method; leave empty to accept any",
+				Default:      "",
+				AgentVisible: true,
 			},
 			"token": {
 				Type:        "string",
 				Title:       "Secret Token",
-				Description: "Optional shared secret, required as ?token=... or the X-Webhook-Token header",
+				Description: "Optional shared secret, required as ?token=... or the X-Webhook-Token header ({{secret.NAME}} supported)",
 				Default:     "",
+				Sensitive:   true,
 			},
 		},
 		Required: []string{"path"},
@@ -238,7 +270,7 @@ http(s)://<host>/webhooks/<path>
 |----------|------|---------|-------------|
 | path | string | - | Path segment under /webhooks/ (required, unique per flow) |
 | method | string | (any) | Only accept this HTTP method |
-| token | string | - | Optional shared secret (` + "`?token=`" + ` or ` + "`X-Webhook-Token`" + ` header) |
+| token | string | - | Optional shared secret (` + "`?token=`" + ` or ` + "`X-Webhook-Token`" + ` header); ` + "`{{secret.NAME}}`" + ` supported |
 
 ## Output
 
@@ -257,6 +289,11 @@ Each request produces a message with:
 The webhook endpoint is public (no login session). Set a **token** to require a shared
 secret, and avoid exposing destructive flows without one.
 
+Prefer storing the token under **Secrets** and writing ` + "`{{secret.NAME}}`" + `
+here. The secret is read on every request, so rotating it applies at once.
+Deploying fails if the secret does not exist; if it is later deleted or emptied,
+every request is rejected with 401 (the check is never disabled).
+
 The token, the ` + "`token`" + ` query parameter and the Cookie, Authorization,
 X-Webhook-Token and X-PiWorker-* headers are never included in the payload.
 
@@ -273,6 +310,7 @@ X-Webhook-Token and X-PiWorker-* headers are never included in the payload.
 | 503 | Flow busy (queue full) or stopping; retry later |
 `,
 		Category: types.NodeCategoryInput,
+		Risk:     node.RiskSafe,
 		Inputs:   nil,
 		Outputs: []types.Port{
 			{ID: "output", Name: "Output", DataType: types.DataTypeObject, Multiple: true},

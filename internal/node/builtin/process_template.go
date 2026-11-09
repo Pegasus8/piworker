@@ -105,6 +105,7 @@ Temperature is {{payload.temperature}}°C in {{payload.room}}
 ` + "```" + `
 `,
 		Category: types.NodeCategoryProcessing,
+		Risk:     node.RiskSafe,
 		Inputs:   []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny, Required: true}},
 		Outputs:  []types.Port{{ID: "output", Name: "Output", DataType: types.DataTypeString, Multiple: true}},
 		Config:   &schema,
@@ -113,12 +114,9 @@ Temperature is {{payload.temperature}}°C in {{payload.room}}
 }
 
 // renderTemplate expands {{...}} placeholders in tmpl using the message. It is
-// shared by template-style nodes and reuses the package-level templateRe.
-func renderTemplate(tmpl string, msg *types.Message, contexts ...context.Context) string {
-	ctx := context.Background()
-	if len(contexts) > 0 {
-		ctx = contexts[0]
-	}
+// shared by template-style nodes and reuses the package-level templateRe. ctx
+// is the node's context: variables and secrets resolve through its stores.
+func renderTemplate(tmpl string, msg *types.Message, ctx context.Context) string {
 	return renderTemplateEscaped(tmpl, msg, ctx, nil)
 }
 
@@ -127,9 +125,25 @@ func renderTemplate(tmpl string, msg *types.Message, contexts ...context.Context
 // returns the escape function for the value substituted there (nil = raw).
 // Unresolved placeholders are left untouched and never escaped.
 func renderTemplateEscaped(tmpl string, msg *types.Message, ctx context.Context, escaperAt func(prefix string) func(string) string) string {
+	return renderTemplateWith(tmpl, msg, ctx, escaperAt, nil)
+}
+
+// renderTemplateWith is renderTemplateEscaped with an extra resolver that is
+// consulted first for each placeholder written in tmpl. Substituted values are
+// never scanned again, so text coming from the message can never reach extra:
+// that is what makes it safe to resolve {{secret.NAME}} through it.
+//
+// In a sandbox (node.SandboxFrom) every substituted value is charged to it
+// first, and the text may not grow past its per-value cap: once a check
+// fails the expansion stops there (the sandbox is marked exceeded and its
+// caller discards the result), so a template cannot expand to more text than
+// the sandbox allows.
+func renderTemplateWith(tmpl string, msg *types.Message, ctx context.Context, escaperAt func(prefix string) func(string) string, extra func(parts []string) (string, bool)) string {
 	if ctx == nil {
-		ctx = context.Background()
+		// No node context: resolve against empty stores, never the real ones.
+		ctx = secrets.WithStore(vars.WithStore(context.Background(), nil), nil)
 	}
+	sb := node.SandboxFrom(ctx)
 	locs := templateRe.FindAllStringIndex(tmpl, -1)
 	if len(locs) == 0 {
 		return tmpl
@@ -141,7 +155,13 @@ func renderTemplateEscaped(tmpl string, msg *types.Message, ctx context.Context,
 		b.WriteString(tmpl[last:loc[0]])
 		literal.WriteString(tmpl[last:loc[0]])
 		match := tmpl[loc[0]:loc[1]]
-		value, ok := resolvePlaceholder(match, msg, ctx)
+		value, ok := "", false
+		if extra != nil {
+			value, ok = extra(placeholderParts(match))
+		}
+		if !ok {
+			value, ok = resolvePlaceholder(match, msg, ctx)
+		}
 		if !ok {
 			b.WriteString(match)
 		} else {
@@ -149,6 +169,9 @@ func renderTemplateEscaped(tmpl string, msg *types.Message, ctx context.Context,
 				if esc := escaperAt(literal.String()); esc != nil {
 					value = esc(value)
 				}
+			}
+			if sb != nil && (sb.Limit(int64(b.Len()+len(value))) != nil || sb.Charge(int64(len(value))) != nil) {
+				return b.String()
 			}
 			b.WriteString(value)
 		}
@@ -210,20 +233,45 @@ func resolvePlaceholder(match string, msg *types.Message, ctx context.Context) (
 
 // expandSecrets resolves only {{secret.NAME}} placeholders, leaving every other
 // placeholder untouched. Use it for credential fields (tokens, passwords) that
-// must reference a secret without interpolating message payload.
-func expandSecrets(s string) string {
+// must reference a secret without interpolating message payload. Secrets come
+// from the store carried by ctx (secrets.FromContext): call it when the node
+// runs, with the context it was given, never from a factory.
+func expandSecrets(ctx context.Context, s string) string {
+	store := secrets.FromContext(ctx)
 	return templateRe.ReplaceAllStringFunc(s, func(match string) string {
 		parts := placeholderParts(match)
 		if parts[0] != "secret" {
 			return match
 		}
 		if len(parts) > 1 {
-			if v, ok := secrets.DefaultStore.Get(parts[1]); ok {
+			if v, ok := store.Get(parts[1]); ok {
 				return v
 			}
 		}
 		return ""
 	})
+}
+
+// expandSecretsStrict is expandSecrets for values that must not silently
+// degrade: a reference to an undefined secret is an error, not "".
+func expandSecretsStrict(ctx context.Context, s string) (string, error) {
+	store := secrets.FromContext(ctx)
+	var missing string
+	out := templateRe.ReplaceAllStringFunc(s, func(match string) string {
+		name, ok := secretRef(placeholderParts(match))
+		if !ok {
+			return match
+		}
+		v, exists := store.Get(name)
+		if !exists && missing == "" {
+			missing = name
+		}
+		return v
+	})
+	if missing != "" {
+		return "", fmt.Errorf("secret %q is not defined (referenced as {{secret.%s}})", missing, missing)
+	}
+	return out, nil
 }
 
 // placeholderParts splits a {{...}} match into its dot-separated head and rest
