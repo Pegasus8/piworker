@@ -99,14 +99,16 @@ func (h *AgentHandler) ListApprovals(w http.ResponseWriter, r *http.Request) {
 // passiveSessionPaths), so an open tab alone does not keep a session alive.
 const PendingApprovalsCountPath = "/api/agent/approvals/pending-count"
 
-// PendingApprovalsCount is the GET PendingApprovalsCountPath payload.
+// PendingApprovalsCount is the GET PendingApprovalsCountPath payload: the
+// approvals and the agent drafts awaiting the admin.
 type PendingApprovalsCount struct {
 	Pending int `json:"pending"`
+	Drafts  int `json:"drafts"`
 }
 
-// PendingCount counts the approvals still awaiting a decision. It is
-// read-only: approvals past their expiry are not counted but are left for
-// the expiry pass (ListApprovals, CreateAgentApproval) to close.
+// PendingCount counts the approvals and the drafts still awaiting a
+// decision. It is read-only: approvals past their expiry are not counted but
+// are left for the expiry pass (ListApprovals, CreateAgentApproval) to close.
 // GET /api/agent/approvals/pending-count
 func (h *AgentHandler) PendingCount(w http.ResponseWriter, _ *http.Request) {
 	n, err := h.store.CountPendingAgentApprovals(h.now())
@@ -115,7 +117,13 @@ func (h *AgentHandler) PendingCount(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Cannot read approvals")
 		return
 	}
-	writeSuccess(w, http.StatusOK, PendingApprovalsCount{Pending: n}, "")
+	drafts, err := h.store.CountPendingFlowDrafts()
+	if err != nil {
+		h.logger.Error().Err(err).Msg("Failed to count agent drafts")
+		writeError(w, http.StatusInternalServerError, "Cannot read approvals")
+		return
+	}
+	writeSuccess(w, http.StatusOK, PendingApprovalsCount{Pending: n, Drafts: drafts}, "")
 }
 
 // Approve records the approval, then asks the ApprovalExecutor to run it.

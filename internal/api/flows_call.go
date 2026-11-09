@@ -94,10 +94,18 @@ func (h *ToolCallHandler) Call(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ToolCallHandler) writeCallError(w http.ResponseWriter, err error, flowID, nodeID string) {
+	writeServiceError(w, h.logger.With().Str("flowID", flowID).Str("nodeID", nodeID).Logger(), err, "The tool call failed")
+}
+
+// writeServiceError answers a failed service call: a *service.ToolError with
+// its status (404 unknown, 403 forbidden, 409 conflict or reconfirm, 400
+// invalid, 429 busy or cooldown, 503 unavailable) and ToolCallErrorData; any
+// other error is logged and answered 500 with internalMsg, never echoed.
+func writeServiceError(w http.ResponseWriter, logger zerolog.Logger, err error, internalMsg string) {
 	var te *service.ToolError
 	if !errors.As(err, &te) {
-		h.logger.Error().Err(err).Str("flowID", flowID).Str("nodeID", nodeID).Msg("Test tool call failed")
-		writeError(w, http.StatusInternalServerError, "The tool call failed")
+		logger.Error().Err(err).Msg(internalMsg)
+		writeError(w, http.StatusInternalServerError, internalMsg)
 		return
 	}
 	status := http.StatusInternalServerError
