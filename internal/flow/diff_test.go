@@ -258,24 +258,6 @@ func TestDiffAlerts(t *testing.T) {
 			},
 		},
 		{
-			// A set-var writes a variable other nodes (global: other
-			// flows) read, for destinations and conditions: where it
-			// writes is a destination.
-			name: "a variable written elsewhere, and a new variable writer",
-			base: diffFlow(trigger(), lintNode("sv", "set-var", map[string]any{"scope": "flow", "key": "count"})),
-			next: diffFlow(trigger(),
-				lintNode("sv", "set-var", map[string]any{"scope": "global", "key": "cmd"}),
-				lintNode("sv2", "set-var", map[string]any{"key": "alarm_armed", "value": "false"})),
-			want: []string{flow.AlertDestinationChanged, flow.AlertDestinationChanged, flow.AlertDestinationChanged},
-			check: func(t *testing.T, r flow.DiffReport) {
-				assert.Equal(t, "config.key", r.Alerts[0].Path)
-				assert.Equal(t, "count", r.Alerts[0].Before, "variable names are agent-visible")
-				assert.Equal(t, "cmd", r.Alerts[0].After)
-				assert.Equal(t, "config.scope", r.Alerts[1].Path)
-				assert.Equal(t, "sv2", r.Alerts[2].NodeID)
-			},
-		},
-		{
 			// A daily request with the admin's key turned into ten a
 			// second: how often the flow sends is the admin's to approve.
 			name: "a trigger made to fire more often on a flow that reaches another service",

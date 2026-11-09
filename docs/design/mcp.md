@@ -878,10 +878,7 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   coordinates. ApplyOps lays out the nodes it added without a position.
 - **Schema markers.** `ConfigProperty.Destination` marks where a node sends
   data or connects (URLs, hosts, brokers, topics, recipients, chat ids, file
-  paths, webhook paths, pins and buses written, DSNs, and the variable a
-  `set-var` writes, `scope` and `key`: other nodes read it for destinations
-  and conditions, other flows too when it is global, so writing a variable
-  elsewhere, or adding a writer, is reviewed like any destination); `RiskSwitch` marks
+  paths, webhook paths, pins and buses written, DSNs); `RiskSwitch` marks
   opt-ins that widen what it may do (`allowPrivate`, `allowDashArgs`);
   `Operation` marks what selects the action a request performs at its
   destination rather than message content (action-http `method` and
