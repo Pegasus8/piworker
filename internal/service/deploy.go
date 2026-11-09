@@ -317,6 +317,7 @@ func (a *Authoring) Deploy(ctx context.Context, actor Actor, req DeployRequest) 
 			return deployRefusal(err, saved)
 		}
 		res = DeployResult{FlowID: plan.flowID, Version: version, Running: true, Risk: plan.risk}
+		args.Version = version
 		return nil
 	})
 	if err != nil {
@@ -542,6 +543,7 @@ func (a *Authoring) Stop(ctx context.Context, actor Actor, flowID string) (_ Dep
 	if err != nil {
 		return DeployResult{}, err
 	}
+	args.Version = plan.version
 	return DeployResult{FlowID: flowID, Version: plan.version, Running: false, Risk: plan.risk}, nil
 }
 

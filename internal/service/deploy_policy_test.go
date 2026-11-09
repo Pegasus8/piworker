@@ -189,6 +189,7 @@ func TestAllDeployPolicy(t *testing.T) {
 	assert.Equal(t, DeployToolDeployFlow, rows[2].Tool)
 	assert.True(t, rows[2].Privileged, "a privileged flow's deploy is never evicted early")
 	assert.Equal(t, "completed", rows[2].Outcome)
+	assert.Contains(t, rows[2].ArgsPreview, `"version":1`, "the audit names the deployed version")
 	assert.Equal(t, "conflict", rows[1].Outcome)
 }
 
