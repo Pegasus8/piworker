@@ -596,11 +596,41 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   `action-reply`, webhook token/path, `allowPrivate` or `allowDashArgs`.
 - `flow.Lint(f, registry)` returns all issues `{path, code, severity,
   message}` (validation + config typing + risk); `pw_validate_flow` exposes it.
-- `pw_dry_run`: instantiates the flow with `Registry.Derive` stubs for output
-  nodes and triggers, isolated empty variable **and secret** stores
-  (`RuntimeOption`s), no recorder; one at a time; 50 nodes / 10 s cap; returns
-  per-node trace and `wouldExecute[]`.
-- `pw_test_node`: processing nodes only, empty stores.
+- Dry-run (`flow.DryRun`, behind `pw_dry_run`). The flow is first validated
+  as deploy validates it (an invalid flow is refused with the deploy's
+  error). It then runs once in a private `FlowRuntime` that is never
+  registered with the `RuntimeManager` (no tools published, no webhook path
+  or tool name claimed, no recorder), built through `Registry.Derive`, which
+  wraps every node: triggers never start — the payload is injected at the
+  output of the chosen enabled input node (`triggerNodeId`) — and every node
+  whose type risk or instance risk (`flow.InstanceRisk`: the escalation rules
+  of the tool analysis) is not `safe` is a stub. A stub runs nothing: it
+  records itself in `wouldExecute` (node, type, risk, input preview) and
+  emits its mock (`mocks[nodeId]`, on its first output port) or nothing, in
+  which case its branch ends there. Mocks are accepted only for stubbed
+  nodes. Through `flow.WithNodeContext` the nodes get isolated variable
+  stores (global empty, flow seeded from `flowVars`; the flow's persistent
+  store is not even loaded) and an empty secret store. Every builtin secret
+  lookup resolves through the node's context (`secrets.FromContext`) when the
+  node runs, never in a factory, so no real secret value reaches a dry-run;
+  `missingSecrets` lists the secret names the nodes the run reached
+  reference. Caps: 50 nodes, 10 s wall clock (`timedOut`), 200 node
+  executions (`capped`; retries off), each preview (the JSON of a payload)
+  and error 2 KiB, the whole result 64 KiB (`truncated`: a preview was cut or
+  entries left out, keeping `wouldExecute` first, then `missingSecrets`, then
+  the trace). The result lists, in execution order, the trace (`nodeId`,
+  `type`, `input`, `outputs[{port, preview}]`, `error`, `durationMs`,
+  `stubbed`; the trigger first, stubbed, with the payload as its output) and
+  `wouldExecute`. One dry-run or node test runs at a time process-wide;
+  another fails at once (`flow.ErrBusy`). Every node instance built is closed
+  and no goroutine outlives the call (unless a node ignores cancellation: the
+  slot is then held until it drains). The flow package only bounds previews;
+  the service redacts them for agents.
+- Node test (`flow.TestNode`, behind `pw_test_node`): one node of a
+  processing type whose type and instance risk are `safe` (anything else is
+  forbidden), its config checked as deploy checks it, run once on the input
+  with the same isolated stores, a 5 s timeout (`timedOut`) and the dry-run's
+  bounds; it shares the dry-run's slot.
 - Approval page: per-node type and diff, agent text marked as such, risk,
   alerts for recipient/destination changes (`chatId`, `to`, topic, broker,
   URL), dynamic destinations, secrets moved between fields, new hosts, and any
