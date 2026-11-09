@@ -7,7 +7,8 @@ mock.module('../src/stores/nodeTypes', () => ({
 const apiMock: {
   getFlow: (id: string) => Promise<unknown>
   updateFlow: (id: string, flow: any) => Promise<any>
-} = { getFlow: async () => ({}), updateFlow: async (_id, flow) => flow }
+  deployFlow: (id: string, version?: number) => Promise<boolean>
+} = { getFlow: async () => ({}), updateFlow: async (_id, flow) => flow, deployFlow: async () => true }
 mock.module('../src/composables/useApi', () => ({ useApi: () => apiMock }))
 const { useFlowsStore, FlowVersionConflictError } = await import('../src/stores/flows')
 
@@ -152,4 +153,37 @@ test('other conflicts (a running flow) are ordinary save errors', async () => {
 
   expect(caught).toBeInstanceOf(Error)
   expect(caught).not.toBeInstanceOf(FlowVersionConflictError)
+})
+
+test('deploying the open flow sends the version the editor shows', async () => {
+  setActivePinia(createPinia())
+  const store = useFlowsStore()
+  apiMock.getFlow = async () => ({ ...backendFlow('a'), version: 3 })
+  const calls: Array<[string, number | undefined]> = []
+  apiMock.deployFlow = async (id, version) => { calls.push([id, version]); return true }
+  await store.fetchFlow('a')
+
+  await store.deployFlow()
+  await store.deployFlow('other') // a flow the editor does not show: no version
+
+  expect(calls).toEqual([['a', 3], ['other', undefined]])
+  expect(store.currentFlow?.running).toBe(true)
+})
+
+test('a stale deploy reports the current version and deploys nothing', async () => {
+  setActivePinia(createPinia())
+  const store = useFlowsStore()
+  apiMock.getFlow = async () => ({ ...backendFlow('a'), version: 3 })
+  apiMock.deployFlow = async () => {
+    throw httpError(409, { success: false, error: 'The flow was changed since you loaded it', data: { currentVersion: 4 } })
+  }
+  await store.fetchFlow('a')
+
+  let caught: unknown
+  try { await store.deployFlow() } catch (e) { caught = e }
+
+  expect(caught).toBeInstanceOf(FlowVersionConflictError)
+  expect((caught as InstanceType<typeof FlowVersionConflictError>).currentVersion).toBe(4)
+  expect(store.currentFlow?.running).toBeFalsy()
+  expect(store.isDeploying).toBe(false)
 })

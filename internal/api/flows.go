@@ -421,9 +421,18 @@ func (h *FlowsHandler) DeleteFlow(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, http.StatusOK, nil, "Flow deleted successfully")
 }
 
-// ToggleRequest is the request body for toggling a flow.
+// ToggleRequest is the request body for toggling a flow. Version, when set,
+// is the definition version the client shows: turning the flow on fails
+// with 409 when another one was saved since.
 type ToggleRequest struct {
 	Enabled bool `json:"enabled"`
+	Version int  `json:"version,omitempty"`
+}
+
+// DeployRequest is the optional request body of a deploy: the definition
+// version the client shows (0 or absent: no check).
+type DeployRequest struct {
+	Version int `json:"version,omitempty"`
 }
 
 // ToggleFlow toggles a flow on or off.
@@ -435,17 +444,27 @@ func (h *FlowsHandler) ToggleFlow(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid JSON payload")
 		return
 	}
-	h.changeRunning(w, r, req.Enabled, false)
+	h.changeRunning(w, r, req.Enabled, false, req.Version)
 }
 
-// DeployFlow deploys a saved definition; repeated explicit deployment conflicts.
+// DeployFlow deploys a saved definition; repeated explicit deployment
+// conflicts. An optional body {"version": N} names the version the client
+// shows: a stale one is a 409 with the current version, so nobody deploys a
+// definition they never saw (an approved draft or an agent's version saved
+// meanwhile). Without it there is no check.
 func (h *FlowsHandler) DeployFlow(w http.ResponseWriter, r *http.Request) {
-	h.changeRunning(w, r, true, true)
+	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodySize)
+	var req DeployRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "Invalid JSON payload")
+		return
+	}
+	h.changeRunning(w, r, true, true, req.Version)
 }
 
 // StopFlow stops a running flow and removes its restart intent.
 func (h *FlowsHandler) StopFlow(w http.ResponseWriter, r *http.Request) {
-	h.changeRunning(w, r, false, true)
+	h.changeRunning(w, r, false, true, 0)
 }
 
 // BeginShutdown makes every later deploy/toggle-on request fail with 503. It
@@ -457,7 +476,11 @@ func (h *FlowsHandler) BeginShutdown() {
 	h.shuttingDown = true
 }
 
-func (h *FlowsHandler) changeRunning(w http.ResponseWriter, r *http.Request, wantRunning, strict bool) {
+// changeRunning deploys (wantRunning) or stops the flow of the request.
+// expected, when not 0, is the definition version the client shows: a
+// deploy of another stored version is refused with 409 (stopping needs no
+// check).
+func (h *FlowsHandler) changeRunning(w http.ResponseWriter, r *http.Request, wantRunning, strict bool, expected int) {
 	h.lifecycleMu.Lock()
 	defer h.lifecycleMu.Unlock()
 	if wantRunning && h.shuttingDown {
@@ -476,6 +499,12 @@ func (h *FlowsHandler) changeRunning(w http.ResponseWriter, r *http.Request, wan
 		} else {
 			writeError(w, http.StatusInternalServerError, "Failed to get flow")
 		}
+		return
+	}
+	if wantRunning && expected != 0 && f.Version != expected {
+		writeErrorData(w, http.StatusConflict,
+			"The flow was changed since you loaded it; reload it to see the version you would deploy",
+			VersionConflictData{CurrentVersion: f.Version})
 		return
 	}
 	rt, exists := h.manager.GetRuntime(id)

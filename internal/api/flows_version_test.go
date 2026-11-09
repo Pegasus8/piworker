@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -134,4 +136,70 @@ func TestLifecycleChangesDoNotBumpTheVersion(t *testing.T) {
 	versions, err := store.ListFlowVersions(f.ID, 10)
 	require.NoError(t, err)
 	assert.Len(t, versions, 1)
+}
+
+func conflictVersion(t *testing.T, body []byte) int {
+	t.Helper()
+	var resp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			CurrentVersion int `json:"currentVersion"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(body, &resp))
+	assert.False(t, resp.Success)
+	return resp.Data.CurrentVersion
+}
+
+// Deploying what the editor shows: a deploy (or toggle on) that sends the
+// version the editor loaded is refused when another one was saved since (an
+// approved draft, an agent, another tab), instead of running a definition
+// the admin never saw.
+func TestDeployWithAStaleVersionConflicts(t *testing.T) {
+	server, store := createTestServer(t)
+	f := createTestFlow("deploy me")
+	require.NoError(t, store.CreateFlow(f))
+	require.NoError(t, store.UpdateFlow(f)) // version 2, saved elsewhere
+
+	for _, step := range []struct {
+		method, path string
+		body         any
+	}{
+		{http.MethodPost, "/deploy", map[string]any{"version": 1}},
+		{http.MethodPatch, "/toggle", map[string]any{"enabled": true, "version": 1}},
+	} {
+		rr := performRequest(server, step.method, "/api/flows/"+f.ID+step.path, step.body)
+		require.Equal(t, http.StatusConflict, rr.Code, "%s: %s", step.path, rr.Body.String())
+		assert.Equal(t, 2, conflictVersion(t, rr.Body.Bytes()))
+		_, running := server.handler.manager.GetRuntime(f.ID)
+		assert.False(t, running, "nothing was deployed")
+	}
+
+	rr := performRequest(server, http.MethodPost, "/api/flows/"+f.ID+"/deploy", map[string]any{"version": 2})
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	// Stopping needs no version: it never runs anything new.
+	rr = performRequest(server, http.MethodPatch, "/api/flows/"+f.ID+"/toggle", map[string]any{"enabled": false, "version": 1})
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	rr = performRequest(server, http.MethodPatch, "/api/flows/"+f.ID+"/toggle", map[string]any{"enabled": true, "version": 2})
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+}
+
+// Without a version (scripts, the flows list) there is no check; a body
+// that is not JSON is refused.
+func TestDeployWithoutAVersionIsNotChecked(t *testing.T) {
+	server, store := createTestServer(t)
+	f := createTestFlow("script")
+	require.NoError(t, store.CreateFlow(f))
+	require.NoError(t, store.UpdateFlow(f))
+
+	rr := performRequest(server, http.MethodPost, "/api/flows/"+f.ID+"/deploy", map[string]any{"bogus": true})
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	rr = performRequest(server, http.MethodPost, "/api/flows/"+f.ID+"/stop", nil)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+
+	req, err := http.NewRequest(http.MethodPost, "/api/flows/"+f.ID+"/deploy", strings.NewReader("{not json"))
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	server.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }

@@ -125,8 +125,10 @@ export function useApi() {
   // Flow execution. The deploy/stop endpoints already return the resulting
   // running state, so callers can use it directly instead of issuing a second
   // full getFlow round-trip just to read one boolean.
-  async function deployFlow(id: string): Promise<boolean> {
-    const { data } = await api.post(`/flows/${id}/deploy`)
+  // version: the definition version the caller shows; the server answers
+  // 409 with data.currentVersion when another one was saved since.
+  async function deployFlow(id: string, version?: number): Promise<boolean> {
+    const { data } = await api.post(`/flows/${id}/deploy`, version ? { version } : undefined)
     return data.data.running
   }
 

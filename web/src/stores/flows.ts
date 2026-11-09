@@ -19,8 +19,9 @@ const frontendCategoryMap: Record<string, string> = {
   action: 'output'
 }
 
-/** A save refused because the flow was saved elsewhere (an approved agent
- * draft, another tab) after the editor loaded it. Nothing was overwritten. */
+/** A save or deploy refused because the flow was saved elsewhere (an
+ * approved agent draft, another tab) after the editor loaded it. Nothing was
+ * overwritten or deployed. */
 export class FlowVersionConflictError extends Error {
   constructor(readonly currentVersion: number, message: string) {
     super(message)
@@ -28,8 +29,8 @@ export class FlowVersionConflictError extends Error {
   }
 }
 
-/** The 409 of a stale save carries data.currentVersion; other 409s (a
- * running flow) do not. */
+/** The 409 of a stale save or deploy carries data.currentVersion; other
+ * 409s (a running flow) do not. */
 function versionConflict(e: unknown): FlowVersionConflictError | null {
   const response = (e as { response?: { status?: number; data?: any } })?.response
   const current = response?.data?.data?.currentVersion
@@ -283,7 +284,16 @@ export const useFlowsStore = defineStore('flows', () => {
     isDeploying.value = true
     error.value = null
     try {
-      const running = await api.deployFlow(flowId)
+      // Deploying the flow the editor shows sends its version: the server
+      // refuses (409) to deploy another one saved since (an approved agent
+      // draft, another tab) instead of running what nobody saw here.
+      const version = currentFlow.value?.id === flowId ? currentFlow.value.version : undefined
+      let running: boolean
+      try {
+        running = await api.deployFlow(flowId, version)
+      } catch (e) {
+        throw versionConflict(e) ?? e
+      }
       applyRunningState(flowId, running)
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to deploy flow'

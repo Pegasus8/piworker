@@ -91,18 +91,21 @@ async function handleSave(): Promise<boolean> {
     }
   }, 'Flow saved.', 'Could not save the flow. Your changes are still here. Try again.')
   isSaving.value = false
-  if (conflict) await offerReload(conflict)
+  if (conflict) await offerReload(conflict, 'saved')
   return saved
 }
 
-// A save never silently overwrites a version saved since this editor loaded
-// the flow (an approved agent draft, another tab): offer to reload it, which
-// discards the changes made here, or to keep editing.
-async function offerReload(conflict: FlowVersionConflictError) {
-  feedback.value = { kind: 'error', text: `Not saved: this flow was changed since you opened it (now version ${conflict.currentVersion}).` }
+// A save never silently overwrites, and a deploy never runs, a version saved
+// since this editor loaded the flow (an approved agent draft, another tab):
+// offer to reload it, which discards the changes made here, or to keep
+// editing.
+async function offerReload(conflict: FlowVersionConflictError, action: 'saved' | 'deployed') {
+  feedback.value = { kind: 'error', text: `Not ${action}: this flow was changed since you opened it (now version ${conflict.currentVersion}).` }
   const reload = await confirmation.value?.ask(
     'This flow was changed elsewhere',
-    `Version ${conflict.currentVersion} was saved after you opened this flow. Reload it to see that version; the changes you made here will be lost. Cancel keeps your changes on screen, unsaved.`,
+    action === 'saved'
+      ? `Version ${conflict.currentVersion} was saved after you opened this flow. Reload it to see that version; the changes you made here will be lost. Cancel keeps your changes on screen, unsaved.`
+      : `Version ${conflict.currentVersion} was saved after you opened this flow, so it was not deployed. Reload it to review that version before deploying it.`,
     'Reload', 'Cancel')
   if (reload && flowId.value) {
     flowsStore.isDirty = false
@@ -117,7 +120,16 @@ async function handleDeploy() {
     await run(() => flowsStore.stopFlow(), 'Flow stopped.', 'Could not stop the flow. Try again.')
   } else {
     if ((!flowsStore.currentFlow?.id || flowsStore.isDirty) && !await handleSave()) return
-    await run(() => flowsStore.deployFlow(), 'Flow deployed.', 'Could not deploy the flow. Check its configuration and try again.')
+    let conflict: FlowVersionConflictError | null = null
+    await run(async () => {
+      try {
+        await flowsStore.deployFlow()
+      } catch (e) {
+        if (e instanceof FlowVersionConflictError) conflict = e
+        throw e
+      }
+    }, 'Flow deployed.', 'Could not deploy the flow. Check its configuration and try again.')
+    if (conflict) await offerReload(conflict, 'deployed')
   }
 }
 function handleBack() { router.push('/') }
