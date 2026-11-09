@@ -862,7 +862,11 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   agents, so a node's messages never quote the value of a setting the read
   views hide (Sensitive, not AgentVisible, undeclared or schemaless), raw or
   as `%q`, `%+q`, JSON or `CheckConfig`'s cut-off quote (a short Sensitive
-  value hides the whole message). Issues are ordered deterministically:
+  value hides the whole message). The quoted forms of a node's hidden values
+  are built once per node, each distinct form once, and only forms no
+  longer than a message are looked for in it, so the cost grows with the
+  issues plus the hidden leaves, not with their product (an agent's flow
+  can hold hundreds of thousands of leaves). Issues are ordered deterministically:
   flow-level first, then nodes and connections in definition order; within
   one location by path, errors first, code, message. Paths: `/nodes`,
   `/nodes/{nodeId}`, `/nodes/{nodeId}/config/{prop}`, `/connections/{id}`
