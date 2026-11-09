@@ -364,18 +364,41 @@ func DryRun(ctx context.Context, f *Flow, reg *node.Registry, in DryRunInput) (D
 
 	_ = rt.Stop()
 	if !rt.Drained() || sb.Busy() {
-		// Work is still running (a node ignoring cancellation, a goroutine
-		// a node left behind): keep the slot until it returns, so stuck
-		// dry-runs cannot pile up.
-		held = false
+		// Work is still running (the runtime draining, a goroutine a node
+		// left behind): wait for it, bounded, so the next dry-run or node
+		// test does not find the slot taken; work still running then (a
+		// node ignoring cancellation) keeps the slot until it returns, so
+		// stuck dry-runs cannot pile up.
 		drained := rt.drained
-		go func() {
+		held = settleSandbox(func() {
 			<-drained
 			sb.Wait()
-			release()
-		}()
+		}, release)
 	}
 	return sess.result(work, timedOut), callerErr
+}
+
+// settleSandbox waits up to dryRunStopTimeout for wait (the end of a
+// sandboxed execution's work) and reports whether it returned; if it did
+// not, release runs once it does, and the caller must not release the slot.
+func settleSandbox(wait func(), release func()) (settled bool) {
+	done := make(chan struct{})
+	go func() {
+		wait()
+		close(done)
+	}()
+	timer := time.NewTimer(dryRunStopTimeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		go func() {
+			<-done
+			release()
+		}()
+		return false
+	}
 }
 
 // cloneFlowJSON deep-copies a flow through its JSON form (so a flow that

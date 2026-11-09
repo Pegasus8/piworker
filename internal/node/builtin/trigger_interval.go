@@ -151,6 +151,7 @@ func (t *IntervalTrigger) GetConfigSchema() node.ConfigSchema {
 				Minimum:      &min,
 				Unit:         "milliseconds",
 				AgentVisible: true,
+				Rate:         true,
 			},
 		},
 		Required: []string{"interval"},

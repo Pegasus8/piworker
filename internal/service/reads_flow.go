@@ -26,7 +26,8 @@ const (
 type FlowView struct {
 	ID          string           `json:"id"`
 	Name        string           `json:"name"`
-	State       string           `json:"state"` // running, stopped or failed
+	State       string           `json:"state"`   // running, stopped or failed
+	Version     int              `json:"version"` // the saved version: the base of a draft of the flow
 	Nodes       []NodeView       `json:"nodes"`
 	Connections []ConnectionView `json:"connections"`
 	// Tools are the tools the flow publishes while running, sorted by name.
@@ -101,6 +102,7 @@ func (r *Reads) GetFlow(ctx context.Context, actor Actor, flowID string) (_ Flow
 		ID:               id(f.ID),
 		Name:             r.flowName(red, f.Name),
 		State:            flowState(f, r.runningSet()[f.ID]),
+		Version:          f.Version,
 		Nodes:            make([]NodeView, 0, min(len(f.Nodes), maxViewNodes)),
 		Connections:      make([]ConnectionView, 0, min(len(f.Connections), maxViewConnections)),
 		Tools:            []ToolView{},

@@ -228,6 +228,7 @@ func joinProcessConfigSchema() node.ConfigSchema {
 				Description:  "Emit an array once this many messages share a key",
 				Default:      2,
 				AgentVisible: true,
+				Rate:         true,
 			},
 			"sources": {
 				Type:         "string",

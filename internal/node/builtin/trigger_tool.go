@@ -427,6 +427,7 @@ func toolTriggerConfigSchema() node.ConfigSchema {
 				Maximum:      &maxCool,
 				Unit:         "milliseconds",
 				AgentVisible: true,
+				Rate:         true,
 			},
 		},
 		Required: []string{"toolName", "description", "inputSchema"},

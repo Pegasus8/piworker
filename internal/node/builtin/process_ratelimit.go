@@ -94,6 +94,7 @@ func rateLimitProcessConfigSchema() node.ConfigSchema {
 				Default:      1,
 				Minimum:      &minOne,
 				AgentVisible: true,
+				Rate:         true,
 			},
 			"windowMs": {
 				Type:         "number",
@@ -103,6 +104,7 @@ func rateLimitProcessConfigSchema() node.ConfigSchema {
 				Minimum:      &minOne,
 				Unit:         "milliseconds",
 				AgentVisible: true,
+				Rate:         true,
 			},
 		},
 		Required: []string{"limit", "windowMs"},

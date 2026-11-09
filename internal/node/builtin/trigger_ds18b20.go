@@ -192,6 +192,7 @@ func ds18b20TriggerConfigSchema() node.ConfigSchema {
 				Minimum:      &minInterval,
 				Unit:         "seconds",
 				AgentVisible: true,
+				Rate:         true,
 			},
 		},
 		Required: []string{"intervalSec"},

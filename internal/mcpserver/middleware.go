@@ -285,21 +285,26 @@ func (h *Handler) limitRate(next http.Handler) http.Handler {
 func (h *Handler) checkScope(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		v, _ := verifiedFrom(r.Context())
-		if !h.servesAnyScope(v.actor) {
-			writeJSONError(w, http.StatusForbidden, "This token has no scope that /mcp serves (call or read)")
+		// One epoch and one set of gates for the whole request: the scope
+		// check and the server it is served by agree.
+		epoch := h.tokens.Epoch()
+		g := h.gatesFor(v.actor, epoch)
+		if !h.servesAnyScope(v.actor, g) {
+			writeJSONError(w, http.StatusForbidden, "This token has no scope that /mcp serves now (call or read; author needs "+
+				"mcp.author_enabled, deploy an agent deploy level above off)")
 			return
 		}
-		if r.Method == http.MethodPost && r.Body != nil && !h.checkMessage(w, r, v.actor) {
+		if r.Method == http.MethodPost && r.Body != nil && !h.checkMessage(w, r, v.actor, g) {
 			return
 		}
-		srv := h.serverFor(v)
+		srv := h.serverWith(v, epoch, g)
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), serverCtxKey, srv)))
 	})
 }
 
 // checkMessage reads and checks the JSON-RPC message of a POST, answering
 // the refusal itself; the body is put back for the SDK.
-func (h *Handler) checkMessage(w http.ResponseWriter, r *http.Request, actor service.Actor) bool {
+func (h *Handler) checkMessage(w http.ResponseWriter, r *http.Request, actor service.Actor, g gates) bool {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, h.maxBody))
 	r.Body.Close()
 	var tooLarge *http.MaxBytesError
@@ -334,7 +339,7 @@ func (h *Handler) checkMessage(w http.ResponseWriter, r *http.Request, actor ser
 			"subscriptions/listen is not supported: PiWorker's lists do not change while a client is connected (listChanged is false)")
 		return false
 	case m.Method == "tools/call":
-		if scope := h.scopeOfTool(m.Params.Name, actor); !actor.HasScope(scope) {
+		if scope := h.scopeOfTool(m.Params.Name, actor, g); !actor.HasScope(scope) {
 			writeJSONError(w, http.StatusForbidden, fmt.Sprintf("This token does not have the %s scope needed to call %q", scope, shorten(m.Params.Name, maxToolNameLength)))
 			return false
 		}

@@ -72,8 +72,8 @@ func ReadTools(reads ReadService) []StaticTool {
 			Name:  ListFlowsTool,
 			Title: "List flows",
 			Description: "Lists the flows stored in PiWorker, newest first (at most 200): id, name, state (running, " +
-				"stopped, or failed: meant to run but not running), node count, the tools each flow publishes and its " +
-				"latest run. Use pw_get_flow for a flow's nodes and connections.",
+				"stopped, or failed: meant to run but not running), version, node count, the tools each flow publishes " +
+				"and its latest run. Use pw_get_flow for a flow's nodes and connections.",
 			InputSchema:  json.RawMessage(noArguments),
 			OutputSchema: json.RawMessage(flowListSchema),
 			Annotations:  readAnnotations,
@@ -85,9 +85,9 @@ func ReadTools(reads ReadService) []StaticTool {
 		{
 			Name:  GetFlowTool,
 			Title: "Get a flow",
-			Description: "Shows one flow: its nodes (type, enabled, risk, settings), connections and the tools it " +
-				"publishes while running. Settings that are credentials or not shown to agents read \"<redacted>\": " +
-				"they are hidden on purpose and cannot be read over MCP.",
+			Description: "Shows one flow: its version (the baseVersion of a draft of it), nodes (type, enabled, risk, " +
+				"settings), connections and the tools it publishes while running. Settings that are credentials or not " +
+				"shown to agents read \"<redacted>\": they are hidden on purpose and cannot be read over MCP.",
 			InputSchema:  json.RawMessage(`{"type":"object","properties":{` + flowIDProperty + `},"required":["flowId"]}`),
 			OutputSchema: json.RawMessage(flowViewSchema),
 			Annotations:  readAnnotations,

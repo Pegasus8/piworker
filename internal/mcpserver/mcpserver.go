@@ -26,6 +26,7 @@ import (
 	"github.com/Pegasus8/piworker/internal/agentauth"
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/service"
+	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
 )
@@ -88,6 +89,13 @@ type RejectionCounter interface {
 	Reject(tokenID, reason string, at time.Time)
 }
 
+// DeployLevelReader reads the agent deploy level (*storage.SQLiteStore).
+// Changing the level bumps the tokens epoch, which is when the endpoint
+// reads it again.
+type DeployLevelReader interface {
+	AgentDeployLevel() (storage.AgentDeployLevel, error)
+}
+
 // Options configures the endpoint.
 type Options struct {
 	// Tools serves the published flow tools (required).
@@ -103,6 +111,14 @@ type Options struct {
 	// pw_get_result, which is always present.
 	StaticTools []StaticTool
 	Prompts     []StaticPrompt
+	// AuthorEnabled is mcp.author_enabled: the built-in tools and prompts
+	// of the author scope are served only when it is set.
+	AuthorEnabled bool
+	// DeployLevel reads the agent deploy level: the built-in tools and
+	// prompts of the deploy scope are served only while it is above off
+	// (read again on every tokens epoch; a failed read counts as off). nil
+	// serves none.
+	DeployLevel DeployLevelReader
 	// TLS is set when PiWorker serves HTTPS itself. Without it only loopback
 	// clients are served, unless LANAccess (mcp.lan_access).
 	TLS       bool
@@ -145,12 +161,15 @@ type Handler struct {
 	listTTL     time.Duration
 	resultWait  time.Duration
 
-	static   []*staticTool
-	prompts  []StaticPrompt
-	requests *buckets
-	failures *buckets
-	servers  *serverCache
-	chain    http.Handler
+	static        []*staticTool
+	prompts       []StaticPrompt
+	authorEnabled bool
+	deployLevel   DeployLevelReader
+	levels        levelCache
+	requests      *buckets
+	failures      *buckets
+	servers       *serverCache
+	chain         http.Handler
 }
 
 // New builds the endpoint.
@@ -173,6 +192,9 @@ func New(opts Options) (*Handler, error) {
 		listTTL:     opts.ListTTL,
 		resultWait:  opts.ResultWait,
 		prompts:     opts.Prompts,
+
+		authorEnabled: opts.AuthorEnabled,
+		deployLevel:   opts.DeployLevel,
 	}
 	if h.now == nil {
 		h.now = time.Now
@@ -216,7 +238,16 @@ func New(opts Options) (*Handler, error) {
 			return nil, fmt.Errorf("mcpserver: prompt %q is registered twice", p.Prompt.Name)
 		}
 		prompts[p.Prompt.Name] = true
+		if p.Scope == storage.ScopeDeploy && opts.DeployLevel == nil {
+			return nil, fmt.Errorf("mcpserver: prompt %q has the deploy scope but Options.DeployLevel is nil: it would never be listed", p.Prompt.Name)
+		}
 	}
+	for _, st := range h.static {
+		if st.Scope == storage.ScopeDeploy && opts.DeployLevel == nil {
+			return nil, fmt.Errorf("mcpserver: tool %q has the deploy scope but Options.DeployLevel is nil: it would never be listed", st.Name)
+		}
+	}
+	h.logServed()
 
 	rate, burst := orDefault(opts.RequestsPerMinute, DefaultRequestsPerMinute), orDefault(opts.RequestBurst, DefaultRequestBurst)
 	h.requests = newBuckets(rate, burst, h.now, maxRateKeys)

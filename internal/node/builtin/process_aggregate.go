@@ -77,6 +77,7 @@ func aggregateProcessConfigSchema() node.ConfigSchema {
 				Default:      10,
 				Minimum:      &minOne,
 				AgentVisible: true,
+				Rate:         true,
 			},
 		},
 		Required: []string{"count"},

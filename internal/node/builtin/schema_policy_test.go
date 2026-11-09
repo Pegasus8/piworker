@@ -353,3 +353,49 @@ func TestOperationPropertiesAreMarked(t *testing.T) {
 		}
 	})
 }
+
+// rates set how often a trigger fires or how many messages a node lets
+// through (an interval, a cron expression, a limit, a batch size, a
+// cooldown); changing one on a flow that reaches other services is flagged
+// (rate_changed): a daily notification turned into ten a second spends the
+// admin's credentials as surely as a new destination. A review decision,
+// like operations.
+var rates = []string{
+	"process-aggregate.count",
+	"process-join.count",
+	"process-ratelimit.limit",
+	"process-ratelimit.windowMs",
+	"trigger-cron.expression",
+	"trigger-ds18b20.intervalSec",
+	"trigger-interval.interval",
+	"trigger-rss.intervalSec",
+	"trigger-sysmetric.interval",
+	"trigger-tool.cooldownMs",
+}
+
+// rateName matches names that say they set a rate.
+var rateName = regexp.MustCompile(`(?i)(interval|cooldown|window|cron|rate)`)
+
+func TestRatePropertiesAreMarked(t *testing.T) {
+	want := map[string]bool{}
+	for _, id := range rates {
+		want[id] = true
+	}
+	eachProperty(t, func(info node.NodeTypeInfo, name string, p node.ConfigProperty) {
+		id := info.Type + "." + name
+		if rateName.MatchString(name) {
+			assert.Truef(t, want[id], "%s looks like a rate: list it in rates (and mark it Rate) or rename it", id)
+		}
+		assert.Equalf(t, want[id], p.Rate, "%s: Rate must be %v (the list above is a review decision)", id, want[id])
+		if p.Rate {
+			assert.Falsef(t, p.Destination || p.Sensitive || p.Operation, "%s: a rate is neither a destination, a credential nor an operation", id)
+		}
+	})
+	for _, id := range rates {
+		typ, prop, _ := strings.Cut(id, ".")
+		info, ok := node.DefaultRegistry.Get(typ)
+		require.Truef(t, ok, "stale rates entry %s", id)
+		_, ok = info.Config.Properties[prop]
+		assert.Truef(t, ok, "stale rates entry %s", id)
+	}
+}

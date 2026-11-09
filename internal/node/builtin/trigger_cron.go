@@ -163,6 +163,7 @@ func (t *CronTrigger) GetConfigSchema() node.ConfigSchema {
 				Description:  "Standard cron expression (minute hour day month weekday)",
 				Default:      "*/5 * * * *",
 				AgentVisible: true,
+				Rate:         true,
 			},
 		},
 		Required: []string{"expression"},

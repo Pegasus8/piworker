@@ -258,6 +258,69 @@ func TestDiffAlerts(t *testing.T) {
 			},
 		},
 		{
+			// A daily request with the admin's key turned into ten a
+			// second: how often the flow sends is the admin's to approve.
+			name: "a trigger made to fire more often on a flow that reaches another service",
+			base: diffFlow(lintNode("tick", "trigger-interval", map[string]any{"interval": float64(86400000)}),
+				lintNode("http", "action-http", map[string]any{"url": "https://api.example.com/a?k={{secret.KEY}}"})),
+			next: diffFlow(lintNode("tick", "trigger-interval", map[string]any{"interval": float64(100)}),
+				lintNode("http", "action-http", map[string]any{"url": "https://api.example.com/a?k={{secret.KEY}}"})),
+			want: []string{flow.AlertRateChanged},
+			check: func(t *testing.T, r flow.DiffReport) {
+				a := r.Alerts[0]
+				assert.Equal(t, "tick", a.NodeID)
+				assert.Equal(t, "config.interval", a.Path)
+				assert.Equal(t, float64(86400000), a.Before, "intervals are agent-visible")
+				assert.Equal(t, float64(100), a.After)
+			},
+		},
+		{
+			name: "a cron expression changed",
+			base: diffFlow(lintNode("cron", "trigger-cron", map[string]any{"expression": "0 9 * * *"}),
+				lintNode("tg", "action-telegram", map[string]any{"chatId": "111"})),
+			next: diffFlow(lintNode("cron", "trigger-cron", map[string]any{"expression": "* * * * *"}),
+				lintNode("tg", "action-telegram", map[string]any{"chatId": "111"})),
+			want: []string{flow.AlertRateChanged},
+		},
+		{
+			name: "a rate limiter removed, and one disabled",
+			base: diffFlow(trigger(),
+				lintNode("rl", "process-ratelimit", map[string]any{"limit": float64(1), "windowMs": float64(60000)}),
+				lintNode("rl2", "process-ratelimit", nil),
+				lintNode("http", "action-http", map[string]any{"url": "https://api.example.com/a"})),
+			next: diffFlow(trigger(),
+				func() flow.Node {
+					n := lintNode("rl2", "process-ratelimit", nil)
+					n.Enabled = false
+					return n
+				}(),
+				lintNode("http", "action-http", map[string]any{"url": "https://api.example.com/a"})),
+			want: []string{flow.AlertRateChanged, flow.AlertRateChanged},
+			check: func(t *testing.T, r flow.DiffReport) {
+				assert.Equal(t, "rl", r.Alerts[0].NodeID, "in the base's order, like the destinations of nodes that stop")
+				assert.Empty(t, r.Alerts[0].Path, "about the node, whatever its settings")
+				assert.Contains(t, r.Alerts[0].Message, "limit, windowMs")
+				assert.Equal(t, "rl2", r.Alerts[1].NodeID)
+			},
+		},
+		{
+			name: "a new scheduled trigger",
+			base: diffFlow(trigger(), lintNode("http", "action-http", map[string]any{"url": "https://api.example.com/a"})),
+			next: diffFlow(trigger(), lintNode("http", "action-http", map[string]any{"url": "https://api.example.com/a"}),
+				lintNode("tick", "trigger-interval", nil)),
+			want: []string{flow.AlertRateChanged},
+			check: func(t *testing.T, r flow.DiffReport) {
+				assert.Equal(t, "tick", r.Alerts[0].NodeID)
+			},
+		},
+		{
+			name: "rates of a flow that reaches nothing outside PiWorker",
+			base: diffFlow(lintNode("tick", "trigger-interval", map[string]any{"interval": float64(60000)}), lintNode("dbg", "process-debug", nil)),
+			next: diffFlow(lintNode("tick", "trigger-interval", map[string]any{"interval": float64(100)}), lintNode("dbg", "process-debug", nil),
+				lintNode("rl", "process-ratelimit", nil)),
+			want: []string{},
+		},
+		{
 			name: "an unchanged literal is not reported again",
 			base: diffFlow(trigger(), lintNode("mq", "action-mqtt", map[string]any{"broker": "tcp://b:1883", "topic": "t", "password": "hunter2"})),
 			next: diffFlow(trigger(), lintNode("mq", "action-mqtt", map[string]any{"broker": "tcp://b:1883", "topic": "t", "password": "hunter2", "qos": float64(1)})),
@@ -348,7 +411,9 @@ func TestDiffAlertsTreatDisabledNodesAsAbsent(t *testing.T) {
 			name: "enabling a dormant risk switch",
 			base: diffFlow(trigger(), disabled(lintNode("rss", "trigger-rss", map[string]any{"url": "http://10.0.0.2/feed", "allowPrivate": true}))),
 			next: diffFlow(trigger(), lintNode("rss", "trigger-rss", map[string]any{"url": "http://10.0.0.2/feed", "allowPrivate": true})),
-			want: []string{flow.AlertRiskRaised, flow.AlertPrivilegedNodeAdded, flow.AlertRiskSwitchOn, flow.AlertDestinationChanged, flow.AlertNewHost},
+			// The feed now polls (rate_changed): a scheduled trigger that
+			// starts running.
+			want: []string{flow.AlertRiskRaised, flow.AlertPrivilegedNodeAdded, flow.AlertRateChanged, flow.AlertRiskSwitchOn, flow.AlertDestinationChanged, flow.AlertNewHost},
 		},
 		{
 			name: "enabling a dormant literal credential",

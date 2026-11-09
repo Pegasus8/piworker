@@ -427,13 +427,27 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 - `getServer(r)` builds a per-token `*mcp.Server` holding only what the token
   may use now: the flow tools `service.Tools.List(actor)` returns (exactly
   Call's permission rules, without suspending changed grants), plus the
-  built-in tools and prompts of its scopes. Each tool is built inside
+  built-in tools and prompts of its scopes that the settings serve now: the
+  `author` scope only with `mcp.author_enabled` (`Options.AuthorEnabled`),
+  the `deploy` scope only while `agent_deploy` is `low` or `all`
+  (`Options.DeployLevel`, the store's `AgentDeployLevel`; read only for
+  tokens with the deploy scope, once per tokens epoch, which a level change
+  bumps in its own transaction; a failed read counts as `off`, is logged and
+  is read again on the next request). A deploy-scope tool or prompt
+  registered without `DeployLevel` would never be listed, so `New` refuses
+  it; `New` logs once what is registered (author and deploy tools and
+  prompts, `authorEnabled`, whether the level is read) and warns when
+  `mcp.author_enabled` or the level reader has nothing to serve. A
+  built-in tool or prompt of a scope that is not served is, to the token, a
+  name that does not exist (neither listed nor callable); the services check
+  the same settings on every call. Each tool is built inside
   `recover()` so one bad tool is skipped and logged; a skipped tool is not
   listed and its calls are answered `not_found` without running it. Servers are cached by
-  (token id, tools snapshot version, tokens epoch, hash of the token's scopes,
-  flags and grants), one per token, at most 32 (least recently used dropped
-  first), so a redeploy, a grant change or an `agent_deploy` change shows on
-  the next request; a revoked token gets 401.
+  (token id, tools snapshot version, tokens epoch, the served gates, hash of
+  the token's scopes, flags and grants), one per token, at most 32 (least
+  recently used dropped first), so a redeploy, a grant change or an
+  `agent_deploy` change shows on the next request after the verifier reads
+  the new epoch (at most 5 s); a revoked token gets 401.
 - Flow tools use the low-level `Server.AddTool` with the canonical input
   schema (`toolschema` `JSON()`), title, description, explicit annotations
   (all four hints), the output schema when set and
@@ -453,10 +467,35 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   and tools the server could not build are answered `not_found` by the
   endpoint itself (not audited), shortened.
 - Built-in tools register as `StaticTool{Name (pw_…), Title, Description,
-  InputSchema (closed toolschema subset), OutputSchema, Annotations, Scope,
-  Handler(ctx, service.Actor, args)}`; prompts as `StaticPrompt{Prompt, Scope,
-  Handler}`. Tool arguments are validated before the handler runs; a prompt
-  handler checks its own. A prompt's refusal (`*service.ToolError`) is
+  InputSchema (closed toolschema subset) | RawInput, OutputSchema,
+  Annotations, Scope, Handler(ctx, service.Actor, args)}`; prompts as
+  `StaticPrompt{Prompt, Scope, Handler}`. Tool arguments are validated before
+  the handler runs; a prompt handler checks its own. Flow-shaped arguments
+  (nested objects, free-form node settings, any JSON payload) do not fit the
+  closed subset: `RawInput{Schema, MaxBytes, Validate}` is the escape hatch,
+  used by the four flow-shaped author tools and `pw_list_node_types` only
+  (every other built-in tool stays on the closed subset). `Schema` (a JSON
+  Schema of type object, at most 64 KiB, resolvable) is advertised as
+  written; the endpoint bounds the arguments' JSON as sent (`MaxBytes`, at
+  most the 1 MiB body limit), decodes them as every tool's (an object, no
+  duplicate names, valid UTF-8) and runs the Go `Validate`, which must
+  enforce at least what `Schema` says. The author tools build both from one
+  description (`argSchema`: `JSON()` advertised, `check()` enforced): one
+  type per schema or none (any value), closed objects unless free-form,
+  string, integer and array bounds, every problem reported with its
+  argument's pointer in toolschema's wording, at most 64, never quoting a
+  value. Refusals of either contract are `invalid_arguments`, counted in
+  `mcp_rejections`. The services audit their refusals but count none, so a
+  handler's `invalid_arguments` refusal (`*service.ToolError`: a sensitive
+  literal, an unresolved `"<redacted>"`, ops that cannot be applied, H2
+  blocking Lint errors, a deploy refused by validation) is counted there
+  too, once; other refusals (`conflict`, `forbidden`, `not_found`, `busy`)
+  are not rejections.
+  A successful result's structured content is checked against the tool's
+  output schema before it is sent (a mismatch is logged and answered
+  `failed`: clients refuse a result that does not match), and a destructive
+  built-in tool carries `_meta["anthropic/requiresUserInteraction"]` like a
+  flow tool. A prompt's refusal (`*service.ToolError`) is
   JSON-RPC `-32602` with its message, any other failure `-32603` without
   details (logged).
 - Read tools (`mcpserver.ReadTools(*service.Reads)`, scope read; main wires
@@ -504,9 +543,12 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   limited, so a client sharing the address cannot lock out known agents;
   per-token token bucket (30/min, burst 10 → 429 +
   `Retry-After`); scope check (call or read, or the scope of a registered
-  built-in tool or prompt; a `tools/call` needs the call scope → 403, unless
-  it names a built-in tool of a scope the token holds: to a token, a
-  built-in tool of a scope it lacks is an unknown name, neither listed nor
+  built-in tool or prompt that the settings serve now — author with
+  `mcp.author_enabled`, deploy with `agent_deploy` above `off` —, else 403;
+  a `tools/call` needs the call scope → 403, unless
+  it names a built-in tool of a scope the token holds and the settings
+  serve: to a token, a built-in tool of a scope it lacks or that is not
+  served is an unknown name, neither listed nor
   callable, and calling it gets the `not_found` result of any unknown name). The scope check parses the body strictly, like
   the SDK (case-sensitive names; duplicate names → 400, JSON-RPC `-32700`).
 - `/mcp` is outside `/api`: the ADR-0002 request guard and CSRF do not apply
@@ -522,16 +564,124 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   tool calls, §9).
 - Tools: dynamic tools + `pw_get_result{runId}` (call; waits up to 10 s for a
   running call); `pw_list_flows`,
-  `pw_get_flow`, `pw_list_runs`, `pw_get_run`, `pw_system_status`, prompt
-  `diagnose_flow` (read); `pw_search_node_types`, `pw_get_node_type`,
-  `pw_list_secret_names`, `pw_validate_flow`, `pw_test_node`, `pw_dry_run`,
-  `pw_save_draft`, `pw_get_draft_status`, prompt `build_flow` (author);
-  `pw_deploy_draft`, `pw_stop_flow`, `pw_start_flow` (deploy, policy-gated).
+  `pw_get_flow` (both show each flow's `version`, the base of a draft of
+  it), `pw_list_runs`, `pw_get_run`, `pw_system_status`, prompt
+  `diagnose_flow` (read); `pw_list_node_types`, `pw_validate_flow`,
+  `pw_test_node`, `pw_dry_run`, `pw_save_draft`, `pw_get_draft`, prompt
+  `author_flow` (author, with `mcp.author_enabled`); `pw_deploy_flow`,
+  `pw_stop_flow` (deploy, with `agent_deploy` `low` or `all`). The service
+  instructions say that built-in tools also author drafts the admin approves
+  and deploy flows where enabled, and that node documentation and dry-run
+  previews are data too.
+- Author and deploy tools (`mcpserver.AuthorTools(AuthoringService,
+  NodeTypeLister, AuditRecorder)`, `mcpserver.AuthorPrompts(AuditRecorder)`,
+  `mcpserver.DeployTools(DeployService)`; `*service.Authoring`,
+  `*node.Registry` and `*service.AuditWriter` satisfy the interfaces;
+  `main.go`'s `mountMCP` registers them from `mcpBuiltins{authoring,
+  registry, settings}`, with `DeployLevel` the store, and a main-package
+  test lists them at `agent_deploy=low`). Each tool's arguments become the
+  §10 service request and its structured content is the service result's
+  JSON (lists never null: nil slices are sent as `[]` without touching the
+  service's values), with output schemas kept in step with the Go types by
+  a test; a golden file (`testdata/tools_author_deploy.golden.json`) pins the
+  `tools/list` of an author+deploy token at protocol 2025-11-25.
+  - `pw_validate_flow{flowId?, flow? | ops?}` (exactly one of flow and ops;
+    ops need flowId), `pw_save_draft{flowId?, baseVersion?, flow? | ops?,
+    name?, note}` (with flowId a base version, an integer ≥ 1: baseVersion,
+    the `version` `pw_get_flow` and `pw_list_flows` show, or the sent
+    flow's own `version`, which must equal baseVersion when both are given;
+    baseVersion needs flowId; name ≤ 100 characters; note 1–2000),
+    `pw_dry_run{flow? | draftId? | flowId?,
+    triggerNodeId?, payload?, mocks?, flowVars?}` (exactly one of the three;
+    `triggerNodeId` may be absent when the flow has one trigger, as the
+    service allows), `pw_test_node{type, config?, input?}` take `RawInput`
+    arguments. A flow is closed at every level: `{name?, description?,
+    nodes (required, ≤ 200; a dry-run ≤ 50), connections? (≤ 400; a dry-run
+    ≤ 200), variables?}`, nodes `{id, type, enabled?, position?{x, y},
+    config? (free-form), category?, inputs?, outputs?}`, connections `{id,
+    sourceNode, sourcePort, targetNode, targetPort}`. The informational
+    fields of the read views and of exported flows (`id`, `state`,
+    `version`, `createdAt`, `updatedAt`, `tools`, `totalNodes`,
+    `totalConnections`; a node's `name`, `risk`) are accepted, so a flow
+    read can be sent back, and dropped before the service sees the flow
+    (`version` is pw_save_draft's base, above); a flow's name may be as long
+    as the read views show one (256 characters; a draft's 100-character rule
+    is the service's). What a view left out, cut or partly hid is refused,
+    because sent back it would replace the stored values: `truncated: true`,
+    a node's `configOmitted: true`, a setting (or a string or key inside one)
+    that is `"<truncated>"` or ends with `"…<truncated>"`, and a
+    `"<redacted>"` that is not a whole setting (inside a value, a key, the
+    flow's name or description); the settings add_node and update_node set
+    are checked the same way. A whole setting `"<redacted>"` keeps the
+    stored value with flowId (the service resolves it; without flowId it
+    reports `unresolved_redaction`); in pw_dry_run's inline flow, which has
+    no stored values, it is refused (dry-run by flowId or draftId instead),
+    and the node settings' description says so for each tool. Ops (≤ 200) `{op, …}` take only their own
+    fields (a field of another op is refused, not ignored): `add_node{node{id?
+    (1–64 of [A-Za-z0-9_-]), type, config?, enabled?, position?}}`,
+    `update_node{nodeId, config? | enabled? | position?}` (at least one),
+    `remove_node{nodeId}`, `connect{sourceNode, sourcePort, targetNode,
+    targetPort}`, `disconnect{connectionId}` or the four endpoints, not both;
+    the add_node id syntax is `flow.OpNodeIDPattern`, advertised as it is.
+    The ids a whole flow gives are those the editor, the server and add_node
+    generate (`node_<time>_<n>`, `node_<uuid>`, `edge_<source>_<target>_<time>`,
+    uuids) and dotted or colon-separated ones: `[A-Za-z0-9_.:-]`, nodes and
+    types 1–128, connections 1–256, ports 1–64, so no id hides in an issue
+    path (`/nodes/a/config/url`), breaks the editor's selectors (quotes) or
+    reads as other text (spaces, control and format characters such as bidi
+    overrides). Ids that name stored things (`flowId`, `draftId`, ops'
+    `nodeId`, endpoints and `connectionId`) are 1 to 256 characters without
+    control characters, so a stored flow with older ids is changed with ops.
+    A refusal lists at most 64 problems (schema and the tools' own checks
+    alike) and says more were left out. Bounds on the
+    arguments' JSON: 576 KiB (validate, save draft: a 512 KiB draft and
+    room), 768 KiB (dry-run), 144 KiB (node test).
+  - `pw_get_draft{draftId}`, `pw_deploy_flow{flowId, draftId?}` and
+    `pw_stop_flow{flowId}` are on the closed subset.
+  - `pw_list_node_types{category?, type?}` reads the registry only (never a
+    flow or a secret): types ordered by category (input, processing,
+    output) and id, each with name, category, risk (an unrated type reads
+    privileged), description, ports, config schema (type, title,
+    description, default, enum, bounds, unit, and the markers `sensitive`,
+    `agentVisible`, `destination`, `riskSwitch`, `operation`, `rate`,
+    present when true) and documentation cut to 8 KiB; the list's JSON stays within 64
+    KiB: every type's structure first, in order while it fits, then the
+    documentation in order while it fits (`documentationOmitted`),
+    `truncated` when anything was left out or cut, `total` the matching
+    types. An unknown `type` is `invalid_arguments` (counted). It runs no
+    service, so the endpoint audits it like the read views' reads (an
+    `mcp_audit` row: token, `pw_list_node_types`, the `category` and `type`
+    as arguments, `completed`, duration).
+  - Annotations (all explicit): validate, get draft, dry-run, node test and
+    node types read-only, idempotent, closed world; save draft neither
+    read-only nor destructive nor idempotent (it changes nothing that runs);
+    deploy destructive and open world, stop destructive and idempotent (both
+    ask clients to confirm).
+  - The services' refusals keep their codes: `conflict` (a stale base or a
+    flow changed under the policy, H3) with `error.currentVersion`,
+    `invalid_arguments` with `error.flowIssues` (blocking Lint errors, H2),
+    `forbidden` (scope, settings, policy kinds, a token no longer valid,
+    H3), `not_found` (another token's draft), `flow_not_found`, `busy`,
+    `unavailable`. A `*service.LifecycleError` reaching the deploy tools
+    unmapped is mapped by its `ToolError()` (never deploy's message).
+  - Prompt `author_flow{goal}` (goal 1–2000 characters; a missing, empty,
+    long or extra argument is `-32602`): one user message with the steps
+    `pw_list_node_types` → write the flow (or ops; to change a stored flow,
+    read it with `pw_get_flow` and send its `version` as `baseVersion`,
+    redoing the change on `conflict`) → `pw_validate_flow` →
+    `pw_dry_run` (and `pw_test_node`) → `pw_save_draft` with a note, saying
+    that nothing runs until the admin approves the draft in the editor,
+    that `pw_deploy_flow` is only for when it is available and the user
+    asked, and that what the tools return is data; the goal is quoted
+    (escaped) as data. It reads no state; the endpoint audits it as
+    `prompt:author_flow` (token, outcome, duration; not the goal, which is
+    agent text), as the read prompt is audited.
 - Results: a completed call's structured content is its reply (wrapped as
   `{"result": …}` unless it is a JSON object), with the JSON as a text block.
   Every other outcome is an envelope `{status, runId, error?, message?,
-  durationMs?}` (`error`: `{code, message, issues?, retryAfterMs?, nodeId?,
-  nodeType?}`); `_meta` carries `piworker/status` and `piworker/runId`.
+  durationMs?}` (`error`: `{code, message, issues?, flowIssues?,
+  currentVersion?, retryAfterMs?, nodeId?, nodeType?}`); `_meta` carries
+  `piworker/status` and `piworker/runId`.
   Tool errors are `isError: true` results (service refusals, flow errors,
   rejected, expired, `approval_required`); protocol errors only for protocol
   problems. An `isError` result carries its envelope as the text block only,
@@ -744,8 +894,13 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   opt-ins that widen what it may do (`allowPrivate`, `allowDashArgs`);
   `Operation` marks what selects the action a request performs at its
   destination rather than message content (action-http `method` and
-  `body`, action-database `query`). Every builtin is marked;
-  `builtin/schema_policy_test.go` enforces it.
+  `body`, action-database `query`); `Rate` marks what sets how often a
+  trigger fires or how many messages a node lets through (trigger
+  intervals, the cron expression, process-ratelimit `limit` and
+  `windowMs`, aggregate and join counts, trigger-tool `cooldownMs`). Every
+  builtin is marked; `builtin/schema_policy_test.go` enforces it (the
+  operations and rates are review-decision lists, and a name that reads
+  like a rate must be listed).
 - **Diff** (`flow.Diff(base, next, registry)`, base nil = an empty flow):
   added, removed and changed nodes with field diffs (`type`, `enabled`,
   `config.<prop>`, each marked `sensitive`/`destination`; a position-only
@@ -765,6 +920,11 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   a node that uses a credential in the base, a secret reference or a
   Sensitive value, an `Operation` property changed or a new input was
   connected: the approved credential would be used for something else),
+  `rate_changed` (on a flow whose risk is above safe, a `Rate` property of
+  a running node added, removed or changed, or a running node with one
+  added, removed, enabled or disabled: a daily request with the admin's
+  key turned into ten a second spends the credential as surely as a new
+  destination; the direction is not computed, a cron expression has none),
   `global_variable_write` (`internal/flow/diff_vars.go`: a running `set-var`
   writes a global variable — its `scope` is not `flow`; absent means global
   — which other flows read for their URLs, commands and conditions, and
@@ -781,6 +941,9 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   changed: a node on it added, enabled or reconfigured, or a connection
   into it added; one alert per tool). The two global variable alerts are
   listed after the field alerts.
+  The rate alert covers the settings whose purpose is the rate; connections,
+  filter conditions and thresholds also change how many messages reach a
+  node, as they change what the messages hold, and raise no rate alert.
   Alerts describe the flow that runs: a disabled node counts as absent
   (baselines come from the base's enabled nodes; enabling a node raises the
   alerts of adding it, disabling one those of removing it; changing or
@@ -856,10 +1019,15 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
     the trigger first, stubbed, with the payload as its output) and
     `wouldExecute`. One dry-run or node test runs at a time process-wide;
     another fails at once (`flow.ErrBusy`). Every node instance built is
-    closed. Work still running when the call returns — a node ignoring
-    cancellation, a goroutine a node started with `node.Go`, such as an
-    expression evaluation finishing its last step — keeps the slot until it
-    returns, so stuck or runaway sandboxed work cannot pile up.
+    closed. Work still running when the run ends — the private runtime
+    draining, a goroutine a node started with `node.Go`, such as an
+    expression evaluation finishing its last step — is waited for up to 1 s
+    (the private runtime's stop timeout) before the call returns, so the
+    next dry-run or node test right after (the same agent's, typically) does
+    not find the slot taken; work still running then (a node ignoring
+    cancellation) keeps the slot until it returns, so stuck or runaway
+    sandboxed work cannot pile up. A node test waits the same way for the
+    goroutines its node started.
   - Hidden settings. The flow package only bounds previews; the service
     redacts them for agents. Redacting derived output afterwards cannot work
     in general (a transform can encode a value), so for an agent dry-run of
@@ -901,9 +1069,10 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   `low` (agent may deploy/start/stop flows and approve its own drafts when the
   resulting flow's risk is ≤ external, no recipient/destination changes vs the
   last admin-approved version, no new secrets references, no change to what
-  an approved credential is used for: `credentialed_request_changed`, no
-  change to what a global variable receives or to a tool path that reads
-  global variables: `global_variable_write`, `global_variable_read`), `all`
+  an approved credential is used for: `credentialed_request_changed`, nor to
+  how often a flow that reaches out fires: `rate_changed`, no change to what
+  a global variable receives or to a tool path that reads global variables:
+  `global_variable_write`, `global_variable_read`), `all`
   (any flow, including privileged). Changing it needs password step-up and
   shows the risk text; tokens need the `deploy` scope (only grantable when
   not `off`). Every agent deploy is audited, marked "deployed by agent" in
@@ -1192,7 +1361,7 @@ toggling a running flow on records nothing (it deploys nothing). A
   flow, candidate)` raises none of `service.LowDeployRefusedAlerts()`:
   `privileged_node_added`, `destination_changed`, `dynamic_destination`,
   `new_host`, `secret_added`, `secret_moved`, `risk_switch_on`,
-  `sensitive_literal`, `credentialed_request_changed` (H1),
+  `sensitive_literal`, `credentialed_request_changed` (H1), `rate_changed`,
   `global_variable_write` (shared state other flows read) and
   `global_variable_read` (shared state a tool would return) — refused
   with `forbidden` listing the kinds, never values; `all` → any flow. With
@@ -1292,12 +1461,26 @@ cut short by the browser going away):
   (with `version`) plus `"deployment": {"version", "actorKind",
   "tokenName"?, "deployedAt"} | null` and `"agentChanged": bool` (H6).
 
-**MCP** (section E): each built-in tool's arguments are the request's JSON
-(`pw_validate_flow` → `Validate`, `pw_save_draft` → `SaveDraft`,
-`pw_get_draft{draftId}` → `GetDraft`, `pw_dry_run` → `DryRun`,
-`pw_test_node` → `TestNode`, `pw_deploy_flow` → `Deploy`, `pw_stop_flow
-{flowId}` → `Stop`) and its structured content the result's JSON.
-`pw_list_node_types` reads the registry (no service state).
+**MCP** (section E, `internal/mcpserver/author.go`, `deploy.go`,
+`nodetypes.go`; §8 has the argument contracts): each built-in tool's
+arguments are the request's JSON (`pw_validate_flow` → `Validate`,
+`pw_save_draft` → `SaveDraft`, `pw_get_draft{draftId}` → `GetDraft`,
+`pw_dry_run` → `DryRun`, `pw_test_node` → `TestNode`, `pw_deploy_flow` →
+`Deploy`, `pw_stop_flow {flowId}` → `Stop`) and its structured content the
+result's JSON (lists as `[]`, checked against the tool's output schema).
+The endpoint only checks the arguments' shape (closed flows and ops, each
+op's fields, the combinations, the bounds; refusals `invalid_arguments`,
+counted in `mcp_rejections`) and drops the read views' informational fields
+from a sent flow; everything else — scopes, `AuthorEnabled`, the deploy
+level, limits, redaction, the H2 and H3 checks, audit — is the service's.
+The author tools and `author_flow` are served only with `mcp.author_enabled`
+and the deploy tools only while the level is above `off` (§8), so a token
+never sees tools the service would refuse anyway. `pw_list_node_types` reads
+the registry (no service state) and, like `author_flow`, is audited by the
+endpoint. `mountMCP` registers the author and deploy tools, the prompt and
+`DeployLevel` (the store) from `mcpBuiltins.authoring`, which `buildApp`
+passes once it creates the authoring service (`TODO(wave4-join)` at the
+call); a deploy tool without `DeployLevel` is a startup error.
 
 **Hand-offs from the foundations (binding).** H1 the low policy also
 refuses `credentialed_request_changed`. H2 `SaveDraft` and `ApproveDraft`

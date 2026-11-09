@@ -207,7 +207,8 @@ type FlowList struct {
 type FlowSummary struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
-	State     string `json:"state"` // running, stopped or failed
+	State     string `json:"state"`   // running, stopped or failed
+	Version   int    `json:"version"` // the saved version: the base of a draft of the flow
 	NodeCount int    `json:"nodeCount"`
 	// Tools are the names of the tools the flow publishes while running,
 	// sorted, at most maxSummaryTools; ToolCount counts them all.
@@ -259,6 +260,7 @@ func (r *Reads) ListFlows(ctx context.Context, actor Actor) (_ FlowList, err err
 			ID:        capText(red.text(f.ID), maxViewIDBytes),
 			Name:      r.flowName(red, f.Name),
 			State:     flowState(f, running[f.ID]),
+			Version:   f.Version,
 			NodeCount: len(f.Nodes),
 			Tools:     []string{},
 			ToolCount: len(tools[f.ID]),

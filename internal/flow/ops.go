@@ -84,9 +84,12 @@ type OpNode struct {
 	Position *Position      `json:"position,omitempty"`
 }
 
-// opNodeIDPattern bounds the node IDs an operation may choose: they appear
-// in paths (/nodes/{id}) and URLs.
-var opNodeIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+// OpNodeIDPattern is the syntax of the node IDs an operation may choose:
+// they appear in paths (/nodes/{id}) and URLs. The MCP endpoint advertises
+// and checks it as it is.
+const OpNodeIDPattern = `^[A-Za-z0-9_-]{1,64}$`
+
+var opNodeIDPattern = regexp.MustCompile(OpNodeIDPattern)
 
 // ApplyOps applies ops in order to a copy of base (nil: an empty flow) and
 // returns it, with the nodes added without a position placed by AutoLayout.
