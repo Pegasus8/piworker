@@ -6,8 +6,8 @@
 // characters with visibleText.
 import type { Component } from 'vue'
 import {
-  AlertTriangle, ArrowRightLeft, Fingerprint, Globe, KeyRound, Lock, Send, Shield, ShieldAlert, ShieldCheck,
-  ShieldQuestion, Shuffle, ToggleRight, TrendingUp, XCircle
+  AlertTriangle, ArrowRightLeft, DatabaseZap, Eye, Fingerprint, Gauge, Globe, KeyRound, Lock, Send, Shield, ShieldAlert,
+  ShieldCheck, ShieldQuestion, Shuffle, ToggleRight, TrendingUp, XCircle
 } from 'lucide-vue-next'
 import { jsonText, visibleText } from '@/lib/agentAccess'
 
@@ -140,8 +140,8 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 // --- Icons -----------------------------------------------------------------
 
 const ICONS: Record<string, Component> = {
-  AlertTriangle, ArrowRightLeft, Fingerprint, Globe, KeyRound, Lock, Send, Shield, ShieldAlert, ShieldCheck,
-  ShieldQuestion, Shuffle, ToggleRight, TrendingUp, XCircle
+  AlertTriangle, ArrowRightLeft, DatabaseZap, Eye, Fingerprint, Gauge, Globe, KeyRound, Lock, Send, Shield, ShieldAlert,
+  ShieldCheck, ShieldQuestion, Shuffle, ToggleRight, TrendingUp, XCircle
 }
 
 /** The component of an icon name the helpers return (AlertTriangle when unknown). */
@@ -200,6 +200,18 @@ export const ALERT_KINDS: Readonly<Record<string, AlertKindInfo>> = {
   credentialed_request_changed: {
     icon: 'Fingerprint', label: 'Credential used differently',
     description: 'A node that uses a credential now sends a different request or gets new input, so the credential you approved is used for something else.'
+  },
+  rate_changed: {
+    icon: 'Gauge', label: 'Rate changed',
+    description: 'On a flow that reaches other services, how often a trigger fires or how many messages a limiter lets through changed.'
+  },
+  global_variable_write: {
+    icon: 'DatabaseZap', label: 'Global variable written',
+    description: 'What the flow writes to a global variable may have changed. Other flows read global variables for their URLs, commands and conditions.'
+  },
+  global_variable_read: {
+    icon: 'Eye', label: 'Global variable read by a tool',
+    description: 'A tool whose path changed reads global variables: what it reads goes back to the agent that calls it.'
   }
 }
 

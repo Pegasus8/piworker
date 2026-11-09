@@ -11,6 +11,7 @@ import {
   connectionText,
   diffBasis,
   diffSummary,
+  draftIcon,
   draftState,
   draftTitle,
   draftVersionText,
@@ -47,7 +48,8 @@ const detail = (over: Partial<DraftDetail> = {}): DraftDetail => ({
 
 test('every alert kind the server raises has its own icon, label and plain explanation', () => {
   const kinds = ['risk_raised', 'privileged_node_added', 'destination_changed', 'dynamic_destination', 'new_host',
-    'secret_added', 'secret_moved', 'risk_switch_on', 'sensitive_literal', 'credentialed_request_changed']
+    'secret_added', 'secret_moved', 'risk_switch_on', 'sensitive_literal', 'credentialed_request_changed',
+    'rate_changed', 'global_variable_write', 'global_variable_read']
   expect(Object.keys(ALERT_KINDS).sort()).toEqual([...kinds].sort())
   const icons = new Set<string>()
   const labels = new Set<string>()
@@ -64,6 +66,11 @@ test('every alert kind the server raises has its own icon, label and plain expla
   expect(labels.size).toBe(kinds.length)
   expect(alertKind('credentialed_request_changed')).toMatchObject({ icon: 'Fingerprint', label: 'Credential used differently' })
   expect(alertKind('new_host').icon).toBe('Globe')
+  expect(alertKind('rate_changed')).toMatchObject({ icon: 'Gauge', label: 'Rate changed' })
+  expect(alertKind('global_variable_write')).toMatchObject({ icon: 'DatabaseZap', label: 'Global variable written' })
+  expect(alertKind('global_variable_read')).toMatchObject({ icon: 'Eye', label: 'Global variable read by a tool' })
+  // Every icon name resolves to its own component, not the fallback.
+  for (const kind of kinds) expect(draftIcon(alertKind(kind).icon)).not.toBe(draftIcon('no-such-icon'))
 })
 
 test('an alert kind this editor does not know is still shown, as text', () => {
