@@ -1037,13 +1037,21 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
     the stack of 32-bit builds, a fatal error, in every node factory —
     `pw_validate_flow`, `pw_save_draft`, `pw_dry_run` and deploy alike.
     They are compiled with a guard (`expr_guard.go`): every predicate
-    body (the loops of `filter`, `map`, `count`, `reduce`, …) checks the
-    evaluation's context, so an evaluation stops once its deadline passed
-    instead of running on in the background — in every flow, not only in
-    the sandbox; in a sandbox string `+`, `repeat`, `join`, `replace`,
-    `toJSON`, `string` and `toBase64` size their result before it exists
-    and charge the sandbox, and the result is capped at 1 MiB. Templates
-    stop expanding at the sandbox's limits.
+    body (the loops of `filter`, `map`, `count`, `reduce`, …) and every
+    item of `uniq` (quadratic) checks the evaluation's context, so an
+    evaluation stops once its deadline passed instead of running on in the
+    background — in every flow, not only in the sandbox. Also in every
+    flow, `repeat`, `concat` and `flatten`, whose result expr's VM charges
+    to its memory budget (10⁶ items or bytes per evaluation) only after
+    they built it, are checked against that budget before they run
+    (`flatten` counting the nested arrays it opens too): copies of one
+    large array allocated gigabytes past any deadline. In a sandbox string
+    `+`, `repeat`, `join`, `replace`, `toJSON`, `string`, `toBase64`,
+    `concat` and `flatten` size their result before it exists and charge
+    the sandbox; `upper`, `lower`, `split`, `splitAfter`, `fromBase64`,
+    `fromJSON`, `keys`, `values`, `toPairs` and `uniq`, whose result is at
+    most a few times their input, charge it once it exists; every result
+    is capped at 1 MiB. Templates stop expanding at the sandbox's limits.
   - The result (`flow.DryRunResult`: `issues`, `trace`, `wouldExecute`,
     `missingSecrets`, `truncated`, `timedOut`, `capped`) lists the Lint
     issues and, in execution order, the trace (`nodeId`, `type`,
