@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"slices"
 	"time"
@@ -225,6 +226,33 @@ type DeploymentView struct {
 type FlowWithMarks struct {
 	*flow.Flow
 	FlowMarks
+}
+
+// MarksStore is what FlowMarksOf reads (*storage.SQLiteStore).
+type MarksStore interface {
+	GetDeployment(flowID string) (*storage.Deployment, error)
+	ListFlowVersions(flowID string, limit int) ([]storage.FlowVersion, error)
+}
+
+// FlowMarksOf returns the marks of a stored flow f (f.Version is its current
+// version): its deployment marker, and whether that version is not
+// admin-approved (an agent saved it). The editor's flow list and view
+// (internal/api) and Authoring.Marks share it.
+func FlowMarksOf(store MarksStore, f *flow.Flow) (FlowMarks, error) {
+	var marks FlowMarks
+	d, err := store.GetDeployment(f.ID)
+	if err != nil {
+		return FlowMarks{}, fmt.Errorf("get deployment: %w", err)
+	}
+	if d != nil {
+		marks.Deployment = &DeploymentView{Version: d.Version, ActorKind: d.ActorKind, TokenName: d.TokenName, DeployedAt: d.DeployedAt.UTC()}
+	}
+	newest, err := store.ListFlowVersions(f.ID, 1)
+	if err != nil {
+		return FlowMarks{}, fmt.Errorf("list flow versions: %w", err)
+	}
+	marks.AgentChanged = len(newest) == 1 && newest[0].Version == f.Version && !newest[0].AdminApproved
+	return marks, nil
 }
 
 // Deploy deploys a flow for an agent with the deploy scope (pw_deploy_flow).

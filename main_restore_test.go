@@ -5,6 +5,7 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
+	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,6 +27,8 @@ func TestRestoreKeepsPreviouslyAcceptedFlowsRunning(t *testing.T) {
 	require.NotEmpty(t, f.ConfigIssues(node.DefaultRegistry), "the fixture must trip the stricter checks")
 	require.NoError(t, app.store.CreateFlow(f))
 	require.NoError(t, app.store.UpdateFlowState(f.ID, flow.FlowStateRunning))
+	marker := storage.Deployment{Version: 1, ActorKind: storage.VersionActorAgent, TokenID: "tok", TokenName: "claude"}
+	require.NoError(t, app.store.RecordDeployment(f.ID, marker))
 
 	restoreRunningFlows(app.store, app.manager)
 
@@ -35,6 +38,13 @@ func TestRestoreKeepsPreviouslyAcceptedFlowsRunning(t *testing.T) {
 	saved, err := app.store.GetFlow(f.ID)
 	require.NoError(t, err)
 	assert.Equal(t, flow.FlowStateRunning, saved.State)
+	// A restore is not a new deployment: the marker still names who
+	// deployed the flow (H6).
+	d, err := app.store.GetDeployment(f.ID)
+	require.NoError(t, err)
+	require.NotNil(t, d)
+	assert.Equal(t, storage.VersionActorAgent, d.ActorKind)
+	assert.Equal(t, "claude", d.TokenName)
 
 	// An explicit deploy still asks for the values to be fixed.
 	require.NoError(t, app.manager.Undeploy(f.ID))

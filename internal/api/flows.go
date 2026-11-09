@@ -14,6 +14,7 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
+	"github.com/Pegasus8/piworker/internal/service"
 	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
@@ -72,16 +73,32 @@ type APIResponse struct {
 	Message string      `json:"message,omitempty"`
 }
 
-// ListFlowsResponse contains the list of flows.
+// ListFlowsResponse contains the list of flows, each with its marks (the
+// last deployment and whether an agent changed it, docs/design/mcp.md §10).
 type ListFlowsResponse struct {
-	Flows []*flow.Flow `json:"flows"`
-	Total int          `json:"total"`
+	Flows []service.FlowWithMarks `json:"flows"`
+	Total int                     `json:"total"`
 }
 
 // FlowStatusResponse contains the status of a flow.
 type FlowStatusResponse struct {
 	Flow    *flow.Flow `json:"flow"`
 	Running bool       `json:"running"`
+}
+
+// FlowDetailResponse is GET /api/flows/{id}: the flow with its marks.
+type FlowDetailResponse struct {
+	Flow    service.FlowWithMarks `json:"flow"`
+	Running bool                  `json:"running"`
+}
+
+// withMarks adds a stored flow's marks.
+func (h *FlowsHandler) withMarks(f *flow.Flow) (service.FlowWithMarks, error) {
+	marks, err := service.FlowMarksOf(h.store, f)
+	if err != nil {
+		return service.FlowWithMarks{}, err
+	}
+	return service.FlowWithMarks{Flow: f, FlowMarks: marks}, nil
 }
 
 // writeJSON writes a JSON response.
@@ -138,13 +155,20 @@ func (h *FlowsHandler) ListFlows(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if flows == nil {
-		flows = []*flow.Flow{}
+	out := make([]service.FlowWithMarks, 0, len(flows))
+	for _, f := range flows {
+		m, err := h.withMarks(f)
+		if err != nil {
+			h.logger.Error().Err(err).Str("flowID", f.ID).Msg("Failed to read the flow's marks")
+			writeError(w, http.StatusInternalServerError, "Failed to list flows")
+			return
+		}
+		out = append(out, m)
 	}
 
 	writeSuccess(w, http.StatusOK, ListFlowsResponse{
-		Flows: flows,
-		Total: len(flows),
+		Flows: out,
+		Total: len(out),
 	}, "")
 }
 
@@ -300,9 +324,15 @@ func (h *FlowsHandler) GetFlow(w http.ResponseWriter, r *http.Request) {
 	if rt, ok := h.manager.GetRuntime(id); ok {
 		running = rt.IsRunning()
 	}
+	marked, err := h.withMarks(f)
+	if err != nil {
+		h.logger.Error().Err(err).Str("flowID", id).Msg("Failed to read the flow's marks")
+		writeError(w, http.StatusInternalServerError, "Failed to get flow")
+		return
+	}
 
-	writeSuccess(w, http.StatusOK, FlowStatusResponse{
-		Flow:    f,
+	writeSuccess(w, http.StatusOK, FlowDetailResponse{
+		Flow:    marked,
 		Running: running,
 	}, "")
 }
@@ -480,80 +510,25 @@ func (h *FlowsHandler) BeginShutdown() {
 // expected, when not 0, is the definition version the client shows: a
 // deploy of another stored version is refused with 409 (stopping needs no
 // check).
+//
+// It is the lifecycle path agent deploys share (flows_lifecycle.go): a
+// deployment it makes is recorded as the editor's.
 func (h *FlowsHandler) changeRunning(w http.ResponseWriter, r *http.Request, wantRunning, strict bool, expected int) {
 	h.lifecycleMu.Lock()
 	defer h.lifecycleMu.Unlock()
-	if wantRunning && h.shuttingDown {
-		writeError(w, http.StatusServiceUnavailable, "PiWorker is shutting down")
-		return
-	}
 	id := mux.Vars(r)["id"]
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "Flow ID is required")
-		return
-	}
-	f, err := h.store.GetFlow(id)
-	if err != nil {
-		if err == storage.ErrFlowNotFound {
-			writeError(w, http.StatusNotFound, "Flow not found")
-		} else {
-			writeError(w, http.StatusInternalServerError, "Failed to get flow")
-		}
-		return
-	}
-	if wantRunning && expected != 0 && f.Version != expected {
-		writeErrorData(w, http.StatusConflict,
-			"The flow was changed since you loaded it; reload it to see the version you would deploy",
-			VersionConflictData{CurrentVersion: f.Version})
-		return
-	}
-	rt, exists := h.manager.GetRuntime(id)
-	running := exists && rt.IsRunning()
-	if strict && running == wantRunning {
-		if running {
-			writeError(w, http.StatusConflict, "Flow is already running")
-		} else {
-			writeError(w, http.StatusConflict, "Flow is not running")
-		}
-		return
-	}
+	var (
+		f   *flow.Flow
+		ref *lifecycleRefusal
+	)
 	if wantRunning {
-		if !running {
-			if err := h.manager.Deploy(r.Context(), f); err != nil {
-				writeError(w, deployErrorStatus(err), "Failed to deploy flow: "+err.Error())
-				return
-			}
-		}
-		// State changes are not new versions of the definition.
-		f.State = flow.FlowStateRunning
-		if err := h.store.UpdateFlowState(id, f.State); err != nil {
-			// A newly started flow must not continue after a failed deployment response.
-			if !running {
-				if rollbackErr := h.manager.Undeploy(id); rollbackErr != nil {
-					h.logger.Error().Err(rollbackErr).Msg("Failed to roll back deployment")
-				}
-			}
-			writeError(w, http.StatusInternalServerError, "Failed to persist flow state")
-			return
-		}
+		f, ref = h.startLocked(r.Context(), id, expected, strict, false, editorDeployer)
 	} else {
-		oldState := f.State
-		f.State = flow.FlowStateInactive
-		// Persist stop intent first: if storage is unavailable, leave execution alone.
-		if err := h.store.UpdateFlowState(id, f.State); err != nil {
-			writeError(w, http.StatusInternalServerError, "Failed to persist flow state")
-			return
-		}
-		if exists {
-			if err := h.manager.Undeploy(id); err != nil {
-				f.State = oldState
-				if rollbackErr := h.store.UpdateFlowState(id, f.State); rollbackErr != nil {
-					h.logger.Error().Err(rollbackErr).Msg("Failed to restore flow state")
-				}
-				writeError(w, http.StatusInternalServerError, "Failed to stop flow")
-				return
-			}
-		}
+		f, ref = h.stopLocked(id, strict)
+	}
+	if ref != nil {
+		ref.write(w)
+		return
 	}
 	writeSuccess(w, http.StatusOK, FlowStatusResponse{Flow: f, Running: wantRunning}, "")
 }
