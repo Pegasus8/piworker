@@ -1515,6 +1515,40 @@
     }
   },
   {
+    "name": "tools/call: invalid params (the name is not a string)",
+    "headers": {
+      "Mcp-Method": "tools/call",
+      "Mcp-Name": "42",
+      "Mcp-Protocol-Version": "2026-07-28"
+    },
+    "request": {
+      "id": 13,
+      "jsonrpc": "2.0",
+      "method": "tools/call",
+      "params": {
+        "_meta": {
+          "io.modelcontextprotocol/clientCapabilities": {},
+          "io.modelcontextprotocol/clientInfo": {
+            "name": "golden",
+            "version": "1"
+          },
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28"
+        },
+        "arguments": {},
+        "name": 42
+      }
+    },
+    "status": 400,
+    "response": {
+      "error": {
+        "code": -32020,
+        "message": "failed to extract name from parameters for method \"tools/call\""
+      },
+      "id": 13,
+      "jsonrpc": "2.0"
+    }
+  },
+  {
     "name": "unknown tool, with the call scope",
     "headers": {
       "Mcp-Method": "tools/call",
@@ -1522,7 +1556,7 @@
       "Mcp-Protocol-Version": "2026-07-28"
     },
     "request": {
-      "id": 13,
+      "id": 14,
       "jsonrpc": "2.0",
       "method": "tools/call",
       "params": {
@@ -1540,7 +1574,7 @@
     },
     "status": 200,
     "response": {
-      "id": 13,
+      "id": 14,
       "jsonrpc": "2.0",
       "result": {
         "_meta": {
@@ -1569,7 +1603,7 @@
       "Mcp-Protocol-Version": "2026-07-28"
     },
     "request": {
-      "id": 14,
+      "id": 15,
       "jsonrpc": "2.0",
       "method": "prompts/list",
       "params": {
@@ -1585,7 +1619,7 @@
     },
     "status": 200,
     "response": {
-      "id": 14,
+      "id": 15,
       "jsonrpc": "2.0",
       "result": {
         "_meta": {
@@ -1637,7 +1671,7 @@
       "Mcp-Protocol-Version": "2026-07-28"
     },
     "request": {
-      "id": 15,
+      "id": 16,
       "jsonrpc": "2.0",
       "method": "prompts/get",
       "params": {
@@ -1657,7 +1691,7 @@
     },
     "status": 200,
     "response": {
-      "id": 15,
+      "id": 16,
       "jsonrpc": "2.0",
       "result": {
         "_meta": {
@@ -1689,7 +1723,7 @@
       "Mcp-Protocol-Version": "2026-07-28"
     },
     "request": {
-      "id": 16,
+      "id": 17,
       "jsonrpc": "2.0",
       "method": "prompts/get",
       "params": {
@@ -1709,7 +1743,7 @@
     },
     "status": 200,
     "response": {
-      "id": 16,
+      "id": 17,
       "jsonrpc": "2.0",
       "result": {
         "_meta": {
@@ -1741,7 +1775,7 @@
       "Mcp-Protocol-Version": "2026-07-28"
     },
     "request": {
-      "id": 17,
+      "id": 18,
       "jsonrpc": "2.0",
       "method": "prompts/get",
       "params": {
@@ -1763,7 +1797,7 @@
         "code": -32602,
         "message": "the argument \"flowId\" is required"
       },
-      "id": 17,
+      "id": 18,
       "jsonrpc": "2.0"
     }
   },
@@ -1774,7 +1808,7 @@
       "Mcp-Protocol-Version": "2026-07-28"
     },
     "request": {
-      "id": 18,
+      "id": 19,
       "jsonrpc": "2.0",
       "method": "ping",
       "params": {
@@ -1794,7 +1828,7 @@
         "code": -32601,
         "message": "method not found: \"ping\""
       },
-      "id": 18,
+      "id": 19,
       "jsonrpc": "2.0"
     }
   },
@@ -1805,7 +1839,7 @@
       "Mcp-Protocol-Version": "2026-07-28"
     },
     "request": {
-      "id": 19,
+      "id": 20,
       "jsonrpc": "2.0",
       "method": "flows/list",
       "params": {
@@ -1825,7 +1859,7 @@
         "code": -32601,
         "message": "JSON RPC not handled: \"flows/list\" unsupported"
       },
-      "id": 19,
+      "id": 20,
       "jsonrpc": "2.0"
     }
   },
@@ -1837,7 +1871,7 @@
       "Mcp-Protocol-Version": "2026-07-28"
     },
     "request": {
-      "id": 20,
+      "id": 21,
       "jsonrpc": "2.0",
       "method": "tools/call",
       "params": {
@@ -1858,7 +1892,7 @@
     },
     "status": 200,
     "response": {
-      "id": 20,
+      "id": 21,
       "jsonrpc": "2.0",
       "result": {
         "_meta": {

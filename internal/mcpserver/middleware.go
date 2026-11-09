@@ -328,30 +328,50 @@ func (h *Handler) checkMessage(w http.ResponseWriter, r *http.Request, actor ser
 		writeRPCError(w, http.StatusBadRequest, nil, jsonrpc.CodeParseError, "Parse error: "+shorten(err.Error(), 200))
 		return false
 	}
+	var method string
+	if len(m.Method) > 0 && jsonv2.Unmarshal(m.Method, &method) != nil {
+		writeRPCError(w, http.StatusBadRequest, nil, jsonrpc.CodeInvalidRequest, "Invalid request: the method is not a string")
+		return false
+	}
 	isCall := len(m.ID) > 0
 	version := r.Header.Get(protocolVersionHeader)
 	switch {
-	case isCall && m.Method != "initialize" && version == "":
+	case isCall && method != "initialize" && version == "":
 		writeRPCError(w, http.StatusBadRequest, m.ID, jsonrpc.CodeInvalidRequest, fmt.Sprintf(
 			"The %s header is required on every request but initialize (supported versions: %s)",
 			protocolVersionHeader, strings.Join(ProtocolVersions, ", ")))
 		return false
-	case isCall && !sdkMethods[m.Method] && version < sessionlessVersion && slices.Contains(ProtocolVersions, version):
+	case isCall && !sdkMethods[method] && version < sessionlessVersion && slices.Contains(ProtocolVersions, version):
 		// As the SDK answers a method it knows but does not serve (from
 		// 2026-07-28 it answers unknown ones in JSON-RPC itself).
-		writeRPCError(w, http.StatusOK, m.ID, jsonrpc.CodeMethodNotFound, fmt.Sprintf("method not found: %q", shorten(m.Method, maxToolNameLength)))
+		writeRPCError(w, http.StatusOK, m.ID, jsonrpc.CodeMethodNotFound, fmt.Sprintf("method not found: %q", shorten(method, maxToolNameLength)))
 		return false
-	case m.Method == "subscriptions/listen":
+	case method == "subscriptions/listen":
 		writeRPCError(w, http.StatusOK, m.ID, jsonrpc.CodeMethodNotFound,
 			"subscriptions/listen is not supported: PiWorker's lists do not change while a client is connected (listChanged is false)")
 		return false
-	case m.Method == "tools/call":
-		if scope := h.scopeOfTool(m.Params.Name, actor, g); !actor.HasScope(scope) {
-			writeJSONError(w, http.StatusForbidden, fmt.Sprintf("This token does not have the %s scope needed to call %q", scope, shorten(m.Params.Name, maxToolNameLength)))
+	case method == "tools/call":
+		name := paramsName(m.Params)
+		if scope := h.scopeOfTool(name, actor, g); !actor.HasScope(scope) {
+			writeJSONError(w, http.StatusForbidden, fmt.Sprintf("This token does not have the %s scope needed to call %q", scope, shorten(name, maxToolNameLength)))
 			return false
 		}
 	}
 	return true
+}
+
+// paramsName is the tool or prompt name of a request's params, "" when its
+// params are not an object with a string name: the SDK answers such a
+// request as invalid params, and the scope check reads it as a call of an
+// unknown tool.
+func paramsName(params jsontext.Value) string {
+	var p struct {
+		Name string `json:"name"`
+	}
+	if jsonv2.Unmarshal(params, &p) != nil {
+		return ""
+	}
+	return p.Name
 }
 
 // protocolVersionHeader names the request's MCP protocol version.
@@ -371,13 +391,13 @@ var sdkMethods = map[string]bool{
 	"notifications/progress": true, "notifications/roots/list_changed": true,
 }
 
-// rpcMessage is what checkScope reads of a JSON-RPC message.
+// rpcMessage is what checkScope reads of a JSON-RPC message: any valid JSON
+// (without duplicate names) decodes into it, so only a body that is not
+// JSON is a parse error.
 type rpcMessage struct {
 	ID     jsontext.Value `json:"id"`
-	Method string         `json:"method"`
-	Params struct {
-		Name string `json:"name"`
-	} `json:"params"`
+	Method jsontext.Value `json:"method"`
+	Params jsontext.Value `json:"params"`
 }
 
 // isBatch reports a JSON array body: a JSON-RPC batch.

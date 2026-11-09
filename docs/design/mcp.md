@@ -557,7 +557,11 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   serve: to a token, a built-in tool of a scope it lacks or that is not
   served is an unknown name, neither listed nor
   callable, and calling it gets the `not_found` result of any unknown name). The scope check parses the body strictly, like
-  the SDK (case-sensitive names; duplicate names → 400, JSON-RPC `-32700`).
+  the SDK (case-sensitive names; a body that is not JSON or has duplicate
+  names → 400, JSON-RPC `-32700`; a method that is not a string → 400,
+  `-32600`). Params of the wrong shape (not an object, a name that is not a
+  string) are the SDK's to refuse (`-32602` with the request's id); the
+  scope check reads such a call as one of an unknown tool.
 - `/mcp` is outside `/api`: the ADR-0002 request guard and CSRF do not apply
   (Bearer only; the router never allows `Authorization` in a CORS preflight).
 - Mounted at `/mcp` without method restriction, before the webui catch-all;

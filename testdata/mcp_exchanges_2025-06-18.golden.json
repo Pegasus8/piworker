@@ -1299,7 +1299,7 @@
     }
   },
   {
-    "name": "unknown tool, with the call scope",
+    "name": "tools/call: invalid params (the name is not a string)",
     "headers": {
       "Mcp-Protocol-Version": "2025-06-18"
     },
@@ -1309,12 +1309,36 @@
       "method": "tools/call",
       "params": {
         "arguments": {},
+        "name": 42
+      }
+    },
+    "status": 200,
+    "response": {
+      "error": {
+        "code": -32602,
+        "message": "handling 'tools/call': invalid params: unmarshaling \"{\\\"arguments\\\":{},\\\"name\\\":42}\" into a *mcp.CallToolParamsRaw: json: cannot unmarshal \"42}\" into Go struct field mcp.CallToolParamsRaw.name of type string"
+      },
+      "id": 12,
+      "jsonrpc": "2.0"
+    }
+  },
+  {
+    "name": "unknown tool, with the call scope",
+    "headers": {
+      "Mcp-Protocol-Version": "2025-06-18"
+    },
+    "request": {
+      "id": 13,
+      "jsonrpc": "2.0",
+      "method": "tools/call",
+      "params": {
+        "arguments": {},
         "name": "pw_no_such_tool"
       }
     },
     "status": 200,
     "response": {
-      "id": 12,
+      "id": 13,
       "jsonrpc": "2.0",
       "result": {
         "_meta": {
@@ -1336,13 +1360,13 @@
       "Mcp-Protocol-Version": "2025-06-18"
     },
     "request": {
-      "id": 13,
+      "id": 14,
       "jsonrpc": "2.0",
       "method": "prompts/list"
     },
     "status": 200,
     "response": {
-      "id": 13,
+      "id": 14,
       "jsonrpc": "2.0",
       "result": {
         "cacheScope": "private",
@@ -1384,7 +1408,7 @@
       "Mcp-Protocol-Version": "2025-06-18"
     },
     "request": {
-      "id": 14,
+      "id": 15,
       "jsonrpc": "2.0",
       "method": "prompts/get",
       "params": {
@@ -1396,7 +1420,7 @@
     },
     "status": 200,
     "response": {
-      "id": 14,
+      "id": 15,
       "jsonrpc": "2.0",
       "result": {
         "description": "Diagnose a PiWorker flow with the read tools",
@@ -1418,7 +1442,7 @@
       "Mcp-Protocol-Version": "2025-06-18"
     },
     "request": {
-      "id": 15,
+      "id": 16,
       "jsonrpc": "2.0",
       "method": "prompts/get",
       "params": {
@@ -1430,7 +1454,7 @@
     },
     "status": 200,
     "response": {
-      "id": 15,
+      "id": 16,
       "jsonrpc": "2.0",
       "result": {
         "description": "Author a PiWorker flow",
@@ -1452,7 +1476,7 @@
       "Mcp-Protocol-Version": "2025-06-18"
     },
     "request": {
-      "id": 16,
+      "id": 17,
       "jsonrpc": "2.0",
       "method": "prompts/get",
       "params": {
@@ -1466,7 +1490,7 @@
         "code": -32602,
         "message": "the argument \"flowId\" is required"
       },
-      "id": 16,
+      "id": 17,
       "jsonrpc": "2.0"
     }
   },
@@ -1476,13 +1500,13 @@
       "Mcp-Protocol-Version": "2025-06-18"
     },
     "request": {
-      "id": 17,
+      "id": 18,
       "jsonrpc": "2.0",
       "method": "ping"
     },
     "status": 200,
     "response": {
-      "id": 17,
+      "id": 18,
       "jsonrpc": "2.0",
       "result": {}
     }
@@ -1493,7 +1517,7 @@
       "Mcp-Protocol-Version": "2025-06-18"
     },
     "request": {
-      "id": 18,
+      "id": 19,
       "jsonrpc": "2.0",
       "method": "flows/list"
     },
@@ -1503,7 +1527,7 @@
         "code": -32601,
         "message": "method not found: \"flows/list\""
       },
-      "id": 18,
+      "id": 19,
       "jsonrpc": "2.0"
     }
   },
@@ -1513,7 +1537,7 @@
       "Mcp-Protocol-Version": "2025-06-18"
     },
     "request": {
-      "id": 19,
+      "id": 20,
       "jsonrpc": "2.0",
       "method": "tools/call",
       "params": {
@@ -1526,7 +1550,7 @@
     },
     "status": 200,
     "response": {
-      "id": 19,
+      "id": 20,
       "jsonrpc": "2.0",
       "result": {
         "_meta": {

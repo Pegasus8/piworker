@@ -341,6 +341,49 @@ func TestScopeCheck(t *testing.T) {
 	assert.NotEqual(t, true, res["isError"])
 }
 
+// Only a body that is not JSON (or has duplicate names) is a parse error
+// (-32700, id null). Valid JSON whose method is not a string is an invalid
+// request (-32600, id null); params of the wrong shape (not an object, a
+// tool or prompt name that is not a string) are the SDK's invalid params
+// (-32602, with the request's id), like any other params of the wrong
+// type. The scope check reads such a call as one of an unknown tool.
+func TestOnlyInvalidJSONIsAParseError(t *testing.T) {
+	e := newTestEnv(t)
+	n := 0
+	serve := func(raw, body string) *httptest.ResponseRecorder {
+		n++
+		if raw == "" {
+			raw = e.verifier.add(fmt.Sprintf("parse%011d", n))
+		}
+		return e.serve(withToken(rpc(body), raw))
+	}
+	for _, body := range []string{
+		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"garage","arguments":{},"_meta":5}}`, // the SDK's own
+		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":42}}`,
+		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":["garage"]}`,
+		`{"jsonrpc":"2.0","id":5,"method":"prompts/get","params":{"name":{"x":1}}}`,
+	} {
+		id, code, _ := rpcRefusal(t, serve("", body), http.StatusOK)
+		assert.EqualValues(t, 5, id, body)
+		assert.EqualValues(t, -32602, code, body)
+	}
+	id, code, _ := rpcRefusal(t, serve("", `{"jsonrpc":"2.0","id":5,"method":5}`), http.StatusBadRequest)
+	assert.Nil(t, id)
+	assert.EqualValues(t, -32600, code)
+	for _, body := range []string{
+		`{"jsonrpc":"2.0","id":5,"method":"tools/call",`,
+		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"garage","name":"pw_deploy_flow"}}`,
+	} {
+		id, code, _ := rpcRefusal(t, serve("", body), http.StatusBadRequest)
+		assert.Nil(t, id, body)
+		assert.EqualValues(t, -32700, code, body)
+	}
+	// Without the call scope, a call naming no tool is refused like one
+	// naming an unknown tool.
+	requireJSONError(t, serve(readToken, `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":42}}`), http.StatusForbidden)
+	assert.Zero(t, e.tools.calls.Load())
+}
+
 // Bodies are bounded before they are parsed.
 func TestRequestBodyLimit(t *testing.T) {
 	e := newTestEnv(t, func(o *Options) { o.MaxRequestBodyBytes = 1024 })

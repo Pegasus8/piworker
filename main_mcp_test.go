@@ -620,8 +620,8 @@ func (g *goldenTranscript) send(t *testing.T, raw, step, method string, params m
 				"io.modelcontextprotocol/clientCapabilities": map[string]any{},
 			}
 			headers["Mcp-Method"] = method
-			if name, ok := params["name"].(string); ok && (method == "tools/call" || method == "prompts/get") {
-				headers["Mcp-Name"] = name
+			if name, ok := params["name"]; ok && (method == "tools/call" || method == "prompts/get") {
+				headers["Mcp-Name"] = fmt.Sprint(name)
 			}
 		}
 	}
@@ -793,6 +793,8 @@ func TestMCPProtocolGolden(t *testing.T) {
 			})
 			g.call(t, token(), "built-in tool: arguments outside its schema", "pw_list_runs",
 				map[string]any{"flowId": garage.FlowID, "limit": 0, "page": 2})
+			g.send(t, token(), "tools/call: invalid params (the name is not a string)", "tools/call",
+				map[string]any{"name": 42, "arguments": map[string]any{}})
 			g.call(t, token(), "unknown tool, with the call scope", "pw_no_such_tool", map[string]any{})
 
 			g.send(t, token(), "prompts/list", "prompts/list", nil)
@@ -822,15 +824,17 @@ func TestMCPProtocolGolden(t *testing.T) {
 // toolAnswers are the results of a transcript's tools/call exchanges, by
 // exchange, without what the sessionless protocol (2026-07-28) adds to
 // every result: "resultType": "complete" and the server's identity in
-// _meta, checked here.
+// _meta, checked here. (Protocol errors are not results.)
 func toolAnswers(t *testing.T, version string, exchanges []goldenExchange) map[string]any {
 	t.Helper()
 	out := map[string]any{}
 	for _, ex := range exchanges {
-		if ex.Request.(map[string]any)["method"] != "tools/call" {
+		answer, _ := ex.Response.(map[string]any)
+		result, ok := answer["result"].(map[string]any)
+		if ex.Request.(map[string]any)["method"] != "tools/call" || !ok {
 			continue
 		}
-		res := maps.Clone(ex.Response.(map[string]any)["result"].(map[string]any))
+		res := maps.Clone(result)
 		meta, _ := res["_meta"].(map[string]any)
 		meta = maps.Clone(meta)
 		if version >= "2026-07-28" {
