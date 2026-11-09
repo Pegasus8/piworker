@@ -1,6 +1,6 @@
 # ADR-0019: One Lint path, schema markers and change alerts define `low`
 
-**Status:** Accepted
+**Status:** Accepted (the alert kinds `low` refuses extended by ADR-0022)
 **Date:** 2026-11-09
 **Deciders:** maintainer
 **Supersedes:** ADR-0012 (only the definition of the `low` agent deploy level)

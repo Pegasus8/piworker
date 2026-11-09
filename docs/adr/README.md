@@ -56,10 +56,11 @@ node recipe, UI changes and documentation do **not** need an ADR.
 | [0012](0012-human-approval-and-opt-in-agent-deploy.md) | Human approval gates and opt-in agent deploy | Accepted (definition of `low` superseded by ADR-0019) |
 | [0013](0013-closed-tool-schemas-and-server-computed-risk.md) | Closed tool input schemas and server-computed risk | Accepted |
 | [0014](0014-host-allowlist-against-dns-rebinding.md) | Host allowlist against DNS rebinding | Accepted |
-| [0015](0015-tool-identity-binds-grants-and-approvals.md) | Bind grants and approvals to the tool's identity | Accepted |
+| [0015](0015-tool-identity-binds-grants-and-approvals.md) | Bind grants and approvals to the tool's identity | Accepted (what the fingerprint covers amended by ADR-0022) |
 | [0016](0016-mcp-only-over-https-with-ca-in-chain.md) | Refuse `/mcp` on the plain listener and present the CA in the chain | Accepted |
 | [0017](0017-narrowing-actions-and-background-polls.md) | Narrowing actions need no step-up; background polls never extend a session | Accepted |
 | [0018](0018-versioned-flows-and-agent-drafts.md) | Versioned flow definitions; agents write drafts only | Accepted |
-| [0019](0019-lint-markers-and-change-alerts-define-low.md) | One Lint path, schema markers and change alerts define `low` | Accepted |
+| [0019](0019-lint-markers-and-change-alerts-define-low.md) | One Lint path, schema markers and change alerts define `low` | Accepted (the alert kinds `low` refuses extended by ADR-0022) |
 | [0020](0020-sandboxed-dry-run-and-node-test.md) | Sandboxed dry-run and node test; expressions honour their deadline | Accepted |
 | [0021](0021-agent-views-never-confirm-a-guess.md) | What agents see never confirms a guess | Accepted |
+| [0022](0022-low-keeps-tools-and-protected-data-the-admins.md) | `low` keeps published tools and protected data the admin's | Accepted |
