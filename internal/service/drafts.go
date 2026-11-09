@@ -74,6 +74,20 @@ type DraftSummary struct {
 	AppliedVersion int `json:"appliedVersion,omitempty"`
 }
 
+// TextChange is a text field a draft changes.
+type TextChange struct {
+	Before string `json:"before"`
+	After  string `json:"after"`
+}
+
+// textChange is the change from before to after (nil when equal).
+func textChange(before, after string) *TextChange {
+	if before == after {
+		return nil
+	}
+	return &TextChange{Before: before, After: after}
+}
+
 // IssueCounts counts issues by severity.
 type IssueCounts struct {
 	Error   int `json:"error"`
@@ -92,6 +106,12 @@ type DraftDetail struct {
 	// Running: the flow is running, so approving redeploys it whatever
 	// "deploy" says.
 	Running bool `json:"running"`
+	// NameChange and DescriptionChange are the proposed flow's name and
+	// description where they differ from the current version's (an empty
+	// flow's for a new one); null when unchanged. Agent text: render as
+	// plain text.
+	NameChange        *TextChange `json:"nameChange"`
+	DescriptionChange *TextChange `json:"descriptionChange"`
 	// Diff compares the proposal with the current version (an empty flow
 	// for a new one): field diffs with full values (Sensitive ones as
 	// "<hidden>" unless a secret reference) and the alerts.
@@ -243,6 +263,12 @@ func (a *Authoring) GetDraftDetail(ctx context.Context, actor Actor, draftID str
 		Diff:         flow.Diff(base, proposed, a.registry),
 		Flow:         hideSensitiveLiterals(a.registry, shown),
 	}
+	var was flow.Flow // what the name and description replace (empty: new)
+	if base != nil {
+		was = *base
+	}
+	detail.NameChange = textChange(was.Name, proposed.Name)
+	detail.DescriptionChange = textChange(was.Description, proposed.Description)
 	if current != nil && a.lifecycle != nil {
 		if err := a.lifecycle.WithLock(ctx, func(l LockedLifecycle) error {
 			detail.Running = l.Running(current.ID)

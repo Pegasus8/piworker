@@ -58,7 +58,7 @@ func TestAuthoringJSONShapes(t *testing.T) {
 		keys(DraftSummary{CreatedAt: at}))
 	assert.ElementsMatch(t, []string{"id", "flowId", "flowName", "isNew", "baseVersion", "currentVersion", "stale",
 		"status", "risk", "alertCount", "issueCounts", "note", "tokenId", "tokenName", "createdAt", "decidedAt",
-		"issues", "running", "diff", "lastApprovedVersion", "diffApproved", "flow"},
+		"issues", "running", "nameChange", "descriptionChange", "diff", "lastApprovedVersion", "diffApproved", "flow"},
 		keys(DraftDetail{DraftSummary: DraftSummary{CreatedAt: at, Note: "short"}, Note: "the whole note"}))
 	assert.ElementsMatch(t, []string{"drafts", "nextBefore"}, keys(DraftList{}))
 	assert.ElementsMatch(t, []string{"flowId", "version", "deployed"}, keys(ApplyResult{}))

@@ -1146,7 +1146,10 @@ toggling a running flow on records nothing (it deploys nothing). A
   flow when new; field diffs with full values, `Sensitive` ones
   `"<hidden>"` unless a secret reference, H7), `diffApproved` (vs
   `lastApprovedVersion` when that is not the current one, else null),
-  `running`, and `flow` (the proposed flow, `Sensitive` literals
+  `running`, `nameChange` and `descriptionChange` (`{before, after}` where
+  the proposed name or description differs from the current version's, an
+  empty flow's for a new one; null when unchanged: a rename shows on the
+  approval page; agent text), and `flow` (the proposed flow, `Sensitive` literals
   `"<hidden>"`, and every value of an unregistered type; hidden on a copy,
   so the diffs compare the real values). The summary's
   `alertCount`/`issueCounts` come from what was stored at save time; the
@@ -1244,7 +1247,9 @@ cut short by the browser going away):
   "tokenName", "createdAt", "decidedAt" (null while pending), "reason"?,
   "appliedVersion"?}], "nextBefore": ""}`.
 - `GET /api/agent/drafts/{id}` → `DraftDetail`: the summary's fields with
-  the whole `note`, plus `"issues": [flow.Issue]`, `"running"`, `"diff":
+  the whole `note`, plus `"issues": [flow.Issue]`, `"running"`,
+  `"nameChange"` and `"descriptionChange"` (`{"before", "after"}` or null),
+  `"diff":
   {"nodes": [{"nodeId", "type", "typeName", "change", "fields": [{"path",
   "change", "before"?, "after"?, "sensitive", "destination"}], "moved"}],
   "connections": {"added": [Connection], "removed": [Connection]},

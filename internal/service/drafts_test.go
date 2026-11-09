@@ -91,6 +91,35 @@ func TestListDraftsForTheEditor(t *testing.T) {
 	requireKind(t, err, ErrPermissionDenied)
 }
 
+// The approval page shows a proposed rename or new description of an
+// existing flow (flow names appear in the editor and the read views).
+func TestGetDraftDetailShowsNameAndDescriptionChanges(t *testing.T) {
+	e := newAuthEnv(t)
+	base := e.create(lightsFlow())
+	agent := e.token()
+	whole := lightsFlow()
+	whole.ID = base.ID
+	whole.Description = "nothing to see here"
+	nodeOf(whole, "call").Config["url"] = RedactedValue
+	nodeOf(whole, "call").Config["headers"] = RedactedValue
+	renamed := e.draft(agent, DraftInput{FlowID: base.ID, BaseVersion: 1, Flow: whole, Name: "Totally harmless"})
+	detail, err := e.a.GetDraftDetail(t.Context(), EditorActor(), renamed.DraftID)
+	require.NoError(t, err)
+	assert.Equal(t, &TextChange{Before: "lights", After: "Totally harmless"}, detail.NameChange)
+	assert.Equal(t, &TextChange{Before: "", After: "nothing to see here"}, detail.DescriptionChange)
+	data := mustJSON(t, detail)
+	assert.Contains(t, data, `"nameChange":{"before":"lights","after":"Totally harmless"}`)
+
+	same := e.draft(agent, DraftInput{FlowID: base.ID, BaseVersion: 1, Ops: []flow.Op{
+		{Op: flow.OpUpdateNode, NodeID: "calc", Config: map[string]any{"expression": "payload + 1"}},
+	}})
+	detail, err = e.a.GetDraftDetail(t.Context(), EditorActor(), same.DraftID)
+	require.NoError(t, err)
+	assert.Nil(t, detail.NameChange)
+	assert.Nil(t, detail.DescriptionChange)
+	assert.Contains(t, mustJSON(t, detail), `"nameChange":null`)
+}
+
 func TestGetDraftDetailRecomputesTheDiff(t *testing.T) {
 	e := newAuthEnv(t)
 	base := e.create(lightsFlow())
