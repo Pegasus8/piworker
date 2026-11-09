@@ -1067,8 +1067,10 @@ toggling a running flow on records nothing (it deploys nothing). A
     `Sensitive` setting (its `token`) the agent wrote — equal to the base's
     or not, since agents cannot read them; only a value kept (below) stays,
     and removing a set one is a change; a
-    `RiskSwitch` property `true` where the base had it off or the node was
-    absent or disabled (enabling a node counts as adding it); `variables`
+    `RiskSwitch` property `true` on an enabled node where the base had it
+    off or the node was absent or disabled (enabling a node counts as
+    adding it; a disabled node counts as absent, so its switch, on or off,
+    stops nothing until it is enabled); `variables`
     other than the base's.
   - No equality oracles: the service tells what the agent wrote from what
     it kept, never by comparing with the base (an exemption for a value

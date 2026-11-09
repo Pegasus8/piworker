@@ -289,6 +289,31 @@ func TestSaveDraftAuthorRestrictions(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// A disabled node counts as absent: its switch, already on, does not stop
+// unrelated changes; enabling it turns the switch on (H7, §10).
+func TestSaveDraftRiskSwitchOnADisabledNode(t *testing.T) {
+	e := newAuthEnv(t)
+	agent := e.token()
+	f := lightsFlow()
+	addNode(f, "spare", "action-http", map[string]any{"url": "http://10.0.0.5/x", "allowPrivate": true})
+	nodeOf(f, "spare").Enabled = false
+	base := e.create(f)
+
+	_, err := e.a.SaveDraft(t.Context(), agent, DraftInput{FlowID: base.ID, BaseVersion: 1, Ops: []flow.Op{
+		{Op: flow.OpUpdateNode, NodeID: "calc", Config: map[string]any{"expression": "payload + 1"}},
+	}})
+	require.NoError(t, err, "an unrelated change")
+	_, err = e.a.Validate(t.Context(), agent, ValidateRequest{FlowID: base.ID})
+	require.NoError(t, err)
+
+	on := true
+	_, err = e.a.SaveDraft(t.Context(), agent, DraftInput{FlowID: base.ID, BaseVersion: 1, Ops: []flow.Op{
+		{Op: flow.OpUpdateNode, NodeID: "spare", Enabled: &on},
+	}})
+	te := requireKind(t, err, ErrPermissionDenied)
+	assert.Contains(t, te.Message, "/nodes/spare/config/allowPrivate")
+}
+
 // A proposal deploy would refuse (Lint errors other than undefined secrets)
 // is refused with its issues (H2); undefined secrets are stored with it.
 func TestSaveDraftRefusesBlockingLintErrors(t *testing.T) {

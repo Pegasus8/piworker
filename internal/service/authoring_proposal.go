@@ -653,8 +653,9 @@ func forbiddenChange(path, what string) *ToolError {
 // changes nothing), a webhook trigger's path or Sensitive settings (its
 // token: any value written there, equal to the base's or not, since agents
 // may not read them; only what kept marks stays) or turning one on, a
-// RiskSwitch property turned on (enabling a node counts as adding it), and
-// the legacy Variables.
+// RiskSwitch property turned on on an enabled node (enabling a node counts
+// as adding it; a disabled node counts as absent), and the legacy
+// Variables.
 func (a *Authoring) authorRestrictions(base, next *flow.Flow, kept map[propKey]bool) *ToolError {
 	isTool := func(t string) bool { return t == toolTriggerType || t == toolReplyType }
 	toolWhat := "add, change or remove trigger-tool or action-reply nodes (they define the tools agents call)"
@@ -717,7 +718,8 @@ func (a *Authoring) authorRestrictions(base, next *flow.Flow, kept map[propKey]b
 			continue
 		}
 		for _, prop := range sortedSchemaProps(schema) {
-			if !schema.Properties[prop].RiskSwitch || n.Config[prop] != true {
+			// Only running nodes count: a disabled node is absent.
+			if !schema.Properties[prop].RiskSwitch || !n.Enabled || n.Config[prop] != true {
 				continue
 			}
 			if b == nil || !b.Enabled || b.Config[prop] != true {
