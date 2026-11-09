@@ -76,10 +76,14 @@ func (e *LifecycleError) Error() string { return e.Message }
 // Unwrap returns the cause.
 func (e *LifecycleError) Unwrap() error { return e.Err }
 
-// ToolError maps the refusal to the tool error agents see: 400
-// invalid_arguments (with a fixed message: deploy's may quote config
-// values), 404 flow_not_found, 409 conflict, 503 unavailable. It is nil for
-// any other status (an internal failure) and for a nil e.
+// ToolError maps the refusal to the tool error agents see, always with a
+// fixed message: the lifecycle path's messages quote deploy's errors, which
+// may quote config values agents may not read (a webhook path, a tool name,
+// a URL). 400 is invalid_arguments, 404 flow_not_found, 409 conflict (said
+// by cause: an exclusive resource another running flow holds
+// (node.ErrResourceConflict), already running, not running, still
+// stopping, or a generic conflict), 503 unavailable. It is nil for any
+// other status (an internal failure) and for a nil e.
 func (e *LifecycleError) ToolError() *ToolError {
 	if e == nil {
 		return nil
@@ -88,13 +92,28 @@ func (e *LifecycleError) ToolError() *ToolError {
 	case http.StatusBadRequest:
 		return toolError(ErrInvalidArguments, "the flow cannot be deployed: validate it (pw_validate_flow) to see why")
 	case http.StatusNotFound:
-		return toolError(ErrFlowNotFound, e.Message)
+		return toolError(ErrFlowNotFound, "the flow no longer exists")
 	case http.StatusConflict:
-		return toolError(ErrConflict, e.Message)
+		return toolError(ErrConflict, conflictMessage(e.Err))
 	case http.StatusServiceUnavailable:
-		return toolError(ErrUnavailable, e.Message)
+		return toolError(ErrUnavailable, "PiWorker is shutting down: flows cannot be deployed now")
 	}
 	return nil
+}
+
+// conflictMessage says why the lifecycle path answered 409, from its cause.
+func conflictMessage(cause error) string {
+	switch {
+	case errors.Is(cause, node.ErrResourceConflict):
+		return "a resource this flow needs (a webhook path or tool name) is used by another running flow: the admin must stop that flow or change this one"
+	case errors.Is(cause, flow.ErrFlowAlreadyRunning):
+		return "the flow is already running"
+	case errors.Is(cause, flow.ErrFlowNotRunning):
+		return "the flow is not running"
+	case errors.Is(cause, flow.ErrFlowStillStopping):
+		return "the flow's previous instance is still stopping; retry in a few seconds"
+	}
+	return "the request conflicts with the flow's current state; read it again and retry"
 }
 
 // DeployActor says who deploys or stops a flow; the deployment marker

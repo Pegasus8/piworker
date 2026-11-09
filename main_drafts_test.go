@@ -166,3 +166,46 @@ func TestVersionRoutesWithoutAuth(t *testing.T) {
 	w = app.do("POST", "/api/flows/"+f.ID+"/rollback", "application/json", "", editorHeaders)
 	assert.Equal(t, http.StatusConflict, w.Code, w.Body.String())
 }
+
+// A lifecycle conflict never tells an agent what the read views hide: two
+// flows share a webhook path (not agent-visible); with one running, an
+// agent's deploy of the other gets a fixed message through the real
+// FlowsHandler, with and without a draft.
+func TestAgentDeployConflictHidesConfigValues(t *testing.T) {
+	app, services := newServicesApp(t)
+	require.NoError(t, app.store.SetAgentDeployLevel(storage.AgentDeployAll))
+	tok, _, err := app.store.CreateAPIToken(storage.NewAPIToken{Name: "claude", Scopes: []string{storage.ScopeAuthor, storage.ScopeDeploy}}, time.Now())
+	require.NoError(t, err)
+	agent := service.AgentActor(agentauth.TokenInfo{ID: tok.ID, Name: tok.Name, Scopes: tok.Scopes, ExpiresAt: tok.ExpiresAt})
+
+	const hidden = "zz-hidden-path-4f2a9c"
+	hookFlow := func(name string) *flow.Flow {
+		f := flow.NewFlow(name)
+		hook := flow.NewNode("trigger-webhook", flow.NodeCategoryInput)
+		hook.ID, hook.Config = "hook", map[string]any{"path": hidden}
+		calc := flow.NewNode("process-transform", flow.NodeCategoryProcessing)
+		calc.ID, calc.Config = "calc", map[string]any{"expression": "payload"}
+		f.AddNode(*hook)
+		f.AddNode(*calc)
+		f.AddConnection(*flow.NewConnection("hook", "output", "calc", "input"))
+		require.NoError(t, app.store.CreateFlow(f))
+		return f
+	}
+	a, b := hookFlow("original"), hookFlow("admin copy")
+	_, err = services.authoring.Deploy(t.Context(), agent, service.DeployRequest{FlowID: a.ID})
+	require.NoError(t, err)
+
+	_, err = services.authoring.Deploy(t.Context(), agent, service.DeployRequest{FlowID: b.ID})
+	require.ErrorIs(t, err, service.ErrConflict)
+	assert.NotContains(t, err.Error(), hidden)
+	assert.Contains(t, err.Error(), "webhook path or tool name")
+
+	draft, err := services.authoring.SaveDraft(t.Context(), agent, service.DraftInput{FlowID: b.ID, BaseVersion: 1, Ops: []flow.Op{
+		{Op: flow.OpUpdateNode, NodeID: "calc", Config: map[string]any{"expression": "payload + 1"}},
+	}})
+	require.NoError(t, err)
+	_, err = services.authoring.Deploy(t.Context(), agent, service.DeployRequest{FlowID: b.ID, DraftID: draft.DraftID})
+	require.ErrorIs(t, err, service.ErrConflict)
+	assert.NotContains(t, err.Error(), hidden)
+	assert.Contains(t, err.Error(), "saved as version 2")
+}

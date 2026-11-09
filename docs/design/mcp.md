@@ -973,9 +973,13 @@ error` runs `fn` under `FlowsHandler.lifecycleMu` (not reentrant), so what
   is kept.
 Refusals are `*service.LifecycleError{Status, Message, Err}` (the editor
 path's statuses; `Err` the cause for `errors.Is`); `ToolError()` maps 400 →
-`invalid_arguments` (a fixed message: deploy's may quote config values),
-404 → `flow_not_found`, 409 → `conflict`, 503 → `unavailable`, anything else
-→ nil (internal). `service.DeployActor{Kind, TokenID, TokenName}` comes from
+`invalid_arguments`, 404 → `flow_not_found`, 409 → `conflict`, 503 →
+`unavailable`, anything else → nil (internal), always with a fixed message
+(the lifecycle path's quote deploy's errors, which may quote config values
+agents may not read, such as a webhook path): a 409 says its cause — an
+exclusive resource another running flow holds (`node.ErrResourceConflict`:
+"a webhook path or tool name"), already running, not running, still
+stopping, or a generic conflict. `service.DeployActor{Kind, TokenID, TokenName}` comes from
 `actor.DeployActor()` (the editor, or the agent's token). Every successful
 deploy records the marker, the editor's (`changeRunning`, toggle) as actor
 `editor` and the agent's as `agent` with the token (H6); restoring running
