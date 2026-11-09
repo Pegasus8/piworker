@@ -1413,9 +1413,10 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   the agent may not read, so which of its nodes run or fail can reveal bits
   of it (ADR-0022). Changing it needs password step-up and shows the risk
   text, what `low` still allows (next to the option and in the
-  confirmation, with the advice to keep device commands in agent tools or
-  credentialed HTTP requests), the guessing residual (at every level, and
-  what `low` and `all` add) and how many secrets are short (§6); lowering
+  confirmation, with the advice to keep device commands in `confirm:
+  admin` agent tools or credentialed HTTP requests), the guessing residual
+  (at every level, and what `low` and `all` add) and how many secrets are
+  short (§6); lowering
   it (`lowersDeployLevel`) also says that it undoes nothing (flows agents
   deployed keep running, privileged ones included) and points to the
   markers, History → Roll back and the audit. Tokens need the `deploy`

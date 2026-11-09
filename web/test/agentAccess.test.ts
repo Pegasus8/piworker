@@ -439,7 +439,7 @@ test('the low level says what it still allows without your review', () => {
   // without a credential.
   for (const words of ['without your review', 'what approved flows send', 'MQTT command', '{"state":"UNLOCK"}',
     'whether or not the broker needs a password', 'HTTP body', 'no credential', 'conditions and processing', 'stop them',
-    'agent tools', 'off']) {
+    'agent tools that need your confirmation', 'off']) {
     expect(low.allows).toContain(words)
   }
   // ADR-0022's residual: nodes run on data the agent may not see.

@@ -652,9 +652,9 @@ whether they run, within those limits. For example, an agent may turn an
 approved flow's MQTT command `{"state":"LOCK"}` into `{"state":"UNLOCK"}`
 (whether or not the broker needs a password), rewrite a message's text, or
 change an HTTP body sent with no credential to a device's API (a relay's
-RPC). Keep device commands that matter in flows published as agent tools
-(what a tool runs cannot change at `low`) or in HTTP requests that use a
-credential, or keep the level off. The nodes of a flow an agent deploys at
+RPC). Keep device commands that matter in agent tools with confirmation
+mode `admin` (what a tool runs cannot change at `low`, and each call waits
+for you) or in HTTP requests that use a credential, or keep the level off. The nodes of a flow an agent deploys at
 `low` also run on data the agent cannot read (a trigger's payload, what a
 node computes from settings hidden from agents), and which of its nodes run
 or fail, which the agent sees in `pw_get_run`, can reveal bits of that data
