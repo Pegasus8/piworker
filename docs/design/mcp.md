@@ -296,7 +296,18 @@ Shared by REST and MCP (thin adapters):
   `approval_required`), result size cap (`max_result_bytes`, `truncated`), redaction of known secret
   values (literal, URL-encoded, base64) and, in error messages, of URLs past
   their host (`scheme://host/<redacted>`, the read views' rule: Telegram bot
-  and webhook tokens sit in the path).
+  and webhook tokens sit in the path). An agent never gets the error of a
+  node holding a setting it may not read (Sensitive, not `AgentVisible`,
+  undeclared, or of a type without a schema: what `GetFlow` shows as
+  `"<redacted>"`): node errors quote their settings (expr-lang quotes the
+  whole expression of a transform, filter or switch; file and command
+  errors their paths), so the message is withheld whole (ADR-0021) and
+  replaced by a fixed text, keeping `nodeId` and `nodeType`. Which errors
+  are withheld depends on which settings the node holds, never on their
+  values; the admin sees the error in the flow's activity, and the
+  editor's own calls get it as recorded. This applies to every path a
+  result reaches an agent: the call, `pw_get_result` and the result stored
+  on an approved `confirm: admin` call.
 - `Tools.Result(actor, runID)`: only the actor that started the run.
 - Read views (phase 2), `service.Reads`, for the editor and tokens with the
   `read` scope (others: `forbidden`); JSON with camelCase fields, bounded

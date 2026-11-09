@@ -64,6 +64,10 @@ type Options struct {
 	// Secrets are redacted from results and errors (default
 	// secrets.DefaultStore).
 	Secrets SecretSource
+	// Registry describes the node types of the running flows: an agent is
+	// not shown the errors of nodes holding settings it may not read
+	// (default node.DefaultRegistry).
+	Registry *node.Registry
 	// Audit records agent calls (nil: no audit).
 	Audit *AuditWriter
 	// Tokens is told when a token's grants changed (optional).
@@ -88,6 +92,7 @@ type Tools struct {
 	runtimes       Runtimes
 	store          Store
 	secrets        SecretSource
+	registry       *node.Registry
 	audit          *AuditWriter
 	tokens         TokenEvictor
 	maxResultBytes int
@@ -104,6 +109,7 @@ func NewTools(opts Options) *Tools {
 		runtimes:       opts.Runtimes,
 		store:          opts.Store,
 		secrets:        opts.Secrets,
+		registry:       opts.Registry,
 		audit:          opts.Audit,
 		tokens:         opts.Tokens,
 		maxResultBytes: opts.MaxResultBytes,
@@ -112,6 +118,9 @@ func NewTools(opts Options) *Tools {
 	}
 	if t.secrets == nil {
 		t.secrets = secrets.DefaultStore
+	}
+	if t.registry == nil {
+		t.registry = node.DefaultRegistry
 	}
 	if t.maxResultBytes <= 0 {
 		t.maxResultBytes = defaults.MaxResultBytes
@@ -203,11 +212,13 @@ func (t *Tools) call(ctx context.Context, actor Actor, ref ToolRef, args map[str
 		return flow.CallResult{}, callError(err)
 	}
 	done := rt.RunDone(res.RunID)
-	res = t.finish(res)
+	view := resultView{agent: actor.isAgent(), flow: rt.Flow()}
+	res = t.finish(view, res)
 	running := res.Status == flow.CallStatusRunning
 	t.results.put(res.RunID, &callRecord{
 		owner:  actor.key(),
 		rt:     rt,
+		view:   view,
 		result: res,
 		final:  !running,
 	}, ti.Timeout)
@@ -221,7 +232,7 @@ func (t *Tools) call(ctx context.Context, actor Actor, ref ToolRef, args map[str
 		<-done
 		release(true)
 		if running {
-			final := t.collect(rt, res.RunID)
+			final := t.collect(rt, view, res.RunID)
 			if approvalID != "" {
 				t.storeApprovalResult(approvalID, final)
 			}
@@ -235,8 +246,8 @@ const collectTimeout = 5 * time.Second
 
 // collect reads the final result of a run that ended (its RunDone closed)
 // after Call reported it running, and keeps it for Result, so it outlives
-// the runtime's waiter. It returns the final result kept.
-func (t *Tools) collect(rt *flow.FlowRuntime, runID string) flow.CallResult {
+// the runtime's waiter. It returns the final result kept, as view shows it.
+func (t *Tools) collect(rt *flow.FlowRuntime, view resultView, runID string) flow.CallResult {
 	ctx, cancel := context.WithTimeout(context.Background(), collectTimeout)
 	defer cancel()
 	res, _ := rt.Wait(ctx, runID)
@@ -246,7 +257,7 @@ func (t *Tools) collect(rt *flow.FlowRuntime, runID string) flow.CallResult {
 		res = flow.CallResult{Status: flow.CallStatusError, RunID: runID,
 			Error: &flow.CallError{Message: "the result of the run could not be read"}}
 	}
-	return t.results.finalize(runID, t.finish(res))
+	return t.results.finalize(runID, t.finish(view, res))
 }
 
 // toolKey identifies a tool for its slots.
@@ -431,20 +442,69 @@ func callError(err error) error {
 	return fmt.Errorf("call tool: %w", err)
 }
 
+// resultView decides how a call's results are shown to its caller: whether
+// it is an agent, and the flow that ran (the runtime's).
+type resultView struct {
+	agent bool
+	flow  *flow.Flow
+}
+
+// withheldErrorMessage replaces, for agents, the error of a node holding
+// settings they may not read: node errors quote their settings (expr-lang
+// quotes the whole expression, file and command errors their paths), so
+// such an error is withheld whole (ADR-0021), never redacted by comparison.
+// The error keeps the node's ID and type.
+const withheldErrorMessage = "the node failed; its error is not shown because it may quote settings of the node " +
+	"you cannot read (the admin sees it in the flow's activity in PiWorker)"
+
 // finish redacts known secrets (and the URLs in errors past their host, as
 // the read views do: a credential may sit in the userinfo, the query or the
-// path, like Telegram bot and webhook tokens) and caps the result size.
-func (t *Tools) finish(res flow.CallResult) flow.CallResult {
+// path, like Telegram bot and webhook tokens) and caps the result size. An
+// agent gets the error of a node holding settings it may not read as
+// withheldErrorMessage.
+func (t *Tools) finish(view resultView, res flow.CallResult) flow.CallResult {
 	red := newSecretRedactor(t.secrets)
 	if len(res.Result) > 0 {
 		res.Result = capResult(red.json(res.Result), t.maxResultBytes)
 	}
 	if res.Error != nil {
 		e := *res.Error
-		e.Message = capText(hideURLsInText(red.text(e.Message)), maxErrorMessageBytes)
+		if view.agent && e.NodeID != "" && holdsHiddenSettings(t.registry, view.flow, e.NodeID) {
+			e.Message = withheldErrorMessage
+		} else {
+			e.Message = capText(hideURLsInText(red.text(e.Message)), maxErrorMessageBytes)
+		}
 		res.Error = &e
 	}
 	return res
+}
+
+// holdsHiddenSettings reports whether node nodeID of f holds a setting
+// agents may not read: one that is Sensitive, not AgentVisible, undeclared,
+// or of a type without a schema (what pw_get_flow shows as "<redacted>").
+// It looks at which settings the node holds, never at their values. A node
+// that cannot be found counts as holding one.
+func holdsHiddenSettings(reg *node.Registry, f *flow.Flow, nodeID string) bool {
+	if f == nil {
+		return true
+	}
+	n := f.GetNode(nodeID)
+	if n == nil {
+		return true
+	}
+	var schema *node.ConfigSchema
+	if info, ok := reg.Get(n.Type); ok {
+		schema = info.Config
+	}
+	for prop := range n.Config {
+		if schema == nil {
+			return true
+		}
+		if p, ok := schema.Properties[prop]; !ok || !p.AgentVisible || p.Sensitive {
+			return true
+		}
+	}
+	return false
 }
 
 // Result returns the result of a run the actor started with Call (or of the
@@ -479,9 +539,9 @@ func (t *Tools) runResult(ctx context.Context, actor Actor, runID string) (flow.
 		if err != nil && ctx.Err() == nil {
 			return flow.CallResult{}, true, err
 		}
-		return t.finish(res), true, nil
+		return t.finish(rec.view, res), true, nil
 	}
-	return t.results.finalize(runID, t.finish(res)), true, nil
+	return t.results.finalize(runID, t.finish(rec.view, res)), true, nil
 }
 
 // record audits an agent call: a row per call, or a per-minute counter for
