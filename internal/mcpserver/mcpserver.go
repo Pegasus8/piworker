@@ -238,7 +238,16 @@ func New(opts Options) (*Handler, error) {
 			return nil, fmt.Errorf("mcpserver: prompt %q is registered twice", p.Prompt.Name)
 		}
 		prompts[p.Prompt.Name] = true
+		if p.Scope == storage.ScopeDeploy && opts.DeployLevel == nil {
+			return nil, fmt.Errorf("mcpserver: prompt %q has the deploy scope but Options.DeployLevel is nil: it would never be listed", p.Prompt.Name)
+		}
 	}
+	for _, st := range h.static {
+		if st.Scope == storage.ScopeDeploy && opts.DeployLevel == nil {
+			return nil, fmt.Errorf("mcpserver: tool %q has the deploy scope but Options.DeployLevel is nil: it would never be listed", st.Name)
+		}
+	}
+	h.logServed()
 
 	rate, burst := orDefault(opts.RequestsPerMinute, DefaultRequestsPerMinute), orDefault(opts.RequestBurst, DefaultRequestBurst)
 	h.requests = newBuckets(rate, burst, h.now, maxRateKeys)

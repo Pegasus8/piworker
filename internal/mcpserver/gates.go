@@ -78,3 +78,35 @@ func (h *Handler) deployLevelAt(epoch int64) storage.AgentDeployLevel {
 	c.mu.Unlock()
 	return level
 }
+
+// logServed logs once, at construction, what the settings let the endpoint
+// serve besides flow and read tools: the author and deploy tools (and
+// prompts) registered, whether mcp.author_enabled serves the author ones and
+// whether the agent deploy level is read (it is read per tokens epoch, not
+// here: pw_system_status and the editor show it). A setting with nothing
+// registered to serve is a wiring mistake, warned about.
+func (h *Handler) logServed() {
+	count := func(scope string) int {
+		n := 0
+		for _, st := range h.static {
+			if st.Scope == scope {
+				n++
+			}
+		}
+		for _, p := range h.prompts {
+			if p.Scope == scope {
+				n++
+			}
+		}
+		return n
+	}
+	author, deploy := count(storage.ScopeAuthor), count(storage.ScopeDeploy)
+	h.log.Info().Int("authorTools", author).Bool("authorEnabled", h.authorEnabled).Int("deployTools", deploy).
+		Bool("deployLevelReader", h.deployLevel != nil).Msg("MCP built-in tools registered (with their prompts)")
+	if h.authorEnabled && author == 0 {
+		h.log.Warn().Msg("mcp.author_enabled is set, but no author tool is registered: agents see none")
+	}
+	if h.deployLevel != nil && deploy == 0 {
+		h.log.Warn().Msg("The agent deploy level is read, but no deploy tool is registered: agents see none")
+	}
+}

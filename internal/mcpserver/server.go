@@ -266,6 +266,13 @@ func (h *Handler) callStaticTool(ctx context.Context, actor service.Actor, st *s
 	}
 	res, err := st.Handler(ctx, actor, args)
 	if err != nil {
+		// The services audit their refusals but count none (contract E:
+		// invalid arguments of built-in tools are counted): counted here,
+		// once, like the endpoint's own.
+		var te *service.ToolError
+		if errors.As(err, &te) && te.Kind == service.ErrInvalidArguments {
+			h.reject(actor, te)
+		}
 		h.logFailure(err, st.Name, actor)
 		return errorResult(err)
 	}

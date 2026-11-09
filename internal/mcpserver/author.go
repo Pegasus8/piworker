@@ -2,9 +2,12 @@ package mcpserver
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"time"
 	"unicode/utf8"
 
 	"github.com/Pegasus8/piworker/internal/flow"
@@ -29,6 +32,42 @@ type AuthoringService interface {
 
 var _ AuthoringService = (*service.Authoring)(nil)
 
+// AuditRecorder records the agent reads the endpoint serves itself
+// (*service.AuditWriter): pw_list_node_types and the author_flow prompt run
+// no service, so no service audits them.
+type AuditRecorder interface {
+	Record(entry storage.MCPAuditEntry)
+}
+
+var _ AuditRecorder = (*service.AuditWriter)(nil)
+
+// auditRead records a read the endpoint served itself, completed, as the
+// services record theirs: the token, the name, the arguments' digest and
+// preview (args nil: none recorded) and the duration.
+func auditRead(audit AuditRecorder, actor service.Actor, name string, args any, start time.Time) {
+	if audit == nil || actor.Kind != service.ActorAgent {
+		return
+	}
+	entry := storage.MCPAuditEntry{
+		TS: start, TokenID: actor.TokenID, TokenName: actor.TokenName, Tool: name, Outcome: "completed",
+		DurMs: time.Since(start).Milliseconds(),
+	}
+	if args != nil {
+		if data, err := marshalNoEscape(args); err == nil {
+			sum := sha256.Sum256(data)
+			entry.ArgsSHA256 = hex.EncodeToString(sum[:])
+			entry.ArgsPreview = shorten(string(data), storage.MaxMCPAuditPreview)
+		}
+	}
+	audit.Record(entry)
+}
+
+// nodeTypesArgs are pw_list_node_types' arguments as audited.
+type nodeTypesAuditArgs struct {
+	Category string `json:"category,omitempty"`
+	Type     string `json:"type,omitempty"`
+}
+
 // Names of the author tools and prompt (scope author); the service audits
 // them under the same names.
 const (
@@ -43,6 +82,10 @@ const (
 
 // MaxGoalChars bounds author_flow's goal.
 const MaxGoalChars = 2000
+
+// authorFlowAuditName is author_flow's name in the audit, under the prefix
+// no tool can have, as the read prompt's (service.ReadPromptDiagnoseFlow).
+const authorFlowAuditName = "prompt:" + AuthorFlowPrompt
 
 // checkAnnotations: tools that check or simulate change nothing and reach
 // nothing outside PiWorker (a dry-run runs no node that is not safe).
@@ -98,11 +141,11 @@ var (
 // AuthorTools returns the author tools (scope author; listed only with
 // mcp.author_enabled): pw_validate_flow, pw_save_draft, pw_get_draft,
 // pw_dry_run and pw_test_node serve authoring, pw_list_node_types reads
-// types. Arguments are checked against their contracts before the service
-// runs; the service's refusals are isError results with their codes
-// (conflict carries error.currentVersion, a flow's problems
-// error.flowIssues).
-func AuthorTools(authoring AuthoringService, types NodeTypeLister) []StaticTool {
+// types (audited through audit, which may be nil). Arguments are checked
+// against their contracts before the service runs; the service's refusals
+// are isError results with their codes (conflict carries
+// error.currentVersion, a flow's problems error.flowIssues).
+func AuthorTools(authoring AuthoringService, types NodeTypeLister, audit AuditRecorder) []StaticTool {
 	return []StaticTool{
 		{
 			Name:  ValidateFlowTool,
@@ -237,8 +280,14 @@ func AuthorTools(authoring AuthoringService, types NodeTypeLister) []StaticTool 
 			OutputSchema: json.RawMessage(nodeTypeListSchema),
 			Annotations:  checkAnnotations,
 			Scope:        storage.ScopeAuthor,
-			Handler: func(_ context.Context, _ service.Actor, args map[string]any) (*mcp.CallToolResult, error) {
-				return structured(listNodeTypes(types, stringArg(args, "category"), stringArg(args, "type")), nil)
+			Handler: func(_ context.Context, actor service.Actor, args map[string]any) (*mcp.CallToolResult, error) {
+				start := time.Now()
+				category, typ := stringArg(args, "category"), stringArg(args, "type")
+				res, err := structured(listNodeTypes(types, category, typ), nil)
+				if err == nil {
+					auditRead(audit, actor, ListNodeTypesTool, nodeTypesAuditArgs{Category: category, Type: typ}, start)
+				}
+				return res, err
 			},
 		},
 	}
@@ -266,8 +315,10 @@ func concat(lists ...[]toolschema.Issue) []toolschema.Issue {
 }
 
 // AuthorPrompts returns the author prompt (scope author; listed only with
-// mcp.author_enabled): author_flow{goal}, the authoring steps.
-func AuthorPrompts() []StaticPrompt {
+// mcp.author_enabled): author_flow{goal}, the authoring steps, audited
+// through audit (may be nil) as prompt:author_flow without the goal (agent
+// text).
+func AuthorPrompts(audit AuditRecorder) []StaticPrompt {
 	return []StaticPrompt{{
 		Prompt: &mcp.Prompt{
 			Name:  AuthorFlowPrompt,
@@ -280,11 +331,12 @@ func AuthorPrompts() []StaticPrompt {
 			}},
 		},
 		Scope: storage.ScopeAuthor,
-		Handler: func(_ context.Context, _ service.Actor, args map[string]string) (*mcp.GetPromptResult, error) {
+		Handler: func(_ context.Context, actor service.Actor, args map[string]string) (*mcp.GetPromptResult, error) {
 			goal, err := goalArg(args)
 			if err != nil {
 				return nil, err
 			}
+			auditRead(audit, actor, authorFlowAuditName, nil, time.Now())
 			return &mcp.GetPromptResult{
 				Description: "Author a PiWorker flow",
 				Messages:    []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: authorFlowText(goal)}}},

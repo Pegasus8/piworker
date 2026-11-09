@@ -224,8 +224,14 @@ func TestDeployLevelReadFailureFailsClosed(t *testing.T) {
 	assert.Contains(t, names(listed(t, g.testEnv, authorDeployToken)), "pw_deploy_thing", "read again, same epoch")
 }
 
-// Without a level reader the deploy scope is never served.
+// Without a level reader no deploy tool could ever be listed: New refuses
+// to register one (TestDeployToolsNeedTheDeployLevel), and a deploy-scope
+// token is served nothing of the scope.
 func TestNoDeployLevelReaderServesNoDeployTools(t *testing.T) {
-	g := newGateEnv(t, true, func(o *Options) { o.DeployLevel = nil })
-	assert.NotContains(t, names(listed(t, g.testEnv, everythingToken)), "pw_deploy_thing")
+	handled := &atomic.Int32{}
+	opts := Options{Tools: &fakeTools{}, Tokens: newFakeVerifier(), AuthorEnabled: true, StaticTools: []StaticTool{
+		scopedTool("pw_author_thing", storage.ScopeAuthor, handled), scopedTool("pw_deploy_thing", storage.ScopeDeploy, handled)}}
+	_, err := New(opts)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pw_deploy_thing")
 }

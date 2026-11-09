@@ -204,8 +204,8 @@ func newAuthorEnv(t *testing.T, customize ...func(*Options)) authorEnv {
 	t.Helper()
 	a := authorEnv{authoring: &fakeAuthoring{}, level: &fakeDeployLevel{level: storage.AgentDeployAll}, rejections: &fakeRejections{}}
 	a.testEnv = newTestEnv(t, append([]func(*Options){func(o *Options) {
-		o.StaticTools = append(append(ReadTools(&fakeReads{}), AuthorTools(a.authoring, testNodeTypes(t))...), DeployTools(a.authoring)...)
-		o.Prompts = append(ReadPrompts(&fakeReads{}), AuthorPrompts()...)
+		o.StaticTools = append(append(ReadTools(&fakeReads{}), AuthorTools(a.authoring, testNodeTypes(t), nil)...), DeployTools(a.authoring)...)
+		o.Prompts = append(ReadPrompts(&fakeReads{}), AuthorPrompts(nil)...)
 		o.AuthorEnabled = true
 		o.DeployLevel = a.level
 		o.Rejections = a.rejections
@@ -501,7 +501,15 @@ func TestAuthorAndDeployRefusals(t *testing.T) {
 	assert.Equal(t, "failed", errorCode(body))
 	assert.NotContains(t, fmt.Sprint(res), "database")
 	assert.Contains(t, a.logs.String(), "database is locked")
-	assert.Empty(t, a.rejections.seen, "the services' refusals are the services' to count")
+	// The services audit their refusals but count none: the endpoint counts
+	// the invalid_arguments ones (the two flows with errors and the deploy
+	// validation refusal), once each; conflict, forbidden, not_found, busy
+	// and failures are not rejections.
+	assert.Equal(t, []string{
+		"authorauthorauth invalid_arguments " + t0.Format(time.RFC3339),
+		"deploydeploydepl invalid_arguments " + t0.Format(time.RFC3339),
+		"deploydeploydepl invalid_arguments " + t0.Format(time.RFC3339),
+	}, a.rejections.seen)
 }
 
 // A service answering empty lists as nil still yields results that match
@@ -530,7 +538,7 @@ func TestEmptyResultsMatchTheOutputSchemas(t *testing.T) {
 // samples validate against them.
 func TestAuthorOutputSchemasMatchTheResults(t *testing.T) {
 	tools := map[string]StaticTool{}
-	for _, st := range append(AuthorTools(&fakeAuthoring{}, testNodeTypes(t)), DeployTools(&fakeAuthoring{})...) {
+	for _, st := range append(AuthorTools(&fakeAuthoring{}, testNodeTypes(t), nil), DeployTools(&fakeAuthoring{})...) {
 		tools[st.Name] = st
 	}
 	outputs := map[string]readOutput{

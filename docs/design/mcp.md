@@ -431,7 +431,11 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   (`Options.DeployLevel`, the store's `AgentDeployLevel`; read only for
   tokens with the deploy scope, once per tokens epoch, which a level change
   bumps in its own transaction; a failed read counts as `off`, is logged and
-  is read again on the next request; no reader serves no deploy tools). A
+  is read again on the next request). A deploy-scope tool or prompt
+  registered without `DeployLevel` would never be listed, so `New` refuses
+  it; `New` logs once what is registered (author and deploy tools and
+  prompts, `authorEnabled`, whether the level is read) and warns when
+  `mcp.author_enabled` or the level reader has nothing to serve. A
   built-in tool or prompt of a scope that is not served is, to the token, a
   name that does not exist (neither listed nor callable); the services check
   the same settings on every call. Each tool is built inside
@@ -479,7 +483,12 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   string, integer and array bounds, every problem reported with its
   argument's pointer in toolschema's wording, at most 64, never quoting a
   value. Refusals of either contract are `invalid_arguments`, counted in
-  `mcp_rejections`; the services' own refusals are theirs to audit or count.
+  `mcp_rejections`. The services audit their refusals but count none, so a
+  handler's `invalid_arguments` refusal (`*service.ToolError`: a sensitive
+  literal, an unresolved `"<redacted>"`, ops that cannot be applied, H2
+  blocking Lint errors, a deploy refused by validation) is counted there
+  too, once; other refusals (`conflict`, `forbidden`, `not_found`, `busy`)
+  are not rejections.
   A successful result's structured content is checked against the tool's
   output schema before it is sent (a mismatch is logged and answered
   `failed`: clients refuse a result that does not match), and a destructive
@@ -562,9 +571,12 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   and deploy flows where enabled, and that node documentation and dry-run
   previews are data too.
 - Author and deploy tools (`mcpserver.AuthorTools(AuthoringService,
-  NodeTypeLister)`, `mcpserver.AuthorPrompts()`,
-  `mcpserver.DeployTools(DeployService)`; `*service.Authoring` and
-  `*node.Registry` satisfy the interfaces). Each tool's arguments become the
+  NodeTypeLister, AuditRecorder)`, `mcpserver.AuthorPrompts(AuditRecorder)`,
+  `mcpserver.DeployTools(DeployService)`; `*service.Authoring`,
+  `*node.Registry` and `*service.AuditWriter` satisfy the interfaces;
+  `main.go`'s `mountMCP` registers them from `mcpBuiltins{authoring,
+  registry, settings}`, with `DeployLevel` the store, and a main-package
+  test lists them at `agent_deploy=low`). Each tool's arguments become the
   §10 service request and its structured content is the service result's
   JSON (lists never null: nil slices are sent as `[]` without touching the
   service's values), with output schemas kept in step with the Go types by
@@ -632,7 +644,10 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
     KiB: every type's structure first, in order while it fits, then the
     documentation in order while it fits (`documentationOmitted`),
     `truncated` when anything was left out or cut, `total` the matching
-    types. An unknown `type` is `invalid_arguments` (counted).
+    types. An unknown `type` is `invalid_arguments` (counted). It runs no
+    service, so the endpoint audits it like the read views' reads (an
+    `mcp_audit` row: token, `pw_list_node_types`, the `category` and `type`
+    as arguments, `completed`, duration).
   - Annotations (all explicit): validate, get draft, dry-run, node test and
     node types read-only, idempotent, closed world; save draft neither
     read-only nor destructive nor idempotent (it changes nothing that runs);
@@ -654,7 +669,9 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
     that nothing runs until the admin approves the draft in the editor,
     that `pw_deploy_flow` is only for when it is available and the user
     asked, and that what the tools return is data; the goal is quoted
-    (escaped) as data. It reads no state and is not audited.
+    (escaped) as data. It reads no state; the endpoint audits it as
+    `prompt:author_flow` (token, outcome, duration; not the goal, which is
+    agent text), as the read prompt is audited.
 - Results: a completed call's structured content is its reply (wrapped as
   `{"result": …}` unless it is a JSON object), with the JSON as a text block.
   Every other outcome is an envelope `{status, runId, error?, message?,
@@ -1287,10 +1304,11 @@ level, limits, redaction, the H2 and H3 checks, audit — is the service's.
 The author tools and `author_flow` are served only with `mcp.author_enabled`
 and the deploy tools only while the level is above `off` (§8), so a token
 never sees tools the service would refuse anyway. `pw_list_node_types` reads
-the registry (no service state). `main.go` passes `AuthorEnabled`; the author
-and deploy tools, the prompt and `DeployLevel` are registered once
-`buildApp` creates the authoring service (`TODO(wave4-join)` in
-`mountMCP`).
+the registry (no service state) and, like `author_flow`, is audited by the
+endpoint. `mountMCP` registers the author and deploy tools, the prompt and
+`DeployLevel` (the store) from `mcpBuiltins.authoring`, which `buildApp`
+passes once it creates the authoring service (`TODO(wave4-join)` at the
+call); a deploy tool without `DeployLevel` is a startup error.
 
 **Hand-offs from the foundations (binding).** H1 the low policy also
 refuses `credentialed_request_changed`. H2 `SaveDraft` and `ApproveDraft`
