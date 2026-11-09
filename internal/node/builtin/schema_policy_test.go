@@ -330,3 +330,26 @@ func TestRiskSwitchesAreMarked(t *testing.T) {
 	})
 	assert.Positive(t, seen, "allowPrivate and allowDashArgs exist")
 }
+
+// operations select what a request does at its destination; changing one
+// on a node that uses a credential is flagged (credentialed_request_changed).
+// Message content (a Telegram text, an email body) is not an operation.
+var operations = []string{
+	"action-database.query",
+	"action-http.body",
+	"action-http.method",
+}
+
+func TestOperationPropertiesAreMarked(t *testing.T) {
+	want := map[string]bool{}
+	for _, id := range operations {
+		want[id] = true
+	}
+	eachProperty(t, func(info node.NodeTypeInfo, name string, p node.ConfigProperty) {
+		id := info.Type + "." + name
+		assert.Equalf(t, want[id], p.Operation, "%s: Operation must be %v (the list above is a review decision)", id, want[id])
+		if p.Operation {
+			assert.Falsef(t, p.Destination || p.Sensitive, "%s: an operation is neither a destination nor a credential (those have their own alerts)", id)
+		}
+	})
+}

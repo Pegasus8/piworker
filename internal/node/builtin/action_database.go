@@ -306,6 +306,7 @@ func databaseActionConfigSchema() node.ConfigSchema {
 			},
 			"query": {
 				Type:        "string",
+				Operation:   true,
 				Title:       "SQL",
 				Description: "SQL statement with ? / $1 placeholders for parameters",
 			},

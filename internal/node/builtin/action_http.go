@@ -538,6 +538,7 @@ func httpActionConfigSchema() node.ConfigSchema {
 			},
 			"method": {
 				Type:            "string",
+				Operation:       true,
 				Title:           "Method",
 				Description:     "HTTP method",
 				Default:         "GET",
@@ -553,6 +554,7 @@ func httpActionConfigSchema() node.ConfigSchema {
 			},
 			"body": {
 				Type:        "string",
+				Operation:   true,
 				Title:       "Body",
 				Description: "Request body (supports templates, for POST/PUT/PATCH)",
 				Default:     "",

@@ -97,6 +97,12 @@ type ConfigProperty struct {
 	// (allowPrivate, allowDashArgs, TLS-verification bypasses, …). Turning
 	// one on is flagged by flow.Diff, and agent drafts may not turn it on.
 	RiskSwitch bool `json:"riskSwitch,omitempty"`
+	// Operation marks what selects the action a request performs at its
+	// destination (an HTTP method or body, an SQL statement), as opposed to
+	// message content. flow.Diff flags a change to it on a node that uses a
+	// credential (credentialed_request_changed): the approved credential
+	// would be used for something else.
+	Operation bool `json:"operation,omitempty"`
 }
 
 // BaseNode provides a common implementation for simple nodes.
