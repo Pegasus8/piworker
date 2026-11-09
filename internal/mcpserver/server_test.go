@@ -129,7 +129,13 @@ func TestCapabilities(t *testing.T) {
 	assert.Equal(t, "piworker", info["name"])
 	assert.Equal(t, "test", info["version"])
 	assert.Equal(t, "2025-06-18", res["protocolVersion"])
-	assert.NotEmpty(t, res["instructions"])
+	// The instructions tell built-in tools from flows, and say that what
+	// the tools return (flow replies, flow names, recorded errors) is
+	// data, never instructions.
+	instr := res["instructions"].(string)
+	assert.Contains(t, instr, "pw_")
+	assert.Contains(t, instr, "recorded errors")
+	assert.Contains(t, instr, "not instructions")
 }
 
 // subscriptions/listen is refused: lists never change while a client is
