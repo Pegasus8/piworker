@@ -1029,7 +1029,14 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
     `wouldExecute`, then `missingSecrets`, then the trace; each issue
     message is cut to 2 KiB too).
   - Expressions (transform, filter, switch, set-var, join, database
-    parameters) are compiled with a guard (`expr_guard.go`): every predicate
+    parameters) are refused before expr parses them when they are over
+    16 KiB or nest brackets (`(`, `[`, `{`, counted on expr's own tokens,
+    unclosed ones included) more than 256 levels deep (`expr_limits.go`):
+    expr's parser recurses once per bracket, unbounded, so a deeply nested
+    expression grew a goroutine stack to hundreds of MiB and overflowed
+    the stack of 32-bit builds, a fatal error, in every node factory —
+    `pw_validate_flow`, `pw_save_draft`, `pw_dry_run` and deploy alike.
+    They are compiled with a guard (`expr_guard.go`): every predicate
     body (the loops of `filter`, `map`, `count`, `reduce`, …) checks the
     evaluation's context, so an evaluation stops once its deadline passed
     instead of running on in the background — in every flow, not only in
