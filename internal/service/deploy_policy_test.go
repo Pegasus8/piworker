@@ -87,6 +87,11 @@ func TestLowDeployPolicy(t *testing.T) {
 			nodeOf(f, "call").Config["headers"] = map[string]any{"Authorization": "Bearer typed"}
 		}, flow.AlertSensitiveLiteral},
 		"credentialed request changed": {func(f *flow.Flow) { nodeOf(f, "call").Config["method"] = "DELETE" }, flow.AlertCredentialedRequestChanged},
+		// A trigger that fires the credentialed request every second.
+		"rate changed": {func(f *flow.Flow) {
+			addNode(f, "tick", "trigger-interval", map[string]any{"interval": 1000})
+			connect(f, "tick", "calc")
+		}, flow.AlertRateChanged},
 		"privileged node added": {func(f *flow.Flow) {
 			addNode(f, "cmd", "action-command", map[string]any{"command": "true"})
 			connect(f, "calc", "cmd")
