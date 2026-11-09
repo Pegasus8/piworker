@@ -1545,9 +1545,13 @@ and the deploy tools only while the level is above `off` (§8), so a token
 never sees tools the service would refuse anyway. `pw_list_node_types` reads
 the registry (no service state) and, like `author_flow`, is audited by the
 endpoint. `mountMCP` registers the author and deploy tools, the prompt and
-`DeployLevel` (the store) from `mcpBuiltins.authoring`, which `buildApp`
-passes once it creates the authoring service (`TODO(wave4-join)` at the
-call); a deploy tool without `DeployLevel` is a startup error.
+`DeployLevel` (the store) from `mcpBuiltins.authoring`: `buildApp` passes
+the same authoring service the editor's drafts pages use, built over the
+`FlowsHandler` lifecycle path; a deploy tool without `DeployLevel` is a
+startup error. `main_mcp_test.go` drives the whole path end to end (the
+real router over TLS with the SDK client, and the editor REST), and checks
+the endpoint's raw `tools/list` for an author+deploy token against the
+adapter's golden file.
 
 **Hand-offs from the foundations (binding).** H1 the low policy also
 refuses `credentialed_request_changed`. H2 `SaveDraft` and `ApproveDraft`

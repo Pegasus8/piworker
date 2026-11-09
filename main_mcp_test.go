@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -58,6 +60,13 @@ func recordRuns(t *testing.T, store *storage.SQLiteStore) flow.ManagerOption {
 
 func newMCPApp(t *testing.T, enabled bool, opts ...mcpAppOption) mcpApp {
 	t.Helper()
+	return newMCPAppWith(t, func(cfg *config.Config) { cfg.MCP.Enabled = enabled }, opts...)
+}
+
+// newMCPAppWith is newMCPApp with MCP enabled unless configure says
+// otherwise.
+func newMCPAppWith(t *testing.T, configure func(*config.Config), opts ...mcpAppOption) mcpApp {
+	t.Helper()
 	store, err := storage.NewSQLiteStore(filepath.Join(t.TempDir(), "app.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { store.Close() })
@@ -69,8 +78,9 @@ func newMCPApp(t *testing.T, enabled bool, opts ...mcpAppOption) mcpApp {
 	t.Cleanup(manager.StopAll)
 	cfg := config.Default()
 	cfg.Auth = true
-	cfg.MCP.Enabled = enabled
+	cfg.MCP.Enabled = true
 	cfg.AllowedHosts = []string{"piworker.local"}
+	configure(&cfg)
 	users, err := storage.NewSQLiteUserStoreWithDB(store.DB())
 	require.NoError(t, err)
 	hash, err := api.HashPassword("test-password")
@@ -1054,4 +1064,155 @@ func mustJSON(t *testing.T, v any) []byte {
 	data, err := json.Marshal(v)
 	require.NoError(t, err)
 	return data
+}
+
+// ---------------------------------------------------------------------------
+// Agent authoring and agent deploy (wave 4) through the real router: the
+// service, the MCP adapter and the editor REST joined (docs/design/mcp.md
+// §10).
+
+var (
+	authorToolNames = []string{"pw_dry_run", "pw_get_draft", "pw_list_node_types", "pw_save_draft", "pw_test_node", "pw_validate_flow"}
+	deployToolNames = []string{"pw_deploy_flow", "pw_stop_flow"}
+)
+
+// newAuthorApp is the real router with /mcp, mcp.author_enabled as given and
+// the agent deploy level set.
+func newAuthorApp(t *testing.T, authorEnabled bool, level storage.AgentDeployLevel) mcpApp {
+	t.Helper()
+	app := newMCPAppWith(t, func(cfg *config.Config) { cfg.MCP.AuthorEnabled = authorEnabled })
+	require.NoError(t, app.store.SetAgentDeployLevel(level))
+	return app
+}
+
+// agentSession is an agent token with an open MCP session.
+type agentSession struct {
+	tok     *storage.APIToken
+	session *mcp.ClientSession
+}
+
+// agent creates a token with scopes and connects with it.
+func (a mcpApp) agent(t *testing.T, name string, scopes ...string) agentSession {
+	t.Helper()
+	tok, raw := a.token(t, name, scopes)
+	session, err := a.connect(t, raw, "")
+	require.NoError(t, err)
+	return agentSession{tok: tok, session: session}
+}
+
+// call calls a tool and returns what it says and whether it is an error.
+func (s agentSession) call(t *testing.T, name string, args any) (map[string]any, bool) {
+	t.Helper()
+	res := callTool(t, s.session, name, args)
+	return structured(t, res), res.IsError
+}
+
+// callOK calls a tool that must succeed and decodes its result into T.
+func callOK[T any](t *testing.T, s agentSession, name string, args any) T {
+	t.Helper()
+	res := callTool(t, s.session, name, args)
+	require.False(t, res.IsError, "%s: %s", name, resultText(res))
+	var out T
+	require.NoError(t, json.Unmarshal(mustJSON(t, res.StructuredContent), &out))
+	return out
+}
+
+// refused calls a tool that must be refused with code and returns the
+// error envelope.
+func refused(t *testing.T, s agentSession, name string, args any, code string) map[string]any {
+	t.Helper()
+	m, isErr := s.call(t, name, args)
+	require.True(t, isErr, "%s must be refused: %v", name, m)
+	require.Equal(t, code, errCode(m), "%v", m)
+	return m["error"].(map[string]any)
+}
+
+func resultText(res *mcp.CallToolResult) string {
+	if len(res.Content) == 0 {
+		return ""
+	}
+	if text, ok := res.Content[0].(*mcp.TextContent); ok {
+		return text.Text
+	}
+	return ""
+}
+
+// listedAuthoring lists the author and deploy tools a session sees.
+func (s agentSession) listedAuthoring(t *testing.T) []string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	res, err := s.session.ListTools(ctx, nil)
+	require.NoError(t, err)
+	var names []string
+	for _, tool := range res.Tools {
+		if slices.Contains(authorToolNames, tool.Name) || slices.Contains(deployToolNames, tool.Name) {
+			names = append(names, tool.Name)
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
+// The author tools are served only with mcp.author_enabled, the deploy
+// tools only while agent_deploy is above off, each to tokens with its scope.
+func TestMCPAuthorAndDeployToolsAreGated(t *testing.T) {
+	all := slices.Sorted(slices.Values(append(slices.Clone(authorToolNames), deployToolNames...)))
+	// With the call scope, a hidden tool is an unknown one (not_found);
+	// without it, the endpoint refuses calls of unknown names (403).
+	everything := []string{storage.ScopeCall, storage.ScopeRead, storage.ScopeAuthor, storage.ScopeDeploy}
+	for _, tc := range []struct {
+		name   string
+		author bool
+		level  storage.AgentDeployLevel
+		scopes []string
+		want   []string
+	}{
+		{"author disabled, deploy off", false, storage.AgentDeployOff, everything, nil},
+		{"author enabled, deploy off", true, storage.AgentDeployOff, everything, authorToolNames},
+		{"author disabled, deploy low", false, storage.AgentDeployLow, everything, deployToolNames},
+		{"author enabled, deploy all", true, storage.AgentDeployAll, everything, all},
+		{"no deploy scope", true, storage.AgentDeployAll, []string{storage.ScopeCall, storage.ScopeRead, storage.ScopeAuthor}, authorToolNames},
+		{"no author scope", true, storage.AgentDeployAll, []string{storage.ScopeCall, storage.ScopeRead, storage.ScopeDeploy}, deployToolNames},
+		{"call and read scopes", true, storage.AgentDeployAll, []string{storage.ScopeCall, storage.ScopeRead}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newAuthorApp(t, tc.author, tc.level)
+			agent := app.agent(t, "agent", tc.scopes...)
+			assert.Equal(t, tc.want, agent.listedAuthoring(t))
+			for _, name := range all {
+				if !slices.Contains(tc.want, name) {
+					refused(t, agent, name, map[string]any{}, "not_found")
+				}
+			}
+		})
+	}
+}
+
+// The raw tools/list of an author+deploy token on the real endpoint is the
+// contract the adapter's golden file pins (internal/mcpserver/testdata).
+func TestMCPAuthorDeployToolsListGolden(t *testing.T) {
+	app := newAuthorApp(t, true, storage.AgentDeployAll)
+	_, raw := app.token(t, "agent", []string{storage.ScopeAuthor, storage.ScopeDeploy})
+	resp, body := app.post(t, raw, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25",`+
+		`"capabilities":{},"clientInfo":{"name":"golden","version":"1"}}}`, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
+	resp, body = app.post(t, raw, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`, map[string]string{"Mcp-Protocol-Version": "2025-11-25"})
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
+	var msg struct {
+		Result struct {
+			Tools json.RawMessage `json:"tools"`
+		} `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal(body, &msg), string(body))
+	// The golden file is encoded as the adapter's test encodes it: keys
+	// sorted, indented.
+	var tools any
+	require.NoError(t, json.Unmarshal(msg.Result.Tools, &tools))
+	var pretty bytes.Buffer
+	require.NoError(t, json.Indent(&pretty, mustJSON(t, tools), "", "  "))
+	pretty.WriteByte('\n')
+	want, err := os.ReadFile(filepath.Join("internal", "mcpserver", "testdata", "tools_author_deploy.golden.json"))
+	require.NoError(t, err)
+	assert.Equal(t, string(want), pretty.String())
 }

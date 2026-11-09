@@ -483,11 +483,9 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 		opt(router)
 	}
 
-	// TODO(wave4-join): pass authoring: services.authoring once buildApp
-	// creates the authoring service (built with AuthorEnabled:
-	// cfg.MCP.AuthorEnabled and the FlowsHandler as its Lifecycle); until
-	// then no author or deploy tool is registered.
-	mountMCP(router, cfg, services, agentTokens, hostGuard, mcpBuiltins{registry: registry, settings: store})
+	// The author and deploy tools serve the same authoring service as the
+	// editor's drafts pages, over the editor's lifecycle path.
+	mountMCP(router, cfg, services, agentTokens, hostGuard, mcpBuiltins{authoring: services.authoring, registry: registry, settings: store})
 
 	// Webhook endpoints: trigger-webhook nodes register their paths on the shared
 	// hub, and incoming requests are dispatched to them. Public (the node's
