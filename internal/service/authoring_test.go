@@ -46,8 +46,6 @@ func TestAuthoringSkeletonRefusesUnavailable(t *testing.T) {
 	agent := Actor{Kind: ActorAgent, TokenID: "t1", TokenName: "claude", Scopes: []string{storage.ScopeAuthor, storage.ScopeDeploy}}
 	editor := EditorActor()
 	calls := map[string]func() error{
-		"Validate":       func() error { _, err := a.Validate(ctx, agent, ValidateRequest{Flow: flow.NewFlow("f")}); return err },
-		"SaveDraft":      func() error { _, err := a.SaveDraft(ctx, agent, DraftInput{Flow: flow.NewFlow("f")}); return err },
 		"GetDraft":       func() error { _, err := a.GetDraft(ctx, agent, "d1"); return err },
 		"DryRun":         func() error { _, err := a.DryRun(ctx, agent, DryRunRequest{FlowID: "f1"}); return err },
 		"TestNode":       func() error { _, err := a.TestNode(ctx, agent, TestNodeRequest{Type: "process-transform"}); return err },

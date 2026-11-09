@@ -2,7 +2,11 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
@@ -119,6 +123,9 @@ type Authoring struct {
 	authorEnabled bool
 	now           func() time.Time
 	log           zerolog.Logger
+	// views holds the read views' redaction rules (registry and secrets
+	// only: Authoring never calls its views).
+	views *Reads
 }
 
 // NewAuthoring returns the authoring and deploy service.
@@ -142,6 +149,7 @@ func NewAuthoring(opts AuthoringOptions) *Authoring {
 	if a.now == nil {
 		a.now = time.Now
 	}
+	a.views = &Reads{registry: a.registry, secrets: a.secrets, now: a.now}
 	return a
 }
 
@@ -197,8 +205,63 @@ const (
 // problems SaveDraft refuses outright (limits, author restrictions, a
 // stale or unknown FlowID) are refused the same way. Nothing is stored.
 // Audited (outcome only).
-func (a *Authoring) Validate(ctx context.Context, actor Actor, req ValidateRequest) (ValidateResult, error) {
-	return ValidateResult{}, notImplemented("validate")
+//
+// With FlowID and neither Flow nor Ops, the current version is validated as
+// it is. The editor's proposals are linted only: the author restrictions and
+// the authoring issues are the agents'.
+func (a *Authoring) Validate(ctx context.Context, actor Actor, req ValidateRequest) (_ ValidateResult, err error) {
+	args := &authorArgs{FlowID: req.FlowID, Ops: len(req.Ops)}
+	defer a.audited(actor, AuthorToolValidateFlow, args, a.now(), nil)(&err)
+	if err := a.authorizeAuthor(ctx, actor, true); err != nil {
+		return ValidateResult{}, err
+	}
+	p, err := a.resolveProposal(proposalRequest{
+		flowID: req.FlowID, flow: req.Flow, ops: req.Ops, current: true, editor: actor.Kind == ActorEditor,
+	})
+	if err != nil {
+		return ValidateResult{}, a.redactedRefusal(err)
+	}
+	issues := a.proposalIssues(ctx, p)
+	if actor.isAgent() {
+		issues = agentIssues(a.proposalRedactor(p.base, p.next), issues)
+	}
+	return ValidateResult{
+		Valid:  len(flow.BlockingIssues(issues)) == 0,
+		Issues: issues,
+		Risk:   flow.Risk(p.next, a.registry),
+	}, nil
+}
+
+// proposalIssues are Lint's issues of a proposal (with the service's secret
+// store) and its authoring issues, in Lint's order. An unknown_secret
+// warning where Lint reports the same setting's undefined_secret is left
+// out.
+func (a *Authoring) proposalIssues(ctx context.Context, p *proposal) []flow.Issue {
+	lint := a.lint(ctx, p.next)
+	undefined := map[string]bool{}
+	for _, is := range lint {
+		if is.Code == flow.IssueUndefinedSecret {
+			undefined[is.Path] = true
+		}
+	}
+	extra := make([]flow.Issue, 0, len(p.issues))
+	for _, is := range p.issues {
+		if is.Code == IssueUnknownSecret && undefined[is.Path] {
+			continue
+		}
+		extra = append(extra, is)
+	}
+	return mergeIssues(p.next, lint, extra)
+}
+
+// redactedRefusal redacts the flow issues of a refusal for agents (an ops
+// issue may name what the agent sent; known secret values never appear).
+func (a *Authoring) redactedRefusal(err error) error {
+	var te *ToolError
+	if errors.As(err, &te) && len(te.FlowIssues) > 0 {
+		te.FlowIssues = agentIssues(a.proposalRedactor(), te.FlowIssues)
+	}
+	return err
 }
 
 // DraftInput is a proposal (pw_save_draft): exactly one of Flow and Ops.
@@ -262,8 +325,72 @@ type DraftResult struct {
 // and warnings are kept as issues. The stored draft holds the resolved
 // flow, its issues, risk and alerts (flow.Diff against the current
 // version; agent-safe). Audited.
-func (a *Authoring) SaveDraft(ctx context.Context, actor Actor, in DraftInput) (DraftResult, error) {
-	return DraftResult{}, notImplemented("save draft")
+func (a *Authoring) SaveDraft(ctx context.Context, actor Actor, in DraftInput) (_ DraftResult, err error) {
+	args := &authorArgs{FlowID: in.FlowID, BaseVersion: in.BaseVersion, Ops: len(in.Ops)}
+	defer a.audited(actor, AuthorToolSaveDraft, args, a.now(), nil)(&err)
+	if err := a.authorizeAuthor(ctx, actor, false); err != nil {
+		return DraftResult{}, err
+	}
+	if utf8.RuneCountInString(in.Note) > MaxDraftNoteChars {
+		return DraftResult{}, toolError(ErrInvalidArguments, fmt.Sprintf("the note is over %d characters", MaxDraftNoteChars))
+	}
+	p, err := a.resolveProposal(proposalRequest{
+		flowID: in.FlowID, baseVersion: in.BaseVersion, checkBase: true,
+		flow: in.Flow, ops: in.Ops, name: in.Name, requireName: true,
+	})
+	if err != nil {
+		return DraftResult{}, a.redactedRefusal(err)
+	}
+	red := a.proposalRedactor(p.base, p.next)
+	issues := agentIssues(red, a.proposalIssues(ctx, p))
+	if blocking := flow.BlockingIssues(issues); len(blocking) > 0 {
+		return DraftResult{}, &ToolError{Kind: ErrInvalidArguments, FlowIssues: issues,
+			Message: fmt.Sprintf("the proposal has %d error(s) deploy would refuse; fix them and save again (pw_validate_flow lists them)", len(blocking))}
+	}
+	risk := flow.Risk(p.next, a.registry)
+	alerts := agentAlerts(red, flow.Diff(p.base, p.next, a.registry).Alerts)
+	baseVersion := 0
+	if p.base != nil {
+		baseVersion = p.base.Version
+	}
+	data, err := json.Marshal(p.next)
+	if err != nil {
+		return DraftResult{}, fmt.Errorf("encode draft: %w", err)
+	}
+	issuesJSON, err := json.Marshal(issues)
+	if err != nil {
+		return DraftResult{}, fmt.Errorf("encode issues: %w", err)
+	}
+	alertsJSON, err := json.Marshal(alerts)
+	if err != nil {
+		return DraftResult{}, fmt.Errorf("encode alerts: %w", err)
+	}
+	d, err := a.store.CreateFlowDraft(storage.FlowDraft{
+		FlowID: in.FlowID, BaseVersion: baseVersion, Data: data, Note: in.Note,
+		AuthorTokenID: actor.TokenID, AuthorTokenName: actor.TokenName,
+		Risk: string(risk), IssuesJSON: issuesJSON, AlertsJSON: alertsJSON,
+	})
+	var conflict *storage.VersionConflictError
+	switch {
+	case errors.As(err, &conflict):
+		return DraftResult{}, staleBase(conflict.Current)
+	case errors.Is(err, storage.ErrFlowNotFound):
+		return DraftResult{}, toolError(ErrFlowNotFound, fmt.Sprintf("unknown flow %q", capText(in.FlowID, maxViewIDBytes)))
+	case errors.Is(err, storage.ErrDraftLimit):
+		return DraftResult{}, toolError(ErrPermissionDenied, fmt.Sprintf(
+			"this token already has %d pending drafts: the admin must approve or reject pending drafts first", storage.MaxPendingDraftsPerToken))
+	case errors.Is(err, storage.ErrDraftTokenRevoked):
+		return DraftResult{}, toolError(ErrPermissionDenied, "this token is revoked")
+	case errors.Is(err, storage.ErrInvalidFlowDraft):
+		return DraftResult{}, toolError(ErrInvalidArguments, "the draft cannot be stored: it is too large")
+	case err != nil:
+		return DraftResult{}, fmt.Errorf("create draft: %w", err)
+	}
+	args.DraftID = d.ID
+	return DraftResult{
+		DraftID: d.ID, Status: d.Status, Risk: risk, Issues: issues, Alerts: alerts,
+		FlowID: in.FlowID, BaseVersion: baseVersion,
+	}, nil
 }
 
 // DraftView is a draft as its author sees it (GetDraft).
