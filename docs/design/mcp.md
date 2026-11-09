@@ -424,7 +424,27 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 - Built-in tools register as `StaticTool{Name (pw_…), Title, Description,
   InputSchema (closed toolschema subset), OutputSchema, Annotations, Scope,
   Handler(ctx, service.Actor, args)}`; prompts as `StaticPrompt{Prompt, Scope,
-  Handler}`. Arguments are validated before the handler runs.
+  Handler}`. Tool arguments are validated before the handler runs; a prompt
+  handler checks its own. A prompt's refusal (`*service.ToolError`) is
+  JSON-RPC `-32602` with its message, any other failure `-32603` without
+  details (logged).
+- Read tools (`mcpserver.ReadTools(*service.Reads)`, scope read; main wires
+  them): `pw_list_flows{}`, `pw_get_flow{flowId}`,
+  `pw_list_runs{flowId, limit?, before?}` (`limit` 1–100, default 20;
+  `before` is the previous page's `nextBefore`), `pw_get_run{flowId,
+  runId}` and `pw_system_status{}`. Ids match `^[A-Za-z0-9_.:-]{1,128}$`
+  (UUIDs, and the ids older versions allowed). Annotations: read-only,
+  idempotent, not destructive, closed world. Each result is the §6 view as
+  structured content plus its JSON as the text block; the output schemas
+  describe the views (open objects, every always-present field required,
+  no formats or type unions, kept in step with the Go types by a test).
+  The views' refusals are `isError` results (`flow_not_found`,
+  `run_not_found`; `forbidden` cannot occur, the tools are only served to
+  the read scope). The views are bounded by their own limits (§6), not by
+  `max_result_bytes`, which caps flow replies. Read calls are not audited.
+  Prompt `diagnose_flow{flowId}` (scope read, `mcpserver.ReadPrompts`): one
+  user message with the §6 text; a missing, malformed or extra argument and
+  an unknown flow are `-32602`.
 - Middleware (in order): loopback check when TLS is off and `lan_access` is
   false → 403; Host allowlist (also router-wide); Origin, if present, must be
   this server (scheme, host and port; both schemes without TLS) with an
