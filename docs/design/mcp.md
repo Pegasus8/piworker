@@ -294,7 +294,9 @@ Shared by REST and MCP (thin adapters):
   runtime's `flow.ErrBusy` refusals, `ErrTooManyCalls` and `ErrTriggerBusy`,
   are `busy` too), confirm policy (`admin` → creates an approval, returns
   `approval_required`), result size cap (`max_result_bytes`, `truncated`), redaction of known secret
-  values (literal, URL-encoded, base64) and URLs (`urlWithoutSecrets`).
+  values (literal, URL-encoded, base64) and, in error messages, of URLs past
+  their host (`scheme://host/<redacted>`, the read views' rule: Telegram bot
+  and webhook tokens sit in the path).
 - `Tools.Result(actor, runID)`: only the actor that started the run.
 - Read views (phase 2), `service.Reads`, for the editor and tokens with the
   `read` scope (others: `forbidden`); JSON with camelCase fields, bounded
@@ -516,7 +518,8 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   clear text.
 - `mcp.enabled = true` with auth disabled is a startup error.
 - The MCP audit is pruned at start and hourly (30 days, at most 50 000 rows;
-  privileged calls are never evicted early).
+  privileged calls are never evicted early, and reads and prompts go before
+  tool calls, §9).
 - Tools: dynamic tools + `pw_get_result{runId}` (call; waits up to 10 s for a
   running call); `pw_list_flows`,
   `pw_get_flow`, `pw_list_runs`, `pw_get_run`, `pw_system_status`, prompt
@@ -571,8 +574,16 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   args_sha256, args_preview, outcome, dur_ms)`, one row per agent tool call
   and per agent read (§8); async batched writes; retention
   30 days by time; rejections (`busy`, cooldown, invalid args) stored as
-  per-token per-minute counters (`mcp_rejections`); privileged calls never
-  evicted early. The audit API pages by `id` (most recently recorded first);
+  per-token per-minute counters (`mcp_rejections`); privileged calls (and
+  deploys of privileged flows, refused ones included) never evicted early.
+  The row cap evicts as many rows as lie beyond the newest 50 000 (never
+  privileged ones), reads and prompts first, oldest first whatever their age
+  (`storage.IsMCPAuditRead`: `pw_list_flows`, `pw_get_flow`, `pw_list_runs`,
+  `pw_get_run`, `pw_system_status`, `pw_get_result`, `pw_list_node_types`,
+  `pw_validate_flow`, `pw_get_draft`, `pw_dry_run`, `pw_test_node` and
+  `prompt:*`), then the oldest tool calls and actions (saving a draft,
+  deploying, stopping), so a stream of reads cannot push calls out of the
+  audit. The audit API pages by `id` (most recently recorded first);
   `GET /api/agent/audit/rejections?tokenId&since&until` sums the counters per
   token and reason in SQL (at most 500 groups, largest first, `truncated`
   when more matched).
@@ -609,7 +620,8 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   must exist (for an agent, be its own), be pending, belong to that flow (or
   to a new flow) and be based on the version being replaced, and an agent's
   token must be unrevoked; it is then closed as approved with the new
-  version. Otherwise nothing is saved (`ErrFlowDraftNotFound`,
+  version (a new flow's draft also records the created flow's ID as its
+  `flow_id`). Otherwise nothing is saved (`ErrFlowDraftNotFound`,
   `ErrDraftNotPending`, `ErrInvalidFlowDraft`, `*VersionConflictError`,
   `ErrDraftTokenRevoked`). Revocations void drafts in their own
   transactions, so a voided draft never becomes a version. Retention: the newest
@@ -882,10 +894,13 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 
 ### Service contract — authoring, drafts, agent deploy (`internal/service`)
 
-The exported API below exists (`authoring.go`, `drafts.go`, `deploy.go`);
-until the service stream writes a method's body it refuses with
-`unavailable` ("…: not implemented yet"). The service, MCP and editor
-streams code against it.
+Implemented in `authoring.go` (agent authoring), `authoring_proposal.go`
+(resolving and checking a proposal), `authoring_audit.go` (who may call
+what, the audit), `drafts.go` (the editor's side) and `deploy.go` (the
+policy, rollback, versions, marks); the lifecycle path is
+`internal/api/flows_lifecycle.go` and the editor REST
+`internal/api/agent_drafts.go`. `main.go` builds the service over the
+`FlowsHandler` (`appServices.authoring`).
 
 **Construction.** `service.NewAuthoring(service.AuthoringOptions{Store,
 Lifecycle, Registry, Secrets, Audit, AuthorEnabled, Now, Logger})
@@ -954,7 +969,13 @@ path's statuses; `Err` the cause for `errors.Is`); `ToolError()` maps 400 →
 `actor.DeployActor()` (the editor, or the agent's token). Every successful
 deploy records the marker, the editor's (`changeRunning`, toggle) as actor
 `editor` and the agent's as `agent` with the token (H6); restoring running
-flows at startup keeps the existing marker.
+flows at startup keeps the existing marker. The editor's own requests and
+the interface share one implementation (`startLocked`/`stopLocked` in
+`internal/api/flows_lifecycle.go`): `changeRunning` is a thin wrapper, so
+there is no second lifecycle. A marker that cannot be recorded undoes the
+deployment it would describe (500), so what runs is always attributed;
+toggling a running flow on records nothing (it deploys nothing). A
+`LockedLifecycle` used after its `WithLock` returned refuses to act.
 
 **Methods** (requests and results marshal with these JSON names):
 
@@ -982,7 +1003,9 @@ flows at startup keeps the existing marker.
   empty (an `undefined_secret` error still blocks a deploy until the admin
   defines the secret). Request problems `SaveDraft` refuses outright are
   refused the same way. Nothing is stored. `ops` and `flowId` extend the
-  contract's `{flow}`.
+  contract's `{flow}`; `flowId` alone validates the current version as it
+  is. The editor's proposals are linted only (no author restrictions, no
+  authoring issues: the admin may type a credential).
 - `SaveDraft` (`service.RedactedValue` = `"<redacted>"`): an existing flow
   needs `baseVersion` = its current version (else `conflict` with
   `currentVersion`; unknown: `flow_not_found`); a new flow needs `flow` (no
@@ -1009,8 +1032,46 @@ flows at startup keeps the existing marker.
   KiB) of JSON. The stored draft holds the resolved flow, its issues, risk
   and alerts (`flow.Diff` against the current version, an empty flow when
   new; agent-safe, H7).
-- `GetDraft`: the agent's own drafts only (another token's: `not_found`);
-  the proposed flow through the read views' default-deny redaction.
+  - Resolution, in order: the request shape and sizes; the base (the
+    stored current flow); ops through `flow.ApplyOps`, or a copy of the
+    whole flow whose nodes of registered types get their category and
+    ports from the registry (a node without config an empty one, a
+    connection without an ID a generated one) and whose nodes the base does
+    not have and that have no position are laid out (`flow.AutoLayout`); a
+    whole flow without a name, description or legacy `variables` keeps the
+    base's (agents never see the variables); `id` is the `flowId`, and
+    `state`, `version` and the timestamps are dropped. Then the node and
+    connection limits, then `"<redacted>"` — only a top-level config value,
+    which is what the read views show — resolved to the base value of the
+    same node ID, type and property, then the author restrictions, then the
+    authoring issues and Lint (`flow.LintContext` with `Secrets`), merged in
+    Lint's order.
+  - The author restrictions compare the base and the proposal node by node
+    (same ID and type): a `trigger-tool` or `action-reply` node added,
+    removed, retyped, or with another config or enabled flag (moving one is
+    allowed); a webhook trigger added, turned on, or with another `path` or
+    `Sensitive` setting (its `token`; absent and `""` are the same); a
+    `RiskSwitch` property `true` where the base had it off or the node was
+    absent or disabled (enabling a node counts as adding it); `variables`
+    other than the base's.
+  - `sensitive_literal` and `unknown_secret` concern only values the agent
+    set (they differ from the base's at the same node and property): a
+    literal the admin typed stays, and the names of secrets referenced in
+    settings agents cannot read are not revealed. An `unknown_secret` where
+    Lint reports the same setting's `undefined_secret` is left out.
+  - Issue messages and alerts are redacted for agents before they are
+    returned and stored: known secret values and the literals of the flow's
+    `Sensitive` settings, URLs past their host, each message at most 2 KiB.
+    Storage errors map to `conflict` (the base moved meanwhile),
+    `flow_not_found`, `forbidden` (the 21st pending draft, a revoked token)
+    and `invalid_arguments` (too large to store). A new flow's draft has no
+    ID: the approval assigns it, and the applied draft then records the new
+    flow's ID as its `flowId` (its `baseVersion` stays 0).
+- `GetDraft`: the agent's own drafts only (another token's: `not_found`,
+  with the message of an unknown one); the proposed flow through the read
+  views' default-deny redaction (GetFlow's nodes, connections and bounds),
+  the stored issues and alerts, and the admin's reason with secret values
+  and URLs past their host redacted.
 - `DryRun` of exactly one of `flow`, `draftId` (own draft) or `flowId` (the
   current version). For an agent by `flowId` or `draftId` it sets
   `DryRunInput.Redact` (H4): properties agents may not read (`Sensitive`,
@@ -1022,22 +1083,36 @@ flows at startup keeps the existing marker.
   URLs after their host, hidden values); the editor sees them unredacted
   except secret values. `flow.ErrSandboxBusy` → `busy`,
   `flow.ErrDryRunInput` → `invalid_arguments`; an invalid flow is a result
-  with `issues` (no run), not an error.
-- `TestNode`: `Sensitive` literals in `config` refused as in `SaveDraft`;
-  `flow.ErrTestNodeForbidden` → `forbidden`; `flow.ErrInvalidNodeType` and
-  `flow.ErrDryRunInput` → `invalid_arguments`; busy → `busy`; config
-  problems are the result's `issues`; outputs redacted for agents.
+  with `issues` (no run), not an error. A draft's base version that was
+  pruned hides every hidden setting (what the agent wrote cannot be told
+  apart). For agents the issue messages, trace inputs, outputs and errors
+  and the `wouldExecute` inputs lose the known secret values, the literals
+  of `Sensitive` settings, the hidden values of the stored flow or the
+  draft's base version (`hiddenValues`, what the agent did not write) and
+  URLs past their host, and are cut to 2 KiB again. The lint runs with the
+  service's secret store (so `undefined_secret` is real); the nodes still
+  get the sandbox's empty one.
+- `TestNode`: `Sensitive` literals in `config` refused as in `SaveDraft`
+  (agents only; `/config/{prop}`); `flow.ErrTestNodeForbidden` →
+  `forbidden`; `flow.ErrInvalidNodeType` and `flow.ErrDryRunInput` →
+  `invalid_arguments`; busy → `busy`; config problems are the result's
+  `issues` (their messages lose only secret values: the config is the
+  caller's); outputs and the error redacted for agents like a dry-run's.
 - `ListDrafts`: `status` `pending` (default), `decided` or `all` (else
-  `invalid_arguments`), `limit` 1–100 (0: 50), newest first, `nextBefore`
-  the next page's `beforeId` ("" at the end).
+  `invalid_arguments`), `limit` 1–100 (0: 50; more is 100), newest first,
+  `nextBefore` the next page's `beforeId` ("" at the end). `flowName` is the
+  stored flow's current name (the proposed one for a new flow); `stale` is
+  a pending draft of a flow whose version moved (or that is gone).
 - `GetDraftDetail`: recomputed on read against the current version and
   registry: `issues` (Lint now), `diff` (vs the current version; an empty
   flow when new; field diffs with full values, `Sensitive` ones
   `"<hidden>"` unless a secret reference, H7), `diffApproved` (vs
   `lastApprovedVersion` when that is not the current one, else null),
   `running`, and `flow` (the proposed flow, `Sensitive` literals
-  `"<hidden>"`). The summary's `alertCount`/`issueCounts` come from what was
-  stored at save time.
+  `"<hidden>"`, and every value of an unregistered type; hidden on a copy,
+  so the diffs compare the real values). The summary's
+  `alertCount`/`issueCounts` come from what was stored at save time; the
+  detail's `issues` add the `unknown_secret` warnings of now.
 - `ApproveDraft(deploy)`, under the lifecycle lock: not pending → `conflict`;
   stale (base ≠ current) → `conflict` with `currentVersion`; unknown →
   `not_found`. Re-linted against the current registry (H2): blocking
@@ -1052,9 +1127,13 @@ flows at startup keeps the existing marker.
   `DecideFlowDraft` afterwards). Then (re)deployed through
   `LockedLifecycle.Deploy(…, EditorActor().DeployActor(), restart =
   running)` when asked or running; a failed deploy is `deployError`
-  (`{status, message}`, the editor path's), the version stays saved.
-- `RejectDraft(reason ≤ 500)`: not pending → `conflict`, unknown →
-  `not_found`; the reason is shown to the author.
+  (`{status, message}`, the editor path's; a failure that is not a
+  `LifecycleError` is 500 "Failed to deploy flow"), the version stays saved.
+  A new flow gets a generated ID. Without a lifecycle path: `unavailable`.
+- `RejectDraft(reason ≤ 500 characters)`: not pending → `conflict`, unknown
+  → `not_found`; the reason is shown to the author. It needs no lock:
+  storage decides only pending drafts, and a save applying a draft checks it
+  is still pending in its own transaction.
 - `Deploy` / `Stop` (agent): level `off` → `forbidden`; `low` → allowed only
   when `flow.Risk` of the flow that would run (Stop: the current one) is at
   most `external` and `flow.Diff(last admin-approved version or an empty
@@ -1076,19 +1155,44 @@ flows at startup keeps the existing marker.
   version must still be the one the policy evaluated, else `conflict`;
   nothing is deployed then (H3). Audited (privileged when the flow is);
   the marker records the agent's token.
+  - As built: the policy is evaluated outside the lock (Lint, `flow.Risk`,
+    the diff) and checked again inside it, where the token is always
+    re-read (stronger than comparing the epoch: an expiry needs no epoch
+    bump), the level re-read (`off`, or `low` when `all` was evaluated:
+    `forbidden`) and the flow's version compared (`conflict` with
+    `currentVersion`). A draft of another flow (or a new flow's draft) is
+    `invalid_arguments`, a decided one `conflict`. The refusal of the low
+    level names the risk ("this flow is privileged") and the alert kinds in
+    `LowDeployRefusedAlerts` order. A draft saved before its deploy failed
+    stays saved: the error says "the draft was saved as version N, but
+    deploying it failed: …" with `currentVersion` N. The audit row (args:
+    `flowId`, `draftId`, never the flow) is privileged when the flow that
+    would run is, refused deploys included. Stop answers the version it
+    stopped; a stop needs no lint.
 - `Rollback` (editor), under the lock: restores the last admin-approved
   version as a new version (`VersionMeta{editor, AdminApproved, note
   "rollback to vN"}`) and redeploys it when the flow is running (a failed
   redeploy is `deployError`); `conflict` when the current version is
   already admin-approved or none exists.
-- `Versions` (editor): newest first, `limit` 1–50 (0: 50), metadata only;
-  `lastAdminApproved` 0 when none; `deployed` marks the version the
-  deployment marker names.
+- `Versions` (editor): newest first, `limit` 1–50 (0: 50; more is 50),
+  metadata only; `lastAdminApproved` 0 when none; `deployed` marks the
+  version the deployment marker names.
 - `Marks` (editor): `deployment` (the marker, or null) and `agentChanged`
-  (the flow's current version is not admin-approved).
+  (the flow's current version is not admin-approved), through
+  `service.FlowMarksOf(store, flow)`, which internal/api's flow list and
+  view use too (two indexed reads per flow).
+- Audit: every agent operation is one `mcp_audit` row under its tool name
+  with only references as arguments (`flowId`, `draftId`, `baseVersion`,
+  the number of `ops`, a node `type`, `triggerNodeId`) and the outcome code;
+  the editor's calls are not audited (they are not agents').
 
 **Editor REST** (section D of the wave contract; session cookie, CSRF on
-writes, `{success, data}` envelope; errors as above):
+writes, `{success, data}` envelope; errors as above; `api.DraftsHandler`
+over `service.Authoring` as the editor; the drafts routes exist with
+authentication, the versions and rollback routes always; an invalid
+`limit` is 400; request bodies are optional and strict — unknown or
+mistyped members are 400; an approval or rollback, once started, is not
+cut short by the browser going away):
 - `GET /api/agent/drafts?status=pending|decided|all&limit=&beforeId=` →
   `DraftList`: `{"drafts": [{"id", "flowId", "flowName", "isNew",
   "baseVersion", "currentVersion", "stale", "status", "risk", "alertCount",
