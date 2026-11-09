@@ -867,28 +867,45 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   the issues and lists the names in `missingSecrets`.
 - **Approval page** (editor: `/agents/drafts`, `/agents/drafts/:id`;
   `stores/drafts.ts`, presentation rules in `lib/drafts.ts`). The agent
-  pages get a Drafts tab whose badge is the `drafts` of the passive
-  pending count (polled with `X-PiWorker-Background`, like every
-  background reload of the list or of an open draft). The list filters
-  waiting, decided or all drafts and shows the flow (or "New flow"), the
-  state in words (waiting, out of date, approved, rejected, void), risk,
-  alert and issue counts, token and the note. The review page shows, in
-  this order: what the draft changes (new flow, or the base and current
-  versions) with an explanation when it is out of date or decided; the
-  agent's note, labelled as written by the agent; the risk before → after;
-  the alerts, before any diff, each kind with its own icon and label
+  pages get a Drafts tab whose badge is the `drafts` of the passive pending
+  count (polled with `X-PiWorker-Background`, like every background reload
+  of the list or of an open draft). The list filters waiting, decided or all
+  drafts and shows the flow (or "New flow"), the state in words (waiting,
+  out of date, approved, rejected, void), risk, alert and issue counts,
+  token and the note. A background reload replaces the list only while it
+  shows its first page: with pages loaded (or loading) by Load more it is
+  skipped and the list offers a Refresh. The review page shows, in this
+  order: what the draft changes with an explanation when it is out of date
+  or decided. A pending draft names the base and current versions. A decided
+  one says which version it was written for, the version an approval saved
+  and where the flow is now (or that it was deleted), since the server marks
+  only pending drafts stale. Then the agent's note, labelled as written by
+  the agent; for a decided draft, a note that its risk, alerts and changes
+  are recomputed now against the current version (for an approved draft its
+  changes are already part of it, so "no changes" there does not mean the
+  draft changed nothing), also told by the changes heading ("recomputed
+  now") and the alerts' empty text; the risk before → after; the alerts,
+  before any diff, each kind with its own icon and label
   (`credentialed_request_changed` included), its location, the server's
-  message and `before`/`after` only when the alert carries them (H7: for a
-  hidden setting it points to the field diff); the Lint issues; the
-  per-node diff (added, removed, changed; field before/after, `Sensitive`
-  values as "hidden" with a lock, `Destination` fields highlighted with an
-  icon and the word Destination, a node's alert kinds next to it, moves)
-  and the connection diff; "Compared with the version you last approved"
+  message and `before`/`after` only when the alert carries them (H7). For a
+  hidden setting the alert points to the field diff only when that
+  comparison's node diff lists the setting; otherwise (a node disabled or
+  enabled, its setting unchanged) it shows the setting's value from the
+  proposed flow, or says it is not shown. Then the Lint issues; the per-node
+  diff (added, removed, changed; field before/after, `Sensitive` values as
+  "hidden" with a lock, `Destination` fields highlighted with an icon and
+  the word Destination, a node's alert kinds next to it, moves) and the
+  connection diff; "Compared with the version you last approved"
   (`diffApproved`, with its own risk, alerts and diff); the proposed flow's
-  JSON on demand. Approving asks for confirmation repeating the risk and
-  the alerts, with "Deploy now" (checked and locked when the flow runs: it
-  is always redeployed); rejecting takes an optional reason (≤ 500
-  characters) shown to the agent. Both are offered only while the draft is
+  JSON on demand. Approving asks for confirmation repeating the risk and the
+  alerts; with `diffApproved` it states both comparisons (current version,
+  and the version last approved) and that approving also approves the
+  earlier agent changes, since the result becomes the baseline the `low`
+  level compares against. "Deploy now" is checked and locked when the flow
+  runs (it is always redeployed); rejecting takes an optional reason (≤ 500
+  characters) shown to the agent. After either decision (or a refusal) focus
+  moves to the outcome at the top of the page, scrolled into view, since the
+  decision section unmounts. Both are offered only while the draft is
   pending; approving is disabled, with the reason, when the draft is out of
   date or has blocking errors, or would deploy with `undefined_secret`
   errors (the server's H2 rules; it remains the judge: a 400 lists its
@@ -900,16 +917,22 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   header show "Deployed by agent <token>" ("Last deployed by …" when
   stopped) when the deployment marker's actor is an agent, and "Changed by
   agent" when `agentChanged`; an editor deploy replaces the marker and an
-  editor save clears `agentChanged` locally. A version history dialog
-  (each card, and the editor's History) lists every kept version with who
-  saved it and whether it is current, deployed, not approved, last
-  approved or from a draft, and offers "Roll back to version N" (the
-  version last approved) after a confirmation naming it and saying whether
-  the running flow is redeployed (the editor reloads the flow, warning that
-  unsaved changes are discarded). The flows list sends the version it shows
-  when turning a flow on (`PATCH …/toggle {enabled, version}`): a version
-  saved since is a 409 that deploys nothing, and the list offers to open it
-  for review.
+  editor save clears `agentChanged` locally. After turning a flow on from
+  the list, or a rollback, the list reads the flow back (`GET
+  /api/flows/{id}`: live running, version, marks; a running intent without a
+  running instance shows as failed) instead of guessing: the list may
+  predate an agent's deploy, and a refused redeploy may have left the old
+  version running. Flow names and descriptions (agents may write them
+  through approved drafts) are shown as agent text in the cards, labels and
+  dialogs. A version history dialog (each card, and the editor's History)
+  lists every kept version with who saved it and whether it is current,
+  deployed, not approved, last approved or from a draft, and offers "Roll
+  back to version N" (the version last approved) after a confirmation naming
+  it and saying whether the running flow is redeployed (the editor reloads
+  the flow, warning that unsaved changes are discarded). The flows list
+  sends the version it shows when turning a flow on (`PATCH …/toggle
+  {enabled, version}`): a version saved since is a 409 that deploys nothing,
+  and the list offers to open it for review.
 - **Agent deploy (opt-in risk).** Setting `agent_deploy`: `off` (default),
   `low` (agent may deploy/start/stop flows and approve its own drafts when the
   resulting flow's risk is ≤ external, no recipient/destination changes vs the
