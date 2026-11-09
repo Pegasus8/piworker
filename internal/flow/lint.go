@@ -48,6 +48,10 @@ const (
 	// IssueTriggerNotConnected: a callable trigger (trigger-tool) has no
 	// active downstream connection.
 	IssueTriggerNotConnected = "trigger_not_connected"
+	// IssueInvalidPosition: a node position is not finite or not within
+	// ±MaxPosition. Positions do not affect a run, so deploy does not check
+	// them; Lint and ApplyOps do.
+	IssueInvalidPosition = "invalid_position"
 )
 
 // finding is one problem a deploy-time check found, located by indexes so
@@ -362,7 +366,8 @@ func callTriggerFindings(f *Flow, nodes map[string]node.Node, active func(id str
 }
 
 // Lint returns every issue deploy would find in f (errors) plus the warnings
-// of the tool risk analysis, located by JSON-pointer-like paths ("/nodes",
+// of the tool risk analysis and the positions out of range
+// (IssueInvalidPosition, which deploy does not check), located by JSON-pointer-like paths ("/nodes",
 // "/nodes/{nodeId}", "/nodes/{nodeId}/config/{prop}", "/connections/{id}"),
 // in a deterministic order: flow-level issues first, then nodes in
 // definition order, then connections in definition order; within one
@@ -454,7 +459,21 @@ func Lint(f *Flow, reg *node.Registry) []Issue {
 	_, tools := analyzeTools(f, reg, specs)
 	all = append(all, tools...)
 
+	all = append(all, positionFindings(f)...)
 	return lintIssues(f, all)
+}
+
+// positionFindings reports the nodes whose position ValidPosition refuses.
+// Positions do not affect a run, so only Lint (not deploy) checks them: they
+// bound what a draft can store and the layout has to work with.
+func positionFindings(f *Flow) []finding {
+	var out []finding
+	for i := range f.Nodes {
+		if !ValidPosition(f.Nodes[i].Position) {
+			out = append(out, nodeFinding(i, "", IssueInvalidPosition, IssueError, positionMessage, nil))
+		}
+	}
+	return out
 }
 
 // lintIssues renders findings as Issues in Lint's order, once each.

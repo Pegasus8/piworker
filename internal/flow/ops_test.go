@@ -3,8 +3,10 @@ package flow_test
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
@@ -330,4 +332,81 @@ func TestAutoLayoutIsDeterministicAndNeverOverlaps(t *testing.T) {
 		assert.NotEqualf(t, flow.Position{}, n.Position, "%s placed", n.ID)
 	}
 	assert.True(t, strings.HasPrefix(a.Nodes[2].ID, "n"))
+}
+
+// runWithin fails the test when fn does not return within d (it keeps
+// running: the test binary is the only victim).
+func runWithin(t *testing.T, d time.Duration, fn func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fn()
+	}()
+	select {
+	case <-done:
+	case <-time.After(d):
+		t.Fatalf("did not return within %s", d)
+	}
+}
+
+// Far from the origin y+LayoutRowGap == y in float64: the slot search must
+// still end (it once spun forever there).
+func TestAutoLayoutEndsAtHugeCoordinates(t *testing.T) {
+	for _, y := range []float64{1e20, -1e20, 1e300, math.MaxFloat64, math.Inf(1), math.NaN()} {
+		t.Run(fmt.Sprint(y), func(t *testing.T) {
+			f := flow.NewFlow("far")
+			p := lintNode("p", "trigger-manual", nil)
+			p.Position = flow.Position{X: 1, Y: y}
+			c := lintNode("c", "action-log", nil)
+			c.Position = flow.Position{X: 241, Y: y}
+			f.Nodes = []flow.Node{p, c, lintNode("a", "action-log", nil), lintNode("b", "action-log", nil)}
+			f.Connections = []flow.Connection{lintConn("c1", "p", "output", "a", "input"), lintConn("c2", "p", "output", "b", "input")}
+			runWithin(t, 2*time.Second, func() { flow.AutoLayout(f, []string{"a", "b"}) })
+			assert.NotEqual(t, flow.Position{}, nodeByID(f, "a").Position)
+			assert.NotEqual(t, flow.Position{}, nodeByID(f, "b").Position)
+		})
+	}
+}
+
+// Positions an operation sets must be finite and within ±MaxPosition, so a
+// draft cannot carry coordinates the layout and the canvas cannot handle.
+func TestApplyOpsRejectsPositionsOutOfRange(t *testing.T) {
+	for _, raw := range []string{
+		`[{"op":"add_node","node":{"type":"action-log","position":{"x":1,"y":1e20}}}]`,
+		`[{"op":"add_node","node":{"type":"action-log","position":{"x":-1000001,"y":0}}}]`,
+		`[{"op":"update_node","nodeId":"log","position":{"x":0,"y":1e7}}]`,
+	} {
+		t.Run(raw, func(t *testing.T) {
+			var next *flow.Flow
+			var issues []flow.Issue
+			runWithin(t, 2*time.Second, func() { next, issues = flow.ApplyOps(opsBase(), decodeOps(t, raw), node.DefaultRegistry) })
+			assert.Nil(t, next)
+			require.Len(t, issues, 1, "%v", issues)
+			assert.Equal(t, "/ops/0", issues[0].Path)
+			assert.Equal(t, flow.IssueInvalidPosition, issues[0].Code)
+		})
+	}
+	for _, op := range []flow.Op{
+		{Op: flow.OpAddNode, Node: &flow.OpNode{Type: "action-log", Position: &flow.Position{X: math.NaN()}}},
+		{Op: flow.OpUpdateNode, NodeID: "log", Position: &flow.Position{Y: math.Inf(-1)}},
+	} {
+		next, issues := flow.ApplyOps(opsBase(), []flow.Op{op}, node.DefaultRegistry)
+		assert.Nil(t, next)
+		require.Len(t, issues, 1)
+		assert.Equal(t, flow.IssueInvalidPosition, issues[0].Code)
+	}
+	// The bounds themselves are fine.
+	mustApply(t, opsBase(), `[{"op":"update_node","nodeId":"log","position":{"x":-1000000,"y":1000000}}]`)
+
+	// The reproduction of the endless layout: refused, and quickly.
+	runWithin(t, 2*time.Second, func() {
+		next, issues := flow.ApplyOps(nil, decodeOps(t, `[
+			{"op":"add_node","node":{"id":"p","type":"trigger-manual","position":{"x":1,"y":1e20}}},
+			{"op":"add_node","node":{"type":"action-log"}},
+			{"op":"add_node","node":{"type":"action-log"}}
+		]`), node.DefaultRegistry)
+		assert.Nil(t, next)
+		assert.NotEmpty(t, issues)
+	})
 }

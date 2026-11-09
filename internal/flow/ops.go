@@ -46,6 +46,9 @@ const (
 	IssueConnectionNotFound = "connection_not_found"
 )
 
+// positionMessage explains IssueInvalidPosition (shared with Lint).
+var positionMessage = fmt.Sprintf("a node position must be finite and within ±%d on both axes", int(MaxPosition))
+
 // Op is one edit operation. Which fields apply depends on Op:
 //
 //	{"op":"add_node","node":{"id"?,"type","config"?,"enabled"?,"position"?}}
@@ -134,6 +137,9 @@ func applyOp(f *Flow, op Op, reg *node.Registry, unplaced *[]string) (string, st
 		if op.Config == nil && op.Enabled == nil && op.Position == nil {
 			return IssueInvalidOp, "update_node changes nothing: give config, enabled or position"
 		}
+		if op.Position != nil && !ValidPosition(*op.Position) {
+			return IssueInvalidPosition, positionMessage
+		}
 		if op.Config != nil {
 			if n.Config == nil {
 				n.Config = map[string]any{}
@@ -184,6 +190,9 @@ func addNodeOp(f *Flow, op Op, reg *node.Registry, unplaced *[]string) (string, 
 	}
 	if f.GetNode(id) != nil {
 		return IssueNodeExists, fmt.Sprintf("a node %q already exists", id)
+	}
+	if spec.Position != nil && !ValidPosition(*spec.Position) {
+		return IssueInvalidPosition, positionMessage
 	}
 	n := Node{
 		ID:       id,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/Pegasus8/piworker/internal/flow"
@@ -281,4 +282,27 @@ func TestFlowRisk(t *testing.T) {
 	t.Run("nil flow", func(t *testing.T) {
 		assert.Equal(t, node.RiskSafe, flow.Risk(nil, node.DefaultRegistry))
 	})
+}
+
+// A whole flow (a draft) is held to the same position bounds as ops; deploy
+// does not need positions and does not check them.
+func TestLintReportsPositionsOutOfRange(t *testing.T) {
+	f := flow.NewFlow("far")
+	tick := lintNode("tick", "trigger-interval", map[string]any{"interval": float64(1000)})
+	tick.Position = flow.Position{X: 0, Y: 1e20}
+	log := lintNode("log", "action-log", map[string]any{"message": "hi"})
+	log.Position = flow.Position{X: math.Inf(1), Y: 0}
+	ok := lintNode("ok", "action-log", map[string]any{"message": "hi"})
+	ok.Position = flow.Position{X: -flow.MaxPosition, Y: flow.MaxPosition}
+	f.Nodes = []flow.Node{tick, log, ok}
+	f.Connections = []flow.Connection{lintConn("c1", "tick", "output", "log", "input"), lintConn("c2", "tick", "output", "ok", "input")}
+
+	issues := flow.Lint(f, node.DefaultRegistry)
+	assert.Equal(t, []string{
+		"error:" + flow.IssueInvalidPosition + "@/nodes/tick",
+		"error:" + flow.IssueInvalidPosition + "@/nodes/log",
+	}, issueKeys(issues))
+	for _, i := range issues {
+		assert.Contains(t, i.Message, "1000000")
+	}
 }

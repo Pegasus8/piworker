@@ -1,5 +1,7 @@
 package flow
 
+import "math"
+
 // Auto-layout (docs/design/mcp.md §10): where nodes an agent added without
 // a position appear on the editor's canvas.
 
@@ -14,6 +16,9 @@ const (
 	LayoutRowGap    = 120
 	// LayoutOrigin is where the first node of an empty canvas goes (x and y).
 	LayoutOrigin = 100
+	// MaxPosition bounds the coordinates of a node position an agent may
+	// set (ApplyOps) or save (Lint): finite and within ±MaxPosition.
+	MaxPosition = 1e6
 )
 
 // AutoLayout positions the nodes listed in newNodeIDs that have no position
@@ -118,13 +123,36 @@ func AutoLayout(f *Flow, newNodeIDs []string) {
 		if right >= 0 {
 			x, y = f.Nodes[right].Position.X+LayoutColumnGap, f.Nodes[right].Position.Y
 		}
-		for overlapsPlaced(f, placed, x, y) {
-			y += LayoutRowGap
-		}
-		f.Nodes[next].Position = Position{X: x, Y: y}
+		f.Nodes[next].Position = Position{X: x, Y: freeSlot(f, placed, x, y)}
 		delete(pending, next)
 		placed[next] = true
 	}
+}
+
+// freeSlot returns the first of the slots y, y+LayoutRowGap, … whose box at
+// x overlaps no placed node. A placed box blocks at most two slots, so one of
+// the first 2·len(placed)+1 is free; the search stops there whatever the
+// arithmetic does (far from the origin y+LayoutRowGap == y in float64), and
+// then takes the next slot even if it overlaps.
+func freeSlot(f *Flow, placed map[int]bool, x, y float64) float64 {
+	slots := 2*len(placed) + 1
+	for k := range slots {
+		if candidate := y + float64(k)*LayoutRowGap; !overlapsPlaced(f, placed, x, candidate) {
+			return candidate
+		}
+	}
+	return y + float64(slots)*LayoutRowGap
+}
+
+// ValidPosition reports whether p is finite and within ±MaxPosition on both
+// axes.
+func ValidPosition(p Position) bool {
+	for _, v := range []float64{p.X, p.Y} {
+		if math.IsNaN(v) || math.IsInf(v, 0) || v < -MaxPosition || v > MaxPosition {
+			return false
+		}
+	}
+	return true
 }
 
 // overlapsPlaced reports whether a node box at (x, y) overlaps the box of a
