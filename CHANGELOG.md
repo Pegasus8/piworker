@@ -80,7 +80,53 @@ version. The version number and release date have not been selected.
 - Tools with `confirm: admin` wait for approval in the editor (15 minutes);
   an approval runs only the tool version that was requested and keeps its
   result. Every agent call is audited for 30 days.
-- Runs record who started them (editor, agent token or trigger).
+- Runs record who started them (editor, agent token or trigger) and the
+  flow version they ran.
+- Built-in tools by scope: `read` gets `pw_list_flows`, `pw_get_flow`,
+  `pw_list_runs`, `pw_get_run`, `pw_system_status` and the `diagnose_flow`
+  prompt (secrets, typed credentials, settings hidden from agents and
+  variables stay hidden; run errors only of versions the admin approved);
+  `call` gets `pw_get_result` for calls that waited for approval or
+  outlasted their timeout.
+- Authoring (`author` scope, only with `[mcp] author_enabled`):
+  `pw_list_node_types`, `pw_validate_flow` (every problem a deploy would
+  find, from the same checks), `pw_save_draft`, `pw_get_draft` and the
+  `author_flow` prompt. Agents write drafts, never flows: a whole flow or
+  operations against the version they read (a stale one is a conflict),
+  without changing Agent Tool or Agent Reply nodes, webhook paths or tokens,
+  risk switches or the legacy variables, and with only `{{secret.NAME}}`
+  references in credential settings. At most 20 drafts per token wait;
+  decided drafts are pruned after 30 days.
+- `pw_dry_run` runs a flow once in a sandbox: triggers do not start, every
+  node that is not `safe` is a stub returning the agent's mock, variables
+  are empty and there are no secrets (at most 50 nodes, 10 s).
+  `pw_test_node` runs one safe processing node. One dry-run or node test
+  runs at a time.
+- Agent deploy (`deploy` scope: `pw_deploy_flow`, `pw_stop_flow`) behind
+  the opt-in **agent deploy** level, changed with the password: `off`
+  (default), `low` or `all`. `low` deploys, stops and applies an agent's
+  own drafts only for flows of at most `external` risk that, compared with
+  the version the admin last approved, change no destination or host, no
+  secret reference, risk switch, typed credential, credentialed request,
+  rate, global variable, published tool or node reading variables or
+  credentialed responses; refusals name the kinds of change, never values.
+  `all` allows any flow. Every agent deploy is audited and marked.
+- Flow versions: every definition save is a numbered version (the newest
+  50 plus the last one the admin approved are kept); approving a draft, an
+  agent's deploy of its draft and a rollback each save one.
+- What agents read back from drafts, validation, dry-runs and node tests
+  never depends on how their text compares with a hidden value. The read
+  views and tool results still hide secret values by comparison, so an
+  agent whose own text comes back to it can confirm guesses of short or
+  predictable secrets: the secrets list marks values under 16 characters
+  (ADR-0021).
+- `/mcp` serves protocol versions 2025-06-18, 2025-11-25 and 2026-07-28
+  (stateless, JSON responses), refuses JSON-RPC batches and bounds what
+  decoding a message costs.
+- `piworker-mcp`, a stdio bridge for Claude Desktop (and for Claude Code
+  without trusting the CA), pins PiWorker's CA and reads the token from a
+  private file. Releases attach it for Linux amd64/arm64/ARMv7, macOS
+  amd64/arm64 and Windows amd64.
 
 ### Agent access pages
 
@@ -94,6 +140,19 @@ version. The version number and release date have not been selected.
   Content-Security-Policy that allows only its own scripts.
 - The editor's **Test tool** calls an Agent Tool node as an agent would; the
   canvas shows who started each run.
+- **Drafts** tab with a badge: waiting, decided or all drafts, and a review
+  page with the agent's note, the risk before and after, the alerts, the
+  problems found, the node and connection changes (credentials hidden,
+  destinations highlighted), a rename, the comparison with the version you
+  last approved and the proposed flow. Approve (optionally deploying) or
+  reject with a reason the agent reads.
+- The agent deploy setting explains each level's risk, what an agent can
+  guess at every level and how many secrets are short; the **Secrets**
+  dialog marks secrets shorter than 16 characters.
+- Flow cards and the editor header show **Deployed by agent** and
+  **Changed by agent**. **History** lists a flow's versions and rolls back
+  to the version you last approved. Saving or deploying a version that
+  changed meanwhile offers to reload instead of overwriting it.
 
 ### Security correction
 
@@ -114,6 +173,10 @@ version. The version number and release date have not been selected.
 - Configuration fails closed: empty or unrecognised boolean environment values,
   a missing explicit config file and unknown TOML keys stop startup.
 - Metrics are served only at `/api/metrics`, behind the API's authentication.
+- CORS fails closed: an empty `cors_origins` means no cross-origin access,
+  never `*`, and the default no longer allows `http://localhost:3000` and
+  `http://localhost:8080` (the Vite dev proxy is same-origin). Both
+  listeners cap the request line and headers at 64 KiB (431).
 - Deploys fail (400 invalid flow, 409 still stopping) instead of reporting a
   running flow when the graph is invalid (cycles, duplicate IDs) or a trigger
   cannot start. Network triggers (MQTT, RSS) start even if the network is not up
@@ -126,7 +189,8 @@ version. The version number and release date have not been selected.
 
 - Native releases require systemd and glibc 2.35+ for the managed installer.
   Standalone binaries do not require systemd. ARMv6 and native macOS/Windows
-  release binaries are not provided. Docker is the alternative on those desktop OSes.
+  release binaries of PiWorker are not provided (only of the `piworker-mcp`
+  bridge). Docker is the alternative on those desktop OSes.
 - The old `v0.1.0-alpha.1` release from 2020 is not compatible with the installer.
   Its database migration has not been validated. Test with a copy and retain the
   original binary and data; no automatic migration guarantee is made.
@@ -142,6 +206,32 @@ version. The version number and release date have not been selected.
   in a node can appear in its exported configuration.
 - Updates interrupt flows. Restoring local data cannot undo commands or requests
   already sent to devices and external services.
+- Editor saves and deploys are optimistic: `PUT /api/flows/{id}`,
+  `POST /api/flows/{id}/deploy` and `PATCH /api/flows/{id}/toggle` take the
+  `version` the client loaded and answer 409 with `currentVersion` when
+  another version was saved since. Requests without a version (scripts)
+  are not checked.
+- Saving a flow's definition keeps its stored state (the restart intent, or
+  **Failed**); only deploy, stop and the list switch change it. Earlier
+  versions marked every saved flow stopped.
+- Deploy refuses (400, naming node, setting and secret) a flow whose
+  Telegram bot token, Notify URL or Database DSN names a secret that does
+  not exist, and startup restoration marks such a flow **Failed**; earlier
+  versions used an empty string.
+- Secret references resolve when the node uses them, so a rotated secret
+  applies without a redeploy (except to a Database or MQTT connection that
+  is already open); earlier versions resolved them at deploy.
+- Expression loops (`filter`, `map`, `reduce`, …) check their deadline in
+  every flow, so an expression stops at its 5-second timeout instead of
+  running on in the background; this costs about three times as much on
+  tight loops. `repeat`, `concat` and `flatten` are held to the
+  evaluation's budget of 10⁶ items or bytes before they run, and
+  expressions over 16 KiB or nesting brackets more than 256 levels deep
+  are refused at deploy and at startup restoration.
+- `GET /api/secrets` answers `{"secrets": [{"name", "short"}],
+  "shortBelow": 16}` instead of `{"names": […]}`; `short` marks values
+  under 16 characters, never a value or length.
 
 See the [README](README.md) for setup, the [operations guide](docs/operations.md)
-for recovery, and [TODO](TODO.md) for explicitly deferred features.
+for recovery, the [MCP design](docs/design/mcp.md) for the agent contract, and
+[TODO](TODO.md) for explicitly deferred features.
