@@ -75,11 +75,19 @@ type authorArgs struct {
 // in args (which the operation may complete, e.g. with the draft it
 // created), the outcome (completed, the refusal's code, or failed) and its
 // duration. privileged, when set by the operation, marks the row privileged
-// (a deploy of a privileged flow), which the row cap never evicts. Use it as
-// defer a.audited(actor, tool, args, a.now(), &priv)(&err).
+// (a deploy or stop of a privileged flow that reached the lifecycle path),
+// which the row cap never evicts. Busy and invalid arguments are counted per
+// token and minute instead (mcp_rejections), as tool calls' are, so a loop
+// of refused requests cannot fill the audit. Use it as defer
+// a.audited(actor, tool, args, a.now(), &priv)(&err).
 func (a *Authoring) audited(actor Actor, tool string, args *authorArgs, start time.Time, privileged *bool) func(*error) {
 	return func(errp *error) {
 		if a.audit == nil || !actor.isAgent() {
+			return
+		}
+		var te *ToolError
+		if errors.As(*errp, &te) && (te.Kind == ErrBusy || te.Kind == ErrInvalidArguments) {
+			a.audit.Reject(actor.TokenID, te.Code(), start)
 			return
 		}
 		red := a.views.redactor()
@@ -102,9 +110,8 @@ func (a *Authoring) audited(actor Actor, tool string, args *authorArgs, start ti
 		if data, err := marshalNoEscape(args); err == nil {
 			entry.ArgsPreview = capText(string(red.json(data)), storage.MaxMCPAuditPreview)
 		}
-		var te *ToolError
 		switch err := *errp; {
-		case errors.As(err, &te):
+		case te != nil:
 			entry.Outcome = te.Code()
 		case err != nil:
 			entry.Outcome = "failed"

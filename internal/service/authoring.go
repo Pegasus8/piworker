@@ -71,7 +71,6 @@ type AuthoringStore interface {
 	GetFlow(id string) (*flow.Flow, error)
 	CreateFlowVersioned(f *flow.Flow, meta storage.VersionMeta) error
 	UpdateFlowVersioned(f *flow.Flow, expected int, meta storage.VersionMeta) (int, error)
-	GetFlowVersion(flowID string, version int) (*storage.FlowVersion, error)
 	ListFlowVersions(flowID string, limit int) ([]storage.FlowVersion, error)
 	LastAdminApprovedVersion(flowID string) (*storage.FlowVersion, error)
 	GetDeployment(flowID string) (*storage.Deployment, error)
@@ -80,7 +79,6 @@ type AuthoringStore interface {
 	ListFlowDrafts(filter storage.FlowDraftFilter, limit int, beforeID string) ([]storage.FlowDraft, error)
 	DecideFlowDraft(id, status, reason string, appliedVersion int) error
 	GetAPIToken(id string) (*storage.APIToken, error)
-	TokensEpoch() (int64, error)
 	AgentDeployLevel() (storage.AgentDeployLevel, error)
 }
 

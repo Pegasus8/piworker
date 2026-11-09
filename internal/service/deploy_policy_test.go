@@ -528,19 +528,47 @@ func TestDeployWithoutALifecycleIsUnavailable(t *testing.T) {
 	requireKind(t, err, ErrUnavailable)
 }
 
-// A refused deploy of a privileged flow is audited as privileged too: the
-// row cap never evicts it early.
-func TestRefusedPrivilegedDeployIsAuditedPrivileged(t *testing.T) {
+// Only a deploy or stop that reached the lifecycle path is audited
+// privileged (the row cap never evicts those): a refusal by the policy is an
+// ordinary row, so an agent looping on refused deploys cannot fill the audit
+// with rows that are never evicted. Invalid arguments and busy are counted
+// per minute (mcp_rejections), as tool calls' are.
+func TestRefusedDeploysAreNotPrivilegedRows(t *testing.T) {
 	e := newAuthEnv(t)
 	e.setLevel(storage.AgentDeployLow)
 	priv := safeFlow()
 	addNode(priv, "cmd", "action-command", map[string]any{"command": "true"})
 	connect(priv, "calc", "cmd")
 	stored := e.create(priv)
-	_, err := e.a.Deploy(t.Context(), e.deployer(), DeployRequest{FlowID: stored.ID})
+	agent := e.deployer()
+	_, err := e.a.Deploy(t.Context(), agent, DeployRequest{FlowID: stored.ID})
 	requireKind(t, err, ErrPermissionDenied)
 	rows := e.auditRows()
 	require.Len(t, rows, 1)
 	assert.Equal(t, "forbidden", rows[0].Outcome)
+	assert.False(t, rows[0].Privileged, "refused before the lifecycle path")
+
+	strict := safeFlow()
+	addNode(strict, "tg", "action-telegram", map[string]any{"botToken": "{{secret.bot}}", "chatId": "1"})
+	connect(strict, "calc", "tg")
+	invalid := e.create(strict)
+	_, err = e.a.Deploy(t.Context(), agent, DeployRequest{FlowID: invalid.ID})
+	requireKind(t, err, ErrInvalidArguments)
+	_, err = e.a.Validate(t.Context(), agent, ValidateRequest{Flow: safeFlow(), Ops: []flow.Op{{Op: flow.OpRemoveNode, NodeID: "x"}}})
+	requireKind(t, err, ErrInvalidArguments)
+	assert.Len(t, e.auditRows(), 1, "counted, not rows")
+	rejections, err := e.store.ListMCPRejections(storage.MCPAuditFilter{})
+	require.NoError(t, err)
+	require.Len(t, rejections, 1)
+	assert.Equal(t, "invalid_arguments", rejections[0].Reason)
+	assert.Equal(t, 2, rejections[0].Count)
+
+	// At the all level the same deploy happens: a privileged row.
+	e.setLevel(storage.AgentDeployAll)
+	_, err = e.a.Deploy(t.Context(), agent, DeployRequest{FlowID: stored.ID})
+	require.NoError(t, err)
+	rows = e.auditRows()
+	require.Len(t, rows, 2)
 	assert.True(t, rows[0].Privileged)
+	assert.Equal(t, "completed", rows[0].Outcome)
 }

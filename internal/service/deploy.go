@@ -293,13 +293,14 @@ func FlowMarksOf(store MarksStore, f *flow.Flow) (FlowMarks, error) {
 // restarting a running flow. Without it the current version is deployed (a
 // running flow: conflict). The flow is linted first (FlowIssues on
 // invalid_arguments; undefined secrets too, since deploy refuses them).
-// Under the lifecycle lock, right before deploying, the token is re-checked
-// (TokensEpoch unchanged since the policy was evaluated, or the token
-// re-read active with the deploy scope: else forbidden) and the flow's
-// version is the one the policy evaluated (else conflict, nothing
-// deployed) (H3). Lifecycle refusals map through LifecycleError.ToolError.
-// Every attempt is audited (privileged when the flow is) and a deploy is
-// recorded as the agent's deployment.
+// Under the lifecycle lock, right before deploying, the token is re-read
+// (still active with the deploy scope, else forbidden), the level re-read
+// (off, or low when all was evaluated: forbidden) and the flow's version
+// compared with the one the policy evaluated (else conflict); nothing is
+// deployed otherwise (H3). Lifecycle refusals map through
+// LifecycleError.ToolError. Every attempt is audited (busy and invalid
+// arguments as counters; privileged when a privileged flow reached the
+// lifecycle path) and a deploy is recorded as the agent's deployment.
 func (a *Authoring) Deploy(ctx context.Context, actor Actor, req DeployRequest) (_ DeployResult, err error) {
 	args := &authorArgs{FlowID: req.FlowID, DraftID: req.DraftID}
 	var privileged bool
@@ -309,9 +310,6 @@ func (a *Authoring) Deploy(ctx context.Context, actor Actor, req DeployRequest) 
 		return DeployResult{}, err
 	}
 	plan, err := a.evaluateDeploy(ctx, level, actor, req.FlowID, req.DraftID, false)
-	if plan != nil {
-		privileged = plan.risk == node.RiskPrivileged
-	}
 	if err != nil {
 		return DeployResult{}, err
 	}
@@ -334,6 +332,9 @@ func (a *Authoring) Deploy(ctx context.Context, actor Actor, req DeployRequest) 
 		} else if running {
 			return toolError(ErrConflict, "the flow is already running: stop it first, or deploy a draft of it (which restarts it)")
 		}
+		// Only what reaches the lifecycle path marks the audit row
+		// privileged: refusals are ordinary rows the cap may evict.
+		privileged = plan.risk == node.RiskPrivileged
 		version, err := l.Deploy(ctx, plan.flowID, actor.DeployActor(), running)
 		if err != nil {
 			return deployRefusal(err, saved)
@@ -427,13 +428,11 @@ func (a *Authoring) evaluateDeploy(ctx context.Context, level storage.AgentDeplo
 		candidate.ID = flowID
 		plan.draft, plan.candidate = d, candidate
 	}
-	// From here the plan is returned with a refusal too: its risk marks the
-	// audit row.
 	plan.risk = flow.Risk(plan.candidate, a.registry)
 	if !stop {
 		issues := a.lint(ctx, plan.candidate)
 		if errs := errorIssues(issues); len(errs) > 0 {
-			return plan, &ToolError{Kind: ErrInvalidArguments, FlowIssues: agentIssues(a.proposalRedactor(plan.candidate), issues),
+			return nil, &ToolError{Kind: ErrInvalidArguments, FlowIssues: agentIssues(a.proposalRedactor(plan.candidate), issues),
 				Message: fmt.Sprintf("the flow has %d error(s) deploy would refuse", len(errs))}
 		}
 	}
@@ -443,14 +442,14 @@ func (a *Authoring) evaluateDeploy(ctx context.Context, level storage.AgentDeplo
 			verb = "stops"
 		}
 		if err := a.lowPolicy(flowID, plan.candidate, plan.risk, verb, "this flow"); err != nil {
-			return plan, err
+			return nil, err
 		}
 		if plan.draft != nil {
 			// A draft replaces the current version (and restarts a running
 			// flow): what the level may not stop, it may not replace.
 			if err := a.lowPolicy(flowID, current, flow.Risk(current, a.registry), "replaces",
 				"the current version, which the draft would replace,"); err != nil {
-				return plan, err
+				return nil, err
 			}
 		}
 	}
@@ -561,9 +560,6 @@ func (a *Authoring) Stop(ctx context.Context, actor Actor, flowID string) (_ Dep
 		return DeployResult{}, err
 	}
 	plan, err := a.evaluateDeploy(ctx, level, actor, flowID, "", true)
-	if plan != nil {
-		privileged = plan.risk == node.RiskPrivileged
-	}
 	if err != nil {
 		return DeployResult{}, err
 	}
@@ -571,6 +567,7 @@ func (a *Authoring) Stop(ctx context.Context, actor Actor, flowID string) (_ Dep
 		if err := a.recheckDeploy(actor, plan); err != nil {
 			return err
 		}
+		privileged = plan.risk == node.RiskPrivileged
 		if err := l.Stop(ctx, flowID, actor.DeployActor()); err != nil {
 			return deployRefusal(err, 0)
 		}

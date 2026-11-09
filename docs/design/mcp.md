@@ -919,7 +919,7 @@ Lifecycle, Registry, Secrets, Audit, AuthorEnabled, Now, Logger})
   `GetFlow`, `CreateFlowVersioned`, `UpdateFlowVersioned`, `GetFlowVersion`,
   `ListFlowVersions`, `LastAdminApprovedVersion`, `GetDeployment`,
   `CreateFlowDraft`, `GetFlowDraft`, `ListFlowDrafts`, `DecideFlowDraft`,
-  `GetAPIToken`, `TokensEpoch`, `AgentDeployLevel` (storage's signatures).
+  `GetAPIToken`, `AgentDeployLevel` (storage's signatures).
 - `Lifecycle service.FlowLifecycle`: internal/api's `FlowsHandler` (below);
   without it `ApproveDraft`, `Rollback`, `Deploy` and `Stop` are
   `unavailable`.
@@ -1191,16 +1191,16 @@ toggling a running flow on records nothing (it deploys nothing). A
   version is deployed (a running flow: `conflict`). The flow is linted first
   (any Lint error, `undefined_secret` included: `invalid_arguments` +
   `flowIssues`). Under the lifecycle lock, right before deploying or
-  stopping, the token is re-checked — `TokensEpoch` unchanged since the
-  policy was evaluated, or the token re-read active (not revoked or
-  expired) with the `deploy` scope, else `forbidden` — and the flow's
-  version must still be the one the policy evaluated, else `conflict`;
-  nothing is deployed then (H3). Audited (privileged when the flow is);
-  the marker records the agent's token.
+  stopping, the token is re-read — still active (not revoked or expired)
+  with the `deploy` scope, else `forbidden` — the level re-read, and the
+  flow's version must still be the one the policy evaluated, else
+  `conflict`; nothing is deployed then (H3). Audited (the row is
+  privileged when a privileged flow reached the lifecycle path); the
+  marker records the agent's token.
   - As built: the policy is evaluated outside the lock (Lint, `flow.Risk`,
     the diff) and checked again inside it, where the token is always
-    re-read (stronger than comparing the epoch: an expiry needs no epoch
-    bump), the level re-read (`off`, or `low` when `all` was evaluated:
+    re-read (stronger than comparing `TokensEpoch`, which the service does
+    not use: an expiry needs no epoch bump), the level re-read (`off`, or `low` when `all` was evaluated:
     `forbidden`) and the flow's version compared (`conflict` with
     `currentVersion`). A draft of another flow (or a new flow's draft) is
     `invalid_arguments`, a decided one `conflict`. At `low` a draft's
@@ -1213,9 +1213,12 @@ toggling a running flow on records nothing (it deploys nothing). A
     alert kinds in `LowDeployRefusedAlerts` order. A draft saved before its deploy failed
     stays saved: the error says "the draft was saved as version N, but
     deploying it failed: …" with `currentVersion` N. The audit row (args:
-    `flowId`, `draftId`, never the flow) is privileged when the flow that
-    would run is, refused deploys included. Stop answers the version it
-    stopped; a stop needs no lint.
+    `flowId`, `draftId`, never the flow) is privileged only when a
+    privileged flow's deploy or stop reached the lifecycle path (the lock
+    and the re-check passed): a refusal before it is an ordinary row the
+    row cap may evict, so a loop of refused deploys cannot fill the audit
+    with rows that are never evicted. Stop answers the version it stopped;
+    a stop needs no lint.
 - `Rollback` (editor), under the lock: restores the last admin-approved
   version as a new version (`VersionMeta{editor, AdminApproved, note
   "rollback to vN"}`) and redeploys it when the flow is running (a failed
@@ -1230,8 +1233,10 @@ toggling a running flow on records nothing (it deploys nothing). A
   view use too (two indexed reads per flow).
 - Audit: every agent operation is one `mcp_audit` row under its tool name
   with only references as arguments (`flowId`, `draftId`, `baseVersion`,
-  the number of `ops`, a node `type`, `triggerNodeId`) and the outcome code;
-  the editor's calls are not audited (they are not agents').
+  the number of `ops`, a node `type`, `triggerNodeId`) and the outcome code,
+  except `busy` and `invalid_arguments`, which are counted per token and
+  minute (`mcp_rejections`) as tool calls' are; the editor's calls are not
+  audited (they are not agents').
 
 **Editor REST** (section D of the wave contract; session cookie, CSRF on
 writes, `{success, data}` envelope; errors as above; `api.DraftsHandler`
