@@ -865,10 +865,51 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   secrets as `undefined_secret`; the values themselves are resolved per
   execution. A dry-run does not stop at them: it stubs these nodes, keeps
   the issues and lists the names in `missingSecrets`.
-- Approval page: per-node type and diff, agent text marked as such, risk,
-  alerts for recipient/destination changes (`chatId`, `to`, topic, broker,
-  URL), dynamic destinations, secrets moved between fields, new hosts, and any
-  opt-in risk switch turned on (`allowPrivate`, `allowDashArgs`).
+- **Approval page** (editor: `/agents/drafts`, `/agents/drafts/:id`;
+  `stores/drafts.ts`, presentation rules in `lib/drafts.ts`). The agent
+  pages get a Drafts tab whose badge is the `drafts` of the passive
+  pending count (polled with `X-PiWorker-Background`, like every
+  background reload of the list or of an open draft). The list filters
+  waiting, decided or all drafts and shows the flow (or "New flow"), the
+  state in words (waiting, out of date, approved, rejected, void), risk,
+  alert and issue counts, token and the note. The review page shows, in
+  this order: what the draft changes (new flow, or the base and current
+  versions) with an explanation when it is out of date or decided; the
+  agent's note, labelled as written by the agent; the risk before → after;
+  the alerts, before any diff, each kind with its own icon and label
+  (`credentialed_request_changed` included), its location, the server's
+  message and `before`/`after` only when the alert carries them (H7: for a
+  hidden setting it points to the field diff); the Lint issues; the
+  per-node diff (added, removed, changed; field before/after, `Sensitive`
+  values as "hidden" with a lock, `Destination` fields highlighted with an
+  icon and the word Destination, a node's alert kinds next to it, moves)
+  and the connection diff; "Compared with the version you last approved"
+  (`diffApproved`, with its own risk, alerts and diff); the proposed flow's
+  JSON on demand. Approving asks for confirmation repeating the risk and
+  the alerts, with "Deploy now" (checked and locked when the flow runs: it
+  is always redeployed); rejecting takes an optional reason (≤ 500
+  characters) shown to the agent. Both are offered only while the draft is
+  pending; approving is disabled, with the reason, when the draft is out of
+  date or has blocking errors, or would deploy with `undefined_secret`
+  errors (the server's H2 rules; it remains the judge: a 400 lists its
+  `flowIssues`, a 409 reloads the draft). Every agent-supplied string
+  (names, notes, node IDs, values, messages, reasons) is rendered as text
+  through `AgentText`, with hidden characters revealed; color is never the
+  only signal (icons and words for states, risks and alerts).
+- **Markers and version history** (editor, H6). Flow cards and the editor
+  header show "Deployed by agent <token>" ("Last deployed by …" when
+  stopped) when the deployment marker's actor is an agent, and "Changed by
+  agent" when `agentChanged`; an editor deploy replaces the marker and an
+  editor save clears `agentChanged` locally. A version history dialog
+  (each card, and the editor's History) lists every kept version with who
+  saved it and whether it is current, deployed, not approved, last
+  approved or from a draft, and offers "Roll back to version N" (the
+  version last approved) after a confirmation naming it and saying whether
+  the running flow is redeployed (the editor reloads the flow, warning that
+  unsaved changes are discarded). The flows list sends the version it shows
+  when turning a flow on (`PATCH …/toggle {enabled, version}`): a version
+  saved since is a 409 that deploys nothing, and the list offers to open it
+  for review.
 - **Agent deploy (opt-in risk).** Setting `agent_deploy`: `off` (default),
   `low` (agent may deploy/start/stop flows and approve its own drafts when the
   resulting flow's risk is ≤ external, no recipient/destination changes vs the
