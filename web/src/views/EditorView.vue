@@ -12,13 +12,16 @@ import {
   Play,
   Square,
   Settings,
-  Workflow
+  Workflow,
+  History
 } from 'lucide-vue-next'
 
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import OperationFeedback from '@/components/ui/OperationFeedback.vue'
 import ManualRunDialog from '@/components/flow/ManualRunDialog.vue'
 import ConnectionsDialog from '@/components/flow/ConnectionsDialog.vue'
+import VersionHistoryDialog from '@/components/flow/VersionHistoryDialog.vue'
+import FlowMarks from '@/components/agent/FlowMarks.vue'
 import { useFeedback } from '@/composables/useFeedback'
 const confirmation = ref<InstanceType<typeof ConfirmDialog>>()
 const canvas = ref<InstanceType<typeof FlowCanvas>>()
@@ -38,6 +41,9 @@ const obs = useObservabilityStore()
 
 const showSettings = ref(false)
 const showVariables = ref(false)
+// Version history and rollback to the version you last approved; a rollback
+// reloads the flow (the dialog warns that unsaved changes are discarded).
+const showHistory = ref(false)
 const isSaving = ref(false)
 
 const flowId = computed(() => route.params.id as string | undefined)
@@ -187,6 +193,8 @@ function updateFlowDescription(value: string | number) {
 
       <div class="flex flex-wrap items-center gap-2">
         <Badge v-if="flowsStore.currentFlow" :variant="flowsStore.currentFlow.state === 'failed' ? 'destructive' : 'secondary'">{{ isRunning ? 'Running' : flowsStore.currentFlow.state === 'failed' ? 'Failed' : 'Stopped' }}</Badge>
+        <FlowMarks v-if="flowsStore.currentFlow?.id" :flow="flowsStore.currentFlow" />
+        <span v-if="flowsStore.currentFlow?.version" class="text-xs text-muted-foreground">Version {{ flowsStore.currentFlow.version }}</span>
 
         <Button variant="outline" size="sm" @click="showSettings = true">
           <Settings class="mr-2 h-4 w-4" />
@@ -224,6 +232,7 @@ function updateFlowDescription(value: string | number) {
       <Button class="md:hidden" size="sm" variant="outline" @click="showNodes = true">Add nodes</Button>
       <Button size="sm" variant="outline" @click="showVariables = true">Variables</Button>
       <Button size="sm" variant="outline" @click="showConnections = true">Connections</Button>
+      <Button v-if="flowId" size="sm" variant="outline" @click="showHistory = true"><History class="mr-2 h-4 w-4" aria-hidden="true" />History</Button>
       <Button v-if="flowsStore.nodes.some(n => n.data.nodeType === 'trigger-manual' && n.data.enabled !== false)" size="sm" variant="outline" :disabled="!isRunning || flowsStore.isDirty" :title="!isRunning ? 'Deploy the flow first' : flowsStore.isDirty ? 'Stop and save changes before running manually' : 'Send a message through this flow'" @click="showManualRun = true">Run manually</Button>
       <span class="self-center text-xs text-muted-foreground">{{ flowsStore.nodes.length }} nodes · {{ flowsStore.edges.length }} connections</span>
     </nav>
@@ -250,6 +259,14 @@ function updateFlowDescription(value: string | number) {
     <VariablesDialog v-model:open="showVariables" :flow-id="flowsStore.currentFlow?.id || undefined" />
     <ManualRunDialog v-model:open="showManualRun" />
     <ConnectionsDialog v-model:open="showConnections" />
+    <VersionHistoryDialog
+      v-if="flowId && flowsStore.currentFlow"
+      v-model:open="showHistory"
+      :flow-id="flowId"
+      :flow-name="flowsStore.currentFlow.name"
+      :running="isRunning"
+      :dirty="flowsStore.isDirty"
+    />
     <Dialog v-model:open="showNodes" title="Add nodes" class="p-0">
       <div class="flex h-[65dvh] flex-col"><div class="flex justify-end p-2"><Button variant="ghost" size="sm" @click="showNodes = false">Done</Button></div><div class="min-h-0 flex-1"><NodePalette @add="addNode" /></div></div>
     </Dialog>

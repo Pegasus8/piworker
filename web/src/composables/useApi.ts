@@ -1,5 +1,6 @@
 import axios from 'axios'
-import type { CallResult, Flow, FlowListItem, FlowEvent, FlowRun, NodeEventRecord, NodeTestResult, TLSInfo } from '@/types'
+import type { CallResult, Flow, FlowListItem, FlowEvent, FlowRun, NodeEventRecord, NodeTestResult, TLSInfo, VersionList } from '@/types'
+import type { ApplyResult } from '@/lib/drafts'
 
 const api = axios.create({
   baseURL: '/api',
@@ -43,6 +44,11 @@ export function useApi() {
       state: flow.state,
       running: flow.state === 'running',
       nodeCount: flow.nodes?.length ?? 0,
+      // The version the list shows (turning the flow on sends it) and the
+      // agent marks (docs/design/mcp.md §10); an older server has none.
+      version: typeof flow.version === 'number' ? flow.version : undefined,
+      deployment: flow.deployment ?? null,
+      agentChanged: flow.agentChanged === true,
       createdAt: flow.createdAt,
       updatedAt: flow.updatedAt
     }))
@@ -70,9 +76,23 @@ export function useApi() {
     await api.delete(`/flows/${id}`)
   }
 
-  async function toggleFlow(id: string, enabled: boolean): Promise<boolean> {
-    const { data } = await api.patch(`/flows/${id}/toggle`, { enabled })
+  // version: when turning the flow on, the version the caller shows; the
+  // server answers 409 with data.currentVersion when another one was saved
+  // since (an approved draft, an agent's version, a rollback).
+  async function toggleFlow(id: string, enabled: boolean, version?: number): Promise<boolean> {
+    const { data } = await api.patch(`/flows/${id}/toggle`, enabled && version ? { enabled, version } : { enabled })
     return data.data.running
+  }
+
+  // Version history and rollback to the version the admin last approved.
+  async function getFlowVersions(id: string, limit?: number): Promise<VersionList> {
+    const { data } = await api.get(`/flows/${encodeURIComponent(id)}/versions`, limit ? { params: { limit } } : undefined)
+    return { ...data.data, versions: data.data?.versions ?? [] }
+  }
+
+  async function rollbackFlow(id: string): Promise<ApplyResult> {
+    const { data } = await api.post(`/flows/${encodeURIComponent(id)}/rollback`)
+    return data.data
   }
 
   // Flow lifecycle: duplicate / export / import.
@@ -278,6 +298,8 @@ export function useApi() {
     updateFlow,
     deleteFlow,
     toggleFlow,
+    getFlowVersions,
+    rollbackFlow,
     getNodeTypes,
     deployFlow,
     stopFlow,

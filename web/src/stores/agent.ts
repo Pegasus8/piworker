@@ -79,6 +79,8 @@ export const useAgentStore = defineStore('agent', () => {
   const settings = ref<AgentSettings | null>(null)
   const approvals = ref<AgentApproval[]>([])
   const pendingCount = ref(0)
+  /** Agent drafts waiting for review (the same count's "drafts"). */
+  const pendingDrafts = ref(0)
   const recentDecisions = ref<ApprovalDecision[]>([])
   const agentApiAvailable = ref(true)
   const audit = ref<AuditEntry[]>([])
@@ -188,19 +190,22 @@ export const useAgentStore = defineStore('agent', () => {
     }
   }
 
-  // The badge's poll: a read-only count that the server answers without
-  // extending the session's idle expiry, so an open tab alone does not keep
-  // a session alive.
+  // The badge's poll: a read-only count (approvals and drafts) that the
+  // server answers without extending the session's idle expiry, so an open
+  // tab alone does not keep a session alive. The path is passive on the
+  // server; the background header says the same for any proxy in between.
   async function refreshPendingCount() {
     try {
-      const { data } = await apiClient.get('/agent/approvals/pending-count')
+      const { data } = await apiClient.get('/agent/approvals/pending-count', { headers: BACKGROUND_HEADERS })
       pendingCount.value = data.data?.pending ?? 0
+      pendingDrafts.value = data.data?.drafts ?? 0
       agentApiAvailable.value = true
     } catch (e) {
       if (status(e) === 404) {
         // No agent API on this server (authentication is off): stop asking.
         agentApiAvailable.value = false
         pendingCount.value = 0
+        pendingDrafts.value = 0
         poller?.stop()
         return
       }
@@ -285,7 +290,7 @@ export const useAgentStore = defineStore('agent', () => {
   })
 
   return {
-    tokens, tools, toolsError, settings, approvals, pendingCount, recentDecisions, agentApiAvailable,
+    tokens, tools, toolsError, settings, approvals, pendingCount, pendingDrafts, recentDecisions, agentApiAvailable,
     audit, rejections, rejectionsTruncated, auditHasMore, auditFilters, flowNames, tls,
     activeTokens, toolFor,
     fetchTokens, createToken, revokeToken, revokeAllTokens, updateGrant,

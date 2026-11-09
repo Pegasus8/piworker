@@ -19,6 +19,7 @@ watch(() => auth.authEnabled && auth.user !== null, signedIn => {
     release()
     release = null
     agent.pendingCount = 0
+    agent.pendingDrafts = 0
   }
 }, { immediate: true })
 onBeforeUnmount(() => release?.())

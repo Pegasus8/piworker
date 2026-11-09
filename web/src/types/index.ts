@@ -48,6 +48,10 @@ export interface Flow {
   running?: boolean
   /** Server-controlled definition version; a save sends the one it loaded (stale → 409). */
   version?: number
+  /** The last deployment (null: none recorded). */
+  deployment?: DeploymentMark | null
+  /** The current version was saved by an agent and not approved by the admin. */
+  agentChanged?: boolean
   nodes: FlowNode[]
   edges: FlowEdge[]
   createdAt: string
@@ -61,8 +65,45 @@ export interface FlowListItem {
   state?: 'active' | 'inactive' | 'running' | 'failed'
   running: boolean
   nodeCount: number
+  /** The version the list shows; turning the flow on sends it (stale → 409). */
+  version?: number
+  deployment?: DeploymentMark | null
+  agentChanged?: boolean
   createdAt: string
   updatedAt: string
+}
+
+// --- Versions and deployment marks (docs/design/mcp.md §10) ---
+
+/** Who deployed a flow last, and which version (service.DeploymentView). */
+export interface DeploymentMark {
+  version: number
+  actorKind: 'editor' | 'agent' | string
+  /** The agent's token name (agents only). */
+  tokenName?: string
+  deployedAt: string
+}
+
+/** One stored version of a flow, newest first (GET /api/flows/{id}/versions). */
+export interface VersionEntry {
+  version: number
+  actorKind: 'editor' | 'agent' | string
+  tokenId?: string
+  tokenName?: string
+  /** Saved or approved by the admin (an agent's own version never is). */
+  adminApproved: boolean
+  note?: string
+  draftId?: string
+  createdAt: string
+  /** The deployment marker names this version. */
+  deployed: boolean
+}
+
+export interface VersionList {
+  current: number
+  /** The newest admin-approved version (0: none). */
+  lastAdminApproved: number
+  versions: VersionEntry[]
 }
 
 // --- Observability ---

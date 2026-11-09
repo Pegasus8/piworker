@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Flow, FlowNode, FlowEdge, FlowListItem, NodeCategory } from '@/types'
+import type { Flow, FlowNode, FlowEdge, FlowListItem, NodeCategory, VersionList } from '@/types'
+import type { ApplyResult } from '@/lib/drafts'
 import { useApi } from '@/composables/useApi'
 import { ports, validConnection } from '@/lib/ports'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
@@ -218,9 +219,12 @@ export const useFlowsStore = defineStore('flows', () => {
       } catch (e) {
         throw versionConflict(e) ?? e
       }
-      // The update response carries the flow but not its live running state;
-      // preserve it so the editor's deploy/stop toggle stays accurate.
+      // The update response carries the flow but not its live running state
+      // or its marks; preserve them so the editor's deploy/stop toggle stays
+      // accurate. An editor save is a version the admin approved.
       updatedFlow.running = prevRunning
+      updatedFlow.deployment = currentFlow.value.deployment ?? null
+      updatedFlow.agentChanged = false
       currentFlow.value = updatedFlow
       isDirty.value = false
 
@@ -233,6 +237,8 @@ export const useFlowsStore = defineStore('flows', () => {
           description: updatedFlow.description,
           state: updatedFlow.state,
           nodeCount: updatedFlow.nodes.length,
+          version: updatedFlow.version,
+          agentChanged: false,
           updatedAt: updatedFlow.updatedAt
         }
       }
@@ -267,8 +273,21 @@ export const useFlowsStore = defineStore('flows', () => {
     loading.value = true
     error.value = null
     try {
-      const running = await api.toggleFlow(id, enabled)
+      // Turning a flow on sends the version the list shows: the server
+      // refuses (409) to deploy another one saved since (an approved draft,
+      // an agent's version) instead of running what nobody saw.
+      const item = flows.value.find(f => f.id === id)
+      let running: boolean
+      try {
+        running = await api.toggleFlow(id, enabled, enabled ? item?.version : undefined)
+      } catch (e) {
+        throw versionConflict(e) ?? e
+      }
       applyRunningState(id, running)
+      // Turning on deploys only a flow that was not running, and the list
+      // may be older than an agent's deploy: read who deployed it instead
+      // of guessing from the list.
+      if (enabled) await refreshFlowState(id)
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to toggle flow'
       throw e
@@ -294,6 +313,7 @@ export const useFlowsStore = defineStore('flows', () => {
       } catch (e) {
         throw versionConflict(e) ?? e
       }
+      if (running) markEditorDeployment(flowId, version ?? flows.value.find(f => f.id === flowId)?.version)
       applyRunningState(flowId, running)
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to deploy flow'
@@ -318,6 +338,71 @@ export const useFlowsStore = defineStore('flows', () => {
     } finally {
       isStopping.value = false
     }
+  }
+
+  // A deploy from the editor replaces the last deployment marker (the server
+  // records it as the editor's); stopping keeps it.
+  function markEditorDeployment(flowId: string, version: number | undefined) {
+    const mark = { version: version ?? 0, actorKind: 'editor', deployedAt: new Date().toISOString() }
+    if (currentFlow.value?.id === flowId) currentFlow.value.deployment = { ...mark }
+    const item = flows.value.find(f => f.id === flowId)
+    if (item) item.deployment = { ...mark }
+  }
+
+  // Version history (newest first) and rollback to the version the admin
+  // last approved (docs/design/mcp.md §10).
+  async function fetchVersions(id: string, limit = 50): Promise<VersionList> {
+    return api.getFlowVersions(id, limit)
+  }
+
+  // Rolling back saves the version the admin last approved as a new version
+  // and redeploys a running flow. The flow the editor shows is reloaded (the
+  // caller confirms discarding unsaved changes first).
+  async function rollbackFlow(id: string): Promise<ApplyResult> {
+    const result = await api.rollbackFlow(id)
+    const item = flows.value.find(f => f.id === id)
+    if (item) {
+      item.version = result.version
+      item.agentChanged = false
+    }
+    // A refused redeploy may have left the old version running (refused
+    // before stopping it) or stopped it with its running intent kept: read
+    // the flow back. If that fails, claim only what the result says.
+    if (!await refreshFlowState(id) && result.deployed) {
+      applyRunningState(id, true)
+      markEditorDeployment(id, result.version)
+    }
+    if (currentFlow.value?.id === id) {
+      isDirty.value = false
+      await fetchFlow(id)
+    }
+    return result
+  }
+
+  // Reads one flow's live state into the list: whether it runs, its version
+  // and marks (GET /api/flows/{id}). A stored running intent without a
+  // running instance is a failed deploy, as the read views show it. Returns
+  // false, changing nothing, when the flow cannot be read.
+  async function refreshFlowState(id: string): Promise<boolean> {
+    let flow: Flow
+    try {
+      flow = await api.getFlow(id)
+    } catch {
+      return false
+    }
+    const idx = flows.value.findIndex(f => f.id === id)
+    if (idx === -1) return true
+    const running = flow.running === true
+    const item = flows.value[idx]
+    flows.value[idx] = {
+      ...item,
+      running,
+      state: running ? 'running' : flow.state === 'running' ? 'failed' : flow.state ?? item.state,
+      version: typeof flow.version === 'number' ? flow.version : item.version,
+      deployment: flow.deployment ?? null,
+      agentChanged: flow.agentChanged === true
+    }
+    return true
   }
 
   // Apply the running state returned by deploy/stop directly to local state,
@@ -446,6 +531,8 @@ export const useFlowsStore = defineStore('flows', () => {
     toggleFlow,
     deployFlow,
     stopFlow,
+    fetchVersions,
+    rollbackFlow,
     resetCurrentFlow,
     initNewFlow,
 

@@ -3,6 +3,7 @@
 // and agents' draft deploys wait here. Arguments, summaries and results come
 // from agents or flows and are rendered as plain text only.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import { RefreshCw } from 'lucide-vue-next'
 import { Badge, Button, Card, Label, Select } from '@/components/ui'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
@@ -187,8 +188,8 @@ const decisions = computed(() => agent.recentDecisions)
             <pre aria-label="Result" class="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs"><AgentText :text="jsonText(a.result)" /></pre>
           </div>
           <p v-if="a.kind === 'draft_deploy'" class="text-sm">
-            <span class="text-muted-foreground" title="The draft review page arrives in a later version">Review draft (coming soon)</span>
-            — approve draft deploys after reviewing the changes; until then you can reject them here.
+            <RouterLink :to="`/agents/drafts/${encodeURIComponent(a.ref)}`" class="font-medium text-primary underline underline-offset-2">Review draft</RouterLink>
+            — drafts are approved on their review page, after their alerts and changes; you can reject this request here.
           </p>
           <p v-else-if="a.status === 'pending' && a.tokenStatus !== 'active'" class="text-sm text-muted-foreground">
             The token that asked for this is no longer active, so the request can only be rejected.
