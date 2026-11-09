@@ -342,7 +342,7 @@ func (a *toolAnalysis) visit(idx int, n *Node, reg *node.Registry, direct bool) 
 		a.readOnly = false
 	}
 	// The node's own risk, with the instance escalations Risk applies to
-	// whole flows (dynamic destinations, allowPrivate).
+	// whole flows (dynamic destinations, RiskSwitch properties turned on).
 	a.raise(instanceRisk(n, reg))
 	cfg := n.Config
 

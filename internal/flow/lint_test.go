@@ -261,6 +261,9 @@ func TestFlowRisk(t *testing.T) {
 		{"static mqtt", []flow.Node{lintNode("a", "action-mqtt", map[string]any{"broker": "tcp://broker:1883", "topic": "t"})}, node.RiskExternal},
 		{"dynamic mqtt broker", []flow.Node{lintNode("a", "action-mqtt", map[string]any{"broker": "tcp://{{payload.b}}:1883", "topic": "t"})}, node.RiskPrivileged},
 		{"command", []flow.Node{lintNode("a", "action-command", map[string]any{"command": "echo"})}, node.RiskPrivileged},
+		{"rss", []flow.Node{lintNode("a", "trigger-rss", map[string]any{"url": "https://example.com/feed"})}, node.RiskSafe},
+		{"rss allowPrivate", []flow.Node{lintNode("a", "trigger-rss", map[string]any{"url": "http://10.0.0.2/feed", "allowPrivate": true})}, node.RiskPrivileged},
+		{"rss allowPrivate off", []flow.Node{lintNode("a", "trigger-rss", map[string]any{"url": "http://10.0.0.2/feed", "allowPrivate": false})}, node.RiskSafe},
 		{"unknown type", []flow.Node{lintNode("a", "nope", nil)}, node.RiskPrivileged},
 	}
 	for _, tc := range cases {

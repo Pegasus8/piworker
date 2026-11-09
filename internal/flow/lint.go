@@ -542,7 +542,8 @@ func Risk(f *Flow, reg *node.Registry) node.Risk {
 
 // instanceRisk is a node's type risk escalated by its configuration: a
 // dynamic destination (a placeholder in the scheme or host of an action-http
-// or action-notify URL, or of an action-mqtt broker) or allowPrivate makes it
+// or action-notify URL, or of an action-mqtt broker) or any RiskSwitch
+// property of its schema turned on (allowPrivate, allowDashArgs, …) makes it
 // privileged. An unregistered type, or one declaring no valid risk, is
 // privileged.
 func instanceRisk(n *Node, reg *node.Registry) node.Risk {
@@ -554,6 +555,13 @@ func instanceRisk(n *Node, reg *node.Registry) node.Risk {
 		return node.RiskPrivileged
 	}
 	cfg := n.Config
+	if info.Config != nil {
+		for name, p := range info.Config.Properties {
+			if p.RiskSwitch && configBool(cfg, name) {
+				return node.RiskPrivileged
+			}
+		}
+	}
 	switch n.Type {
 	case "action-http", "action-notify":
 		if dynamicDestination(configString(cfg, "url")) || configBool(cfg, "allowPrivate") {
