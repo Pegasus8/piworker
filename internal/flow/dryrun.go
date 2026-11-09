@@ -28,7 +28,8 @@ const (
 	DryRunMaxNodes = 50
 	// DryRunTimeout caps the wall-clock time of a dry-run.
 	DryRunTimeout = 10 * time.Second
-	// DryRunMaxExecutions caps the node executions of a dry-run.
+	// DryRunMaxExecutions caps the messages a dry-run routes (each is one
+	// node execution), so its executions and the copies routing makes.
 	DryRunMaxExecutions = 200
 	// DryRunPreviewBytes caps each payload preview and error message.
 	DryRunPreviewBytes = 2 << 10
