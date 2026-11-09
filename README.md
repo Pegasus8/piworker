@@ -12,7 +12,8 @@ A **visual flow-based automation system** for Raspberry Pi and other devices. Cr
 - **Extensible** - Easy to add new node types
 - **Lightweight** - Single binary with embedded frontend, optimized for Raspberry Pi
 - **HTTPS by default** - Local certificate authority generated on first start, with automatic certificate renewal
-- **AI agents (MCP)** - Publish flows as typed tools that Claude Code, Claude Desktop and other MCP clients can call, with scoped tokens, approvals and an audit log
+- **AI agents (MCP)** - Publish flows as typed tools that Claude Code, Claude Desktop and other MCP clients can call, with scoped tokens, approvals and an audit log; agents can draft flows for you to review, and deploy only if you opt in
+- **Version history** - Every save of a flow is a numbered version, with one-click rollback to the version you last approved
 - **Fast** - Go backend with concurrent message processing
 
 ## Quick Start
@@ -497,10 +498,13 @@ schema allows; the flow decides what happens with it.
 
 MCP is off by default. Set `enabled = true` in the `[mcp]` section of
 `piworker.toml` (or `PIWORKER_MCP_ENABLED=true`) and restart PiWorker; it needs
-`auth = true`. The endpoint is `https://<device>:8443/mcp`. With
+`auth = true`. The endpoint is `https://<device>:8443/mcp` (Streamable HTTP,
+stateless; protocol versions 2025-06-18, 2025-11-25 and 2026-07-28). With
 `[tls] mode = "off"` it only answers clients on the same machine unless
 `lan_access = true` (tokens would then cross the network unencrypted). The
-**Agents** pages of the editor show whether MCP is on.
+**Agents** pages of the editor show whether MCP is on. Agents can draft
+flows only with `author_enabled = true` in the same section (see
+[Authoring](#authoring-drafts-you-approve)).
 
 ### Publishing a flow as a tool
 
@@ -524,10 +528,11 @@ password and shown once. Tokens work only on `/mcp`, never on the editor's
 API, and expire after 90 days by default.
 
 - **Scopes**: `call` (call granted tools), `read` (see flows, runs and system
-  status; secrets and variables stay hidden), `author` (draft flows for you to
-  review; only with `author_enabled = true`) and `deploy` (only while the
-  **Agent deploy** level is not off). Drafting and agent deploy tools are
-  described in the [design](docs/design/mcp.md#10-authoring-and-agent-deploy).
+  status; secrets and variables stay hidden), `author` (check, test and draft
+  flows for you to review; only with `author_enabled = true`, see
+  [Authoring](#authoring-drafts-you-approve)) and `deploy` (deploy and stop
+  flows; only while the **Agent deploy** level is not off, see
+  [Agent deploy](#agent-deploy)).
 - **Grants** name individual tools, or **all tools** for every published tool
   that is not privileged. Calling a privileged tool also needs the token's
   **privileged** flag.
@@ -549,6 +554,113 @@ nothing) and keeps the result, which the agent fetches with `pw_get_result`.
 Every agent call is recorded under **Agents → Audit** for 30 days; calls
 refused as busy, cooling down or with invalid arguments are counted per
 token.
+
+### Built-in tools and prompts
+
+Besides the flows you grant, a token sees the built-in `pw_*` tools and the
+prompts of its scopes, and only while they are on (the author ones with
+`author_enabled = true`, the deploy ones while **Agent deploy** is not off):
+
+| Scope | Tools | Prompt |
+|---|---|---|
+| `call` | `pw_get_result` (the result of a call that answered `running` or `approval_required`) | |
+| `read` | `pw_list_flows`, `pw_get_flow`, `pw_list_runs`, `pw_get_run`, `pw_system_status` | `diagnose_flow` |
+| `author` | `pw_list_node_types`, `pw_validate_flow`, `pw_save_draft`, `pw_get_draft`, `pw_dry_run`, `pw_test_node` | `author_flow` |
+| `deploy` | `pw_deploy_flow`, `pw_stop_flow` | |
+
+Argument and result shapes are in the [design](docs/design/mcp.md) (§8, §10).
+
+### Authoring: drafts you approve
+
+Agents never write a flow directly: with the `author` scope they save
+**drafts** (a whole flow, or operations such as adding a node or connecting
+two, against the `version` they read; a draft of a version saved since is
+refused as a conflict) that you review under **Agents → Drafts**, or that a
+token with the `deploy` scope deploys itself within the
+[Agent deploy](#agent-deploy) level. The `author` scope alone works on new
+flows; changing or testing an existing flow also needs `read`. A token has
+at most 20 drafts waiting.
+
+- **What agents may not change**: Agent Tool and Agent Reply nodes (they
+  define the tools agents call; moving them is allowed), a webhook trigger's
+  path or token (nor add or turn on a webhook trigger), a setting that widens
+  what a node may do (`allowPrivate`, `allowDashArgs`) turned on, and the
+  legacy flow variables. Such a draft is refused, naming the place.
+- **Credentials**: agents never see secret values, credentials typed into
+  settings, or settings marked hidden from agents; these read
+  `"<redacted>"`, and sending `"<redacted>"` back keeps your value.
+  Credential settings an agent writes accept only `{{secret.NAME}}`
+  references. A draft with errors a deploy would refuse (except a secret
+  you have not defined yet) is not stored.
+- **Checking before drafting**: `pw_validate_flow` reports every problem a
+  deploy would find, from the same checks. `pw_dry_run` runs a flow once in a
+  sandbox: triggers do not start (the agent supplies the payload), every node
+  that is not `safe` (HTTP, MQTT, e-mail, notifications, commands, files,
+  databases, GPIO, I2C) is a stub that records what it would have done and
+  returns the agent's mock, if any, variables are empty unless the agent
+  supplies flow variables, and there are no secrets (at most 50 nodes,
+  10 s). `pw_test_node` runs one safe processing node (transform, filter,
+  switch…) on an input (5 s). One dry-run or node test runs at a time on
+  the device.
+
+The **Drafts** tab (with a badge for waiting drafts) lists drafts waiting,
+decided or all. A draft's page shows the agent's note, the risk before and
+after, the **alerts** (a new destination, host or secret reference, a
+credential used for a different request, a changed rate, a risk switch
+turned on, a change to what a published tool runs or to a node reading
+variables…), the problems found, the changes node by node (credentials
+hidden, destinations highlighted), and, when agents changed the flow since
+you last approved it, a comparison with that version. **Approve** saves the
+draft as a new version (optionally deploying it; a running flow is always
+redeployed), which becomes the version you last approved; **Reject** takes
+an optional reason the agent can read.
+
+### Agent deploy
+
+The **Agent deploy** level on the **Agents** page (changing it needs your
+password) decides whether tokens with the `deploy` scope may deploy and
+stop flows. The scope can only be granted while the level is not off.
+
+- **Off** (default): agents only draft; you review and deploy every change.
+- **Low-risk flows**: agents may deploy, start and stop flows, and deploy
+  their own drafts without your review, when the flow's risk is at most
+  `external` (no commands, files, databases, GPIO or I2C) and, compared with
+  the version you last approved, it adds no privileged node, changes no
+  recipient or destination (nor anything feeding a destination built from
+  message data), reaches no new host, adds or moves no secret reference,
+  turns on no risk switch, adds no typed credential, uses no credential for
+  a different request, changes no rate of a flow that reaches out, changes
+  nothing a global variable receives or a tool reads from one, changes
+  nothing a published tool runs, and adds or changes no node that reads
+  variables, message metadata or what a credential returned. A refusal names
+  the kinds of change, never values. An agent may not stop, or replace with
+  its draft, a flow it could not deploy.
+- **All flows**: agents may deploy any flow, privileged ones included. A
+  leaked token or a misled agent could take over the device.
+
+At `low` you still accept that agents change, without review, what approved
+flows send to approved destinations, their conditions and processing, and
+whether they run, within those limits; at `low` and `all`, that an agent
+whose token also has the `author` and `read` scopes can confirm guesses of
+short or predictable secret values without your approval (see
+[Security notes](#security-notes)). Every agent deploy is audited and marked
+**Deployed by agent**.
+
+### Versions, markers and rollback
+
+Every save of a flow's definition is a numbered version: the newest 50 are
+kept, plus always the one you last approved. Deploying and stopping are not
+versions. The editor sends the version it loaded when it saves or deploys;
+if the flow changed since (an approved draft, an agent's deploy, another
+tab), PiWorker answers `409` and the editor offers to reload it instead of
+overwriting. Flow cards and the editor header show **Deployed by agent**
+with the token's name when an agent deployed what runs, and **Changed by
+agent** when the current version is not one you approved. **History** (on
+each flow card and in the editor) lists the kept versions with who saved
+them and which one is deployed, approved or from a draft; **Roll back to
+version N** restores the version you last approved as a new version and
+redeploys it when the flow runs. Runs record the version they ran, and
+agents see the errors only of runs of a version you approved.
 
 ### Connecting Claude Code
 
@@ -598,7 +710,8 @@ so turn HTTPS on (`mode = "auto"`) to connect from other computers.
   reach privileged nodes must be strictly constrained by the schema.
 - Agents never manage tokens, settings or approvals, and never read secrets
   or variables. **Agent deploy** is off by default; turning it on needs your
-  password and is a risk you accept for every token with the deploy scope.
+  password and is a risk you accept for every token with the deploy scope
+  (see [Agent deploy](#agent-deploy)).
 - What agents read hides secret values by comparing text with them, so an
   agent whose own text comes back to it can see whether a guess of a value
   comes back hidden, at any **Agent deploy** level: with the author and
@@ -710,9 +823,10 @@ restoring them at startup skips the schema check and logs each such setting as
 a warning (`Restored flow has a setting that the next deploy will refuse`, with
 its path), and the nodes treat those values exactly as before. Fix them before
 the next explicit deploy, which refuses them. Restoration still marks a flow
-**Failed** for errors that stopped it before too, and for an HTTP Request node
+**Failed** for errors that stopped it before too, for an HTTP Request node
 that would send a secret to a URL whose scheme or host comes from a
-placeholder (see below). HTTP Request headers stored as plain text by older
+placeholder, and for a Telegram bot token, Notify URL or Database DSN that
+names a secret that does not exist (see below). HTTP Request headers stored as plain text by older
 editors were always ignored; the editor now shows them with a warning above a
 name/value list, where they can be entered again. A Command node now fails a
 run whose placeholder value starting with `-` would begin an argument (see
@@ -1064,10 +1178,12 @@ preserved during migration.
 | GET | `/api/flows` | List all flows |
 | POST | `/api/flows` | Create a new flow |
 | GET | `/api/flows/{id}` | Get a flow by ID |
-| PUT | `/api/flows/{id}` | Update a flow |
+| PUT | `/api/flows/{id}` | Update a flow; with the loaded `version`, `409` (`currentVersion`) when another was saved since |
 | DELETE | `/api/flows/{id}` | Delete a flow |
-| POST | `/api/flows/{id}/deploy` | Deploy (start) a flow |
+| POST | `/api/flows/{id}/deploy` | Deploy (start) a flow; optional `{"version": N}`, checked like a save |
 | POST | `/api/flows/{id}/stop` | Stop a running flow |
+| GET | `/api/flows/{id}/versions` | Version history (`limit`), newest first |
+| POST | `/api/flows/{id}/rollback` | Restore the version last approved as a new version (`409` when there is none to restore) |
 
 ### Node Types
 
@@ -1098,8 +1214,11 @@ preserved during migration.
 | POST | `/api/agent/tokens/{id}/grants` | Add, re-confirm (password), suspend or remove a grant |
 | GET | `/api/agent/tools` | Published tools, for grant pickers |
 | GET | `/api/agent/approvals` | Approval queue (`status`, `limit`) |
-| GET | `/api/agent/approvals/pending-count` | Pending approvals (does not extend the session) |
+| GET | `/api/agent/approvals/pending-count` | Pending approvals and drafts (does not extend the session) |
 | POST | `/api/agent/approvals/{id}/approve`, `/reject` | Decide; approving runs the call and returns its result |
+| GET | `/api/agent/drafts` | Agents' drafts (`status` pending, decided or all; `limit`, `beforeId` paging) |
+| GET | `/api/agent/drafts/{id}` | A draft with its issues, alerts and diffs, recomputed against the current version |
+| POST | `/api/agent/drafts/{id}/approve`, `/reject` | Approve (`{"deploy": bool}`; saves a new version) or reject (optional `reason`) |
 | GET | `/api/agent/audit` | Agent calls, newest first (filters, `beforeId` paging) |
 | GET | `/api/agent/audit/rejections` | Rejected calls per token and reason (`tokenId`, `since`, `until`) |
 | GET, PUT | `/api/agent/settings` | Agent deploy level (PUT needs the password), MCP status |
@@ -1138,12 +1257,19 @@ piworker/
 ├── docker-compose.prod.yml # Production environment
 ├── Makefile                # Build automation
 │
+├── cmd/piworker-mcp/       # Claude Desktop stdio bridge to /mcp
+│
 ├── internal/
 │   ├── api/                # REST API handlers
-│   ├── flow/               # Flow engine (runtime, router, models)
+│   ├── flow/               # Flow engine (runtime, router, models, lint, diff, dry-run)
 │   ├── node/               # Node system
 │   │   ├── builtin/        # Built-in node implementations
 │   │   └── ...
+│   ├── service/            # Agent tool calls, reads, drafts and deploy policy
+│   ├── mcpserver/          # The /mcp endpoint
+│   ├── agentauth/          # Agent token verification
+│   ├── toolschema/         # Closed JSON Schema subset of tool inputs
+│   ├── tlsca/              # Local CA and server certificate
 │   ├── storage/            # SQLite persistence
 │   ├── types/              # Shared types (Message, Port, etc.)
 │   └── webui/              # Embedded frontend assets
