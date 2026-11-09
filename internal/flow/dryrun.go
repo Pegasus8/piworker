@@ -34,6 +34,20 @@ const (
 	DryRunPreviewBytes = 2 << 10
 	// DryRunMaxResultBytes caps the JSON of a whole result.
 	DryRunMaxResultBytes = 64 << 10
+	// DryRunMaxConnections caps the connections of a dry-run flow.
+	DryRunMaxConnections = 4 * DryRunMaxNodes
+	// DryRunMaxInputBytes caps the JSON of the payload, of each mock and of
+	// the flow variables of a dry-run, and the input and config of a node
+	// test.
+	DryRunMaxInputBytes = 64 << 10
+	// DryRunMaxValueBytes caps any single value a sandboxed node generates
+	// (an output payload, a string an expression builds, a rendered
+	// template).
+	DryRunMaxValueBytes = 1 << 20
+	// DryRunMaxDataBytes caps all the data a dry-run or node test generates:
+	// the strings expressions build, rendered templates and every copy of a
+	// routed message.
+	DryRunMaxDataBytes = 32 << 20
 )
 
 // maxStepOutputs caps the outputs previewed per execution.
@@ -42,10 +56,20 @@ const maxStepOutputs = 64
 // dryRunTimeout is DryRunTimeout; tests lower it (export_test.go).
 var dryRunTimeout = DryRunTimeout
 
+// dryRunStopTimeout bounds how long a dry-run waits, past its deadline, for
+// its private runtime to stop (a node ignoring cancellation keeps the
+// sandbox slot instead, see DryRun).
+const dryRunStopTimeout = time.Second
+
+// redactedConfigValue replaces the config values DryRunInput.Redact hides.
+const redactedConfigValue = "<redacted>"
+
 var (
 	// ErrDryRunInput marks a dry-run or node test refused because of what it
 	// was asked (not because the flow is invalid): an unknown or unsuitable
-	// trigger, a mock for a node that is not stubbed, a flow over the node cap.
+	// trigger, a mock for a node that is not stubbed, a flow over the node or
+	// connection caps or with duplicate connections, inputs over
+	// DryRunMaxInputBytes.
 	ErrDryRunInput = errors.New("invalid dry-run input")
 	// ErrSandboxBusy (wraps ErrBusy): another dry-run or node test is
 	// running. One runs at a time, process-wide.
@@ -68,11 +92,86 @@ func acquireSandbox() (release func(), err error) {
 
 // sandboxContext gives ctx the isolated stores of a sandboxed execution: the
 // global and flow variable stores and an empty secret store, so the nodes
-// never see (or change) the real ones and every {{secret.NAME}} is missing.
-func sandboxContext(ctx context.Context, globals, locals *flowvars.Store) context.Context {
+// never see (or change) the real ones and every {{secret.NAME}} is missing;
+// and the sandbox, which bounds the data the nodes generate and tracks the
+// goroutines they leave running (node.Sandbox).
+func sandboxContext(ctx context.Context, globals, locals *flowvars.Store, sb *node.Sandbox) context.Context {
 	ctx = flowvars.WithStore(ctx, globals)
 	ctx = flowvars.WithFlowStore(ctx, locals)
+	ctx = node.WithSandbox(ctx, sb)
 	return secrets.WithStore(ctx, secrets.NewStore())
+}
+
+// newSandbox returns the data bounds of one dry-run or node test.
+func newSandbox() *node.Sandbox { return node.NewSandbox(DryRunMaxValueBytes, DryRunMaxDataBytes) }
+
+// checkInputSize refuses an input over DryRunMaxInputBytes of JSON.
+func checkInputSize(what string, v any) error {
+	if node.EstimateSize(v, DryRunMaxInputBytes) > DryRunMaxInputBytes {
+		return fmt.Errorf("%w: %s is over %d bytes", ErrDryRunInput, what, DryRunMaxInputBytes)
+	}
+	return nil
+}
+
+// checkDryRunShape refuses a flow over the node or connection caps, or with
+// two connections between the same ports (each would route every message
+// again).
+func checkDryRunShape(f *Flow) error {
+	if len(f.Nodes) > DryRunMaxNodes {
+		return fmt.Errorf("%w: a dry-run takes at most %d nodes, the flow has %d", ErrDryRunInput, DryRunMaxNodes, len(f.Nodes))
+	}
+	if len(f.Connections) > DryRunMaxConnections {
+		return fmt.Errorf("%w: a dry-run takes at most %d connections, the flow has %d", ErrDryRunInput, DryRunMaxConnections, len(f.Connections))
+	}
+	type endpoints struct{ srcNode, srcPort, dstNode, dstPort string }
+	seen := make(map[endpoints]string, len(f.Connections))
+	for _, c := range f.Connections {
+		key := endpoints{c.SourceNode, c.SourcePort, c.TargetNode, c.TargetPort}
+		if first, dup := seen[key]; dup {
+			return fmt.Errorf("%w: duplicate connection %s (same ports as %s)", ErrDryRunInput, c.ID, first)
+		}
+		seen[key] = c.ID
+	}
+	return nil
+}
+
+// checkDryRunInputs bounds the payload, each mock and the flow variables.
+func checkDryRunInputs(in DryRunInput) error {
+	if err := checkInputSize("the payload", in.Payload); err != nil {
+		return err
+	}
+	ids := make([]string, 0, len(in.Mocks))
+	for id := range in.Mocks {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		if err := checkInputSize(fmt.Sprintf("the mock for %q", id), in.Mocks[id]); err != nil {
+			return err
+		}
+	}
+	return checkInputSize("flowVars", in.FlowVars)
+}
+
+// redactConfig replaces the config values redact selects with
+// redactedConfigValue (see DryRunInput.Redact).
+func redactConfig(f *Flow, redact func(n *Node, prop string) bool) {
+	if redact == nil {
+		return
+	}
+	for i := range f.Nodes {
+		n := &f.Nodes[i]
+		props := make([]string, 0, len(n.Config))
+		for prop := range n.Config {
+			props = append(props, prop)
+		}
+		sort.Strings(props)
+		for _, prop := range props {
+			if redact(n, prop) {
+				n.Config[prop] = redactedConfigValue
+			}
+		}
+	}
 }
 
 // DryRunInput says how to run a dry-run.
@@ -88,6 +187,13 @@ type DryRunInput struct {
 	Mocks map[string]any `json:"mocks,omitempty"`
 	// FlowVars seed the isolated flow variable store.
 	FlowVars map[string]any `json:"flowVars,omitempty"`
+	// Redact, when set, hides config values from the run: every config
+	// property of a node for which it returns true is replaced with
+	// "<redacted>" before the flow is validated and run, so a value the
+	// caller may not see reaches no preview, not even transformed by the
+	// nodes it flows through. A redacted value that makes its node invalid
+	// fails the dry-run like any invalid flow.
+	Redact func(n *Node, prop string) bool `json:"-"`
 }
 
 // PortPreview is one output of an execution: the port and a preview of the
@@ -133,7 +239,9 @@ type DryRunResult struct {
 	Truncated bool `json:"truncated"`
 	// TimedOut: the run was stopped after DryRunTimeout.
 	TimedOut bool `json:"timedOut"`
-	// Capped: the run was stopped at DryRunMaxExecutions executions.
+	// Capped: the run was stopped at DryRunMaxExecutions routed messages
+	// (each execution is one) or when its data budget (DryRunMaxDataBytes)
+	// was spent.
 	Capped bool `json:"capped"`
 }
 
@@ -145,18 +253,25 @@ type DryRunResult struct {
 // never start (Payload is injected at the chosen trigger's output) and every
 // node whose type or instance risk is not safe is a stub that records itself
 // in WouldExecute and emits its mock, if any. Nodes get isolated variable
-// stores and an empty secret store. The run ends when all of its work is
-// done, at DryRunMaxExecutions executions, after DryRunTimeout, or when ctx
-// ends (then the partial result is returned with ctx's error). Nodes are
-// closed and every goroutine has exited when DryRun returns, unless a node
-// ignores cancellation. One dry-run or node test runs at a time: otherwise
+// stores, an empty secret store and a node.Sandbox bounding the data they
+// generate. The private runtime runs one node at a time, keeps out of the
+// process metrics, and routes at most DryRunMaxExecutions messages. The run
+// ends when all of its work is done, at that cap or when the data budget is
+// spent (Capped), DryRunTimeout after DryRun was called (TimedOut), or when
+// ctx ends (then the partial result is returned with ctx's error). Nodes are
+// closed when DryRun returns; work still running then (a node ignoring
+// cancellation, a goroutine a node started with node.Go) keeps the sandbox
+// slot until it returns. One dry-run or node test runs at a time: otherwise
 // the error wraps ErrBusy. f is not modified.
 func DryRun(ctx context.Context, f *Flow, reg *node.Registry, in DryRunInput) (DryRunResult, error) {
 	if f == nil || reg == nil {
 		return DryRunResult{}, fmt.Errorf("%w: no flow", ErrDryRunInput)
 	}
-	if len(f.Nodes) > DryRunMaxNodes {
-		return DryRunResult{}, fmt.Errorf("%w: a dry-run takes at most %d nodes, the flow has %d", ErrDryRunInput, DryRunMaxNodes, len(f.Nodes))
+	if err := checkDryRunShape(f); err != nil {
+		return DryRunResult{}, err
+	}
+	if err := checkDryRunInputs(in); err != nil {
+		return DryRunResult{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return DryRunResult{}, err
@@ -171,16 +286,22 @@ func DryRun(ctx context.Context, f *Flow, reg *node.Registry, in DryRunInput) (D
 			release()
 		}
 	}()
+	// The wall-clock cap covers everything from here, building the nodes
+	// included.
+	runCtx, cancel := context.WithTimeout(ctx, dryRunTimeout)
+	defer cancel()
 
 	work, err := cloneFlow(f)
 	if err != nil {
 		return DryRunResult{}, fmt.Errorf("%w: %v", ErrDryRunInput, err)
 	}
+	redactConfig(work, in.Redact)
 	if err := dryRunPrecheck(work, reg); err != nil {
 		return DryRunResult{}, fmt.Errorf("invalid flow: %w", err)
 	}
 
-	sess := &dryRunSession{done: make(chan struct{})}
+	sb := newSandbox()
+	sess := &dryRunSession{done: make(chan struct{}), sb: sb}
 	globals, locals := flowvars.NewStore(), flowvars.NewStore()
 	for k, v := range in.FlowVars {
 		if err := locals.Set(k, v); err != nil {
@@ -190,7 +311,12 @@ func DryRun(ctx context.Context, f *Flow, reg *node.Registry, in DryRunInput) (D
 	rt, err := NewFlowRuntime(work, reg.Derive(dryRunOverride(reg)),
 		WithRetryConfig(RetryConfig{MaxRetries: 0, InitialWait: DefaultInitialWait, MaxWait: DefaultMaxWait, Multiplier: DefaultMultiplier}),
 		WithObserver(sess.observe),
-		WithNodeContext(func(c context.Context) context.Context { return sandboxContext(c, globals, locals) }),
+		WithNodeContext(func(c context.Context) context.Context { return sandboxContext(c, globals, locals, sb) }),
+		WithMaxConcurrency(1),
+		WithNodeQueueLimit(DryRunMaxExecutions),
+		WithStopTimeout(dryRunStopTimeout),
+		withoutMetrics(),
+		withRouteGate(sess.admitRoute),
 	)
 	if err != nil {
 		return DryRunResult{}, fmt.Errorf("invalid flow: %w", err)
@@ -200,12 +326,15 @@ func DryRun(ctx context.Context, f *Flow, reg *node.Registry, in DryRunInput) (D
 		rt.closeNodes()
 		return DryRunResult{}, err
 	}
+	if runCtx.Err() != nil {
+		// The setup took the whole wall-clock budget.
+		rt.closeNodes()
+		return sess.result(work, ctx.Err() == nil), ctx.Err()
+	}
 	if err := rt.Start(ctx); err != nil {
 		return DryRunResult{}, err
 	}
 
-	runCtx, cancel := context.WithTimeout(ctx, dryRunTimeout)
-	defer cancel()
 	sess.inject(runCtx, trigger, port, in.Payload)
 	select {
 	case <-sess.done:
@@ -222,48 +351,33 @@ func DryRun(ctx context.Context, f *Flow, reg *node.Registry, in DryRunInput) (D
 	}
 
 	_ = rt.Stop()
-	if !rt.Drained() {
-		// A node ignores cancellation: keep the slot until it returns, so
-		// stuck dry-runs cannot pile up.
+	if !rt.Drained() || sb.Busy() {
+		// Work is still running (a node ignoring cancellation, a goroutine
+		// a node left behind): keep the slot until it returns, so stuck
+		// dry-runs cannot pile up.
 		held = false
 		drained := rt.drained
 		go func() {
 			<-drained
+			sb.Wait()
 			release()
 		}()
 	}
 	return sess.result(work, timedOut), callerErr
 }
 
-// dryRunPrecheck validates f the way deploy does today (config typing,
-// factories and Validate, structure, callable triggers, the tool risk
-// analysis), without starting anything; the nodes it builds are closed. It
-// is the one place the dry-run validates a flow.
+// dryRunPrecheck validates f the way deploy does (config typing, factories
+// and Validate in NewFlowRuntime, then validateDeployable), without starting
+// anything; the nodes it builds are closed. It is the one place the dry-run
+// validates a flow.
 func dryRunPrecheck(f *Flow, reg *node.Registry) error {
 	rt, err := NewFlowRuntime(f, reg)
 	if err != nil {
 		return err
 	}
 	defer rt.closeNodes()
-	if err := f.validate(func(n *Node) bool {
-		if _, ok := rt.triggers[n.ID]; ok {
-			return true
-		}
-		info, ok := reg.Get(n.Type)
-		return ok && info.Category == NodeCategoryInput
-	}); err != nil {
-		return err
-	}
-	if err := rt.ValidateCallTriggers(); err != nil {
-		return err
-	}
-	if specs := rt.toolSpecs(); len(specs) > 0 {
-		_, issues := AnalyzeTools(f, reg, specs)
-		if err := issueError(issues); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, _, err = validateDeployable(rt, reg)
+	return err
 }
 
 // cloneFlow deep-copies a flow through its JSON form.
@@ -376,7 +490,7 @@ func (w *dryRunNode) Process(ctx context.Context, msg *types.Message) ([]*types.
 			outs = []*types.Message{out}
 		}
 	} else {
-		outs, err = processSafely(ctx, w.inner, msg)
+		outs, err = w.sess.runInner(ctx, w.inner, msg)
 	}
 	step.DurationMs = durationMs(time.Since(start))
 	step.Outputs = w.sess.outputPreviews(outs, w.outputs)
@@ -385,6 +499,34 @@ func (w *dryRunNode) Process(ctx context.Context, msg *types.Message) ([]*types.
 	}
 	w.sess.record(seq, step, would)
 	return outs, err
+}
+
+// runInner runs a real node in the sandbox: an output over the per-value cap,
+// or a limit the node ran into without returning an error (a template that
+// stopped expanding), is an error and nothing is emitted.
+func (s *dryRunSession) runInner(ctx context.Context, n node.Node, msg *types.Message) ([]*types.Message, error) {
+	return sandboxProcess(ctx, s.sb, n, msg)
+}
+
+// sandboxProcess runs n.Process in sb (see runInner).
+func sandboxProcess(ctx context.Context, sb *node.Sandbox, n node.Node, msg *types.Message) ([]*types.Message, error) {
+	refused := sb.Refusals()
+	outs, err := processSafely(ctx, n, msg)
+	if err != nil {
+		return nil, err
+	}
+	if sb.Refusals() > refused {
+		return nil, fmt.Errorf("%w: the node stopped at a limit of the sandbox", node.ErrSandboxLimit)
+	}
+	for _, o := range outs {
+		if o == nil {
+			continue
+		}
+		if err := sb.CheckValue(o.Payload); err != nil {
+			return nil, fmt.Errorf("output: %w", err)
+		}
+	}
+	return outs, nil
 }
 
 // processSafely runs n.Process, turning a panic into an error.
@@ -417,7 +559,9 @@ func (t *dryRunTrigger) Stop() error { return nil }
 // dryRunSession collects what one dry-run did.
 type dryRunSession struct {
 	rt         *FlowRuntime // set by bind, before the runtime starts
+	sb         *node.Sandbox
 	execs      atomic.Int64
+	routed     atomic.Int64
 	capped     atomic.Bool
 	previewCut atomic.Bool
 
@@ -543,6 +687,25 @@ func (s *dryRunSession) isDone() bool {
 	default:
 		return false
 	}
+}
+
+// admitRoute is the private runtime's route gate: msg is about to be routed
+// as copies messages. Past DryRunMaxExecutions routed messages, or when the
+// copies would spend the data budget, it refuses (capped): the messages
+// already routed still execute, and the run ends once they did.
+func (s *dryRunSession) admitRoute(msg *types.Message, copies int) bool {
+	if s.routed.Add(int64(copies)) > DryRunMaxExecutions {
+		s.capped.Store(true)
+		return false
+	}
+	size := node.EstimateSize(msg.Payload, DryRunMaxValueBytes)
+	for range copies {
+		if s.sb.Charge(size) != nil {
+			s.capped.Store(true)
+			return false
+		}
+	}
+	return true
 }
 
 // admit counts an execution; past the cap it refuses it and ends the run.
