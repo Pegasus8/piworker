@@ -517,6 +517,12 @@ func TestApplyingADraftChecksIt(t *testing.T) {
 	status, applied := draftState(t, s, forNew)
 	assert.Equal(t, DraftApproved, status)
 	assert.Equal(t, 1, applied)
+	// The applied draft names the flow it created, so its author and the
+	// editor can find it.
+	created, err := s.GetFlowDraft(forNew)
+	require.NoError(t, err)
+	assert.Equal(t, n.ID, created.FlowID)
+	assert.Zero(t, created.BaseVersion, "still a draft of a new flow")
 
 	// An agent applies a draft only while its token is not revoked (a
 	// revocation voids the drafts too; this is the belt to those braces).

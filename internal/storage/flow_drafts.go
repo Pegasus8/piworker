@@ -488,8 +488,9 @@ func (s *SQLiteStore) CountPendingFlowDrafts() (int, error) {
 // version (*VersionConflictError) or, for an agent, its token is revoked
 // (ErrDraftTokenRevoked). Revocations void drafts in their own
 // transactions, so a voided draft can never become a version and an
-// applied one is never voided.
-func applyDraftTx(tx *sql.Tx, meta VersionMeta, flowID string, base, appliedVersion int, now time.Time) error {
+// applied one is never voided. createdID is the ID of the flow a new-flow
+// draft creates: the applied draft records it as its flow.
+func applyDraftTx(tx *sql.Tx, meta VersionMeta, flowID string, base, appliedVersion int, createdID string, now time.Time) error {
 	if meta.DraftID == "" {
 		return nil
 	}
@@ -522,9 +523,10 @@ func applyDraftTx(tx *sql.Tx, meta VersionMeta, flowID string, base, appliedVers
 		return ErrDraftTokenRevoked
 	}
 	if _, err := tx.Exec(`
-		UPDATE flow_drafts SET status = ?, reason = '', decided_at = ?, applied_version = ?
+		UPDATE flow_drafts SET status = ?, reason = '', decided_at = ?, applied_version = ?,
+			flow_id = CASE WHEN flow_id = '' THEN ? ELSE flow_id END
 		WHERE id = ? AND status = ?
-	`, DraftApproved, now.Unix(), appliedVersion, meta.DraftID, DraftPending); err != nil {
+	`, DraftApproved, now.Unix(), appliedVersion, createdID, meta.DraftID, DraftPending); err != nil {
 		return fmt.Errorf("failed to close the applied draft: %w", err)
 	}
 	return nil

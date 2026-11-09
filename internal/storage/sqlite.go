@@ -246,7 +246,7 @@ func (s *SQLiteStore) createFlow(f *flow.Flow, meta VersionMeta, state flow.Flow
 	if updated.IsZero() {
 		updated = now
 	}
-	if err := applyDraftTx(tx, meta, "", 0, 1, now); err != nil {
+	if err := applyDraftTx(tx, meta, "", 0, 1, f.ID, now); err != nil {
 		return err
 	}
 	_, err = tx.Exec(`

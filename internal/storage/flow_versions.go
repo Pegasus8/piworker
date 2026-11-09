@@ -253,7 +253,7 @@ func (s *SQLiteStore) UpdateFlowVersioned(f *flow.Flow, expected int, meta Versi
 	}
 	next := current + 1
 	now := time.Now()
-	if err := applyDraftTx(tx, meta, f.ID, current, next, now); err != nil {
+	if err := applyDraftTx(tx, meta, f.ID, current, next, "", now); err != nil {
 		return 0, err
 	}
 	if _, err := tx.Exec(`
