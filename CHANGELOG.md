@@ -29,9 +29,10 @@ version. The version number and release date have not been selected.
   name change, without a restart. The CA is only replaced with
   `-tls-regenerate-ca`; a missing CA key stops startup instead of silently
   creating a new CA.
-- Port 8080 redirects to HTTPS (308) and serves `/piworker-ca.crt` and, by
-  default (`webhooks_http`), `/webhooks/` for devices that cannot trust a local
-  CA. Session cookies are always `Secure` with TLS on.
+- Port 8080 redirects to HTTPS (308) and serves `/piworker-ca.crt`, GET/HEAD
+  `/api/health` and, by default (`webhooks_http`), `/webhooks/` for devices
+  that cannot trust a local CA; `/mcp` there is refused (400), never
+  redirected. Session cookies are always `Secure` with TLS on.
 - New **Trust this device** page (download the CA, check its fingerprint,
   install and remove the trust on macOS, Windows, Linux, iOS, Android and
   Firefox, plus curl and Claude Code). `GET /api/tls` reports the mode, CA

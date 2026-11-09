@@ -43,11 +43,14 @@ environment limits and generated packages, and the
   configure the native systemd service.
 - [x] Prepare [release notes](../CHANGELOG.md), including HTTP, secret storage and
   legacy migration limitations.
-- [ ] Update the release notes for native HTTPS (ADR-0011): HTTPS on 8443 with a
+- [x] Update the release notes for native HTTPS (ADR-0011): HTTPS on 8443 with a
   local CA trusted once per device, 8080 redirecting (health, CA download and
   webhooks served directly), `piworkerctl tls on|off`, and configurations with a
   lone `addr = ":8080"` refused at start (move to `addr = ":8443"`,
   `http_addr = ":8080"`). The HTTP-only limitation no longer applies.
+- [x] Update the release notes for the AI agents work (ADR-0009…0023): agent
+  tokens and tools, authoring through drafts, the agent deploy levels, versions and
+  rollback, the bridge, and the behaviour changes under "Compatibility and limits".
 - [ ] Choose the version and stable versus prerelease status; replace `Unreleased`
   only when publishing. `v*` tags currently prepare drafts without automatically
   classifying prereleases. Review the draft's prerelease flag explicitly.
@@ -74,10 +77,15 @@ audience before choosing stable status.
   native SQLite and container OS scanning were outside its scope.
 - [ ] Inspect all three archives: `piworker-linux-<arch>` and `piworkerctl` must
   be present. Verify their entries in `SHA256SUMS`, and the standalone manager entry.
-- [ ] Check the six `piworker-mcp-<os>-<arch>` bridge binaries (linux amd64/arm64/armv7,
-  darwin amd64/arm64, windows amd64) and their `SHA256SUMS` entries; run one against
-  the candidate (`--url https://…:8443/mcp --ca-fingerprint …`) from Claude Desktop
-  or `claude mcp add`, following [cmd/piworker-mcp/README.md](../cmd/piworker-mcp/README.md).
+- [ ] Check the six bridge binaries in the draft, `piworker-mcp-linux-amd64`,
+  `-linux-arm64`, `-linux-armv7`, `-darwin-amd64`, `-darwin-arm64` and
+  `-windows-amd64.exe`, against their `SHA256SUMS` entries; `--version` must print
+  the tag. Run one against the candidate (`--url https://…:8443/mcp --token-file …
+  --ca-fingerprint …`) from Claude Desktop or `claude mcp add`, following
+  [cmd/piworker-mcp/README.md](../cmd/piworker-mcp/README.md): `tools/list` answers,
+  a wrong `--ca-fingerprint` stops it before any request, and a token file readable
+  by others is refused.
+- [ ] Run the agent authoring smoke test below against the candidate.
 - [x] On the owner's Pi, test the real local-package installer lifecycle, failed
   update recovery, reboot and preserved session/variables/flow execution.
 - [ ] Complete browser setup/editing and hardware checks on the Pi. Secret
@@ -94,6 +102,42 @@ as a maintainer for archive/binary checks. For the installer's real GitHub downl
 path, use a published prerelease with an explicit version on a test device; a
 prerelease does not exercise the stable `latest` link. Final stable-link checks
 must be completed after stable publication and before announcing availability.
+
+### Agent authoring smoke test
+
+On the candidate with HTTPS on, `[mcp] enabled = true` and `author_enabled = true`,
+from Claude Code or the bridge (see the README's
+[AI agents](../README.md#ai-agents-mcp) section and
+[design §10](design/mcp.md#10-authoring-and-agent-deploy)):
+
+1. As the admin, save and deploy a flow **Manual Inject → Transform → HTTP Request**
+   (POST to a fixed `https://` URL you control, no secrets). Set **Agent deploy** to
+   **Low-risk flows** (password), then create a token with `read`, `author` and
+   `deploy`. `tools/list` shows the read, author and deploy tools; `prompts/list`
+   shows `diagnose_flow` and `author_flow`.
+2. **Draft and approve.** The agent reads the flow (`pw_get_flow`), changes the
+   Transform expression with `pw_save_draft` (`baseVersion` = the version it read),
+   and checks it with `pw_validate_flow` and `pw_dry_run` (the HTTP Request is a
+   stub listed in `wouldExecute`; nothing is sent). The draft appears under
+   **Agents → Drafts** with a badge. Approve it: the running flow is redeployed, and
+   **History** lists the new version as approved, from the draft.
+3. **Low refuses a destination change.** The agent saves a draft that changes the
+   HTTP Request URL to another host and calls `pw_deploy_flow {flowId, draftId}`:
+   refused (`forbidden`) naming `destination_changed` and `new_host`, without the
+   URL; the flow keeps running the approved version and the draft stays waiting.
+   Reject it with a reason; `pw_get_draft` shows the reason.
+4. **Agent deploy and rollback.** The agent saves another Transform change and
+   deploys it with `pw_deploy_flow {flowId, draftId}` (allowed at low). The flow
+   card and the editor show **Deployed by agent** with the token's name and
+   **Changed by agent**; **History** marks the version as not approved. **Roll back
+   to version N** restores the approved version as a new version, redeploys it, and
+   both marks are gone.
+5. **Optimistic saves.** Stop the flow and open it in two editor tabs; save a change
+   in one. Saving in the other answers 409 and offers **Reload**, without
+   overwriting.
+6. **Agents → Audit** lists the agent's `pw_save_draft` and `pw_deploy_flow` calls,
+   the refused one included. Set **Agent deploy** back to **Off**: the deploy tools
+   leave `tools/list` and `pw_deploy_flow` is refused.
 
 ## Publication sequence
 
