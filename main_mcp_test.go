@@ -817,9 +817,13 @@ func TestMCPProtocolGolden(t *testing.T) {
 			answers[version] = toolAnswers(t, version, g.exchanges)
 		})
 	}
-	// Every tool call is answered alike at every version.
+	// Every tool call is answered alike at every version (that ran: -run
+	// may pick one).
+	newest := mcpserver.ProtocolVersions[0]
 	for _, version := range mcpserver.ProtocolVersions[1:] {
-		assert.Equal(t, answers[mcpserver.ProtocolVersions[0]], answers[version], version)
+		if answers[newest] != nil && answers[version] != nil {
+			assert.Equal(t, answers[newest], answers[version], version)
+		}
 	}
 }
 
