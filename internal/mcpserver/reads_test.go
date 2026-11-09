@@ -59,7 +59,7 @@ var (
 
 func sampleFlowList() service.FlowList {
 	return service.FlowList{Total: 3, Truncated: true, Flows: []service.FlowSummary{
-		{ID: "f1", Name: "Garage", State: service.FlowStateRunning, NodeCount: 2, Tools: []string{"garage"}, ToolCount: 1,
+		{ID: "f1", Name: "Garage", State: service.FlowStateRunning, Version: 3, NodeCount: 2, Tools: []string{"garage"}, ToolCount: 1,
 			LastRun: &service.RunPointer{ID: "r1", Status: "success", StartedAt: sampleTime}},
 		{ID: "f2", Name: "Lights", State: service.FlowStateStopped, Tools: []string{}},
 	}}
@@ -67,7 +67,7 @@ func sampleFlowList() service.FlowList {
 
 func sampleFlowView() service.FlowView {
 	return service.FlowView{
-		ID: "f1", Name: "Garage", State: service.FlowStateFailed, TotalNodes: 3, TotalConnections: 1, Truncated: true,
+		ID: "f1", Name: "Garage", State: service.FlowStateFailed, Version: 3, TotalNodes: 3, TotalConnections: 1, Truncated: true,
 		Nodes: []service.NodeView{
 			{ID: "tool", Type: "trigger-tool", Name: "Agent Tool", Enabled: true, Position: flow.Position{X: 1, Y: 2.5}, Risk: node.RiskSafe,
 				Config: map[string]any{"toolName": "garage", "inputSchema": "<redacted>", "timeoutMs": 10000.0}},
@@ -202,6 +202,12 @@ func TestReadToolsAreAdvertisedToTheReadScope(t *testing.T) {
 		assert.NotContains(t, tool, "_meta", "read tools need no user confirmation")
 	}
 	assert.Empty(t, read["pw_list_flows"]["inputSchema"].(map[string]any)["required"])
+	// The flow views carry the version a draft of the flow is based on.
+	flowView := read["pw_get_flow"]["outputSchema"].(map[string]any)
+	assert.Contains(t, flowView["required"], "version")
+	summary := read["pw_list_flows"]["outputSchema"].(map[string]any)["properties"].(map[string]any)["flows"].(map[string]any)["items"].(map[string]any)
+	assert.Contains(t, summary["required"], "version")
+	assert.Contains(t, summary["properties"].(map[string]any)["version"].(map[string]any)["description"], "baseVersion")
 	for name, required := range map[string][]any{
 		"pw_get_flow":  {"flowId"},
 		"pw_list_runs": {"flowId"},

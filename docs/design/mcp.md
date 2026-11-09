@@ -552,7 +552,8 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   privileged calls are never evicted early).
 - Tools: dynamic tools + `pw_get_result{runId}` (call; waits up to 10 s for a
   running call); `pw_list_flows`,
-  `pw_get_flow`, `pw_list_runs`, `pw_get_run`, `pw_system_status`, prompt
+  `pw_get_flow` (both show each flow's `version`, the base of a draft of
+  it), `pw_list_runs`, `pw_get_run`, `pw_system_status`, prompt
   `diagnose_flow` (read); `pw_list_node_types`, `pw_validate_flow`,
   `pw_test_node`, `pw_dry_run`, `pw_save_draft`, `pw_get_draft`, prompt
   `author_flow` (author, with `mcp.author_enabled`); `pw_deploy_flow`,
@@ -571,8 +572,11 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   `tools/list` of an author+deploy token at protocol 2025-11-25.
   - `pw_validate_flow{flowId?, flow? | ops?}` (exactly one of flow and ops;
     ops need flowId), `pw_save_draft{flowId?, baseVersion?, flow? | ops?,
-    name?, note}` (flowId and baseVersion together, an integer ≥ 1; name ≤
-    100 characters; note 1–2000), `pw_dry_run{flow? | draftId? | flowId?,
+    name?, note}` (with flowId a base version, an integer ≥ 1: baseVersion,
+    the `version` `pw_get_flow` and `pw_list_flows` show, or the sent
+    flow's own `version`, which must equal baseVersion when both are given;
+    baseVersion needs flowId; name ≤ 100 characters; note 1–2000),
+    `pw_dry_run{flow? | draftId? | flowId?,
     triggerNodeId?, payload?, mocks?, flowVars?}` (exactly one of the three;
     `triggerNodeId` may be absent when the flow has one trigger, as the
     service allows), `pw_test_node{type, config?, input?}` take `RawInput`
@@ -584,15 +588,36 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
     fields of the read views and of exported flows (`id`, `state`,
     `version`, `createdAt`, `updatedAt`, `tools`, `totalNodes`,
     `totalConnections`; a node's `name`, `risk`) are accepted, so a flow
-    read can be sent back, and dropped before the service sees the flow;
-    `truncated: true` and a node's `configOmitted: true` are refused (the
-    view left something out). Ops (≤ 200) `{op, …}` take only their own
+    read can be sent back, and dropped before the service sees the flow
+    (`version` is pw_save_draft's base, above); a flow's name may be as long
+    as the read views show one (256 characters; a draft's 100-character rule
+    is the service's). What a view left out, cut or partly hid is refused,
+    because sent back it would replace the stored values: `truncated: true`,
+    a node's `configOmitted: true`, a setting (or a string or key inside one)
+    that is `"<truncated>"` or ends with `"…<truncated>"`, and a
+    `"<redacted>"` that is not a whole setting (inside a value, a key, the
+    flow's name or description). A whole setting `"<redacted>"` keeps the
+    stored value with flowId (the service resolves it; without flowId it
+    reports `unresolved_redaction`); in pw_dry_run's inline flow, which has
+    no stored values, it is refused (dry-run by flowId or draftId instead),
+    and the node settings' description says so for each tool. Ops (≤ 200) `{op, …}` take only their own
     fields (a field of another op is refused, not ignored): `add_node{node{id?
     (1–64 of [A-Za-z0-9_-]), type, config?, enabled?, position?}}`,
     `update_node{nodeId, config? | enabled? | position?}` (at least one),
     `remove_node{nodeId}`, `connect{sourceNode, sourcePort, targetNode,
-    targetPort}`, `disconnect{connectionId}` or the four endpoints, not both.
-    Ids are 1 to 256 characters without control characters. Bounds on the
+    targetPort}`, `disconnect{connectionId}` or the four endpoints, not both;
+    the add_node id syntax is `flow.OpNodeIDPattern`, advertised as it is.
+    The ids a whole flow gives are those the editor, the server and add_node
+    generate (`node_<time>_<n>`, `node_<uuid>`, `edge_<source>_<target>_<time>`,
+    uuids) and dotted or colon-separated ones: `[A-Za-z0-9_.:-]`, nodes and
+    types 1–128, connections 1–256, ports 1–64, so no id hides in an issue
+    path (`/nodes/a/config/url`), breaks the editor's selectors (quotes) or
+    reads as other text (spaces, control and format characters such as bidi
+    overrides). Ids that name stored things (`flowId`, `draftId`, ops'
+    `nodeId`, endpoints and `connectionId`) are 1 to 256 characters without
+    control characters, so a stored flow with older ids is changed with ops.
+    A refusal lists at most 64 problems (schema and the tools' own checks
+    alike) and says more were left out. Bounds on the
     arguments' JSON: 576 KiB (validate, save draft: a 512 KiB draft and
     room), 768 KiB (dry-run), 144 KiB (node test).
   - `pw_get_draft{draftId}`, `pw_deploy_flow{flowId, draftId?}` and
@@ -622,7 +647,9 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
     unmapped is mapped by its `ToolError()` (never deploy's message).
   - Prompt `author_flow{goal}` (goal 1–2000 characters; a missing, empty,
     long or extra argument is `-32602`): one user message with the steps
-    `pw_list_node_types` → write the flow (or ops) → `pw_validate_flow` →
+    `pw_list_node_types` → write the flow (or ops; to change a stored flow,
+    read it with `pw_get_flow` and send its `version` as `baseVersion`,
+    redoing the change on `conflict`) → `pw_validate_flow` →
     `pw_dry_run` (and `pw_test_node`) → `pw_save_draft` with a note, saying
     that nothing runs until the admin approves the draft in the editor,
     that `pw_deploy_flow` is only for when it is available and the user

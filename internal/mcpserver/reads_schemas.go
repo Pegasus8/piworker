@@ -25,8 +25,11 @@ const (
 		`"id":` + stringSchema + `,"status":{"type":"string","description":"running, success or error."},` +
 		`"startedAt":` + timeSchema + `}}`
 
-	flowSummarySchema = `{"type":"object","required":["id","name","state","nodeCount","tools","toolCount"],"properties":{` +
-		`"id":` + stringSchema + `,"name":` + stringSchema + `,"state":` + flowStateSchema + `,` +
+	// flowVersionSchema is a flow's saved version.
+	flowVersionSchema = `{"type":"integer","description":"The flow's saved version: the baseVersion of a draft of it (pw_save_draft)."}`
+
+	flowSummarySchema = `{"type":"object","required":["id","name","state","version","nodeCount","tools","toolCount"],"properties":{` +
+		`"id":` + stringSchema + `,"name":` + stringSchema + `,"state":` + flowStateSchema + `,"version":` + flowVersionSchema + `,` +
 		`"nodeCount":` + integerSchema + `,` +
 		`"tools":{"type":"array","items":` + stringSchema + `,` +
 		`"description":"Names of the tools the flow publishes while running (at most 20; toolCount counts them all)."},` +
@@ -62,8 +65,8 @@ const (
 		`"confirm":{"type":"string","description":"none, client or admin (the admin approves each call)."},` +
 		`"timeoutMs":` + integerSchema + `}}`
 
-	flowViewSchema = `{"type":"object","required":["id","name","state","nodes","connections","tools","totalNodes","totalConnections","truncated"],"properties":{` +
-		`"id":` + stringSchema + `,"name":` + stringSchema + `,"state":` + flowStateSchema + `,` +
+	flowViewSchema = `{"type":"object","required":["id","name","state","version","nodes","connections","tools","totalNodes","totalConnections","truncated"],"properties":{` +
+		`"id":` + stringSchema + `,"name":` + stringSchema + `,"state":` + flowStateSchema + `,"version":` + flowVersionSchema + `,` +
 		`"nodes":{"type":"array","items":` + nodeViewSchema + `},` +
 		`"connections":{"type":"array","items":` + connectionViewSchema + `},` +
 		`"tools":{"type":"array","items":` + toolViewSchema + `,"description":"The tools the flow publishes while running."},` +

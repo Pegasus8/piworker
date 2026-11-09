@@ -82,7 +82,7 @@
         },
         "flow": {
           "additionalProperties": false,
-          "description": "A whole flow: its nodes and connections. id, state, version, createdAt, updatedAt, tools, totalNodes and totalConnections (as the read views and exported flows show them) are ignored: the flow is named by flowId, or is new, and its base version is baseVersion.",
+          "description": "A whole flow: its nodes and connections. id, state, version, createdAt, updatedAt, tools, totalNodes and totalConnections (as the read views and exported flows show them) are ignored: the flow is named by flowId, or is new.",
           "properties": {
             "connections": {
               "description": "The flow's connections (at most 200).",
@@ -91,33 +91,33 @@
                 "description": "A connection from an output port to an input port.",
                 "properties": {
                   "id": {
-                    "description": "The connection's id, unique in the flow.",
+                    "description": "The connection's id, unique in the flow (letters, digits, '_', '-', '.' or ':'; at most 256).",
                     "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,256}$",
                     "type": "string"
                   },
                   "sourceNode": {
                     "description": "The source node's id.",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
                     "type": "string"
                   },
                   "sourcePort": {
                     "description": "The source node's output port.",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
                     "type": "string"
                   },
                   "targetNode": {
                     "description": "The target node's id.",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
                     "type": "string"
                   },
                   "targetPort": {
                     "description": "The target node's input port.",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
                     "type": "string"
                   }
                 },
@@ -147,8 +147,8 @@
               "type": "string"
             },
             "name": {
-              "description": "The flow's name (at most 100 characters).",
-              "maxLength": 100,
+              "description": "The flow's name (at most 256 characters; a draft's at most 100).",
+              "maxLength": 256,
               "type": "string"
             },
             "nodes": {
@@ -166,7 +166,7 @@
                     "type": "string"
                   },
                   "config": {
-                    "description": "The node's settings, as its type's config schema describes them. \"\u003credacted\u003e\" (as the read views show hidden settings) keeps the current value of that setting of the same node; a sensitive setting takes only a {{secret.NAME}} reference.",
+                    "description": "The node's settings, as its type's config schema describes them. A flow sent inline has no stored values: \"\u003credacted\u003e\" is refused (dry-run a stored flow by flowId, or your draft by draftId, to keep its hidden settings). A sensitive setting takes only a {{secret.NAME}} reference. Values a view cut (\"…\u003ctruncated\u003e\", \"\u003ctruncated\u003e\") or partly hid (\"\u003credacted\u003e\" inside a value) are refused: they are not the stored values.",
                     "type": "object"
                   },
                   "configOmitted": {
@@ -178,9 +178,9 @@
                     "type": "boolean"
                   },
                   "id": {
-                    "description": "The node's id, unique in the flow.",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "description": "The node's id, unique in the flow (letters, digits, '_', '-', '.' or ':'; at most 128).",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
                     "type": "string"
                   },
                   "inputs": {
@@ -192,8 +192,8 @@
                           "type": "string"
                         },
                         "id": {
-                          "maxLength": 256,
-                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
                           "type": "string"
                         },
                         "multiple": {
@@ -228,8 +228,8 @@
                           "type": "string"
                         },
                         "id": {
-                          "maxLength": 256,
-                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
                           "type": "string"
                         },
                         "multiple": {
@@ -276,8 +276,8 @@
                   },
                   "type": {
                     "description": "The node type, from pw_list_node_types (e.g. trigger-interval, action-http).",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
                     "type": "string"
                   }
                 },
@@ -804,8 +804,8 @@
         },
         "type": {
           "description": "Only this type, with its whole documentation.",
-          "maxLength": 256,
-          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
           "type": "string"
         }
       },
@@ -969,14 +969,14 @@
       "additionalProperties": false,
       "properties": {
         "baseVersion": {
-          "description": "The flow's version the change is based on (required with flowId). If the flow changed since, the draft is refused with conflict and error.currentVersion.",
+          "description": "The flow's version the change is based on: the version pw_get_flow (or pw_list_flows) showed when you read it. Required with flowId, unless the flow you send carries that version. If the flow changed since, the draft is refused with conflict and error.currentVersion: read it again and redo the change.",
           "maximum": 2147483647,
           "minimum": 1,
           "type": "integer"
         },
         "flow": {
           "additionalProperties": false,
-          "description": "A whole flow: its nodes and connections. id, state, version, createdAt, updatedAt, tools, totalNodes and totalConnections (as the read views and exported flows show them) are ignored: the flow is named by flowId, or is new, and its base version is baseVersion.",
+          "description": "A whole flow: its nodes and connections. With flowId, version (as the read views show it) is the version the flow was read at: the base when baseVersion is absent, and it must equal baseVersion otherwise. id, state, createdAt, updatedAt, tools, totalNodes and totalConnections (as the read views and exported flows show them) are ignored.",
           "properties": {
             "connections": {
               "description": "The flow's connections (at most 400).",
@@ -985,33 +985,33 @@
                 "description": "A connection from an output port to an input port.",
                 "properties": {
                   "id": {
-                    "description": "The connection's id, unique in the flow.",
+                    "description": "The connection's id, unique in the flow (letters, digits, '_', '-', '.' or ':'; at most 256).",
                     "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,256}$",
                     "type": "string"
                   },
                   "sourceNode": {
                     "description": "The source node's id.",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
                     "type": "string"
                   },
                   "sourcePort": {
                     "description": "The source node's output port.",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
                     "type": "string"
                   },
                   "targetNode": {
                     "description": "The target node's id.",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
                     "type": "string"
                   },
                   "targetPort": {
                     "description": "The target node's input port.",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
                     "type": "string"
                   }
                 },
@@ -1041,8 +1041,8 @@
               "type": "string"
             },
             "name": {
-              "description": "The flow's name (at most 100 characters).",
-              "maxLength": 100,
+              "description": "The flow's name (at most 256 characters; a draft's at most 100).",
+              "maxLength": 256,
               "type": "string"
             },
             "nodes": {
@@ -1060,7 +1060,7 @@
                     "type": "string"
                   },
                   "config": {
-                    "description": "The node's settings, as its type's config schema describes them. \"\u003credacted\u003e\" (as the read views show hidden settings) keeps the current value of that setting of the same node; a sensitive setting takes only a {{secret.NAME}} reference.",
+                    "description": "The node's settings, as its type's config schema describes them. With flowId, \"\u003credacted\u003e\" as a whole setting (as the read views show hidden settings) keeps the current value of that setting of the same node; a new flow has none to keep. A sensitive setting takes only a {{secret.NAME}} reference. Values a view cut (\"…\u003ctruncated\u003e\", \"\u003ctruncated\u003e\") or partly hid (\"\u003credacted\u003e\" inside a value) are refused: they are not the stored values.",
                     "type": "object"
                   },
                   "configOmitted": {
@@ -1072,9 +1072,9 @@
                     "type": "boolean"
                   },
                   "id": {
-                    "description": "The node's id, unique in the flow.",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "description": "The node's id, unique in the flow (letters, digits, '_', '-', '.' or ':'; at most 128).",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
                     "type": "string"
                   },
                   "inputs": {
@@ -1086,8 +1086,8 @@
                           "type": "string"
                         },
                         "id": {
-                          "maxLength": 256,
-                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
                           "type": "string"
                         },
                         "multiple": {
@@ -1122,8 +1122,8 @@
                           "type": "string"
                         },
                         "id": {
-                          "maxLength": 256,
-                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
                           "type": "string"
                         },
                         "multiple": {
@@ -1170,8 +1170,8 @@
                   },
                   "type": {
                     "description": "The node type, from pw_list_node_types (e.g. trigger-interval, action-http).",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
                     "type": "string"
                   }
                 },
@@ -1303,8 +1303,8 @@
                   },
                   "type": {
                     "description": "The node type, from pw_list_node_types.",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
                     "type": "string"
                   }
                 },
@@ -1570,8 +1570,8 @@
         },
         "type": {
           "description": "A processing node type whose risk is safe (from pw_list_node_types).",
-          "maxLength": 256,
-          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
           "type": "string"
         }
       },
@@ -1671,7 +1671,7 @@
       "properties": {
         "flow": {
           "additionalProperties": false,
-          "description": "A whole flow: its nodes and connections. id, state, version, createdAt, updatedAt, tools, totalNodes and totalConnections (as the read views and exported flows show them) are ignored: the flow is named by flowId, or is new, and its base version is baseVersion.",
+          "description": "A whole flow: its nodes and connections. id, state, version, createdAt, updatedAt, tools, totalNodes and totalConnections (as the read views and exported flows show them) are ignored: the flow is named by flowId, or is new.",
           "properties": {
             "connections": {
               "description": "The flow's connections (at most 400).",
@@ -1680,33 +1680,33 @@
                 "description": "A connection from an output port to an input port.",
                 "properties": {
                   "id": {
-                    "description": "The connection's id, unique in the flow.",
+                    "description": "The connection's id, unique in the flow (letters, digits, '_', '-', '.' or ':'; at most 256).",
                     "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "pattern": "^[A-Za-z0-9_.:-]{1,256}$",
                     "type": "string"
                   },
                   "sourceNode": {
                     "description": "The source node's id.",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
                     "type": "string"
                   },
                   "sourcePort": {
                     "description": "The source node's output port.",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
                     "type": "string"
                   },
                   "targetNode": {
                     "description": "The target node's id.",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
                     "type": "string"
                   },
                   "targetPort": {
                     "description": "The target node's input port.",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
                     "type": "string"
                   }
                 },
@@ -1736,8 +1736,8 @@
               "type": "string"
             },
             "name": {
-              "description": "The flow's name (at most 100 characters).",
-              "maxLength": 100,
+              "description": "The flow's name (at most 256 characters; a draft's at most 100).",
+              "maxLength": 256,
               "type": "string"
             },
             "nodes": {
@@ -1755,7 +1755,7 @@
                     "type": "string"
                   },
                   "config": {
-                    "description": "The node's settings, as its type's config schema describes them. \"\u003credacted\u003e\" (as the read views show hidden settings) keeps the current value of that setting of the same node; a sensitive setting takes only a {{secret.NAME}} reference.",
+                    "description": "The node's settings, as its type's config schema describes them. With flowId, \"\u003credacted\u003e\" as a whole setting (as the read views show hidden settings) keeps the current value of that setting of the same node; a new flow has none to keep. A sensitive setting takes only a {{secret.NAME}} reference. Values a view cut (\"…\u003ctruncated\u003e\", \"\u003ctruncated\u003e\") or partly hid (\"\u003credacted\u003e\" inside a value) are refused: they are not the stored values.",
                     "type": "object"
                   },
                   "configOmitted": {
@@ -1767,9 +1767,9 @@
                     "type": "boolean"
                   },
                   "id": {
-                    "description": "The node's id, unique in the flow.",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "description": "The node's id, unique in the flow (letters, digits, '_', '-', '.' or ':'; at most 128).",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
                     "type": "string"
                   },
                   "inputs": {
@@ -1781,8 +1781,8 @@
                           "type": "string"
                         },
                         "id": {
-                          "maxLength": 256,
-                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
                           "type": "string"
                         },
                         "multiple": {
@@ -1817,8 +1817,8 @@
                           "type": "string"
                         },
                         "id": {
-                          "maxLength": 256,
-                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
                           "type": "string"
                         },
                         "multiple": {
@@ -1865,8 +1865,8 @@
                   },
                   "type": {
                     "description": "The node type, from pw_list_node_types (e.g. trigger-interval, action-http).",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
                     "type": "string"
                   }
                 },
@@ -1986,8 +1986,8 @@
                   },
                   "type": {
                     "description": "The node type, from pw_list_node_types.",
-                    "maxLength": 256,
-                    "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
                     "type": "string"
                   }
                 },

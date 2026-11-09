@@ -57,14 +57,15 @@ var (
 	validateArgs = object("",
 		prop("flowId", idArg("An existing flow the proposal is based on (its current version): needed with ops; with flow, "+
 			`"<redacted>" settings keep that flow's values.`)),
-		prop("flow", flowArg(service.MaxDraftNodes, service.MaxDraftConnections)),
+		prop("flow", flowArg(service.MaxDraftNodes, service.MaxDraftConnections, flowForValidate)),
 		prop("ops", opsArg()),
 	)
 	saveDraftArgs = object("",
 		prop("flowId", idArg("The existing flow the draft changes (absent for a new flow).")),
-		prop("baseVersion", integer("The flow's version the change is based on (required with flowId). If the flow changed since, "+
-			"the draft is refused with conflict and error.currentVersion.", 1, 1<<31-1)),
-		prop("flow", flowArg(service.MaxDraftNodes, service.MaxDraftConnections)),
+		prop("baseVersion", integer("The flow's version the change is based on: the version pw_get_flow (or pw_list_flows) "+
+			"showed when you read it. Required with flowId, unless the flow you send carries that version. If the flow changed "+
+			"since, the draft is refused with conflict and error.currentVersion: read it again and redo the change.", 1, maxInt32)),
+		prop("flow", flowArg(service.MaxDraftNodes, service.MaxDraftConnections, flowForDraft)),
 		prop("ops", opsArg()),
 		prop("name", text(fmt.Sprintf("The flow's name (at most %d characters): required for a new flow unless flow.name is set; "+
 			"an existing flow keeps its name unless this or flow.name is set.", service.MaxDraftNameChars), 1, service.MaxDraftNameChars)),
@@ -72,7 +73,7 @@ var (
 			"you.", service.MaxDraftNoteChars), 1, service.MaxDraftNoteChars)),
 	).require("note")
 	dryRunArgs = object("",
-		prop("flow", flowArg(flow.DryRunMaxNodes, flow.DryRunMaxConnections)),
+		prop("flow", flowArg(flow.DryRunMaxNodes, flow.DryRunMaxConnections, flowInline)),
 		prop("draftId", idArg("One of your drafts (from pw_save_draft).")),
 		prop("flowId", idArg("A stored flow (its current version); settings agents may not read are hidden from the run.")),
 		prop("triggerNodeId", idArg("The enabled trigger (input) node whose output receives payload; may be absent when the "+
@@ -83,14 +84,14 @@ var (
 		prop("flowVars", freeObject("Initial flow variables of the sandbox (at most 64 KiB).")),
 	)
 	testNodeArgs = object("",
-		prop("type", idArg("A processing node type whose risk is safe (from pw_list_node_types).")),
+		prop("type", typeArg("A processing node type whose risk is safe (from pw_list_node_types).")),
 		prop("config", freeObject("The node's settings (at most 64 KiB); a sensitive setting takes only a {{secret.NAME}} reference.")),
 		prop("input", anyValue("The input payload (any JSON, at most 64 KiB).")),
 	).require("type")
 	categories    = []string{string(flow.NodeCategoryInput), string(flow.NodeCategoryProcessing), string(flow.NodeCategoryOutput)}
 	nodeTypesArgs = object("",
 		prop("category", enum("Only the types of this category: input (triggers), processing or output (actions).", categories...)),
-		prop("type", idArg("Only this type, with its whole documentation.")),
+		prop("type", typeArg("Only this type, with its whole documentation.")),
 	)
 )
 
@@ -114,7 +115,7 @@ func AuthorTools(authoring AuthoringService, types NodeTypeLister) []StaticTool 
 				"their settings: pw_list_node_types.",
 			RawInput: &RawInput{Schema: validateArgs.JSON(), MaxBytes: maxFlowArgsBytes, Validate: checked(validateArgs,
 				func(args map[string]any) []toolschema.Issue {
-					return concat(exactlyOne(args, "flow", "ops"), requiredWith(args, "flowId", "ops"), flowChecks(args))
+					return concat(exactlyOne(args, "flow", "ops"), requiredWith(args, "flowId", "ops"), flowChecks(args, flowForValidate))
 				})},
 			OutputSchema: json.RawMessage(validateResultSchema),
 			Annotations:  checkAnnotations,
@@ -140,7 +141,7 @@ func AuthorTools(authoring AuthoringService, types NodeTypeLister) []StaticTool 
 			RawInput: &RawInput{Schema: saveDraftArgs.JSON(), MaxBytes: maxFlowArgsBytes, Validate: checked(saveDraftArgs,
 				func(args map[string]any) []toolschema.Issue {
 					return concat(exactlyOne(args, "flow", "ops"), requiredWith(args, "flowId", "ops"),
-						requiredWith(args, "baseVersion", "flowId"), requiredWith(args, "flowId", "baseVersion"), flowChecks(args))
+						requiredWith(args, "flowId", "baseVersion"), baseVersionIssues(args), flowChecks(args, flowForDraft))
 				})},
 			OutputSchema: json.RawMessage(draftResultSchema),
 			Annotations:  draftAnnotations,
@@ -150,9 +151,8 @@ func AuthorTools(authoring AuthoringService, types NodeTypeLister) []StaticTool 
 				if err != nil {
 					return nil, err
 				}
-				version, _ := args["baseVersion"].(float64) // validated: an integer
 				return structured(authoring.SaveDraft(ctx, actor, service.DraftInput{
-					FlowID: stringArg(args, "flowId"), BaseVersion: int(version), Flow: f, Ops: ops,
+					FlowID: stringArg(args, "flowId"), BaseVersion: draftBaseVersion(args), Flow: f, Ops: ops,
 					Name: stringArg(args, "name"), Note: stringArg(args, "note"),
 				}))
 			},
@@ -184,7 +184,7 @@ func AuthorTools(authoring AuthoringService, types NodeTypeLister) []StaticTool 
 				flow.DryRunMaxNodes, int(flow.DryRunTimeout.Seconds()), flow.DryRunMaxExecutions),
 			RawInput: &RawInput{Schema: dryRunArgs.JSON(), MaxBytes: maxDryRunArgsBytes, Validate: checked(dryRunArgs,
 				func(args map[string]any) []toolschema.Issue {
-					return concat(exactlyOne(args, "flow", "draftId", "flowId"), flowChecks(args))
+					return concat(exactlyOne(args, "flow", "draftId", "flowId"), flowChecks(args, flowInline))
 				})},
 			OutputSchema: json.RawMessage(dryRunResultSchema),
 			Annotations:  checkAnnotations,
@@ -320,8 +320,10 @@ func authorFlowText(goal string) string {
 		"request does, how often a flow fires) are what the admin reviews most closely, so change only those the goal " +
 		"needs.\n" +
 		"2. Write the flow: nodes {id, type, config} and connections {id, sourceNode, sourcePort, targetNode, targetPort}. " +
-		"To change an existing flow, send its flowId with ops (add_node, update_node, remove_node, connect, disconnect); " +
-		"\"<redacted>\" values keep the current settings.\n" +
+		"To change an existing flow, read it with pw_get_flow (scope read) and send its flowId, with baseVersion set to the " +
+		"version pw_get_flow showed, and ops (add_node, update_node, remove_node, connect, disconnect) or the whole flow, " +
+		"whose \"<redacted>\" settings keep the current values. If the flow changed since, the draft is refused with " +
+		"conflict and error.currentVersion: read it again and redo the change.\n" +
 		"3. Call pw_validate_flow and fix every error issue.\n" +
 		"4. Call pw_dry_run with a sample payload and check the trace; nodes that are not safe do not run (give mocks for " +
 		"what they would return). pw_test_node tries one processing node alone.\n" +

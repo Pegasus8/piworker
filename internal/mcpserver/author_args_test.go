@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,7 +39,7 @@ func TestAuthorAndDeployArgumentsAreValidated(t *testing.T) {
 	a := newAuthorEnv(t)
 	const raw = everythingToken
 	flowOK := `{"nodes":[]}`
-	for _, tc := range []struct {
+	cases := []struct {
 		tool, args, pointer string
 	}{
 		// pw_validate_flow: one of flow and ops; ops need flowId.
@@ -65,7 +66,27 @@ func TestAuthorAndDeployArgumentsAreValidated(t *testing.T) {
 		{"pw_validate_flow", `{"flow":{"nodes":[],"connections":[{"id":"c","sourceNode":"a","sourcePort":"o","targetNode":"b"}]}}`, "/flow/connections/0/targetPort"},
 		{"pw_validate_flow", `{"flow":{"nodes":[],"connections":[{"sourceNode":"a","sourcePort":"o","targetNode":"b","targetPort":"i"}]}}`, "/flow/connections/0/id"},
 		{"pw_validate_flow", `{"flow":{"nodes":[],"variables":[1]}}`, "/flow/variables"},
-		{"pw_validate_flow", `{"flow":{"nodes":[],"name":"` + strings.Repeat("n", service.MaxDraftNameChars+1) + `"}}`, "/flow/name"},
+		{"pw_validate_flow", `{"flow":{"nodes":[],"name":"` + strings.Repeat("n", maxFlowNameChars+1) + `"}}`, "/flow/name"},
+		// Ids of a whole flow: the syntax the editor and the server
+		// generate, nothing a path, a selector or a bidi override can hide
+		// in.
+		{"pw_validate_flow", `{"flow":{"nodes":[{"id":"a/config/url","type":"x"}]}}`, "/flow/nodes/0/id"},
+		{"pw_validate_flow", `{"flow":{"nodes":[{"id":"b\u202ex\u200b\"]<img src=x>","type":"x"}]}}`, "/flow/nodes/0/id"},
+		{"pw_validate_flow", `{"flow":{"nodes":[{"id":"` + strings.Repeat("a", 129) + `","type":"x"}]}}`, "/flow/nodes/0/id"},
+		{"pw_validate_flow", `{"flow":{"nodes":[{"id":"a","type":"x\u200b"}]}}`, "/flow/nodes/0/type"},
+		{"pw_validate_flow", `{"flow":{"nodes":[{"id":"a","type":"x","outputs":[{"id":"out put"}]}]}}`, "/flow/nodes/0/outputs/0/id"},
+		{"pw_validate_flow", `{"flow":{"nodes":[],"connections":[{"id":"c\u2066","sourceNode":"a","sourcePort":"o","targetNode":"b","targetPort":"i"}]}}`, "/flow/connections/0/id"},
+		{"pw_validate_flow", `{"flow":{"nodes":[],"connections":[{"id":"c","sourceNode":"a b","sourcePort":"o","targetNode":"b","targetPort":"i"}]}}`, "/flow/connections/0/sourceNode"},
+		{"pw_validate_flow", `{"flow":{"nodes":[],"connections":[{"id":"c","sourceNode":"a","sourcePort":"o\"]","targetNode":"b","targetPort":"i"}]}}`, "/flow/connections/0/sourcePort"},
+		// What a view cut or partly hid is not the value: sent back it
+		// would replace the stored one.
+		{"pw_validate_flow", `{"flow":{"nodes":[{"id":"a","type":"x","config":{"url":"https://x.example/…<truncated>"}}]}}`, "/flow/nodes/0/config/url"},
+		{"pw_validate_flow", `{"flow":{"nodes":[{"id":"a","type":"x","config":{"headers":"<truncated>"}}]}}`, "/flow/nodes/0/config/headers"},
+		{"pw_validate_flow", `{"flow":{"nodes":[{"id":"a","type":"x","config":{"url":"https://x.example/?k=<redacted>"}}]}}`, "/flow/nodes/0/config/url"},
+		{"pw_validate_flow", `{"flow":{"nodes":[{"id":"a","type":"x","config":{"headers":{"Authorization":"<redacted>"}}}]}}`, "/flow/nodes/0/config/headers/Authorization"},
+		{"pw_validate_flow", `{"flow":{"nodes":[{"id":"a","type":"x","config":{"list":["ok",{"k":"x<redacted>"}]}}]}}`, "/flow/nodes/0/config/list/1/k"},
+		{"pw_validate_flow", `{"flow":{"nodes":[{"id":"a","type":"x","config":{"headers":{"<redacted>":"v"}}}]}}`, "/flow/nodes/0/config/headers/<redacted>"},
+		{"pw_validate_flow", `{"flow":{"nodes":[],"name":"Garage <redacted>"}}`, "/flow/name"},
 		// What a view left out cannot be sent back as if it were the flow.
 		{"pw_validate_flow", `{"flow":{"nodes":[],"truncated":true}}`, "/flow/truncated"},
 		{"pw_validate_flow", `{"flow":{"nodes":[{"id":"a","type":"x","configOmitted":true}]}}`, "/flow/nodes/0/configOmitted"},
@@ -108,6 +129,9 @@ func TestAuthorAndDeployArgumentsAreValidated(t *testing.T) {
 		{"pw_save_draft", `{"flowId":"f1","baseVersion":2.5,"flow":` + flowOK + `,"note":"n"}`, "/baseVersion"},
 		{"pw_save_draft", `{"flowId":"f1","baseVersion":"3","flow":` + flowOK + `,"note":"n"}`, "/baseVersion"},
 		{"pw_save_draft", `{"flowId":"f1","baseVersion":3,"flow":` + flowOK + `,"note":"n","deploy":true}`, "/deploy"},
+		{"pw_save_draft", `{"flowId":"f1","flow":` + flowOK + `,"note":"n"}`, "/baseVersion"},
+		{"pw_save_draft", `{"flowId":"f1","flow":{"nodes":[],"version":0},"note":"n"}`, "/baseVersion"},
+		{"pw_save_draft", `{"flowId":"f1","baseVersion":3,"flow":{"nodes":[],"version":4},"note":"n"}`, "/flow/version"},
 
 		// pw_get_draft.
 		{"pw_get_draft", `{}`, "/draftId"},
@@ -123,6 +147,7 @@ func TestAuthorAndDeployArgumentsAreValidated(t *testing.T) {
 		{"pw_dry_run", `{"draftId":"d1","flowVars":"n=1"}`, "/flowVars"},
 		{"pw_dry_run", `{"draftId":"d1","ops":[]}`, "/ops"},
 		{"pw_dry_run", `{"flow":{"nodes":` + nodesJSON(51) + `}}`, "/flow/nodes"},
+		{"pw_dry_run", `{"flow":{"nodes":[{"id":"a","type":"x","config":{"url":"<redacted>"}}]}}`, "/flow/nodes/0/config/url"},
 
 		// pw_test_node.
 		{"pw_test_node", `{}`, "/type"},
@@ -140,7 +165,8 @@ func TestAuthorAndDeployArgumentsAreValidated(t *testing.T) {
 		{"pw_deploy_flow", `{"flowId":"f1","restart":true}`, "/restart"},
 		{"pw_stop_flow", `{}`, "/flowId"},
 		{"pw_stop_flow", `{"flowId":"f1","draftId":"d1"}`, "/draftId"},
-	} {
+	}
+	for _, tc := range cases {
 		res, body := called(t, a.testEnv, raw, tc.tool, tc.args)
 		label := tc.tool + " " + shorten(tc.args, 160)
 		require.Equal(t, true, res["isError"], label)
@@ -153,11 +179,65 @@ func TestAuthorAndDeployArgumentsAreValidated(t *testing.T) {
 		assert.NotContains(t, fmt.Sprint(body), "sk-live", "values are never quoted")
 	}
 	assert.Empty(t, a.authoring.recorded(), "no refused call reaches the service")
-	assert.NotEmpty(t, a.rejections.seen)
+	assert.Len(t, a.rejections.seen, len(cases), "each refused call is counted once")
 	want := "everythingeveryt invalid_arguments " + t0.Format(time.RFC3339)
 	for _, seen := range a.rejections.seen {
 		assert.Equal(t, want, seen)
 	}
+}
+
+// What the checks accept: the ids the editor, the server and add_node
+// generate, names as long as the read views show them, "<redacted>" as a
+// whole setting where a stored flow can supply it, and a flow's version as
+// its base.
+func TestFlowArgumentsAccepted(t *testing.T) {
+	a := newAuthorEnv(t)
+	ids := `{"nodes":[` +
+		`{"id":"node_1731234567890_3","type":"trigger-manual"},` +
+		`{"id":"node_0b6a1f9e-6a3c-4c51-9d55-8d0b5bd0e2a1","type":"action-http","config":{"url":"<redacted>","headers":{"X":"a"}}},` +
+		`{"id":"legacy.node:1","type":"process-debug"}],"connections":[` +
+		`{"id":"edge_node_1731234567890_3_node_0b6a1f9e-6a3c-4c51-9d55-8d0b5bd0e2a1_1731234567999","sourceNode":"node_1731234567890_3",` +
+		`"sourcePort":"output","targetNode":"node_0b6a1f9e-6a3c-4c51-9d55-8d0b5bd0e2a1","targetPort":"input"}],` +
+		`"name":"` + strings.Repeat("n", service.MaxDraftNameChars+1) + `"}`
+	res, body := called(t, a.testEnv, everythingToken, "pw_validate_flow", `{"flowId":"f1","flow":`+ids+`}`)
+	require.NotEqual(t, true, res["isError"], body)
+	res, body = called(t, a.testEnv, everythingToken, "pw_save_draft", `{"flowId":"f1","flow":`+
+		strings.Replace(ids, `{"nodes"`, `{"version":7,"nodes"`, 1)+`,"note":"n"}`)
+	require.NotEqual(t, true, res["isError"], body)
+	in := a.authoring.last(t).req.(service.DraftInput)
+	assert.Equal(t, 7, in.BaseVersion, "the version the flow was read at is its base")
+	assert.Equal(t, "<redacted>", in.Flow.Nodes[1].Config["url"])
+
+	res, body = called(t, a.testEnv, everythingToken, "pw_save_draft", `{"flowId":"f1","baseVersion":7,"flow":{"nodes":[],"version":7},"note":"n"}`)
+	require.NotEqual(t, true, res["isError"], body)
+	assert.Equal(t, 7, a.authoring.last(t).req.(service.DraftInput).BaseVersion)
+
+	// The add_node id syntax is ApplyOps' own (one definition).
+	assert.Equal(t, flow.OpNodeIDPattern, saveDraftArgs.prop("ops").items.prop("node").prop("id").pattern.String())
+	// The node settings' description says where "<redacted>" keeps a value.
+	cfg := func(s *argSchema) string { return s.prop("flow").prop("nodes").items.prop("config").description }
+	assert.Contains(t, cfg(saveDraftArgs), "flowId")
+	assert.Contains(t, cfg(validateArgs), "flowId")
+	assert.NotContains(t, cfg(dryRunArgs), "keeps the current value")
+	assert.Contains(t, cfg(dryRunArgs), "draftId")
+}
+
+// However many problems arguments have, a refusal lists at most maxIssues
+// (and says more were left out).
+func TestArgumentProblemsAreCapped(t *testing.T) {
+	a := newAuthorEnv(t)
+	op := `{"op":"remove_node","nodeId":"a","node":{"type":"x"},"config":{},"enabled":true,"position":{"x":1,"y":2},` +
+		`"sourceNode":"a","sourcePort":"o","targetNode":"b","targetPort":"i","connectionId":"c"}`
+	ops := strings.TrimSuffix(strings.Repeat(op+",", 200), ",")
+	w := a.serve(withToken(rpc(callBody("pw_validate_flow", `{"flowId":"f1","ops":[`+ops+`]}`)), everythingToken))
+	assert.Less(t, w.Body.Len(), 32<<10, "a bounded refusal")
+	res, rpcErr := rpcResult(t, w)
+	require.Nil(t, rpcErr)
+	body := resultBody(t, res)
+	issues := body["error"].(map[string]any)["issues"].([]any)
+	assert.Len(t, issues, maxIssues+1)
+	assert.Contains(t, fmt.Sprint(issues), "too many problems")
+	assert.Len(t, a.rejections.seen, 1)
 }
 
 // The arguments of the flow-shaped tools are bounded as JSON before they
@@ -180,6 +260,7 @@ func TestFlowShapedArgumentsAreBounded(t *testing.T) {
 		assert.Contains(t, issue["message"], "bytes", tc.tool)
 	}
 	assert.Empty(t, a.authoring.recorded())
+	assert.Len(t, a.rejections.seen, 4, "each oversized call is counted")
 
 	// Within the bounds the largest flows pass: a draft of 200 nodes.
 	res, _ := called(t, a.testEnv, everythingToken, "pw_save_draft", `{"flow":{"nodes":`+nodesJSON(service.MaxDraftNodes)+`},"name":"x","note":"n"}`)
