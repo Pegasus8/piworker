@@ -89,7 +89,9 @@ type RunEvent struct {
 	Phase      string  `json:"phase"` // success or error
 	DurationMs float64 `json:"durationMs"`
 	// Error is the node's error, with known secret values and URL
-	// credentials redacted, bounded to maxRunFieldBytes.
+	// credentials redacted, bounded to maxRunFieldBytes. Agents get
+	// withheldRunError instead unless the run is of a version the admin
+	// approved and deployed (adminRun).
 	Error string    `json:"error,omitempty"`
 	At    time.Time `json:"at"`
 }
@@ -144,9 +146,17 @@ func (r *Reads) ListRuns(ctx context.Context, actor Actor, flowID string, limit 
 	return out, nil
 }
 
+// withheldRunError replaces, for agents, the error of a node in a run that
+// is not known to be of a version the admin approved and deployed: a node
+// an agent deployed could raise an error on purpose to hand back what it
+// read (variables, metadata, a credential's response, ADR-0022).
+const withheldRunError = "the node failed; its error is withheld because this run is not of a version the admin approved and deployed (the admin sees it in the editor)"
+
 // GetRun shows a recorded run of a stored flow with its node events (in
 // order, errors redacted and bounded, the whole JSON within
-// maxReadViewBytes). A run of another flow is unknown.
+// maxReadViewBytes). A run of another flow is unknown. Agents see the
+// errors only of a run of a version the admin approved and deployed
+// (adminRun); otherwise withheldRunError.
 func (r *Reads) GetRun(ctx context.Context, actor Actor, flowID, runID string) (_ RunView, err error) {
 	defer r.audited(actor, ReadToolGetRun, readArgs{FlowID: flowID, RunID: runID}, r.now())(&err)
 	if err := r.authorize(ctx, actor); err != nil {
@@ -170,6 +180,12 @@ func (r *Reads) GetRun(ctx context.Context, actor Actor, flowID, runID string) (
 	if err != nil {
 		return RunView{}, fmt.Errorf("count run events: %w", err)
 	}
+	showErrors := actor.Kind != ActorAgent
+	if !showErrors {
+		if showErrors, err = r.adminRun(flowID, *run); err != nil {
+			return RunView{}, err
+		}
+	}
 	values := append(r.secretValues(), r.sensitiveValues(f)...)
 	red := valuesRedactor(values)
 	// What GetFlow hides of the flow's settings, redacted from the errors
@@ -180,6 +196,9 @@ func (r *Reads) GetRun(ctx context.Context, actor Actor, flowID, runID string) (
 	errorText := func(s string) string {
 		if s == "" {
 			return ""
+		}
+		if !showErrors {
+			return withheldRunError
 		}
 		if hidden == nil {
 			hiddenValues := r.hiddenValues(f)
@@ -221,6 +240,31 @@ pages:
 	view.TotalEvents = max(total, len(view.Events))
 	view.Truncated = view.Truncated || len(view.Events) < view.TotalEvents
 	return view, nil
+}
+
+// adminRun reports whether run ran a version the admin approved: it
+// started after the flow's current deployment (the marker names the version
+// deployed then, stamped in seconds, so the run must start in a later
+// second; a deployment replaces the previous one only after it stopped)
+// and that version is admin-approved. A run of an agent's deployment, or of
+// a version that cannot be told (before the marker, without one, a pruned
+// version), is not.
+func (r *Reads) adminRun(flowID string, run storage.FlowRun) (bool, error) {
+	d, err := r.history.GetDeployment(flowID)
+	if err != nil {
+		return false, fmt.Errorf("get deployment: %w", err)
+	}
+	if d == nil || run.StartedAt.Unix() <= d.DeployedAt.Unix() {
+		return false, nil
+	}
+	v, err := r.history.GetFlowVersion(flowID, d.Version)
+	if errors.Is(err, storage.ErrFlowVersionNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("get flow version: %w", err)
+	}
+	return v.AdminApproved, nil
 }
 
 // runSummary maps a stored run.

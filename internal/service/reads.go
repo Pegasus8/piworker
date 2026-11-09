@@ -55,7 +55,8 @@ type FlowSource interface {
 	ListFlowsPaginated(offset, limit int) ([]*flow.Flow, int, error)
 }
 
-// RunHistory reads the recorded runs (*storage.SQLiteStore).
+// RunHistory reads the recorded runs and which version ran them
+// (*storage.SQLiteStore).
 type RunHistory interface {
 	ListFlowRunsBefore(flowID, beforeRunID string, limit int) ([]storage.FlowRun, error)
 	GetFlowRun(flowID, runID string) (*storage.FlowRun, error)
@@ -63,6 +64,12 @@ type RunHistory interface {
 	// maxErrorChars characters; CountFlowRunEvents counts them.
 	ListFlowRunEventsAfter(flowID, runID string, afterID int64, limit, maxErrorChars int) ([]storage.NodeEventRecord, error)
 	CountFlowRunEvents(flowID, runID string) (int, error)
+	// GetDeployment returns the flow's last deployment marker (nil: none)
+	// and GetFlowVersion one of its versions (storage.
+	// ErrFlowVersionNotFound): whether a run's version is one the admin
+	// approved (GetRun).
+	GetDeployment(flowID string) (*storage.Deployment, error)
+	GetFlowVersion(flowID string, version int) (*storage.FlowVersion, error)
 }
 
 // ReadRuntimes is what the read views need from the runtime manager

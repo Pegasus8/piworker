@@ -346,8 +346,18 @@ Shared by REST and MCP (thin adapters):
   errors also lose what `GetFlow` hides of the run's flow: the values of its
   hidden settings, split around `{{…}}` templates, whole, as words and as the
   path segments, query values and userinfo of their URLs (parts under 8
-  bytes are kept, but a URL password of 4). An unknown flow is
-  `flow_not_found`.
+  bytes are kept, but a URL password of 4). Agents see a run's recorded
+  errors only when the run is of a version the admin approved and deployed
+  (ADR-0022): it started in a later second than the flow's current
+  deployment marker (stamped in seconds), and the version the marker names
+  is admin-approved. Any other run's errors — an agent's deployment at
+  `low` or `all`, a run before the current deployment, a flow without a
+  marker or whose version was pruned — read as a fixed text naming why;
+  phases, nodes and timings are shown. A node an agent deployed could
+  otherwise raise an error on purpose to hand back what it read
+  (variables, metadata, a credential's response), and redaction by value
+  cannot stop an encoded copy. The editor sees every error. An unknown
+  flow is `flow_not_found`.
 - Drafts/dry-run (phase 3), deploy policy (agent deploy).
 - REST twin: `POST /api/flows/{id}/call/{nodeId}` (editor "Test tool").
 
