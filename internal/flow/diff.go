@@ -697,9 +697,9 @@ func diffAlerts(report DiffReport, base, next *Flow, baseByKey, nextByKey map[st
 			p, declared := d.prop(key)
 			changed := !sameValue(bv, nv) || (b != nil && d.forced(key))
 			written := d.written[key]
-			known := baseAll
+			known, unknownTo := baseAll, "the base version never uses"
 			if written {
-				known = baseReadable
+				known, unknownTo = baseReadable, "no setting of the base version that agents may read uses"
 			}
 			readable := agentReadable(key, b, d)
 			values := func(a Alert, before, after bool) Alert {
@@ -727,7 +727,7 @@ func diffAlerts(report DiffReport, base, next *Flow, baseByKey, nextByKey map[st
 				if h := destinationHost(key, nv); h != "" && !known.hosts[h] && !alertedHosts[once{h, written}] {
 					alertedHosts[once{h, written}] = true
 					add(d.order, Alert{Kind: AlertNewHost, NodeID: d.n.ID, Path: path, After: h,
-						Message: fmt.Sprintf("node %s (%s) sends to %s, a host the base version never uses", d.n.ID, d.n.Type, h)})
+						Message: fmt.Sprintf("node %s (%s) sends to %s, a host %s", d.n.ID, d.n.Type, h, unknownTo)})
 				}
 			}
 			for _, name := range secretNames(nv) {
@@ -736,7 +736,7 @@ func diffAlerts(report DiffReport, base, next *Flow, baseByKey, nextByKey map[st
 					if !alertedSecrets[once{name, written}] {
 						alertedSecrets[once{name, written}] = true
 						add(d.order, Alert{Kind: AlertSecretAdded, NodeID: d.n.ID, Path: path, After: name,
-							Message: fmt.Sprintf("references the secret %s, which the base version never uses", name)})
+							Message: fmt.Sprintf("references the secret %s, which %s", name, unknownTo)})
 					}
 				case !known.secretAt[[4]string{d.key, d.n.Type, key, name}]:
 					add(d.order, Alert{Kind: AlertSecretMoved, NodeID: d.n.ID, Path: path, After: name,
