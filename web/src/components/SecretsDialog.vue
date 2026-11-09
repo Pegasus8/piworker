@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useApi } from '@/composables/useApi'
 import { Button, Input, Label, Dialog } from '@/components/ui'
 import { KeyRound, Trash2, Plus } from 'lucide-vue-next'
+import { DEFAULT_SHORT_BELOW, isShortValue, shortSecretNotice, type SecretItem } from '@/lib/secrets'
 
 const props = defineProps<{ open: boolean }>()
-const emit = defineEmits<{ 'update:open': [boolean] }>()
+// changed: a secret was saved or deleted (the Agents page counts short ones).
+const emit = defineEmits<{ 'update:open': [boolean]; changed: [] }>()
 
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import OperationFeedback from '@/components/ui/OperationFeedback.vue'
@@ -14,12 +16,19 @@ import { useFeedback } from '@/composables/useFeedback'
 const confirmation = ref<InstanceType<typeof ConfirmDialog>>()
 const { feedback, pending, run } = useFeedback()
 const api = useApi()
-const names = ref<string[]>([])
+const items = ref<SecretItem[]>([])
+const shortBelow = ref(DEFAULT_SHORT_BELOW)
 const loading = ref(false)
 const error = ref('')
 
 const newName = ref('')
 const newValue = ref('')
+
+// Short values can be guessed by an agent allowed to deploy flows
+// (ADR-0021): marked with an icon and words, never color alone.
+const notice = computed(() => shortSecretNotice(shortBelow.value))
+const hasShort = computed(() => items.value.some(s => s.short))
+const newValueShort = computed(() => !!newValue.value && isShortValue(newValue.value, shortBelow.value))
 
 // Kept in script so the literal braces don't confuse the template parser.
 const secretSyntax = '{{secret.NAME}}'
@@ -28,7 +37,9 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    names.value = await api.getSecrets()
+    const list = await api.getSecrets()
+    items.value = list.secrets
+    shortBelow.value = list.shortBelow
   } catch (e: any) {
     error.value = e?.response?.data?.error || 'Failed to load secrets'
   } finally {
@@ -49,12 +60,13 @@ async function add() {
   await run(async () => {
     await api.setSecret(name, newValue.value)
     newName.value = ''; newValue.value = ''
+    emit('changed')
     await load()
   }, 'Secret saved.', 'Could not save the secret. Try again.')
 }
 async function remove(name: string) {
   if (pending.value || !await confirmation.value?.ask('Delete secret?', `Delete “${name}”? Flows that reference it may stop working. This cannot be undone.`, 'Delete secret')) return
-  await run(async () => { await api.deleteSecret(name); await load() }, 'Secret deleted.', 'Could not delete the secret. Try again.')
+  await run(async () => { await api.deleteSecret(name); emit('changed'); await load() }, 'Secret deleted.', 'Could not delete the secret. Try again.')
 }
 </script>
 
@@ -76,21 +88,31 @@ async function remove(name: string) {
 
         <OperationFeedback :message="feedback" @dismiss="feedback = null" />
         <!-- Existing secrets -->
-        <div class="max-h-48 space-y-1 overflow-auto rounded border">
-          <p v-if="!loading && !names.length" class="p-3 text-center text-sm text-muted-foreground">
+        <div class="max-h-60 space-y-1 overflow-auto rounded border">
+          <p v-if="!loading && !items.length" class="p-3 text-center text-sm text-muted-foreground">
             No secrets yet.
           </p>
           <div
-            v-for="name in names"
-            :key="name"
-            class="flex items-center justify-between px-3 py-2 text-sm"
+            v-for="item in items"
+            :key="item.name"
+            class="flex justify-between gap-2 px-3 py-2 text-sm"
+            :class="item.short ? 'items-start' : 'items-center'"
           >
-            <span class="font-mono">{{ name }}</span>
-            <Button variant="ghost" size="icon" class="text-destructive" :disabled="pending" :aria-label="`Delete secret ${name}`" @click="remove(name)">
+            <div class="min-w-0 space-y-1">
+              <span class="break-all font-mono">{{ item.name }}</span>
+              <p v-if="item.short" class="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+                <component :is="notice.icon" class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span><strong>{{ notice.label }}:</strong> {{ notice.text }}</span>
+              </p>
+            </div>
+            <Button variant="ghost" size="icon" class="shrink-0 text-destructive" :disabled="pending" :aria-label="`Delete secret ${item.name}`" @click="remove(item.name)">
               <Trash2 class="h-3.5 w-3.5" />
             </Button>
           </div>
         </div>
+        <p v-if="hasShort" class="text-xs text-muted-foreground">
+          To replace a value, add the secret again with the same name.
+        </p>
 
         <!-- Add new -->
         <div class="space-y-2 border-t pt-3">
@@ -101,9 +123,14 @@ async function remove(name: string) {
             </div>
             <div>
               <Label class="text-xs">Value</Label>
-              <Input aria-label="Secret value" :disabled="pending" v-model="newValue" type="password" placeholder="secret value" class="mt-1" />
+              <Input aria-label="Secret value" :disabled="pending" v-model="newValue" type="password" placeholder="secret value" class="mt-1"
+                :aria-describedby="newValueShort ? 'secret-value-short' : undefined" />
             </div>
           </div>
+          <p v-if="newValueShort" id="secret-value-short" class="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+            <component :is="notice.icon" class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span><strong>{{ notice.label }}:</strong> {{ notice.text }}</span>
+          </p>
           <Button size="sm" class="w-full" :disabled="pending || !newName.trim() || !newValue" @click="add">
             <Plus class="mr-2 h-4 w-4" /> Add secret
           </Button>

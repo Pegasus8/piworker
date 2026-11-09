@@ -7,7 +7,7 @@ test.beforeEach(async ({page})=>{
  page.setDefaultTimeout(5000)
  await page.route('**/api/**',route=>{
   const path=new URL(route.request().url()).pathname
-  const data=path.endsWith('/auth/status')?{enabled:false}:path.includes('/flows/') && path.endsWith('/variables')?{variables:{}}:path.endsWith('/variables')?{variables:{threshold:25,'room-name':'office'}}:path.endsWith('/secrets')?{names:['BOT_TOKEN']}:path.endsWith('/node-types')?{nodeTypes:[
+  const data=path.endsWith('/auth/status')?{enabled:false}:path.includes('/flows/') && path.endsWith('/variables')?{variables:{}}:path.endsWith('/variables')?{variables:{threshold:25,'room-name':'office'}}:path.endsWith('/secrets')?{secrets:[{name:'BOT_TOKEN',short:false}],shortBelow:16}:path.endsWith('/node-types')?{nodeTypes:[
    {type:'process-transform',name:'Transform',category:'processing',config:{properties:{expression:{type:'string',title:'Expression'}}}},
    {type:'action-telegram',name:'Telegram',category:'output',config:{properties:{botToken:{type:'string',title:'Bot Token'},message:{type:'string',title:'Message'}}}}
   ]}:path.endsWith('/flows/ref')?{flow:{id:'ref',name:'References',state:'inactive',nodes,connections:[]},running:false}:{flows:[],runs:[]}
