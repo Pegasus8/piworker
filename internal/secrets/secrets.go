@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"sync"
+	"unicode/utf8"
 )
 
 // nameRe constrains secret names so {{secret.NAME}} parsing is unambiguous.
@@ -89,6 +90,39 @@ func (s *Store) Delete(name string) error {
 	}
 	delete(s.values, name)
 	return nil
+}
+
+// ShortValueRunes is the number of characters (runes, not bytes) below which
+// a secret value counts as short. The read views agents use hide known
+// secret values by comparison (ADR-0021), so an agent allowed to author,
+// deploy and read flows can write a guess into a flow or a run and see
+// whether it comes back hidden. Only a short value (a PIN, a word, a short
+// password) falls to the guesses that allows; 16 characters is the length of
+// a generated password or API key, beyond any practical number of guesses.
+const ShortValueRunes = 16
+
+// IsShort reports whether value has fewer than ShortValueRunes runes.
+func IsShort(value string) bool {
+	return utf8.RuneCountInString(value) < ShortValueRunes
+}
+
+// Entry describes a stored secret for its listing: its name and whether its
+// value is short, never the value or its length.
+type Entry struct {
+	Name  string
+	Short bool
+}
+
+// List returns the stored secrets sorted by name, each marked short or not.
+func (s *Store) List() []Entry {
+	s.mu.RLock()
+	out := make([]Entry, 0, len(s.values))
+	for name, v := range s.values {
+		out = append(out, Entry{Name: name, Short: IsShort(v)})
+	}
+	s.mu.RUnlock()
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 // Names returns the sorted secret names. Values are never exposed in bulk.
