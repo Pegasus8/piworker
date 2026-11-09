@@ -182,6 +182,64 @@ func TestPruneMCPAuditRowCapSparesPrivileged(t *testing.T) {
 	assert.Equal(t, int64(4), n, "time retention applies to every row")
 }
 
+// The row cap evicts reads and prompts (which change nothing) before tool
+// calls, oldest first; privileged rows are still never evicted early.
+func TestPruneMCPAuditRowCapEvictsReadsFirst(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	tools := []string{"lights.on", "pw_get_flow", "prompt:diagnose_flow", "lights.off", "pw_dry_run", "lights.on", "pw_list_runs"}
+	var batch []MCPAuditEntry
+	for i, tool := range tools {
+		e := auditEntry(i, testNow.Add(time.Duration(i)*time.Second))
+		e.Tool = tool
+		e.Privileged = i == 0
+		batch = append(batch, e)
+	}
+	require.NoError(t, s.InsertMCPAudit(batch, testNow))
+	runIDs := func() []string {
+		t.Helper()
+		got, err := s.ListMCPAudit(MCPAuditFilter{})
+		require.NoError(t, err)
+		ids := []string{}
+		for _, e := range got {
+			ids = append(ids, e.RunID)
+		}
+		return ids
+	}
+
+	// The cap evicts as many rows as before (the non-privileged rows beyond
+	// the newest maxRows: here run-1 to run-3, run-0 is privileged), but it
+	// picks reads and prompts first, oldest first, whatever their age: the
+	// newer read run-4 goes before the older tool call run-3.
+	n, err := s.PruneMCPAudit(testNow, 3)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), n)
+	assert.Equal(t, []string{"run-6", "run-5", "run-3", "run-0"}, runIDs())
+
+	// One more row to evict: the read run-6, newer than every tool call.
+	n, err = s.PruneMCPAudit(testNow, 2)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), n)
+	assert.Equal(t, []string{"run-5", "run-3", "run-0"}, runIDs())
+
+	// No read left: the oldest tool call goes; the privileged one stays.
+	n, err = s.PruneMCPAudit(testNow, 1)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), n)
+	assert.Equal(t, []string{"run-5", "run-0"}, runIDs())
+}
+
+func TestMCPAuditReadTools(t *testing.T) {
+	for _, tool := range []string{"pw_list_flows", "pw_get_flow", "pw_list_runs", "pw_get_run", "pw_system_status",
+		"pw_get_result", "pw_list_node_types", "pw_validate_flow", "pw_get_draft", "pw_dry_run", "pw_test_node",
+		"prompt:diagnose_flow", "prompt:author_flow"} {
+		assert.True(t, IsMCPAuditRead(tool), tool)
+	}
+	for _, tool := range []string{"lights.on", "pw_save_draft", "pw_deploy_flow", "pw_stop_flow", "pw_unknown", "", "prompt"} {
+		assert.False(t, IsMCPAuditRead(tool), tool)
+	}
+}
+
 func TestMCPRejectionCounters(t *testing.T) {
 	s := createTestStore(t)
 	defer s.Close()

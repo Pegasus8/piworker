@@ -179,9 +179,48 @@ func (s *SQLiteStore) ListMCPAudit(f MCPAuditFilter) ([]MCPAuditEntry, error) {
 	return out, nil
 }
 
+// mcpAuditReadTools are the built-in tools (user tools cannot be named pw_*)
+// whose audit rows record reads: they change nothing, so the row cap evicts
+// them, with prompts (MCPAuditPromptPrefix), before tool calls.
+var mcpAuditReadTools = []string{
+	"pw_list_flows", "pw_get_flow", "pw_list_runs", "pw_get_run", "pw_system_status",
+	"pw_get_result", "pw_list_node_types", "pw_validate_flow", "pw_get_draft", "pw_dry_run", "pw_test_node",
+}
+
+// MCPAuditPromptPrefix starts the audited name of a prompt ("prompt:<name>").
+const MCPAuditPromptPrefix = "prompt:"
+
+// IsMCPAuditRead reports whether an audit row of tool records a read or a
+// prompt (evicted first by the row cap) rather than a tool call or an action
+// (saving a draft, deploying, stopping).
+func IsMCPAuditRead(tool string) bool {
+	if strings.HasPrefix(tool, MCPAuditPromptPrefix) && len(tool) > len(MCPAuditPromptPrefix) {
+		return true
+	}
+	for _, t := range mcpAuditReadTools {
+		if t == tool {
+			return true
+		}
+	}
+	return false
+}
+
+// mcpAuditReadCond matches the rows IsMCPAuditRead reports, and its args.
+func mcpAuditReadCond() (string, []any) {
+	marks := strings.Repeat("?, ", len(mcpAuditReadTools)-1) + "?"
+	args := make([]any, 0, len(mcpAuditReadTools)+1)
+	for _, t := range mcpAuditReadTools {
+		args = append(args, t)
+	}
+	args = append(args, MCPAuditPromptPrefix+"?*") // GLOB: case-sensitive, like IsMCPAuditRead
+	return `(tool IN (` + marks + `) OR tool GLOB ?)`, args
+}
+
 // PruneMCPAudit deletes rows and counters older than MCPAuditRetention and,
-// when maxRows > 0, the oldest non-privileged rows beyond the newest maxRows.
-// It returns the number of audit rows deleted.
+// when maxRows > 0, as many non-privileged rows as lie beyond the newest
+// maxRows: reads and prompts first (IsMCPAuditRead, oldest first, whatever
+// their age), then the oldest tool calls. Privileged rows are never evicted
+// by the cap. It returns the number of audit rows deleted.
 func (s *SQLiteStore) PruneMCPAudit(now time.Time, maxRows int) (int64, error) {
 	if s.isClosed() {
 		return 0, ErrDatabaseClosed
@@ -201,18 +240,36 @@ func (s *SQLiteStore) PruneMCPAudit(now time.Time, maxRows int) (int64, error) {
 		return 0, err
 	}
 	if maxRows > 0 {
-		res, err := tx.Exec(`
-			DELETE FROM mcp_audit
+		var excess int64
+		if err := tx.QueryRow(`
+			SELECT COUNT(*) FROM mcp_audit
 			WHERE privileged = 0 AND id NOT IN (SELECT id FROM mcp_audit ORDER BY ts DESC, id DESC LIMIT ?)
-		`, maxRows)
-		if err != nil {
-			return 0, fmt.Errorf("failed to cap audit entries: %w", err)
+		`, maxRows).Scan(&excess); err != nil {
+			return 0, fmt.Errorf("failed to count audit entries over the cap: %w", err)
 		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			return 0, err
+		readCond, readArgs := mcpAuditReadCond()
+		for _, cond := range []struct {
+			where string
+			args  []any
+		}{{readCond, readArgs}, {"1 = 1", nil}} {
+			if excess <= 0 {
+				break
+			}
+			args := append(append([]any{}, cond.args...), excess)
+			res, err := tx.Exec(`
+				DELETE FROM mcp_audit WHERE id IN (
+					SELECT id FROM mcp_audit WHERE privileged = 0 AND `+cond.where+` ORDER BY ts, id LIMIT ?)
+			`, args...)
+			if err != nil {
+				return 0, fmt.Errorf("failed to cap audit entries: %w", err)
+			}
+			n, err := res.RowsAffected()
+			if err != nil {
+				return 0, err
+			}
+			deleted += n
+			excess -= n
 		}
-		deleted += n
 	}
 	if _, err := tx.Exec(`DELETE FROM mcp_rejections WHERE minute < ?`, cutoff.Unix()); err != nil {
 		return 0, fmt.Errorf("failed to prune rejection counters: %w", err)
