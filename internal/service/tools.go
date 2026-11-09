@@ -14,7 +14,6 @@ import (
 	"github.com/Pegasus8/piworker/internal/config"
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
-	"github.com/Pegasus8/piworker/internal/redact"
 	"github.com/Pegasus8/piworker/internal/secrets"
 	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/Pegasus8/piworker/internal/toolschema"
@@ -432,8 +431,9 @@ func callError(err error) error {
 	return fmt.Errorf("call tool: %w", err)
 }
 
-// finish redacts known secrets (and credential-bearing URLs in errors) and
-// caps the result size.
+// finish redacts known secrets (and the URLs in errors past their host, as
+// the read views do: a credential may sit in the userinfo, the query or the
+// path, like Telegram bot and webhook tokens) and caps the result size.
 func (t *Tools) finish(res flow.CallResult) flow.CallResult {
 	red := newSecretRedactor(t.secrets)
 	if len(res.Result) > 0 {
@@ -441,7 +441,7 @@ func (t *Tools) finish(res flow.CallResult) flow.CallResult {
 	}
 	if res.Error != nil {
 		e := *res.Error
-		e.Message = capText(redact.URLsInText(red.text(e.Message)), maxErrorMessageBytes)
+		e.Message = capText(hideURLsInText(red.text(e.Message)), maxErrorMessageBytes)
 		res.Error = &e
 	}
 	return res

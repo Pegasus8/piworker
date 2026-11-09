@@ -700,8 +700,26 @@ func TestRedactionCanaries(t *testing.T) {
 	assert.NotContains(t, res.Error.Message, "hunter2")
 	assert.NotContains(t, res.Error.Message, url.QueryEscape(canary))
 	assert.NotContains(t, res.Error.Message, b64)
-	assert.Contains(t, res.Error.Message, "https://api.example.com/x?<redacted>")
+	assert.Contains(t, res.Error.Message, "https://api.example.com/<redacted>")
 	assert.Equal(t, "fail", res.Error.NodeID)
+}
+
+// A tool error hides URL paths too: Telegram bot, Discord and Slack webhook
+// tokens sit in the path, not in the userinfo or the query (the read views'
+// rule, hideURLsInText).
+func TestToolErrorHidesURLPaths(t *testing.T) {
+	e := newEnv(t)
+	msg := "POST https://api.telegram.org/bot123456:AAH-path-token/sendMessage failed; " +
+		"see https://hooks.slack.com/services/T000/B000/XXXXsecretXXXX. Plain https://example.com/ stays."
+	failing := e.deploy(fan(toolConfig(nil), step{id: "fail", typ: failNodeType, config: map[string]any{"message": msg}}))
+	res, err := e.call(EditorActor(), failing, map[string]any{"door": "left"})
+	require.NoError(t, err)
+	require.NotNil(t, res.Error)
+	assert.NotContains(t, res.Error.Message, "AAH-path-token")
+	assert.NotContains(t, res.Error.Message, "XXXXsecretXXXX")
+	assert.Contains(t, res.Error.Message, "https://api.telegram.org/<redacted>")
+	assert.Contains(t, res.Error.Message, "https://hooks.slack.com/<redacted>.")
+	assert.Contains(t, res.Error.Message, "https://example.com/ stays")
 }
 
 func TestLargeResultsAreTruncatedToValidJSON(t *testing.T) {
