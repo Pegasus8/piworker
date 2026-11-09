@@ -2,6 +2,7 @@ package flow_test
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -65,16 +66,30 @@ func TestTestNodeRefusesUnsafeInstance(t *testing.T) {
 	require.NoError(t, err, "the same type with a fixed destination stays safe")
 }
 
-// TestTestNodeChecksConfigLikeDeploy: schema mismatches are validation
-// errors, factory and Validate refusals wrap ErrInvalidNodeConfig.
+// TestTestNodeChecksConfigLikeDeploy: the config is checked as deploy checks
+// it (Lint's collectors): schema mismatches are config_type issues at
+// /config/{prop}, factory and Validate refusals an invalid_config issue at
+// /config. The node does not run then, and TestNode returns no error.
 func TestTestNodeChecksConfigLikeDeploy(t *testing.T) {
-	_, err := flow.TestNode(context.Background(), node.DefaultRegistry, "process-transform", map[string]any{"expression": 42}, nil)
-	var verr *flow.ValidationError
-	require.ErrorAs(t, err, &verr)
-	assert.Contains(t, err.Error(), "config.expression")
+	res, err := flow.TestNode(context.Background(), node.DefaultRegistry, "process-transform", map[string]any{"expression": 42}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"error:" + flow.IssueConfigType + "@/config/expression"}, issueKeys(res.Issues))
+	assert.NotContains(t, res.Issues[0].Message, "config.expression", "the path locates it")
+	assert.Empty(t, res.Outputs)
 
-	_, err = flow.TestNode(context.Background(), node.DefaultRegistry, "process-transform", map[string]any{"expression": "payload +"}, nil)
-	require.ErrorIs(t, err, flow.ErrInvalidNodeConfig)
+	res, err = flow.TestNode(context.Background(), node.DefaultRegistry, "process-transform", map[string]any{"expression": "payload +"}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"error:" + flow.IssueInvalidConfig + "@/config"}, issueKeys(res.Issues))
+	assert.Empty(t, res.Outputs)
+	assert.Empty(t, res.Error, "the node did not run")
+
+	res, err = flow.TestNode(context.Background(), node.DefaultRegistry, "process-transform", map[string]any{"expression": "payload"}, 1)
+	require.NoError(t, err)
+	require.NotNil(t, res.Issues)
+	assert.Empty(t, res.Issues)
+	data, err := json.Marshal(res)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"issues":[]`)
 }
 
 // TestTestNodeIsIsolated: the node sees empty stores and changes none of the

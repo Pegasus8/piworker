@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/node"
@@ -29,6 +28,10 @@ var ErrTestNodeForbidden = errors.New("only safe processing nodes can be tested"
 
 // TestNodeResult is the outcome of a node test, bounded like a dry-run.
 type TestNodeResult struct {
+	// Issues are the config's problems deploy would refuse (config_type at
+	// "/config/{prop}", invalid_config at "/config"); when there are any,
+	// the node did not run.
+	Issues  []Issue       `json:"issues"`
 	Outputs []PortPreview `json:"outputs"`
 	// Error is the node's error, cut to DryRunPreviewBytes.
 	Error      string  `json:"error,omitempty"`
@@ -44,10 +47,11 @@ type TestNodeResult struct {
 // sandbox: isolated, empty variable stores, an empty secret store, a
 // node.Sandbox bounding the data it generates, a TestNodeTimeout deadline.
 // The input and the config are at most DryRunMaxInputBytes of JSON each
-// (else ErrDryRunInput). The config is checked as deploy checks it
-// (node.CheckConfig, then the factory and Validate): a mismatch is a
-// *ValidationError, a refusal of the factory or Validate wraps
-// ErrInvalidNodeConfig. An unknown type wraps ErrInvalidNodeType; any other
+// (else ErrDryRunInput). The config is checked as deploy checks it (Lint's
+// collectors: node.CheckConfig, then the factory and Validate): its problems
+// are the result's Issues (config_type at "/config/{prop}", invalid_config at
+// "/config") and the node does not run then (no error). An unknown type
+// wraps ErrInvalidNodeType; any other
 // category or a risk that is not safe (type or instance) wraps
 // ErrTestNodeForbidden. A node error or panic, an output over the per-value
 // cap, is the result's Error, not an error of TestNode. TestNode returns at
@@ -88,24 +92,21 @@ func TestNode(ctx context.Context, reg *node.Registry, nodeType string, config m
 		}
 	}()
 
-	if issues := node.CheckConfig(info.Config, cfg); len(issues) > 0 {
-		msgs := make([]string, len(issues))
-		for i, issue := range issues {
-			msgs[i] = "config." + issue.String()
-		}
-		return TestNodeResult{}, NewValidationError("%s", strings.Join(msgs, "; "))
+	// The config is checked by Lint's collectors, as deploy checks a node:
+	// config typing, then the factory and Validate.
+	probe := &Flow{Nodes: []Node{{ID: "node", Type: nodeType, Config: cfg, Enabled: true}}}
+	if fds := configFindings(probe, reg); len(fds) > 0 {
+		return testNodeIssues(fds), nil
 	}
-	inst, err := reg.Create(nodeType, cfg)
-	if err != nil {
-		return TestNodeResult{}, fmt.Errorf("%w: %w", ErrInvalidNodeConfig, err)
+	instances, fds := instantiateNodes(probe, reg, nil)
+	if len(fds) > 0 {
+		closeInstances(instances)
+		return testNodeIssues(fds), nil
 	}
+	inst := instances[0]
 	if _, isTrigger := inst.(node.TriggerNode); isTrigger {
 		closeNode(inst)
 		return TestNodeResult{}, fmt.Errorf("%w: %s is a trigger", ErrTestNodeForbidden, nodeType)
-	}
-	if err := inst.Validate(); err != nil {
-		closeNode(inst)
-		return TestNodeResult{}, fmt.Errorf("%w: %w", ErrInvalidNodeConfig, err)
 	}
 	_, ports := inst.Ports()
 
@@ -137,7 +138,7 @@ func TestNode(ctx context.Context, reg *node.Registry, nodeType string, config m
 			returned = false
 		}
 	}
-	res := TestNodeResult{Outputs: []PortPreview{}, DurationMs: durationMs(time.Since(start))}
+	res := TestNodeResult{Issues: []Issue{}, Outputs: []PortPreview{}, DurationMs: durationMs(time.Since(start))}
 	sess := &dryRunSession{} // for its bounded previews
 
 	if !returned {
@@ -167,7 +168,7 @@ func TestNode(ctx context.Context, reg *node.Registry, nodeType string, config m
 		res.Error = sess.cut(out.err.Error())
 		res.TimedOut = ctx.Err() == nil && errors.Is(runCtx.Err(), context.DeadlineExceeded)
 	}
-	budget := DryRunMaxResultBytes - jsonLen(TestNodeResult{Outputs: []PortPreview{}, Error: res.Error, DurationMs: res.DurationMs, Truncated: true, TimedOut: true})
+	budget := DryRunMaxResultBytes - jsonLen(TestNodeResult{Issues: []Issue{}, Outputs: []PortPreview{}, Error: res.Error, DurationMs: res.DurationMs, Truncated: true, TimedOut: true})
 	for _, p := range sess.outputPreviews(out.outs, ports) {
 		n := jsonLen(p) + 1
 		if n > budget {
@@ -179,6 +180,24 @@ func TestNode(ctx context.Context, reg *node.Registry, nodeType string, config m
 	}
 	res.Truncated = res.Truncated || sess.previewCut.Load()
 	return res, ctx.Err()
+}
+
+// testNodeIssues is the result of a node test whose config deploy would
+// refuse: the issues, at "/config/{prop}" (config typing) or "/config" (the
+// factory or Validate), each message cut to DryRunPreviewBytes; the node did
+// not run. The messages are not hidden: the whole config is the caller's.
+func testNodeIssues(fds []finding) TestNodeResult {
+	res := TestNodeResult{Issues: []Issue{}, Outputs: []PortPreview{}}
+	sess := &dryRunSession{} // for its bounded previews
+	for _, fd := range fds {
+		path := "/config"
+		if fd.prop != "" {
+			path += "/" + pointerEscape(fd.prop)
+		}
+		res.Issues = append(res.Issues, Issue{Path: path, Code: fd.code, Severity: fd.sev, Message: sess.cut(fd.msg)})
+	}
+	res.Truncated = sess.previewCut.Load()
+	return res
 }
 
 // cloneConfig deep-copies a node config (a test must not let the node keep

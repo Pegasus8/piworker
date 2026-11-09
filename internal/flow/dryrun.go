@@ -230,6 +230,11 @@ type WouldExecute struct {
 
 // DryRunResult is what a dry-run did, in execution order.
 type DryRunResult struct {
+	// Issues are Lint's issues of the flow as it would run (after Redact),
+	// each message cut to DryRunPreviewBytes. An error other than an
+	// EnvironmentIssue (undefined_secret) means the flow did not run: the
+	// trace and wouldExecute are then empty.
+	Issues       []Issue        `json:"issues"`
 	Trace        []TraceStep    `json:"trace"`
 	WouldExecute []WouldExecute `json:"wouldExecute"`
 	// MissingSecrets are the secret names the nodes the run reached
@@ -247,8 +252,10 @@ type DryRunResult struct {
 }
 
 // DryRun runs f once in a sandbox and reports what happened. The flow is
-// first validated as deploy does (an invalid flow is an error wrapping the
-// deploy's own error, e.g. a *ValidationError or ErrInvalidNodeConfig); it is
+// first linted (LintContext with ctx's secret store: deploy's own checks);
+// its issues are the result's Issues, and an error issue other than an
+// EnvironmentIssue (see BlockingIssues) means it does not run — the result
+// then holds only the issues and DryRun returns no error. A valid flow is
 // then instantiated in a private runtime that is never registered with a
 // RuntimeManager, through reg.Derive: every node is wrapped so that triggers
 // never start (Payload is injected at the chosen trigger's output) and every
@@ -297,12 +304,16 @@ func DryRun(ctx context.Context, f *Flow, reg *node.Registry, in DryRunInput) (D
 		return DryRunResult{}, fmt.Errorf("%w: %v", ErrDryRunInput, err)
 	}
 	redactConfig(work, in.Redact)
-	if err := dryRunPrecheck(work, reg); err != nil {
-		return DryRunResult{}, fmt.Errorf("invalid flow: %w", err)
+	// Lint is the one validation (ADR-0007): the checks deploy runs, on the
+	// flow as it would run. The secrets are checked against the caller's
+	// store (the sandbox's is empty), and do not stop the run.
+	issues := LintContext(ctx, work, reg)
+	if len(BlockingIssues(issues)) > 0 {
+		return (&dryRunSession{issues: issues}).result(work, false), nil
 	}
 
 	sb := newSandbox()
-	sess := &dryRunSession{done: make(chan struct{}), sb: sb}
+	sess := &dryRunSession{done: make(chan struct{}), sb: sb, issues: issues}
 	globals, locals := flowvars.NewStore(), flowvars.NewStore()
 	for k, v := range in.FlowVars {
 		if err := locals.Set(k, v); err != nil {
@@ -365,20 +376,6 @@ func DryRun(ctx context.Context, f *Flow, reg *node.Registry, in DryRunInput) (D
 		}()
 	}
 	return sess.result(work, timedOut), callerErr
-}
-
-// dryRunPrecheck validates f the way deploy does (config typing, factories
-// and Validate in NewFlowRuntime, then validateDeployable), without starting
-// anything; the nodes it builds are closed. It is the one place the dry-run
-// validates a flow.
-func dryRunPrecheck(f *Flow, reg *node.Registry) error {
-	rt, err := NewFlowRuntime(f, reg)
-	if err != nil {
-		return err
-	}
-	defer rt.closeNodes()
-	_, _, err = validateDeployable(rt, reg)
-	return err
 }
 
 // cloneFlowJSON deep-copies a flow through its JSON form (so a flow that
@@ -566,6 +563,7 @@ type dryRunSession struct {
 	routed     atomic.Int64
 	capped     atomic.Bool
 	previewCut atomic.Bool
+	issues     []Issue // Lint's, set before the run
 
 	mu     sync.Mutex
 	closed bool // the result was taken: later records are dropped
@@ -784,7 +782,7 @@ func (s *dryRunSession) result(work *Flow, timedOut bool) DryRunResult {
 	sort.SliceStable(would, func(a, b int) bool { return would[a].seq < would[b].seq })
 
 	res := DryRunResult{
-		Trace: []TraceStep{}, WouldExecute: []WouldExecute{}, MissingSecrets: []string{},
+		Issues: []Issue{}, Trace: []TraceStep{}, WouldExecute: []WouldExecute{}, MissingSecrets: []string{},
 		Truncated: true, TimedOut: true, Capped: true,
 	}
 	budget := DryRunMaxResultBytes - jsonLen(res)
@@ -799,6 +797,13 @@ func (s *dryRunSession) result(work *Flow, timedOut bool) DryRunResult {
 		return true
 	}
 
+	for _, issue := range s.issues {
+		issue.Message = s.cut(issue.Message)
+		if !fits(issue) {
+			return res
+		}
+		res.Issues = append(res.Issues, issue)
+	}
 	for _, w := range would {
 		if !fits(w.would) {
 			return res

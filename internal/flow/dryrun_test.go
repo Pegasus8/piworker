@@ -292,9 +292,16 @@ func TestDryRunRefusesBadInput(t *testing.T) {
 		})
 	}
 
+	// Without an enabled trigger the flow is invalid: Lint's no_trigger.
+	f.Nodes[0] = lintNode("trig", "trigger-manual", nil) // with its stored ports
 	f.Nodes[0].Enabled = false
-	_, err := flow.DryRun(context.Background(), f, node.DefaultRegistry, flow.DryRunInput{TriggerNodeID: "trig"})
-	require.Error(t, err, "a disabled trigger cannot start a dry-run")
+	res, err := flow.DryRun(context.Background(), f, node.DefaultRegistry, flow.DryRunInput{TriggerNodeID: "trig"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"error:" + flow.IssueNoTrigger + "@/nodes"}, issueKeys(res.Issues), "a disabled trigger cannot start a dry-run")
+	f.Nodes = append(f.Nodes, lintNode("other", "trigger-manual", nil))
+	_, err = flow.DryRun(context.Background(), f, node.DefaultRegistry, flow.DryRunInput{TriggerNodeID: "trig"})
+	require.ErrorIs(t, err, flow.ErrDryRunInput, "a disabled trigger cannot start a dry-run")
+	f.Nodes = f.Nodes[:len(f.Nodes)-1]
 
 	big := []dn{{"trig", "trigger-manual", nil}}
 	var conns []string
@@ -309,30 +316,83 @@ func TestDryRunRefusesBadInput(t *testing.T) {
 	require.ErrorIs(t, err, flow.ErrDryRunInput, "more than %d nodes", flow.DryRunMaxNodes)
 }
 
-// TestDryRunRefusesInvalidFlow: the flow is validated like a deploy first;
-// failures wrap the deploy's own invalid-flow errors.
-func TestDryRunRefusesInvalidFlow(t *testing.T) {
+// TestDryRunReportsLintIssuesInsteadOfRunning: the flow is linted first
+// (flow.Lint, deploy's own checks); a flow with an error issue does not run:
+// the result carries the issues, with no trace, and DryRun returns no error.
+func TestDryRunReportsLintIssuesInsteadOfRunning(t *testing.T) {
+	cases := []struct {
+		name string
+		f    *flow.Flow
+		key  string
+	}{
+		{"mistyped config", dryFlow([]dn{
+			{"trig", "trigger-manual", nil},
+			{"t", "process-transform", map[string]any{"expression": 42}},
+		}, "trig>t"), "error:" + flow.IssueConfigType + "@/nodes/t/config/expression"},
+		{"factory error", dryFlow([]dn{
+			{"trig", "trigger-manual", nil},
+			{"t", "process-transform", map[string]any{"expression": "payload +"}},
+		}, "trig>t"), "error:" + flow.IssueInvalidConfig + "@/nodes/t"},
+		{"structure", dryFlow([]dn{
+			{"trig", "trigger-manual", nil},
+			{"t", "process-transform", map[string]any{"expression": "payload"}},
+		}, "trig>t", "t>missing"), "error:" + flow.IssueConnectionUnknownNode + "@/connections/"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			waitFreeSandbox(t)
+			res, err := flow.DryRun(context.Background(), tc.f, node.DefaultRegistry, flow.DryRunInput{TriggerNodeID: "trig"})
+			require.NoError(t, err, "an invalid flow is a result, not an error")
+			require.Len(t, res.Issues, 1, "%v", issueKeys(res.Issues))
+			assert.True(t, strings.HasPrefix(issueKeys(res.Issues)[0], tc.key), "%v", issueKeys(res.Issues))
+			assert.Equal(t, flow.Lint(tc.f, node.DefaultRegistry), res.Issues, "exactly Lint's issues")
+			assert.Empty(t, res.Trace, "nothing ran")
+			assert.Empty(t, res.WouldExecute)
+			assert.Contains(t, resultJSON(t, res), `"issues":[{"path":`)
+		})
+	}
+}
+
+// TestDryRunKeepsWarningsAndSecretIssues: warnings never stop a dry-run,
+// nor do undefined secrets (flow.EnvironmentIssue: the sandbox has no
+// secrets anyway); both are reported with the run.
+func TestDryRunKeepsWarningsAndSecretIssues(t *testing.T) {
+	waitFreeSandbox(t)
+	cfg := strictToolConfig()
+	cfg["timeoutMs"] = float64(1000)
+	f := chainFlow(cfg, riskStep{id: "wait", typ: "process-delay", config: map[string]any{"delay": float64(1100)}}, reply())
+	f.Nodes = append(f.Nodes, lintNode("tg", "action-telegram", map[string]any{"botToken": "{{secret.pw_dry_undefined}}", "chatId": "1"}))
+	f.Connections = append(f.Connections, lintConn("ctg", "tool", "output", "tg", "input"))
+
+	res, err := flow.DryRun(context.Background(), f, node.DefaultRegistry, flow.DryRunInput{TriggerNodeID: "tool", Payload: map[string]any{"door": "left"}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"warning:" + flow.IssueToolDelayExceedsTimeout + "@/nodes/wait/config/delay",
+		"error:" + flow.IssueUndefinedSecret + "@/nodes/tg/config/botToken",
+	}, issueKeys(res.Issues))
+	require.NotEmpty(t, res.Trace, "the flow ran")
+	require.Len(t, res.WouldExecute, 1)
+	assert.Equal(t, "tg", res.WouldExecute[0].NodeID)
+	assert.Equal(t, []string{"pw_dry_undefined"}, res.MissingSecrets)
+}
+
+// TestDryRunIssuesAreOfTheRedactedFlow: Lint runs after Redact, so a
+// redacted value that makes its node invalid is an issue (no run) whose
+// message quotes nothing hidden.
+func TestDryRunIssuesAreOfTheRedactedFlow(t *testing.T) {
+	waitFreeSandbox(t)
 	f := dryFlow([]dn{
 		{"trig", "trigger-manual", nil},
-		{"t", "process-transform", map[string]any{"expression": 42}},
+		{"t", "process-transform", map[string]any{"expression": `"very-hidden-" + string(payload)`}},
 	}, "trig>t")
-	_, err := flow.DryRun(context.Background(), f, node.DefaultRegistry, flow.DryRunInput{TriggerNodeID: "trig"})
-	var verr *flow.ValidationError
-	require.ErrorAs(t, err, &verr, "mistyped config, as deploy reports it")
-
-	f = dryFlow([]dn{
-		{"trig", "trigger-manual", nil},
-		{"t", "process-transform", map[string]any{"expression": "payload +"}},
-	}, "trig>t")
-	_, err = flow.DryRun(context.Background(), f, node.DefaultRegistry, flow.DryRunInput{TriggerNodeID: "trig"})
-	require.ErrorIs(t, err, flow.ErrInvalidNodeConfig, "a factory error, as deploy reports it")
-
-	f = dryFlow([]dn{
-		{"trig", "trigger-manual", nil},
-		{"t", "process-transform", map[string]any{"expression": "payload"}},
-	}, "trig>t", "t>missing")
-	_, err = flow.DryRun(context.Background(), f, node.DefaultRegistry, flow.DryRunInput{TriggerNodeID: "trig"})
-	require.ErrorAs(t, err, &verr, "a structural error, as deploy reports it")
+	res, err := flow.DryRun(context.Background(), f, node.DefaultRegistry, flow.DryRunInput{
+		TriggerNodeID: "trig",
+		Redact:        func(n *flow.Node, prop string) bool { return prop == "expression" },
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"error:" + flow.IssueInvalidConfig + "@/nodes/t"}, issueKeys(res.Issues))
+	assert.Empty(t, res.Trace)
+	assert.NotContains(t, resultJSON(t, res), "very-hidden")
 }
 
 // TestDryRunDoesNotModifyTheFlow: the caller's flow is left as it was (the

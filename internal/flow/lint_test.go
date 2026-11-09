@@ -338,6 +338,20 @@ func TestLintDoesNotCallAConnectedTriggerUnconnected(t *testing.T) {
 	assert.Contains(t, issueKeys(flow.Lint(f, node.DefaultRegistry)), "error:"+flow.IssueTriggerNotConnected+"@/nodes/tool")
 }
 
+// BlockingIssues keeps the errors of the definition: not warnings, not the
+// undefined secrets the admin may still define (EnvironmentIssue).
+func TestBlockingIssues(t *testing.T) {
+	issues := []flow.Issue{
+		{Path: "/nodes/a", Code: flow.IssueInvalidConfig, Severity: flow.IssueError},
+		{Path: "/nodes/b/config/botToken", Code: flow.IssueUndefinedSecret, Severity: flow.IssueError},
+		{Path: "/nodes/c/config/delay", Code: flow.IssueToolDelayExceedsTimeout, Severity: flow.IssueWarning},
+	}
+	assert.Equal(t, issues[:1], flow.BlockingIssues(issues))
+	assert.True(t, flow.EnvironmentIssue(issues[1]))
+	assert.False(t, flow.EnvironmentIssue(issues[0]))
+	assert.NotNil(t, flow.BlockingIssues(nil))
+}
+
 // Lint checks the secrets strict settings require (node.SecretRequirer)
 // against the store deploy resolves them in: the context's
 // (secrets.FromContext), the process-wide store for Lint. The issue names the

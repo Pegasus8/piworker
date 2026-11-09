@@ -283,8 +283,7 @@ func TestDryRunLeavesNoGoroutine(t *testing.T) {
 
 	run(probeFlow(nil, "pass", "probe-send"))
 	assert.True(t, run(probeFlow(map[string]map[string]any{"burst": {"count": 300}}, "burst", "pass")).Capped)
-	_, err := DryRun(context.Background(), probeFlow(nil, "pass", "missing-type"), reg, DryRunInput{TriggerNodeID: "trig"})
-	require.Error(t, err)
+	assert.NotEmpty(t, BlockingIssues(run(probeFlow(nil, "pass", "missing-type")).Issues), "an invalid flow does not run")
 	SetDryRunTimeout(t, 50*time.Millisecond)
 	assert.True(t, run(probeFlow(nil, "block")).TimedOut)
 	select {

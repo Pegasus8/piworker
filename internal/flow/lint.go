@@ -72,6 +72,19 @@ const (
 // secret before approving it).
 func EnvironmentIssue(i Issue) bool { return i.Code == IssueUndefinedSecret }
 
+// BlockingIssues returns the error issues of issues that are not
+// EnvironmentIssues, in order (never nil): the problems of the definition
+// itself, which stop a dry-run and the storing or approval of a draft.
+func BlockingIssues(issues []Issue) []Issue {
+	out := []Issue{}
+	for _, i := range issues {
+		if i.Severity == IssueError && !EnvironmentIssue(i) {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
 // finding is one problem a deploy-time check found, located by indexes so
 // that both deploy's legacy paths ("nodes[2].config.url") and Lint's
 // JSON-pointer-like paths ("/nodes/{id}/config/url") can be rendered.
