@@ -297,6 +297,10 @@ func TestKnownDestinationPropertiesAreMarked(t *testing.T) {
 		"action-i2c.bus",
 		"action-i2c.register",
 		"action-telegram.chatId",
+		// The variable a set-var writes: global variables are read by
+		// every flow, flow variables by the rest of the flow.
+		"set-var.key",
+		"set-var.scope",
 		"trigger-mqtt.broker",
 		"trigger-rss.url",
 		"trigger-webhook.path",

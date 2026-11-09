@@ -89,12 +89,16 @@ func (p *SetVarProcess) Validate() error {
 func setVarConfigSchema() node.ConfigSchema {
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
-			"scope": {Type: "string", Title: "Variable scope", Description: "Global is shared by all flows; Flow is isolated to this saved flow.", Default: "global", Enum: []string{"global", "flow"}, AgentVisible: true},
+			// scope and key name the variable the node writes, which other
+			// nodes (and, for globals, other flows) read for destinations
+			// and conditions: a Destination, so changing it is reviewed.
+			"scope": {Type: "string", Title: "Variable scope", Description: "Global is shared by all flows; Flow is isolated to this saved flow.", Default: "global", Enum: []string{"global", "flow"}, AgentVisible: true, Destination: true},
 			"key": {
 				Type:         "string",
 				Title:        "Variable Name",
 				Description:  "Name of the variable to store",
 				AgentVisible: true,
+				Destination:  true,
 			},
 			"value": {
 				Type:        "string",
