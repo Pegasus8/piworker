@@ -701,12 +701,17 @@ func TestMCPReadToolsEndToEnd(t *testing.T) {
 	assert.Equal(t, garage.Fingerprint, got["tools"].([]any)[0].(map[string]any)["fingerprint"])
 
 	// The agent's call was recorded as its run, with its token's name.
-	var runs *mcp.CallToolResult
-	require.Eventually(t, func() bool {
-		runs = callTool(t, reader, "pw_list_runs", map[string]any{"flowId": garage.FlowID, "limit": 5})
-		list, _ := structured(t, runs)["runs"].([]any)
-		return !runs.IsError && len(list) == 1 && list[0].(map[string]any)["status"] == "success"
-	}, 10*time.Second, 500*time.Millisecond)
+	// Wait for the recorder in the store (polling over MCP would spend the
+	// token's request budget), then read it once.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		run, err := app.store.GetFlowRun(garage.FlowID, runID)
+		if assert.NoError(c, err) {
+			assert.Equal(c, "success", run.Status)
+		}
+	}, 10*time.Second, 50*time.Millisecond)
+	runs := callTool(t, reader, "pw_list_runs", map[string]any{"flowId": garage.FlowID, "limit": 5})
+	require.False(t, runs.IsError)
+	require.Len(t, structured(t, runs)["runs"], 1)
 	checkOutputSchema(t, tools["pw_list_runs"], runs)
 	run := structured(t, runs)["runs"].([]any)[0].(map[string]any)
 	assert.Equal(t, runID, run["id"])
@@ -736,7 +741,7 @@ func TestMCPReadToolsEndToEnd(t *testing.T) {
 	missing := callTool(t, reader2, "pw_get_flow", map[string]any{"flowId": "no-such-flow"})
 	assert.True(t, missing.IsError)
 	assert.Equal(t, "flow_not_found", errCode(structured(t, missing)))
-	invalid := callTool(t, reader2, "pw_get_flow", map[string]any{"flowId": "../" + garage.FlowID})
+	invalid := callTool(t, reader2, "pw_get_flow", map[string]any{"flowId": garage.FlowID + "\n"})
 	assert.True(t, invalid.IsError)
 	assert.Equal(t, "invalid_arguments", errCode(structured(t, invalid)))
 	foreign := callTool(t, reader2, "pw_get_run", map[string]any{"flowId": "no-such-flow", "runId": runID})
