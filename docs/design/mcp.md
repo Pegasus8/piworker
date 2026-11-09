@@ -993,10 +993,15 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
     the trigger first, stubbed, with the payload as its output) and
     `wouldExecute`. One dry-run or node test runs at a time process-wide;
     another fails at once (`flow.ErrBusy`). Every node instance built is
-    closed. Work still running when the call returns — a node ignoring
-    cancellation, a goroutine a node started with `node.Go`, such as an
-    expression evaluation finishing its last step — keeps the slot until it
-    returns, so stuck or runaway sandboxed work cannot pile up.
+    closed. Work still running when the run ends — the private runtime
+    draining, a goroutine a node started with `node.Go`, such as an
+    expression evaluation finishing its last step — is waited for up to 1 s
+    (the private runtime's stop timeout) before the call returns, so the
+    next dry-run or node test right after (the same agent's, typically) does
+    not find the slot taken; work still running then (a node ignoring
+    cancellation) keeps the slot until it returns, so stuck or runaway
+    sandboxed work cannot pile up. A node test waits the same way for the
+    goroutines its node started.
   - Hidden settings. The flow package only bounds previews; the service
     redacts them for agents. Redacting derived output afterwards cannot work
     in general (a transform can encode a value), so for an agent dry-run of

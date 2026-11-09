@@ -157,11 +157,9 @@ func TestNode(ctx context.Context, reg *node.Registry, nodeType string, config m
 	}
 	closeNode(inst)
 	if sb.Busy() {
-		held = false
-		go func() {
-			sb.Wait()
-			release()
-		}()
+		// A goroutine the node started is still running: wait for it,
+		// bounded, as DryRun does.
+		held = settleSandbox(sb.Wait, release)
 	}
 
 	if out.err != nil {

@@ -21,6 +21,7 @@ type boundsProbe struct {
 	release  chan struct{} // closed: "hold" and "stubborn" nodes return
 	linger   chan struct{} // closed: "linger" goroutines return
 	makeWait time.Duration // "slowmake" factory delay
+	brief    time.Duration // how long a "brief" goroutine runs
 	running  atomic.Int32  // "hold" nodes running now
 	maxSeen  atomic.Int32  // most "hold" nodes seen running at once
 }
@@ -65,6 +66,8 @@ func (n *boundsNode) Process(ctx context.Context, msg *Message) ([]*Message, err
 		<-n.p.release
 	case "linger":
 		node.Go(ctx, func() { <-n.p.linger })
+	case "brief":
+		node.Go(ctx, func() { time.Sleep(n.p.brief) })
 	}
 	return []*Message{out}, nil
 }
@@ -76,7 +79,7 @@ func (n *boundsNode) Ports() (inputs, outputs []Port) {
 func boundsRegistry(t *testing.T, p *boundsProbe) *node.Registry {
 	t.Helper()
 	reg := probeRegistry(t, newSandboxProbe())
-	for _, kind := range []string{"big", "hold", "stubborn", "linger", "slowmake"} {
+	for _, kind := range []string{"big", "hold", "stubborn", "linger", "slowmake", "brief"} {
 		require.NoError(t, reg.Register(node.NodeTypeInfo{Type: kind, Category: NodeCategoryProcessing, Risk: node.RiskSafe,
 			Inputs: []Port{{ID: "input", DataType: DataTypeAny}}, Outputs: []Port{{ID: "output", DataType: DataTypeAny}}},
 			func(cfg map[string]any) (node.Node, error) {
@@ -271,6 +274,25 @@ func TestDryRunHoldsSlotForTrackedGoroutines(t *testing.T) {
 		_, err := DryRun(context.Background(), probeFlow(nil, "pass"), reg, DryRunInput{TriggerNodeID: "trig"})
 		return err == nil
 	}, 5*time.Second, 10*time.Millisecond, "free once it returned")
+}
+
+// TestSandboxWaitsBrieflyForTrackedGoroutines: work that ends soon after a
+// dry-run or node test (a goroutine a node started with node.Go, a runtime
+// still draining) is waited for, bounded, before the call returns, so the
+// next one right after does not find the slot taken.
+func TestSandboxWaitsBrieflyForTrackedGoroutines(t *testing.T) {
+	p := newBoundsProbe()
+	p.brief = 100 * time.Millisecond
+	reg := boundsRegistry(t, p)
+	ctx := context.Background()
+	for range 3 {
+		_, err := DryRun(ctx, probeFlow(nil, "brief"), reg, DryRunInput{TriggerNodeID: "trig"})
+		require.NoError(t, err)
+		_, err = TestNode(ctx, reg, "brief", nil, 1)
+		require.NoError(t, err, "the dry-run's goroutine had returned")
+		_, err = DryRun(ctx, probeFlow(nil, "pass"), reg, DryRunInput{TriggerNodeID: "trig"})
+		require.NoError(t, err, "the node test's goroutine had returned")
+	}
 }
 
 // TestDryRunDeadlineCoversSetup: the wall-clock cap starts when DryRun is
