@@ -56,11 +56,12 @@ func newAuthEnv(t *testing.T, customize ...func(*AuthoringOptions)) *authEnv {
 	return e
 }
 
-// token creates an agent token with scopes (author by default).
+// token creates an agent token with scopes (author and read by default:
+// authoring on stored flows needs both).
 func (e *authEnv) token(scopes ...string) Actor {
 	e.t.Helper()
 	if len(scopes) == 0 {
-		scopes = []string{storage.ScopeAuthor}
+		scopes = []string{storage.ScopeAuthor, storage.ScopeRead}
 	}
 	tok, _, err := e.store.CreateAPIToken(storage.NewAPIToken{Name: "agent-" + uuid.NewString()[:8], Scopes: scopes}, time.Now())
 	require.NoError(e.t, err)

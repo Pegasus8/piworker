@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Pegasus8/piworker/internal/flow"
+	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -192,4 +193,40 @@ func TestKeptRedactionWithoutAListHidesEverything(t *testing.T) {
 	}
 	redact := e.a.keptRedaction(json.RawMessage(`{"props":[]}`))
 	assert.False(t, redact(n, "template"), "nothing kept")
+}
+
+// Reading a stored flow through authoring (validating, drafting or dry-running
+// it, reading a draft of it) needs the read scope too: the author scope
+// alone works on the agent's own flows only.
+func TestAuthoringOnStoredFlowsNeedsTheReadScope(t *testing.T) {
+	e := newAuthEnv(t)
+	stored := e.create(safeFlow())
+	authorOnly := e.token(storage.ScopeAuthor)
+	ops := []flow.Op{{Op: flow.OpUpdateNode, NodeID: "calc", Config: map[string]any{"expression": "payload + 1"}}}
+
+	_, err := e.a.Validate(t.Context(), authorOnly, ValidateRequest{FlowID: stored.ID})
+	te := requireKind(t, err, ErrPermissionDenied)
+	assert.Contains(t, te.Message, "read scope")
+	_, err = e.a.SaveDraft(t.Context(), authorOnly, DraftInput{FlowID: stored.ID, BaseVersion: 1, Ops: ops})
+	requireKind(t, err, ErrPermissionDenied)
+	_, err = e.a.DryRun(t.Context(), authorOnly, DryRunRequest{FlowID: stored.ID})
+	requireKind(t, err, ErrPermissionDenied)
+
+	// A draft of a stored flow (stored for it directly here).
+	d, err := e.store.CreateFlowDraft(storage.FlowDraft{FlowID: stored.ID, BaseVersion: 1, Data: json.RawMessage(mustJSON(t, stored)),
+		AuthorTokenID: authorOnly.TokenID, AuthorTokenName: authorOnly.TokenName, Risk: "safe"})
+	require.NoError(t, err)
+	_, err = e.a.GetDraft(t.Context(), authorOnly, d.ID)
+	requireKind(t, err, ErrPermissionDenied)
+	_, err = e.a.DryRun(t.Context(), authorOnly, DryRunRequest{DraftID: d.ID})
+	requireKind(t, err, ErrPermissionDenied)
+
+	// Its own flows need no more than the author scope.
+	_, err = e.a.Validate(t.Context(), authorOnly, ValidateRequest{Flow: safeFlow()})
+	require.NoError(t, err)
+	fresh := e.draft(authorOnly, DraftInput{Flow: safeFlow(), Name: "mine"})
+	_, err = e.a.GetDraft(t.Context(), authorOnly, fresh.DraftID)
+	require.NoError(t, err)
+	_, err = e.a.DryRun(t.Context(), authorOnly, DryRunRequest{DraftID: fresh.DraftID})
+	require.NoError(t, err)
 }

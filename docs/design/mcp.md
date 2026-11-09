@@ -932,7 +932,12 @@ Lifecycle, Registry, Secrets, Audit, AuthorEnabled, Now, Logger})
 **Actors.** Agents need the token scope `author` and `AuthorEnabled` for
 `Validate`, `SaveDraft`, `GetDraft`, `DryRun`, `TestNode`, and the scope
 `deploy` with a level above `off` for `Deploy`, `Stop` (else `forbidden`).
-The editor (`service.EditorActor()`) may call `Validate`, `DryRun`,
+Working on a stored flow — `Validate` or `DryRun` by `flowId`, `SaveDraft`
+on an existing flow, `GetDraft` or `DryRun` of a draft of an existing flow
+(`baseVersion` ≠ 0) — also needs the `read` scope (`forbidden` otherwise):
+the author scope alone works on the agent's own flows (inline flows, new
+flows' drafts), so an admin can issue an author token that cannot inspect
+existing flows. The editor (`service.EditorActor()`) may call `Validate`, `DryRun`,
 `TestNode` and the editor methods (`ListDrafts`, `GetDraftDetail`,
 `ApproveDraft`, `RejectDraft`, `Rollback`, `Versions`, `Marks`), which
 refuse agents (`forbidden`); `SaveDraft`, `GetDraft`, `Deploy` and `Stop`

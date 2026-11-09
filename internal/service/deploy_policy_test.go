@@ -15,7 +15,7 @@ import (
 // decides, the lifecycle path deploys.
 
 func (e *authEnv) deployer() Actor {
-	return e.token(storage.ScopeDeploy, storage.ScopeAuthor)
+	return e.token(storage.ScopeDeploy, storage.ScopeAuthor, storage.ScopeRead)
 }
 
 // agentVersion saves change applied to the current version of flowID as an

@@ -214,6 +214,11 @@ func (a *Authoring) Validate(ctx context.Context, actor Actor, req ValidateReque
 	if err := a.authorizeAuthor(ctx, actor, true); err != nil {
 		return ValidateResult{}, err
 	}
+	if req.FlowID != "" {
+		if err := authorizeStoredRead(actor); err != nil {
+			return ValidateResult{}, err
+		}
+	}
 	p, err := a.resolveProposal(proposalRequest{
 		flowID: req.FlowID, flow: req.Flow, ops: req.Ops, current: true, editor: actor.Kind == ActorEditor,
 	})
@@ -330,6 +335,11 @@ func (a *Authoring) SaveDraft(ctx context.Context, actor Actor, in DraftInput) (
 	if err := a.authorizeAuthor(ctx, actor, false); err != nil {
 		return DraftResult{}, err
 	}
+	if in.FlowID != "" {
+		if err := authorizeStoredRead(actor); err != nil {
+			return DraftResult{}, err
+		}
+	}
 	if utf8.RuneCountInString(in.Note) > MaxDraftNoteChars {
 		return DraftResult{}, toolError(ErrInvalidArguments, fmt.Sprintf("the note is over %d characters", MaxDraftNoteChars))
 	}
@@ -444,6 +454,11 @@ func (a *Authoring) GetDraft(ctx context.Context, actor Actor, draftID string) (
 		return DraftView{}, err
 	}
 	args.FlowID = d.FlowID
+	if d.BaseVersion != 0 {
+		if err := authorizeStoredRead(actor); err != nil {
+			return DraftView{}, err
+		}
+	}
 	f, err := flow.FromJSON(d.Data)
 	if err != nil {
 		return DraftView{}, fmt.Errorf("decode draft %s: %w", d.ID, err)
@@ -607,6 +622,9 @@ func (a *Authoring) DryRun(ctx context.Context, actor Actor, req DryRunRequest) 
 		a.normalizeNodes(f)
 		own = f
 	case req.FlowID != "":
+		if err := authorizeStoredRead(actor); err != nil {
+			return flow.DryRunResult{}, err
+		}
 		if f, err = a.loadFlow(req.FlowID); err != nil {
 			return flow.DryRunResult{}, err
 		}
@@ -619,6 +637,11 @@ func (a *Authoring) DryRun(ctx context.Context, actor Actor, req DryRunRequest) 
 			return flow.DryRunResult{}, err
 		}
 		args.FlowID = d.FlowID
+		if d.BaseVersion != 0 {
+			if err := authorizeStoredRead(actor); err != nil {
+				return flow.DryRunResult{}, err
+			}
+		}
 		if f, err = flow.FromJSON(d.Data); err != nil {
 			return flow.DryRunResult{}, fmt.Errorf("decode draft %s: %w", d.ID, err)
 		}

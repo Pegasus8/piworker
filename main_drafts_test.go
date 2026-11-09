@@ -62,7 +62,7 @@ func TestDraftApprovalAndAgentDeployEndToEnd(t *testing.T) {
 	require.NotNil(t, services.authoring)
 	headers := app.login(t)
 	require.NoError(t, app.store.SetAgentDeployLevel(storage.AgentDeployAll))
-	tok, _, err := app.store.CreateAPIToken(storage.NewAPIToken{Name: "claude", Scopes: []string{storage.ScopeAuthor, storage.ScopeDeploy}}, time.Now())
+	tok, _, err := app.store.CreateAPIToken(storage.NewAPIToken{Name: "claude", Scopes: []string{storage.ScopeAuthor, storage.ScopeRead, storage.ScopeDeploy}}, time.Now())
 	require.NoError(t, err)
 	agent := service.AgentActor(agentauth.TokenInfo{ID: tok.ID, Name: tok.Name, Scopes: tok.Scopes, ExpiresAt: tok.ExpiresAt})
 
@@ -174,7 +174,7 @@ func TestVersionRoutesWithoutAuth(t *testing.T) {
 func TestAgentDeployConflictHidesConfigValues(t *testing.T) {
 	app, services := newServicesApp(t)
 	require.NoError(t, app.store.SetAgentDeployLevel(storage.AgentDeployAll))
-	tok, _, err := app.store.CreateAPIToken(storage.NewAPIToken{Name: "claude", Scopes: []string{storage.ScopeAuthor, storage.ScopeDeploy}}, time.Now())
+	tok, _, err := app.store.CreateAPIToken(storage.NewAPIToken{Name: "claude", Scopes: []string{storage.ScopeAuthor, storage.ScopeRead, storage.ScopeDeploy}}, time.Now())
 	require.NoError(t, err)
 	agent := service.AgentActor(agentauth.TokenInfo{ID: tok.ID, Name: tok.Name, Scopes: tok.Scopes, ExpiresAt: tok.ExpiresAt})
 

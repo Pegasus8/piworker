@@ -35,6 +35,17 @@ func (a *Authoring) authorizeAuthor(ctx context.Context, actor Actor, editorToo 
 	return nil
 }
 
+// authorizeStoredRead lets an agent's authoring read a stored flow (by
+// flowId, or a draft of an existing flow) only when its token also has the
+// read scope: the author scope alone works on the agent's own flows. The
+// editor reads every flow.
+func authorizeStoredRead(actor Actor) error {
+	if actor.isAgent() && !actor.HasScope(storage.ScopeRead) {
+		return toolError(ErrPermissionDenied, "this token does not have the read scope, which working on a stored flow needs (a flowId, or a draft of an existing flow)")
+	}
+	return nil
+}
+
 // authorizeEditor lets only the editor call the methods of the approval
 // pages and the version history.
 func authorizeEditor(ctx context.Context, actor Actor) error {
