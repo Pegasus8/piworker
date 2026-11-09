@@ -206,7 +206,7 @@ func TestListFlowsStatesToolsAndLastRun(t *testing.T) {
 	lost := e.save(manualFlow("lost"))
 	require.NoError(t, e.store.UpdateFlowState(lost.ID, flow.FlowStateRunning))
 
-	start := time.Now()
+	start := time.Now().In(time.FixedZone("UTC+3", 3*3600)) // shown in UTC, as every view's times
 	require.NoError(t, e.store.UpsertFlowRun("old", stopped.ID, start))
 	require.NoError(t, e.store.FinishFlowRun("old", "success", start.Add(time.Second), 2, 0))
 	require.NoError(t, e.store.UpsertFlowRun("new", stopped.ID, start.Add(time.Minute)))
@@ -236,6 +236,8 @@ func TestListFlowsStatesToolsAndLastRun(t *testing.T) {
 	require.NotNil(t, last)
 	assert.Equal(t, "new", last.ID)
 	assert.Equal(t, "error", last.Status)
+	assert.Equal(t, time.UTC, last.StartedAt.Location())
+	assert.True(t, last.StartedAt.Equal(start.Add(time.Minute)), last.StartedAt)
 	assert.Nil(t, byName["failed"].LastRun)
 
 	// Stable camelCase field names.

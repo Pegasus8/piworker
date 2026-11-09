@@ -261,7 +261,7 @@ func (r *Reads) lastRun(flowID string) *RunPointer {
 	if err != nil || len(runs) == 0 {
 		return nil
 	}
-	return &RunPointer{ID: runs[0].ID, Status: runs[0].Status, StartedAt: runs[0].StartedAt}
+	return &RunPointer{ID: runs[0].ID, Status: runs[0].Status, StartedAt: runs[0].StartedAt.UTC()}
 }
 
 // runningSet returns the IDs of the running flows.
