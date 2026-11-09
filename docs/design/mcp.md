@@ -424,7 +424,7 @@ Shared by REST and MCP (thin adapters):
   version the agent's later drafts read a guess back with `author` alone
   (alert `before` values are redacted by comparison, and a kept setting
   whose stored value holds a known value is withheld, `"<redacted>"` in
-  `GetDraft`, §10). Open, awaiting a decision (action item 3), at every
+  `GetDraft`, §10). Also accepted (action item 3), at every
   level, `off` included: `call` and a granted tool whose reply or error
   repeats its arguments (`Tools.Call` above); `call` and `read`, a
   granted tool whose flow records an error that repeats an argument; and

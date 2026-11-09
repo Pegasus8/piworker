@@ -105,9 +105,9 @@ hidden settings (fixed issue texts, no alert values).
     into settings they are hidden the same way but never checked. Admins
     should keep guessable passwords and identifiers out of the hidden
     settings of flows whose runs agents may read.
-- Open, undecided (action item 3): the same comparison reaches agents
-  outside that decision, at every `agent_deploy` level (`off` included)
-  and without `author`:
+- Open, accepted (action item 3): the same comparison reaches agents
+  outside the authoring paths, at every `agent_deploy` level (`off`
+  included) and without `author`:
   - `call`: a granted tool whose reply or error repeats its arguments;
     tool results and errors are compared with secret values
     (`Tools.finish`; not with typed credentials or hidden settings), so
@@ -126,8 +126,11 @@ hidden settings (fixed issue texts, no alert values).
   comparison the secrets an agent sent, tried in wave 5, was reverted: a
   tool that never repeats its arguments but returns a secret then showed
   it in clear to an agent that sent it among hundreds of candidates in
-  one argument. The short-secret warnings cover these paths for secret
-  values only.
+  one argument. The comparison is kept and the residual accepted: these
+  paths need a tool or flow the admin built that repeats its input, and
+  the short-secret warnings (and the Agents page, which names the call
+  and read routes) cover them for secret values; typed credentials and
+  hidden settings belong in secrets.
 - Revisit when: the read views gain per-setting provenance across versions,
   or runtime taint tracking becomes affordable.
 
@@ -146,9 +149,9 @@ hidden settings (fixed issue texts, no alert values).
    add, and counts the short secrets; README and design §6, §10 describe
    it, including that credentials typed into `Sensitive` settings are
    redaction targets too and should be secrets.
-3. [ ] Decide the tool-result and inbound-trigger paths (the second "Open"
-   consequence): keep the comparison, which tool results need because
-   flows can return real secret values, with the warnings of item 2 as
-   the mitigation, or mitigate them another way, never by comparing a
-   result with the agent's arguments (see above). Until then they are
-   open, not accepted.
+3. [x] The tool-result and inbound-trigger paths (the second "Open"
+   consequence) keep the comparison too: tool results need it because
+   flows can return real secret values, and leaving out what the agent
+   sent would show a secret in clear (see above). The warnings of item 2
+   are the mitigation; the Agents page states the call and read routes at
+   every level.
