@@ -434,7 +434,21 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
 - SDK: `github.com/modelcontextprotocol/go-sdk` pinned exactly (v1.8.0).
   `mcp.NewStreamableHTTPHandler(getServer, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, DisableLocalhostProtection: true, MaxRequestBodyBytes: 1 MiB, PropagateRequestCancellation: true})`
   (1 MiB: arguments are at most 64 KiB in practice; the SDK default of 4 MiB
-  is too much for a Pi under a flood of bodies).
+  is too much for a Pi under a flood of bodies). The body limit bounds
+  bytes, not what decoding costs: a decoded value costs from a few dozen
+  bytes to a few hundred (`{}` becomes a Go map), each time the SDK or the
+  endpoint decodes it (the SDK decodes `params._meta` twice on every
+  request, and a call's arguments once more before the tool sees them), so
+  one token's burst of 1 MiB messages of `{}` cost over 600 MiB. Before
+  anything decodes a POST, the endpoint reads its tokens in place
+  (`jsontext`, no decoding) and refuses with 413, JSON-RPC `-32600` (id
+  null), a message of more than 32 768 values and member names
+  (`MaxMessageValues`; the largest flow the author tools take, 200 nodes
+  and 400 connections with their settings, needs about a third), nested
+  deeper than 64 levels, or whose `params._meta` exceeds 8 KiB (progress
+  tokens and client hints); the refusal is counted in `mcp_rejections`
+  (`request_too_large`) for the token. A burst of the largest messages
+  accepted then peaks at a few dozen MiB of heap.
 - Protocol versions: 2026-07-28 (sessionless, `server/discover`),
   2025-11-25 and 2025-06-18 (`initialize`); others are refused. The legacy
   handshake asked for 2026-07-28 settles on 2025-11-25 (SDK behaviour). Every
@@ -576,7 +590,8 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   serve: to a token, a built-in tool of a scope it lacks or that is not
   served is an unknown name, neither listed nor
   callable, and calling it gets the `not_found` result of any unknown name). The scope check parses the body strictly, like
-  the SDK (case-sensitive names; duplicate names → 400, JSON-RPC `-32700`).
+  the SDK (case-sensitive names; duplicate names → 400, JSON-RPC `-32700`),
+  after the bounds on its values, nesting and `_meta` (above, 413).
 - `/mcp` is outside `/api`: the ADR-0002 request guard and CSRF do not apply
   (Bearer only; the router never allows `Authorization` in a CORS preflight).
 - Mounted at `/mcp` without method restriction, before the webui catch-all;

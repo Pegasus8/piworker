@@ -322,6 +322,15 @@ func (h *Handler) checkMessage(w http.ResponseWriter, r *http.Request, actor ser
 			"JSON-RPC batching is not supported: send one message per request")
 		return false
 	}
+	if why := scanMessage(body); why != "" {
+		// Before anything decodes it (this parse included): counted, like
+		// the refusals of tool arguments, as the token's.
+		if h.rejections != nil {
+			h.rejections.Reject(actor.TokenID, rejectedTooLarge, h.now())
+		}
+		writeRPCError(w, http.StatusRequestEntityTooLarge, nil, jsonrpc.CodeInvalidRequest, "Request too large: "+why)
+		return false
+	}
 	var m rpcMessage
 	if err := jsonv2.Unmarshal(body, &m); err != nil {
 		writeRPCError(w, http.StatusBadRequest, nil, jsonrpc.CodeParseError, "Parse error: "+shorten(err.Error(), 200))
