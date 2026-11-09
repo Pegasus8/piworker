@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -400,4 +401,169 @@ func TestCreateFlowDraftDropsServerOwnedFields(t *testing.T) {
 	got, err := s.GetFlowDraft(created.ID)
 	require.NoError(t, err)
 	assert.JSONEq(t, want, string(got.Data))
+}
+
+// draftState reads a draft's status and applied version.
+func draftState(t *testing.T, s *SQLiteStore, id string) (string, int) {
+	t.Helper()
+	d, err := s.GetFlowDraft(id)
+	require.NoError(t, err)
+	return d.Status, d.AppliedVersion
+}
+
+// flowVersion reads a flow's stored version.
+func flowVersion(t *testing.T, s *SQLiteStore, id string) int {
+	t.Helper()
+	f, err := s.GetFlow(id)
+	require.NoError(t, err)
+	return f.Version
+}
+
+// A save that applies a draft closes it as approved in its own transaction:
+// a draft voided before (a revoked token) can never become a version, and a
+// draft that became a version is never left pending.
+func TestApplyingADraftClosesItInTheSaveTransaction(t *testing.T) {
+	s, tok := newDraftFixture(t)
+	f := createTestFlow("base")
+	require.NoError(t, s.CreateFlow(f))
+	d, err := s.CreateFlowDraft(draftFor(tok.ID, f.ID, 1))
+	require.NoError(t, err)
+
+	meta := VersionMeta{ActorKind: VersionActorAgent, TokenID: tok.ID, TokenName: "laptop", DraftID: d.ID}
+	v, err := s.UpdateFlowVersioned(f, 1, meta)
+	require.NoError(t, err)
+	assert.Equal(t, 2, v)
+	status, applied := draftState(t, s, d.ID)
+	assert.Equal(t, DraftApproved, status)
+	assert.Equal(t, 2, applied)
+	got, err := s.GetFlowDraft(d.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.DecidedAt)
+	version, err := s.GetFlowVersion(f.ID, 2)
+	require.NoError(t, err)
+	assert.Equal(t, d.ID, version.DraftID)
+	assert.Equal(t, tok.ID, version.TokenID)
+
+	// Recording the same approval again is a no-op (callers that close the
+	// draft themselves keep working); anything else is not.
+	require.NoError(t, s.DecideFlowDraft(d.ID, DraftApproved, "", 2))
+	require.ErrorIs(t, s.DecideFlowDraft(d.ID, DraftApproved, "", 3), ErrDraftNotPending)
+	require.ErrorIs(t, s.DecideFlowDraft(d.ID, DraftRejected, "", 0), ErrDraftNotPending)
+
+	// Applying it twice is refused, and changes nothing.
+	_, err = s.UpdateFlowVersioned(f, 0, VersionMeta{ActorKind: VersionActorEditor, AdminApproved: true, DraftID: d.ID})
+	require.ErrorIs(t, err, ErrDraftNotPending)
+	assert.Equal(t, 2, flowVersion(t, s, f.ID))
+}
+
+func TestApplyingADraftChecksIt(t *testing.T) {
+	s, tok := newDraftFixture(t)
+	other, _ := newTestToken(t, s, NewAPIToken{Name: "desktop", Scopes: []string{ScopeAuthor}})
+	f := createTestFlow("base")
+	require.NoError(t, s.CreateFlow(f))
+	g := createTestFlow("other")
+	require.NoError(t, s.CreateFlow(g))
+	editor := func(id string) VersionMeta {
+		return VersionMeta{ActorKind: VersionActorEditor, AdminApproved: true, DraftID: id}
+	}
+	agent := func(tokenID, id string) VersionMeta {
+		return VersionMeta{ActorKind: VersionActorAgent, TokenID: tokenID, DraftID: id}
+	}
+	newDraft := func(tokenID, flowID string, base int) string {
+		d, err := s.CreateFlowDraft(draftFor(tokenID, flowID, base))
+		require.NoError(t, err)
+		return d.ID
+	}
+
+	forF := newDraft(tok.ID, f.ID, 1)
+	forNew := newDraft(tok.ID, "", 0)
+	cases := []struct {
+		name string
+		save func() error
+		want error
+	}{
+		{"unknown draft", func() error { _, err := s.UpdateFlowVersioned(f, 0, editor("missing")); return err }, ErrFlowDraftNotFound},
+		{"a draft of another flow", func() error { _, err := s.UpdateFlowVersioned(g, 0, editor(forF)); return err }, ErrInvalidFlowDraft},
+		{"a new-flow draft saved over a flow", func() error { _, err := s.UpdateFlowVersioned(f, 0, editor(forNew)); return err }, ErrInvalidFlowDraft},
+		{"another token's draft", func() error { _, err := s.UpdateFlowVersioned(f, 0, agent(other.ID, forF)); return err }, ErrFlowDraftNotFound},
+		{"an existing flow's draft created as new", func() error {
+			return s.CreateFlowVersioned(createTestFlow("new"), editor(forF))
+		}, ErrInvalidFlowDraft},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.ErrorIs(t, tc.save(), tc.want)
+			assert.Equal(t, 1, flowVersion(t, s, f.ID))
+			assert.Equal(t, 1, flowVersion(t, s, g.ID))
+			for _, id := range []string{forF, forNew} {
+				status, _ := draftState(t, s, id)
+				assert.Equal(t, DraftPending, status)
+			}
+		})
+	}
+
+	// A stale draft is a conflict even when the caller checks no version.
+	require.NoError(t, s.UpdateFlow(f)) // v2
+	_, err := s.UpdateFlowVersioned(f, 0, editor(forF))
+	require.ErrorIs(t, err, ErrVersionConflict)
+	var conflict *VersionConflictError
+	require.ErrorAs(t, err, &conflict)
+	assert.Equal(t, 2, conflict.Current)
+	assert.Equal(t, 2, flowVersion(t, s, f.ID))
+
+	// A new-flow draft creates its flow and is closed with version 1.
+	n := createTestFlow("brand new")
+	require.NoError(t, s.CreateFlowVersioned(n, agent(tok.ID, forNew)))
+	status, applied := draftState(t, s, forNew)
+	assert.Equal(t, DraftApproved, status)
+	assert.Equal(t, 1, applied)
+
+	// An agent applies a draft only while its token is not revoked (a
+	// revocation voids the drafts too; this is the belt to those braces).
+	late := newDraft(tok.ID, f.ID, 2)
+	_, err = s.DB().Exec(`UPDATE api_tokens SET revoked_at = ? WHERE id = ?`, testNow.Unix(), tok.ID)
+	require.NoError(t, err)
+	_, err = s.UpdateFlowVersioned(f, 0, agent(tok.ID, late))
+	require.ErrorIs(t, err, ErrDraftTokenRevoked)
+	assert.Equal(t, 2, flowVersion(t, s, f.ID))
+}
+
+// Revoking the author's token and applying its draft race: whichever
+// commits first wins, and the other sees its effect. A voided draft never
+// becomes a version; an applied one is never voided.
+func TestRevocationAndDraftApplicationAreAtomic(t *testing.T) {
+	s := createTestStore(t)
+	defer s.Close()
+	for i := range 20 {
+		tok, _ := newTestToken(t, s, NewAPIToken{Name: fmt.Sprintf("t%d", i), Scopes: []string{ScopeAuthor}})
+		f := createTestFlow(fmt.Sprintf("f%d", i))
+		require.NoError(t, s.CreateFlow(f))
+		d, err := s.CreateFlowDraft(draftFor(tok.ID, f.ID, 1))
+		require.NoError(t, err)
+
+		var wg sync.WaitGroup
+		var saveErr, revokeErr error
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, saveErr = s.UpdateFlowVersioned(f, 1, VersionMeta{ActorKind: VersionActorAgent, TokenID: tok.ID, DraftID: d.ID})
+		}()
+		go func() {
+			defer wg.Done()
+			revokeErr = s.RevokeAPIToken(tok.ID, testNow)
+		}()
+		wg.Wait()
+		require.NoError(t, revokeErr)
+
+		status, applied := draftState(t, s, d.ID)
+		if saveErr == nil {
+			assert.Equal(t, DraftApproved, status)
+			assert.Equal(t, 2, applied)
+			assert.Equal(t, 2, flowVersion(t, s, f.ID))
+		} else {
+			require.ErrorIs(t, saveErr, ErrDraftNotPending)
+			assert.Equal(t, DraftVoid, status)
+			assert.Equal(t, 1, flowVersion(t, s, f.ID), "a voided draft never becomes a version")
+		}
+	}
 }

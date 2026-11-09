@@ -203,8 +203,10 @@ func (s *SQLiteStore) CreateFlow(f *flow.Flow) error {
 }
 
 // CreateFlowVersioned is CreateFlow with the version 1 recorded with meta
-// (an approved agent draft creating a new flow, for example). The flow is
-// always created inactive: a definition never carries restart intent.
+// (an approved agent draft creating a new flow, for example; a
+// meta.DraftID is applied and closed in the same transaction, see
+// applyDraftTx). The flow is always created inactive: a definition never
+// carries restart intent.
 func (s *SQLiteStore) CreateFlowVersioned(f *flow.Flow, meta VersionMeta) error {
 	return s.createFlow(f, meta, flow.FlowStateInactive)
 }
@@ -243,6 +245,9 @@ func (s *SQLiteStore) createFlow(f *flow.Flow, meta VersionMeta, state flow.Flow
 	}
 	if updated.IsZero() {
 		updated = now
+	}
+	if err := applyDraftTx(tx, meta, "", 0, 1, now); err != nil {
+		return err
 	}
 	_, err = tx.Exec(`
 		INSERT INTO flows (id, name, description, data, state, version, created_at, updated_at)

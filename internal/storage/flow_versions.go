@@ -62,7 +62,10 @@ type VersionMeta struct {
 	TokenName     string
 	AdminApproved bool // the admin saved or approved this definition; never for agents
 	Note          string
-	DraftID       string // the draft this version applied, if any
+	// DraftID is the draft this version applies, if any: the save closes
+	// it as approved with the new version in its own transaction, and
+	// fails without saving when the draft cannot be applied (applyDraftTx).
+	DraftID string
 }
 
 func (m VersionMeta) validate() error {
@@ -199,8 +202,10 @@ func boolInt(b bool) int {
 // UpdateFlowVersioned saves a new definition of an existing flow as the next
 // version, recorded with meta, in one transaction. expected 0 skips the
 // check; otherwise a stored version other than expected fails with a
-// *VersionConflictError (errors.Is ErrVersionConflict) and changes nothing.
-// Only the definition changes: the stored state (restart intent) and
+// *VersionConflictError (errors.Is ErrVersionConflict) and changes nothing,
+// as does a meta.DraftID that cannot be applied (applyDraftTx: a draft is
+// applied and closed in this transaction or not at all). Only the
+// definition changes: the stored state (restart intent) and
 // creation time are kept and the update time is the save's, whatever f
 // says (f may come from a draft or an old version). On success f holds the
 // new version, the stored state and both times; the new version is also
@@ -248,6 +253,9 @@ func (s *SQLiteStore) UpdateFlowVersioned(f *flow.Flow, expected int, meta Versi
 	}
 	next := current + 1
 	now := time.Now()
+	if err := applyDraftTx(tx, meta, f.ID, current, next, now); err != nil {
+		return 0, err
+	}
 	if _, err := tx.Exec(`
 		UPDATE flows
 		SET name = ?, description = ?, version = ?, updated_at = ?,

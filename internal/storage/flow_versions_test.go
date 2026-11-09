@@ -13,8 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// agentMeta is the meta of an agent version that applies no draft.
 func agentMeta(note string) VersionMeta {
-	return VersionMeta{ActorKind: VersionActorAgent, TokenID: "tok-1", TokenName: "laptop", Note: note, DraftID: "draft-1"}
+	return VersionMeta{ActorKind: VersionActorAgent, TokenID: "tok-1", TokenName: "laptop", Note: note}
 }
 
 func TestCreateFlowStoresVersionOne(t *testing.T) {
@@ -49,16 +50,18 @@ func TestCreateFlowStoresVersionOne(t *testing.T) {
 }
 
 func TestCreateFlowVersionedRecordsItsMeta(t *testing.T) {
-	s := createTestStore(t)
-	defer s.Close()
+	s, tok := newDraftFixture(t)
+	d, err := s.CreateFlowDraft(draftFor(tok.ID, "", 0))
+	require.NoError(t, err)
 	f := createTestFlow("from a draft")
-	meta := VersionMeta{ActorKind: VersionActorEditor, AdminApproved: true, DraftID: "draft-9", Note: "approved draft draft-9 from laptop"}
+	meta := VersionMeta{ActorKind: VersionActorEditor, AdminApproved: true, DraftID: d.ID, Note: "approved draft from laptop"}
 	require.NoError(t, s.CreateFlowVersioned(f, meta))
 	assert.Equal(t, 1, f.Version)
 	v, err := s.GetFlowVersion(f.ID, 1)
 	require.NoError(t, err)
-	assert.Equal(t, "draft-9", v.DraftID)
+	assert.Equal(t, d.ID, v.DraftID)
 	assert.Equal(t, meta.Note, v.Note)
+	meta.DraftID = ""
 
 	require.ErrorIs(t, s.CreateFlowVersioned(createTestFlow("x"), VersionMeta{ActorKind: "robot"}), ErrInvalidFlowData)
 	require.ErrorIs(t, s.CreateFlowVersioned(f, meta), ErrFlowAlreadyExists)
@@ -131,7 +134,7 @@ func TestUpdateFlowVersionedChecksTheExpectedVersion(t *testing.T) {
 	assert.Equal(t, "laptop", meta.TokenName)
 	assert.False(t, meta.AdminApproved)
 	assert.Equal(t, "rename", meta.Note)
-	assert.Equal(t, "draft-1", meta.DraftID)
+	assert.Empty(t, meta.DraftID)
 
 	f.Name = "stale"
 	_, err = s.UpdateFlowVersioned(f, 1, VersionMeta{ActorKind: VersionActorEditor, AdminApproved: true})

@@ -416,8 +416,10 @@ func (s *SQLiteStore) ListFlowDrafts(filter FlowDraftFilter, limit int, beforeID
 
 // DecideFlowDraft closes a pending draft as approved (recording the version
 // the approval saved, ≥ 1), rejected or void, with an optional reason. A
-// draft that is not pending is ErrDraftNotPending; an unknown one
-// ErrFlowDraftNotFound.
+// draft that is not pending is ErrDraftNotPending, except that approving a
+// draft already approved with the same version succeeds without change (a
+// save that applies a draft closes it itself: VersionMeta.DraftID); an
+// unknown one is ErrFlowDraftNotFound.
 func (s *SQLiteStore) DecideFlowDraft(id, status, reason string, appliedVersion int) error {
 	if s.isClosed() {
 		return ErrDatabaseClosed
@@ -453,8 +455,12 @@ func (s *SQLiteStore) DecideFlowDraft(id, status, reason string, appliedVersion 
 	} else if n == 1 {
 		return nil
 	}
-	if _, err := s.GetFlowDraft(id); err != nil {
+	d, err := s.GetFlowDraft(id)
+	if err != nil {
 		return err
+	}
+	if status == DraftApproved && d.Status == DraftApproved && d.AppliedVersion == appliedVersion {
+		return nil
 	}
 	return ErrDraftNotPending
 }
@@ -470,6 +476,58 @@ func (s *SQLiteStore) CountPendingFlowDrafts() (int, error) {
 		return 0, fmt.Errorf("failed to count pending drafts: %w", err)
 	}
 	return n, nil
+}
+
+// applyDraftTx closes the draft meta.DraftID (if any) as approved with
+// appliedVersion, inside tx: the transaction that saves its definition as
+// flowID ("" for a draft creating a new flow) on top of version base (0 for
+// a new flow). It fails, and the caller rolls back, when the draft is
+// unknown or, for an agent, another token's (ErrFlowDraftNotFound), not
+// pending (ErrDraftNotPending: decided, or voided by a revocation that
+// committed first), of another flow (ErrInvalidFlowDraft), based on another
+// version (*VersionConflictError) or, for an agent, its token is revoked
+// (ErrDraftTokenRevoked). Revocations void drafts in their own
+// transactions, so a voided draft can never become a version and an
+// applied one is never voided.
+func applyDraftTx(tx *sql.Tx, meta VersionMeta, flowID string, base, appliedVersion int, now time.Time) error {
+	if meta.DraftID == "" {
+		return nil
+	}
+	var (
+		draftFlow, status, author string
+		draftBase, tokenActive    int
+	)
+	err := tx.QueryRow(`SELECT d.flow_id, d.base_version, d.status, d.author_token_id, `+draftTokenUnrevoked+`
+		FROM flow_drafts d WHERE d.id = ?`, meta.DraftID).Scan(&draftFlow, &draftBase, &status, &author, &tokenActive)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrFlowDraftNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("failed to read the draft: %w", err)
+	}
+	agent := meta.ActorKind == VersionActorAgent
+	switch {
+	case agent && author != meta.TokenID:
+		return ErrFlowDraftNotFound
+	case status != DraftPending:
+		return ErrDraftNotPending
+	case draftFlow != flowID:
+		if flowID == "" {
+			return invalidDraft("draft %s changes an existing flow; it cannot create one", meta.DraftID)
+		}
+		return invalidDraft("draft %s is not a draft of flow %s", meta.DraftID, flowID)
+	case draftBase != base:
+		return &VersionConflictError{Current: base}
+	case agent && tokenActive == 0:
+		return ErrDraftTokenRevoked
+	}
+	if _, err := tx.Exec(`
+		UPDATE flow_drafts SET status = ?, reason = '', decided_at = ?, applied_version = ?
+		WHERE id = ? AND status = ?
+	`, DraftApproved, now.Unix(), appliedVersion, meta.DraftID, DraftPending); err != nil {
+		return fmt.Errorf("failed to close the applied draft: %w", err)
+	}
+	return nil
 }
 
 // voidPendingDrafts closes, as void with reason, the pending drafts that
