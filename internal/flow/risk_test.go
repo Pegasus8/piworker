@@ -440,6 +440,30 @@ func TestToolFingerprint(t *testing.T) {
 	}
 }
 
+// A grant or an approval names what the tool does: repointing a tool from
+// one action to another of the same type, or wiring one more action to it,
+// changes its fingerprint even when its risk stays the same (ADR-0022,
+// audit finding F1). The actions' settings are not part of it: agents see
+// fingerprints, and a hash of a setting they may not read would confirm
+// their guesses of it.
+func TestToolFingerprintNamesTheActionsItReaches(t *testing.T) {
+	cfg := strictToolConfig()
+	fp := func(steps ...riskStep) string {
+		t.Helper()
+		info, _ := onlyTool(t, chainFlow(cfg, steps...))
+		return info.Fingerprint
+	}
+	lights := riskStep{id: "lights", typ: "action-http", config: map[string]any{"url": "https://lights.example.com/on"}}
+	garage := riskStep{id: "garage", typ: "action-http", config: map[string]any{"url": "https://lights.example.com/on"}}
+	first := fp(lights, reply())
+	assert.NotEqual(t, first, fp(garage, reply()), "another action of the same type")
+	assert.NotEqual(t, first, fp(lights, garage, reply()), "one more action")
+	assert.Equal(t, first, fp(riskStep{id: "lights", typ: "action-http", config: map[string]any{"url": "https://lights.example.com/off"}}, reply()),
+		"settings are not part of it")
+	assert.Equal(t, first, fp(lights, riskStep{id: "shape", typ: "process-transform", config: map[string]any{"expression": "payload"}}, reply()),
+		"safe nodes are not part of it")
+}
+
 func TestToolIssuesAreReportedOncePerNode(t *testing.T) {
 	// Two tools share one global set-var: one issue.
 	f := chainFlow(strictToolConfig(), riskStep{id: "set", typ: "set-var", config: map[string]any{"key": "door"}})

@@ -276,7 +276,7 @@ type ToolInfo struct {
     OutputSchema json.RawMessage
     Risk         node.Risk
     Annotations  Annotations
-    Fingerprint  string // sha256(risk, annotations, inputSchema, confirm)
+    Fingerprint  string // sha256(risk, annotations, inputSchema, confirm, reaches)
     Confirm      string
     Timeout      time.Duration
     MaxConcurrent int
@@ -362,10 +362,15 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   can only be granted when agent deploy is enabled (§10). The `privileged`
   flag (default false) is needed to call privileged tools.
 - Grants bind to `(flowID, triggerNodeID, fingerprint)`. A redeploy that
-  changes the fingerprint (risk, annotations, input schema or confirm mode)
-  suspends the grant until the admin re-confirms: any change, not only a higher
-  risk or a wider schema, since whether a schema is wider cannot be decided
-  reliably. `all_tools` never includes privileged tools. An approved
+  changes the fingerprint (risk, annotations, input schema, confirm mode, or
+  the ID and type of a node above `safe` the tool reaches — through
+  connections or the flow variables it sets: a tool repointed to another
+  action of the same type, or wired to one more, is another tool, ADR-0022;
+  the reached nodes' settings are not part of it, since agents see the
+  fingerprint and a hash of a setting they may not read would confirm
+  guesses of it) suspends the grant until the admin re-confirms: any
+  change, not only a higher risk or a wider schema, since whether a schema
+  is wider cannot be decided reliably. `all_tools` never includes privileged tools. An approved
   `confirm: admin` call runs only if the tool still has the name and
   fingerprint recorded with the request (§9).
 - Created only from the editor (cookie + CSRF) with **password step-up**;
