@@ -978,7 +978,12 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   alerts of adding it, disabling one those of removing it; changing or
   removing a node that is disabled raises none). Nodes are paired by ID and,
   for a repeated ID, by occurrence, so a duplicate shows as an added node
-  with its alerts. Values of Sensitive properties (and every value of an
+  with its alerts. The alerts compare a node with its base node only when
+  both have the same type: a node retyped under the same ID (an MQTT
+  subscriber removed and added again as a retained publisher with the same
+  broker, topic and password; a manual trigger turned into an interval)
+  raises the alerts of removing the one and adding the other, and its
+  secret references count as moved. Values of Sensitive properties (and every value of an
   unregistered type) read as `<hidden>` in the field diffs unless they are
   exactly a secret reference, whose name is shown. The node and field diffs
   are for the editor; alerts are stored with the draft and returned to its

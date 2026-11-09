@@ -259,7 +259,8 @@ func diffNodes(f *Flow, reg *node.Registry, offset int) (map[string]*diffNode, [
 // deterministic and never holds the value of a Sensitive property; its
 // alerts hold no value an agent may not read. Nodes are paired by ID; a
 // repeated ID is paired by occurrence, so a duplicate is reported as a node
-// of its own.
+// of its own. The alerts pair a node with its base node only when both have
+// the same type: a retyped node is one removed and another added.
 func Diff(base, next *Flow, reg *node.Registry) DiffReport {
 	if base == nil {
 		base = &Flow{}
@@ -526,6 +527,18 @@ func diffAlerts(report DiffReport, next *Flow, baseByKey, nextByKey map[string]*
 	var list []ranked
 	add := func(order int, a Alert) { list = append(list, ranked{order, a}) }
 
+	// A node is compared with the base node of its ID only when both have
+	// the same type: a node retyped under the same ID is a node removed and
+	// another added (an MQTT subscriber turned publisher sends where the
+	// admin approved only reading), so its destinations, rates and secrets
+	// are new.
+	paired := map[string]*diffNode{} // node key → its base node of the same type
+	for key, b := range baseByKey {
+		if d := nextByKey[key]; d != nil && d.n.Type == b.n.Type {
+			paired[key] = b
+		}
+	}
+
 	if riskRank(report.RiskAfter) > riskRank(report.RiskBefore) {
 		add(-1, Alert{Kind: AlertRiskRaised, Before: report.RiskBefore, After: report.RiskAfter,
 			Message: fmt.Sprintf("the flow's risk rises from %s to %s", report.RiskBefore, report.RiskAfter)})
@@ -534,7 +547,7 @@ func diffAlerts(report DiffReport, next *Flow, baseByKey, nextByKey map[string]*
 	// What the base flow uses when it runs, for the "new" alerts.
 	baseHosts := map[string]bool{}
 	baseSecrets := map[string]bool{}
-	baseSecretAt := map[[3]string]bool{} // node key, prop, name
+	baseSecretAt := map[[4]string]bool{} // node key, type, prop, name
 	for _, d := range baseOrder {
 		if d.live() == nil {
 			continue
@@ -548,7 +561,7 @@ func diffAlerts(report DiffReport, next *Flow, baseByKey, nextByKey map[string]*
 			}
 			for _, name := range secretNames(v) {
 				baseSecrets[name] = true
-				baseSecretAt[[3]string{d.key, key, name}] = true
+				baseSecretAt[[4]string{d.key, d.n.Type, key, name}] = true
 			}
 		}
 	}
@@ -585,7 +598,7 @@ func diffAlerts(report DiffReport, next *Flow, baseByKey, nextByKey map[string]*
 	alertedSecrets := map[string]bool{}
 	credAlerted := map[string]bool{} // node keys with a credentialed_request_changed alert
 	for _, d := range nextOrder {
-		b := baseByKey[d.key]
+		b := paired[d.key]
 		if d.n.Enabled && instanceRisk(d.n, reg) == node.RiskPrivileged &&
 			(b == nil || !b.n.Enabled || instanceRisk(b.n, reg) != node.RiskPrivileged) {
 			msg := fmt.Sprintf("node %s (%s) is privileged: it acts on this device or can reach any address", d.n.ID, d.n.Type)
@@ -650,7 +663,7 @@ func diffAlerts(report DiffReport, next *Flow, baseByKey, nextByKey map[string]*
 						add(d.order, Alert{Kind: AlertSecretAdded, NodeID: d.n.ID, Path: path, After: name,
 							Message: fmt.Sprintf("references the secret %s, which the base version never uses", name)})
 					}
-				case !baseSecretAt[[3]string{d.key, key, name}]:
+				case !baseSecretAt[[4]string{d.key, d.n.Type, key, name}]:
 					add(d.order, Alert{Kind: AlertSecretMoved, NodeID: d.n.ID, Path: path, After: name,
 						Message: fmt.Sprintf("uses the secret %s in %s of node %s, where the base version does not", name, key, d.n.ID)})
 				}
@@ -679,7 +692,7 @@ func diffAlerts(report DiffReport, next *Flow, baseByKey, nextByKey map[string]*
 		}
 	}
 	for _, b := range baseOrder {
-		if nextByKey[b.key] == nil && b.live() != nil {
+		if paired[b.key] != b && b.live() != nil {
 			gone(b, "removes")
 			rateNode(b, "removes")
 		}
@@ -692,7 +705,7 @@ func diffAlerts(report DiffReport, next *Flow, baseByKey, nextByKey map[string]*
 		if d == nil || credAlerted[d.key] || !d.hasOperation() {
 			continue
 		}
-		if b := baseByKey[d.key].live(); b != nil && b.credentialed() {
+		if b := paired[d.key].live(); b != nil && b.credentialed() {
 			credAlerted[d.key] = true
 			add(d.order, Alert{Kind: AlertCredentialedRequestChanged, NodeID: d.n.ID,
 				Message: fmt.Sprintf("connects a new input into node %s (%s), which sends with a credential: what it sends changes", d.n.ID, d.n.Type)})
@@ -701,7 +714,7 @@ func diffAlerts(report DiffReport, next *Flow, baseByKey, nextByKey map[string]*
 
 	// So do changes upstream of it, and what its response returns to an
 	// agent; global variables are shared state (diff_vars.go).
-	g := newVarGraph(next, baseByKey, nextOrder, report.Connections.Added)
+	g := newVarGraph(next, paired, nextOrder, report.Connections.Added)
 	credentialedFlowAlerts(g, nextOrder, credAlerted, add)
 	globalVariableAlerts(g, nextOrder, add)
 
