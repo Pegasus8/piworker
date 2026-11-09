@@ -290,6 +290,7 @@ func databaseActionConfigSchema() node.ConfigSchema {
 			},
 			"dsn": {
 				Type:        "string",
+				Destination: true,
 				Title:       "DSN",
 				Description: "Connection string (supports {{secret.NAME}} for credentials)",
 				Sensitive:   true,

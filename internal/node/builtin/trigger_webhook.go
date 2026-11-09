@@ -217,6 +217,7 @@ func webhookTriggerConfigSchema() node.ConfigSchema {
 		Properties: map[string]node.ConfigProperty{
 			"path": {
 				Type:        "string",
+				Destination: true,
 				Title:       "Path",
 				Description: "URL path segment under /webhooks/ (e.g. 'github-push')",
 			},

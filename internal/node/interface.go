@@ -88,6 +88,15 @@ type ConfigProperty struct {
 	// AgentVisible marks a value that is harmless to show to MCP agents.
 	// The default (false) means the value is redacted in agent read views.
 	AgentVisible bool `json:"agentVisible,omitempty"`
+	// Destination marks where the node sends data or connects: URLs, hosts,
+	// brokers, topics, recipients, chat ids, file paths written, webhook
+	// paths, pins and buses written. The draft approval page and the low
+	// agent-deploy policy flag changes to it (flow.Diff).
+	Destination bool `json:"destination,omitempty"`
+	// RiskSwitch marks an opt-in that widens what the node may do
+	// (allowPrivate, allowDashArgs, TLS-verification bypasses, …). Turning
+	// one on is flagged by flow.Diff, and agent drafts may not turn it on.
+	RiskSwitch bool `json:"riskSwitch,omitempty"`
 }
 
 // BaseNode provides a common implementation for simple nodes.

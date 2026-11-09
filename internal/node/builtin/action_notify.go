@@ -138,6 +138,7 @@ func notifyActionConfigSchema() node.ConfigSchema {
 		Properties: map[string]node.ConfigProperty{
 			"url": {
 				Type:        "string",
+				Destination: true,
 				Title:       "Webhook URL",
 				Description: "The Discord/Slack/ntfy webhook URL (it embeds a token; use {{secret.NAME}})",
 				Sensitive:   true,
@@ -164,6 +165,7 @@ func notifyActionConfigSchema() node.ConfigSchema {
 			},
 			"allowPrivate": {
 				Type:         "boolean",
+				RiskSwitch:   true,
 				Title:        "Allow Private Addresses",
 				Description:  "Allow notifying loopback/private hosts (off by default to prevent SSRF)",
 				Default:      false,

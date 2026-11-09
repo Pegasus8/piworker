@@ -205,6 +205,7 @@ func (a *CommandAction) GetConfigSchema() node.ConfigSchema {
 			},
 			"allowDashArgs": {
 				Type:         "boolean",
+				RiskSwitch:   true,
 				Title:        "Allow values starting with '-'",
 				Description:  "Risky: let a placeholder that begins an argument take a value starting with '-', which most programs read as an option (e.g. -rf). Only enable it when the command ends its options with -- before the placeholders. Not needed behind literal text such as temp={{payload}}.",
 				Default:      false,

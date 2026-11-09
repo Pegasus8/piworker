@@ -91,6 +91,7 @@ func fileActionConfigSchema() node.ConfigSchema {
 		Properties: map[string]node.ConfigProperty{
 			"path": {
 				Type:        "string",
+				Destination: true,
 				Title:       "File Path",
 				Description: "Absolute or relative path of the file to write",
 			},

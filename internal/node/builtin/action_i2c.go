@@ -132,9 +132,9 @@ func i2cActionConfigSchema() node.ConfigSchema {
 	minOne := float64(1)
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
-			"bus":      {Type: "string", Title: "Bus", Description: "I2C bus name; empty uses the first bus", AgentVisible: true},
-			"address":  {Type: "string", Title: "Address", Description: "Device address, e.g. 0x76", AgentVisible: true},
-			"register": {Type: "string", Title: "Register", Description: "Optional register to read from, e.g. 0xD0", AgentVisible: true},
+			"bus":      {Type: "string", Title: "Bus", Description: "I2C bus name; empty uses the first bus", AgentVisible: true, Destination: true},
+			"address":  {Type: "string", Title: "Address", Description: "Device address, e.g. 0x76", AgentVisible: true, Destination: true},
+			"register": {Type: "string", Title: "Register", Description: "Optional register to read from, e.g. 0xD0", AgentVisible: true, Destination: true},
 			"length":   {Type: "number", Title: "Length", Description: "Number of bytes to read", Default: 1, Minimum: &minOne, Unit: "bytes", AgentVisible: true},
 		},
 		Required: []string{"address", "length"},

@@ -531,6 +531,7 @@ func httpActionConfigSchema() node.ConfigSchema {
 		Properties: map[string]node.ConfigProperty{
 			"url": {
 				Type:        "string",
+				Destination: true,
 				Title:       "URL",
 				Description: "Request URL (supports {{payload.field}} templates; {{secret.NAME}} only in the user:password@ part and the query string, and only when the URL starts with a literal scheme and host)",
 				Default:     "",
@@ -584,6 +585,7 @@ func httpActionConfigSchema() node.ConfigSchema {
 			},
 			"allowPrivate": {
 				Type:         "boolean",
+				RiskSwitch:   true,
 				Title:        "Allow Private Addresses",
 				Description:  "Allow requests to loopback/private/link-local/CGNAT and other reserved addresses (needed for LAN/local services). Off by default to prevent SSRF; while off, HTTP(S)_PROXY settings are ignored.",
 				Default:      false,

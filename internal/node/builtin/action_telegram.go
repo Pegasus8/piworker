@@ -122,6 +122,7 @@ func telegramActionConfigSchema() node.ConfigSchema {
 			},
 			"chatId": {
 				Type:        "string",
+				Destination: true,
 				Title:       "Chat ID",
 				Description: "Destination chat/channel ID",
 			},

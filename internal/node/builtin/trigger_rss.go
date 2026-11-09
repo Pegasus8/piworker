@@ -266,6 +266,7 @@ func rssTriggerConfigSchema() node.ConfigSchema {
 		Properties: map[string]node.ConfigProperty{
 			"url": {
 				Type:        "string",
+				Destination: true,
 				Title:       "Feed URL",
 				Description: "RSS or Atom feed URL to poll",
 			},
@@ -280,6 +281,7 @@ func rssTriggerConfigSchema() node.ConfigSchema {
 			},
 			"allowPrivate": {
 				Type:         "boolean",
+				RiskSwitch:   true,
 				Title:        "Allow private hosts",
 				Description:  "Permit fetching from private/loopback addresses (SSRF risk)",
 				Default:      false,

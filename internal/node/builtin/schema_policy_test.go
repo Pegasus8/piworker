@@ -214,3 +214,119 @@ func TestSchemaTypesAreKnown(t *testing.T) {
 		}
 	})
 }
+
+// destinationWords are the name parts of properties that say where a node
+// sends data or connects (docs/design/mcp.md §10).
+var destinationWords = map[string]bool{
+	"url": true, "urls": true, "host": true, "hosts": true, "broker": true, "brokers": true,
+	"topic": true, "to": true, "cc": true, "bcc": true, "chat": true, "path": true,
+	"server": true, "address": true, "webhook": true, "recipient": true, "recipients": true,
+	"endpoint": true, "dsn": true,
+}
+
+// nameWords splits a camelCase property name into lower-case words.
+func nameWords(name string) []string {
+	var words []string
+	start := 0
+	for i := 1; i < len(name); i++ {
+		if name[i] >= 'A' && name[i] <= 'Z' && (name[i-1] < 'A' || name[i-1] > 'Z') {
+			words = append(words, strings.ToLower(name[start:i]))
+			start = i
+		}
+	}
+	return append(words, strings.ToLower(name[start:]))
+}
+
+func destinationLike(name string) bool {
+	for _, w := range nameWords(name) {
+		if destinationWords[w] {
+			return true
+		}
+	}
+	return false
+}
+
+func TestNameWords(t *testing.T) {
+	assert.Equal(t, []string{"chat", "id"}, nameWords("chatId"))
+	assert.Equal(t, []string{"to"}, nameWords("to"))
+	assert.Equal(t, []string{"bot", "token"}, nameWords("botToken"))
+	assert.Equal(t, []string{"max", "response", "size"}, nameWords("maxResponseSize"))
+	assert.False(t, destinationLike("timeoutMs"))
+	assert.False(t, destinationLike("toolName"))
+	assert.True(t, destinationLike("webhookUrl"))
+}
+
+// notDestinations are destination-like names that say nothing about where a
+// node sends data. Adding to this list is a deliberate review decision.
+var notDestinations = map[string]string{
+	"trigger-manual.topic": "a label copied into the emitted message",
+}
+
+// A property naming where a node sends data or connects must be marked
+// Destination: the approval page and the low agent-deploy policy flag
+// changes to it. The rule covers every node type (external and privileged
+// ones send data; triggers connect to brokers, feeds and webhook paths).
+func TestDestinationPropertiesAreMarked(t *testing.T) {
+	eachProperty(t, func(info node.NodeTypeInfo, name string, p node.ConfigProperty) {
+		id := info.Type + "." + name
+		if !destinationLike(name) {
+			return
+		}
+		if _, ok := notDestinations[id]; ok {
+			assert.Falsef(t, p.Destination, "%s is listed as not a destination but marked Destination", id)
+			return
+		}
+		assert.Truef(t, p.Destination, "%s looks like a destination and must be Destination (or be listed in notDestinations)", id)
+	})
+	for id := range notDestinations {
+		typ, prop, _ := strings.Cut(id, ".")
+		info, ok := node.DefaultRegistry.Get(typ)
+		require.Truef(t, ok, "stale notDestinations entry %s", id)
+		_, ok = info.Config.Properties[prop]
+		assert.Truef(t, ok, "stale notDestinations entry %s", id)
+	}
+}
+
+// Destinations whose names do not give them away.
+func TestKnownDestinationPropertiesAreMarked(t *testing.T) {
+	for _, id := range []string{
+		"action-database.dsn",
+		"action-email.port",
+		"action-file.path",
+		"action-gpio.pin",
+		"action-i2c.bus",
+		"action-i2c.register",
+		"action-telegram.chatId",
+		"trigger-mqtt.broker",
+		"trigger-rss.url",
+		"trigger-webhook.path",
+	} {
+		typ, prop, _ := strings.Cut(id, ".")
+		info, ok := node.DefaultRegistry.Get(typ)
+		require.Truef(t, ok, "%s not registered", typ)
+		p, ok := info.Config.Properties[prop]
+		require.Truef(t, ok, "%s missing", id)
+		assert.Truef(t, p.Destination, "%s must be Destination", id)
+	}
+}
+
+// riskSwitchName matches opt-ins that widen what a node may do.
+var riskSwitchName = regexp.MustCompile(`^(allow|insecure|skip|disable)[A-Z]`)
+
+// allow*/insecure* booleans widen what a node may do (private addresses,
+// dash arguments, skipped TLS checks): they must be RiskSwitch, and nothing
+// else is.
+func TestRiskSwitchesAreMarked(t *testing.T) {
+	seen := 0
+	eachProperty(t, func(info node.NodeTypeInfo, name string, p node.ConfigProperty) {
+		id := info.Type + "." + name
+		if riskSwitchName.MatchString(name) {
+			seen++
+			assert.Equalf(t, "boolean", p.Type, "%s is a risk switch and must be a boolean", id)
+			assert.Truef(t, p.RiskSwitch, "%s widens what the node may do and must be RiskSwitch", id)
+			return
+		}
+		assert.Falsef(t, p.RiskSwitch, "%s is marked RiskSwitch but is not named like one (allow*/insecure*)", id)
+	})
+	assert.Positive(t, seen, "allowPrivate and allowDashArgs exist")
+}

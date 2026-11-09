@@ -78,6 +78,7 @@ func gpioActionConfigSchema() node.ConfigSchema {
 		Properties: map[string]node.ConfigProperty{
 			"pin": {
 				Type:         "string",
+				Destination:  true,
 				Title:        "Pin",
 				Description:  "GPIO pin name, e.g. GPIO17",
 				AgentVisible: true,

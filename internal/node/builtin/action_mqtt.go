@@ -200,8 +200,8 @@ func mqttActionConfigSchema() node.ConfigSchema {
 	minQoS, maxQoS := float64(0), float64(2)
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
-			"broker":   {Type: "string", Title: "Broker", Description: "Broker URL, e.g. tcp://host:1883"},
-			"topic":    {Type: "string", Title: "Topic", Description: "Topic to publish to (supports {{templates}})"},
+			"broker":   {Type: "string", Title: "Broker", Description: "Broker URL, e.g. tcp://host:1883", Destination: true},
+			"topic":    {Type: "string", Title: "Topic", Description: "Topic to publish to (supports {{templates}})", Destination: true},
 			"payload":  {Type: "string", Title: "Payload", Description: "Message payload (supports {{templates}})", Default: "{{payload}}"},
 			"qos":      {Type: "number", Title: "QoS", Description: "0, 1 or 2", Default: 0, Minimum: &minQoS, Maximum: &maxQoS, AgentVisible: true},
 			"retained": {Type: "boolean", Title: "Retained", Description: "Set the retained flag", Default: false, AgentVisible: true},
