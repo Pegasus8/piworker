@@ -54,3 +54,12 @@ test('versions and rollback use the flow routes with encoded IDs', async () => {
   await api.rollbackFlow('f/1')
   expect(posts.at(-1)).toEqual({ url: '/flows/f%2F1/rollback', body: undefined })
 })
+
+test('the secrets listing reads names and short marks, never values', async () => {
+  const api = useApi()
+  getData = { secrets: [{ name: 'pin', short: true }, { name: 'api_key', short: false, value: 'leak' }], shortBelow: 16 }
+  expect(await api.getSecrets()).toEqual({ secrets: [{ name: 'pin', short: true }, { name: 'api_key', short: false }], shortBelow: 16 })
+  expect(gets.at(-1)).toEqual({ url: '/secrets', config: undefined })
+  getData = null
+  expect(await api.getSecrets()).toEqual({ secrets: [], shortBelow: 16 })
+})

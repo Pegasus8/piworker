@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Pegasus8/piworker/internal/secrets"
@@ -23,22 +24,64 @@ func secretsRouter(t *testing.T) (*mux.Router, *secrets.Store) {
 	return router, store
 }
 
-func TestSecretsListReturnsNamesOnly(t *testing.T) {
-	router, store := secretsRouter(t)
-	require.NoError(t, store.Set("alpha", "v1"))
-	require.NoError(t, store.Set("beta", "v2"))
-
+// listSecrets returns the raw body of GET /api/secrets and its data member
+// decoded generically, so the test sees every field the response has.
+func listSecrets(t *testing.T, router *mux.Router) (string, map[string]any) {
+	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/api/secrets", nil)
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
-
 	require.Equal(t, http.StatusOK, rr.Code)
-	body := rr.Body.String()
-	assert.Contains(t, body, "alpha")
-	assert.Contains(t, body, "beta")
-	// Values must never be returned by the listing.
-	assert.NotContains(t, body, "v1")
-	assert.NotContains(t, body, "v2")
+	var env struct {
+		Success bool           `json:"success"`
+		Data    map[string]any `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &env))
+	require.True(t, env.Success)
+	return rr.Body.String(), env.Data
+}
+
+func TestSecretsListReturnsNamesAndShortMarksOnly(t *testing.T) {
+	router, store := secretsRouter(t)
+	values := map[string]string{
+		"pin":         "4096",
+		"fifteen":     "abcdefghijklmno",  // 15 runes
+		"sixteen":     "abcdefghijklmnop", // 16 runes
+		"accents":     strings.Repeat("é", 15),
+		"kanji":       strings.Repeat("日", 16),
+		"emoji_short": strings.Repeat("🔑", 15),
+	}
+	for name, v := range values {
+		require.NoError(t, store.Set(name, v))
+	}
+
+	body, data := listSecrets(t, router)
+
+	assert.Equal(t, map[string]any{
+		"shortBelow": float64(16),
+		"secrets": []any{
+			map[string]any{"name": "accents", "short": true},
+			map[string]any{"name": "emoji_short", "short": true},
+			map[string]any{"name": "fifteen", "short": true},
+			map[string]any{"name": "kanji", "short": false},
+			map[string]any{"name": "pin", "short": true},
+			map[string]any{"name": "sixteen", "short": false},
+		},
+	}, data, "names and short marks only: no value, no length")
+	// Values never appear, in any form; nor do the byte or rune lengths of
+	// the short ones (the only numbers in the body are the threshold).
+	for _, v := range values {
+		assert.NotContains(t, body, v)
+	}
+	for _, n := range []string{"4", "15", "30", "45", "60"} {
+		assert.NotRegexp(t, `[^0-9]`+n+`[^0-9]`, body, "no length %s in the listing", n)
+	}
+}
+
+func TestSecretsListIsAnEmptyListWithoutSecrets(t *testing.T) {
+	router, _ := secretsRouter(t)
+	_, data := listSecrets(t, router)
+	assert.Equal(t, []any{}, data["secrets"])
 }
 
 func TestSecretsSetAndDelete(t *testing.T) {

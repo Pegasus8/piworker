@@ -1,6 +1,7 @@
 import axios from 'axios'
 import type { CallResult, Flow, FlowListItem, FlowEvent, FlowRun, NodeEventRecord, NodeTestResult, TLSInfo, VersionList } from '@/types'
 import type { ApplyResult } from '@/lib/drafts'
+import { secretList, type SecretList } from '@/lib/secrets'
 
 const api = axios.create({
   baseURL: '/api',
@@ -122,10 +123,11 @@ export function useApi() {
     await api.delete(`${flowId ? `/flows/${encodeURIComponent(flowId)}` : ""}/variables/${encodeURIComponent(name)}`)
   }
 
-  // Secrets (values are write-only; the listing returns names).
-  async function getSecrets(): Promise<string[]> {
+  // Secrets (values are write-only; the listing returns names and whether
+  // each value is short, never values or lengths).
+  async function getSecrets(): Promise<SecretList> {
     const { data } = await api.get('/secrets')
-    return data.data?.names ?? []
+    return secretList(data.data)
   }
 
   async function setSecret(name: string, value: string): Promise<void> {

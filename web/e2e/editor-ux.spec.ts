@@ -129,7 +129,7 @@ test('node edits survive cancelled dismissal and node deletion is explicit', asy
 test('secrets use nested confirmations and recover after mutation failures', async ({ page }) => {
  let names = ['TOKEN']
  let attempts = 0
- await page.route('**/api/secrets', route => route.fulfill({ json: { success: true, data: { names } } }))
+ await page.route('**/api/secrets', route => route.fulfill({ json: { success: true, data: { secrets: names.map(name => ({ name, short: false })), shortBelow: 16 } } }))
  await page.route('**/api/secrets/TOKEN', route => {
   attempts++
   if (attempts === 1) return route.fulfill({ status: 500, json: { error: 'Offline' } })

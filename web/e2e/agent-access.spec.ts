@@ -31,7 +31,7 @@ function auditPage(from: number, n: number, preview = '{"door":"main"}') {
   return Array.from({ length: n }, (_, i) => ({ id: from - i, ts: iso(-i * 60_000), tokenId: 'tokA', tokenName: 'laptop', tool: i === 0 ? 'reboot_pi' : 'garage_open', flowId: 'f1', runId: `run-${from - i}`, argsPreview: i === 0 ? XSS : preview, outcome: i === 0 ? 'error' : 'completed', durMs: 12, privileged: i === 0 }))
 }
 
-interface MockOptions { toolsMissing?: boolean; pending?: number; extraApprovals?: unknown[]; auditPreview?: string; rejectionsTruncated?: boolean; settingsFail?: boolean; executionError?: string; approveResult?: unknown; mcpEnabled?: boolean; tlsOff?: boolean; pendingCounts?: number[] }
+interface MockOptions { toolsMissing?: boolean; pending?: number; extraApprovals?: unknown[]; auditPreview?: string; rejectionsTruncated?: boolean; settingsFail?: boolean; executionError?: string; approveResult?: unknown; mcpEnabled?: boolean; tlsOff?: boolean; pendingCounts?: number[]; secrets?: { name: string; short: boolean }[]; secretsFail?: boolean }
 
 async function mockServer(page: Page, opts: MockOptions = {}) {
   const requests: Req[] = []
@@ -69,6 +69,7 @@ async function mockServer(page: Page, opts: MockOptions = {}) {
       case 'PUT /agent/settings':
         settings = { ...settings, agentDeploy: body.agentDeploy }
         return ok(settings)
+      case 'GET /secrets': return opts.secretsFail ? fail(500, 'Failed to read secrets') : ok({ secrets: opts.secrets ?? [], shortBelow: 16 })
       case 'GET /agent/approvals/pending-count': return ok({ pending: opts.pendingCounts?.shift() ?? opts.pending ?? 2 })
       case 'GET /agent/approvals': {
         const status = url.searchParams.get('status')
@@ -90,6 +91,13 @@ async function mockServer(page: Page, opts: MockOptions = {}) {
           totals: [{ tokenId: 'tokA', tokenName: 'laptop ' + XSS, reason: 'busy', count: 5, last: iso(-60_000) }, { tokenId: 'gone', tokenName: '', reason: 'invalid_args', count: 1, last: iso(-120_000) }],
           truncated: !!opts.rejectionsTruncated
         })
+    }
+    if (req.method() === 'PUT' && path.startsWith('/secrets/')) {
+      // Values are never listed: the mock keeps the name and its short mark.
+      const name = decodeURIComponent(path.slice('/secrets/'.length))
+      const short = [...String(body?.value ?? '')].length < 16
+      opts.secrets = [...(opts.secrets ?? []).filter(s => s.name !== name), { name, short }].sort((a, b) => a.name.localeCompare(b.name))
+      return ok(null)
     }
     return fail(404, `Unexpected ${key}`)
   }
@@ -337,6 +345,57 @@ test('the agent deploy level shows its risk and needs the password', async ({ pa
   // With agent deploy on, new tokens may get the deploy scope.
   await page.getByRole('button', { name: 'New token' }).click()
   await expect(page.getByRole('dialog', { name: 'New agent token' }).getByLabel('Deploy', { exact: true })).toBeEnabled()
+})
+
+test('the deploy levels explain the guessing residual and count the short secrets', async ({ page }) => {
+  const opts: MockOptions = { secrets: [{ name: 'api_key', short: false }, { name: 'door_pin', short: true }] }
+  const requests = await mockServer(page, opts)
+  await page.goto('/agents')
+  const level = page.getByRole('radiogroup', { name: 'Agent deploy level' })
+  // At every level, off included: a call-scope token and a granted tool
+  // that repeats its arguments are enough.
+  await expect(level).toHaveAccessibleDescription(/with the call scope, from a granted tool that repeats its arguments/)
+  await expect(page.getByText('Guessable secrets, at every level:')).toBeVisible()
+  // What low and all add, next to them only.
+  for (const name of ['Low-risk flows', 'All flows']) {
+    await expect(level.getByLabel(name)).toHaveAccessibleDescription(/author and read scopes can guess without your approval/)
+  }
+  await expect(level.getByLabel('Off (recommended)')).not.toHaveAccessibleDescription(/guess/)
+  const short = page.getByRole('status').filter({ hasText: 'Short secrets:' })
+  await expect(short).toContainText('1 of 2 secrets is short (fewer than 16 characters): an agent could confirm a guess of it.')
+  // One read with the page; nothing polls it.
+  await page.waitForTimeout(300)
+  expect(requests.filter(r => r.method === 'GET' && r.path === '/secrets')).toHaveLength(1)
+
+  // The secrets dialog marks the short one with an icon and words.
+  await short.getByRole('button', { name: 'Review secrets' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Manage secrets' })
+  const marks = dialog.getByText('Short value:', { exact: false })
+  await expect(marks).toHaveCount(1)
+  await expect(dialog).toContainText('An agent could confirm a guess of it (see Agents). Use 16 random characters or more.')
+  // A short value is flagged while typed; replacing it clears the mark. The
+  // hint sits in a polite live region that exists before it is filled, so
+  // a screen reader announces it as it appears, not only on focus.
+  const hint = dialog.locator('#secret-value-short')
+  await expect(hint).toHaveAttribute('aria-live', 'polite')
+  await expect(hint).toHaveText('')
+  await dialog.getByLabel('Secret name').fill('door_pin')
+  await dialog.getByLabel('Secret value').fill('1234')
+  await expect(hint).toContainText('Short value:')
+  await expect(dialog.getByLabel('Secret value')).toHaveAccessibleDescription(/Short value/)
+  await dialog.getByLabel('Secret value').fill('a much longer passphrase')
+  await expect(dialog.getByLabel('Secret value')).not.toHaveAccessibleDescription(/Short value/)
+  await expect(hint).toHaveText('')
+  await dialog.getByRole('button', { name: 'Add secret' }).click()
+  await expect(marks).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Done' }).click()
+  await expect(short).toContainText('No secret is shorter than 16 characters. Use random values: a long word or date can still be guessed.')
+})
+
+test('secrets that cannot be read leave the short count unknown', async ({ page }) => {
+  await mockServer(page, { secretsFail: true })
+  await page.goto('/agents')
+  await expect(page.getByRole('status').filter({ hasText: 'Short secrets:' })).toContainText('Could not check the secrets for short values.')
 })
 
 test('an unreadable agent deploy level is shown as unknown, not as off', async ({ page }) => {

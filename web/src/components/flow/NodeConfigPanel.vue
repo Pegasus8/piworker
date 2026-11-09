@@ -45,7 +45,7 @@ async function loadReferences() {
  if (request !== referencesRequest) return
  variableNames.value = result[0].status === 'fulfilled' ? Object.keys(result[0].value || {}) : []
  flowVariableNames.value = result[2].status === 'fulfilled' ? Object.keys(result[2].value || {}) : []
- secretNames.value = result[1].status === 'fulfilled' ? result[1].value : []
+ secretNames.value = result[1].status === 'fulfilled' ? result[1].value.secrets.map(s => s.name) : []
  referencesError.value = result.some(r => r.status === 'rejected') ? 'Some references could not be loaded. You can still edit the field.' : ''
 }
 // JSON fields whose text does not parse: their value is not applied, so

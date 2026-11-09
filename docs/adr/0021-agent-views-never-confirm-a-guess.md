@@ -66,15 +66,77 @@ hidden settings (fixed issue texts, no alert values).
   unchanged") covers every agent-facing path.
 - Harder: new agent-facing views must take provenance into account, not
   only redact.
-- Open: the wave-3 read views (`pw_get_flow` and friends) still redact
-  stored flows by value. Once an agent's text is saved in a version (an
-  approved draft, or a self-deploy at `low` or `all`), they can confirm a
-  guess. Closing this needs to know who wrote each setting across versions.
-- Revisit when: the read views gain per-setting provenance (action item 2).
+- Open, accepted (action item 2): the read views (`pw_list_flows`,
+  `pw_get_flow`, `pw_list_runs`, `pw_get_run`, the `diagnose_flow`
+  prompt) still hide known values by comparison, so text an agent wrote
+  comes back as `"<redacted>"` exactly when it holds one.
+  - Compared with: secret values, and the credentials typed into the
+    `Sensitive` settings of the flow shown (whole, and their words of 8
+    bytes or more), in literal, URL-encoded, base64 and escaped forms;
+    values under 4 bytes are never hidden. The errors `pw_get_run` shows
+    are also compared with the parts of the flow's hidden settings (any
+    setting agents may not see, `Sensitive` or not): literal values,
+    words, URL paths, path segments, query values, fragments and user
+    names of 8 bytes or more, and URL passwords from 4 bytes.
+  - Who: a token with `author` and `read`, with `author_enabled`, whose
+    text gets into a stored version: one it deploys from its own draft
+    (`deploy`, `agent_deploy` at `low` or `all`: no approval per round,
+    each deploy audited and marked "deployed by agent"), or a draft the
+    admin approves (at any level, one approval per round).
+  - What it needs: its text in a visible setting or the name of that
+    flow, or in an error a run of it records, read back through the
+    views. Over such a version its later drafts read a guess back too,
+    with `author` alone: the `before` values of alerts are redacted by
+    comparison, and a kept setting (or name) whose stored value holds a
+    known value is withheld, shown as `"<redacted>"` by `pw_get_draft`.
+  - How fast: every occurrence is hidden, so one round tests many
+    candidates. A view shows at most 64 KiB, so a four-digit PIN falls in
+    a round or two, a six-digit PIN or a dictionary word in about a
+    hundred; 16 random characters never. Length is not randomness: a long
+    word or date falls like a short one. Hidden settings often hold
+    structured, guessable text (paths, user names, a URL's short
+    password), and nothing checks them.
+  - Mitigation: the editor marks short secrets with an icon and words,
+    and the Agents page counts them. Credentials belong in secrets: typed
+    into settings they are hidden the same way but never checked. Admins
+    should keep guessable passwords and identifiers out of the hidden
+    settings of flows agents may deploy or read the runs of.
+- Open, undecided (action item 3): the same comparison reaches agents
+  outside that decision, at every `agent_deploy` level (`off` included)
+  and without `author`:
+  - `call` and a granted tool whose reply or error repeats its arguments:
+    tool results and errors are compared with secret values
+    (`Tools.finish`; not with typed credentials or hidden settings).
+  - `call` and `read`: a granted tool whose flow records an error that
+    repeats an argument; `pw_get_run` compares it with everything listed
+    above, the flow's hidden settings included.
+  - `read` and an inbound trigger the agent reaches another way: a
+    webhook (one without a token answers anyone on the network,
+    ADR-0003) or an MQTT topic of a flow whose node records an error that
+    repeats the input.
+  Tool results need the comparison as much as the read views: flows can
+  return real secret values (resolved references, variables, `$env`). The
+  short-secret warnings cover these paths for secret values only.
+- Revisit when: the read views gain per-setting provenance across versions,
+  or runtime taint tracking becomes affordable.
 
 ## Action items
 
 1. [x] Written/kept tracking, withheld settings, echo tests per path
    (`internal/service/authoring_withheld.go`).
-2. [ ] Per-setting provenance across versions so the read views stop
-   redacting agent-written values by comparison.
+2. [x] The read views keep redacting by comparison: stored flows and real
+   runs hold real secret values only comparison catches (resolved
+   references, variables, `$env`, node outputs), and tracking them across
+   variables at run time is out of proportion. The residual is mitigated
+   by warnings instead: `GET /api/secrets` marks each secret `short` (fewer
+   than `secrets.ShortValueRunes`, 16 runes; never a value or a length);
+   the secrets dialog marks short secrets with an icon and words; the
+   Agents page explains the residual at every level, what `low` and `all`
+   add, and counts the short secrets; README and design §6, §10 describe
+   it, including that credentials typed into `Sensitive` settings are
+   redaction targets too and should be secrets.
+3. [ ] Decide the tool-result and inbound-trigger paths (the second "Open"
+   consequence): keep the comparison, which tool results need because
+   flows can return real secret values, with the warnings of item 2 as
+   the mitigation, or mitigate them another way. Until then they are open,
+   not accepted.

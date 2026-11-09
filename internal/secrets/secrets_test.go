@@ -2,7 +2,9 @@ package secrets
 
 import (
 	"fmt"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -103,4 +105,48 @@ func TestFailedPersistencePreservesSecret(t *testing.T) {
 	v, ok := s.Get("TOKEN")
 	require.True(t, ok)
 	require.Equal(t, "old", v)
+}
+
+func TestIsShortCountsRunesNotBytes(t *testing.T) {
+	assert.Equal(t, 16, ShortValueRunes)
+	cases := []struct {
+		name  string
+		value string
+		short bool
+	}{
+		{"empty", "", true},
+		{"pin", "1234", true},
+		{"15 ASCII runes", strings.Repeat("a", 15), true},
+		{"16 ASCII runes", strings.Repeat("a", 16), false},
+		{"long", strings.Repeat("x", 64), false},
+		// A multi-byte character counts once: 15 runes are short in 30 or
+		// 60 bytes, 16 are not.
+		{"15 two-byte runes", strings.Repeat("é", 15), true},
+		{"15 four-byte runes", strings.Repeat("🔑", 15), true},
+		{"16 three-byte runes", strings.Repeat("日", 16), false},
+		{"15 mixed runes", "ñandú-日本-🔑🔑-abc", true},
+		{"16 mixed runes", "ñandú-日本-🔑🔑-abcd", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.short, IsShort(tc.value), "a value of %d runes", utf8.RuneCountInString(tc.value))
+		})
+	}
+}
+
+func TestStoreListMarksShortValuesSortedByName(t *testing.T) {
+	s := NewStore()
+	assert.Empty(t, s.List())
+	require.NoError(t, s.Set("pin", "1234"))
+	require.NoError(t, s.Set("api_key", strings.Repeat("k", 16)))
+	require.NoError(t, s.Set("accents", strings.Repeat("é", 15)))
+	assert.Equal(t, []Entry{
+		{Name: "accents", Short: true},
+		{Name: "api_key", Short: false},
+		{Name: "pin", Short: true},
+	}, s.List())
+
+	// Replacing a value updates its mark.
+	require.NoError(t, s.Set("pin", "correct-horse-battery-staple"))
+	assert.Equal(t, Entry{Name: "pin", Short: false}, s.List()[2])
 }

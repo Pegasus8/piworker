@@ -174,7 +174,26 @@ export const EXPIRY_OPTIONS: ExpiryOption[] = [
   { days: 365, label: '1 year' }
 ]
 
-export interface DeployLevelOption { value: AgentDeployLevel; label: string; risk: string }
+export interface DeployLevelOption {
+  value: AgentDeployLevel
+  label: string
+  risk: string
+  /** What the level adds to the guessing residual (GUESSING_AT_EVERY_LEVEL). */
+  residual?: string
+}
+
+/**
+ * What agents read (the read views, tool results) hides known secret values
+ * by comparison, so an agent whose own text comes back to it can confirm a
+ * guess, at every agent deploy level (ADR-0021, docs/design/mcp.md §6).
+ */
+export const GUESSING_AT_EVERY_LEVEL = 'What agents read hides known secret values, so an agent can confirm a guess of a value wherever its own text comes back hidden, whatever the level: with the call scope, from a granted tool that repeats its arguments; with the read scope, from an error a run records of what it sent (a tool call, a webhook or an MQTT message); with the author and read scopes, from a draft you approve. Only short or predictable values can be guessed this way. Credentials typed into a setting are hidden the same way but never checked: store them as secrets, where short ones are marked.'
+
+/**
+ * What letting agents deploy adds: an agent saves its guesses in a flow
+ * version or a run of it with no approval per round (ADR-0021).
+ */
+const GUESSING_RESIDUAL = 'An agent whose token also has the author and read scopes can guess without your approval: it saves a guess of a secret\'s value in a flow it deploys, or in an error a run of it records, and reads it back. The settings of that flow agents cannot see are hidden from its run errors the same way, so keep guessable passwords and paths out of them.'
 
 /** Agent deploy levels with the risk the admin accepts (docs/design/mcp.md §10). */
 export const DEPLOY_LEVELS: DeployLevelOption[] = [
@@ -186,12 +205,14 @@ export const DEPLOY_LEVELS: DeployLevelOption[] = [
   {
     value: 'low',
     label: 'Low-risk flows',
-    risk: 'Agents with the deploy scope may deploy, start and stop flows, and deploy their own drafts, when the resulting flow is at most external risk (HTTP, MQTT, e-mail, Telegram, notifications) and, compared with the version you last approved, adds no privileged node, changes no recipient or destination, reaches no new host, adds or moves no secret reference, turns on no risk switch, uses no credential for a different request, changes no setting of how often it runs, and changes nothing a global variable receives or a tool reads from one.'
+    risk: 'Agents with the deploy scope may deploy, start and stop flows, and deploy their own drafts, when the resulting flow is at most external risk (HTTP, MQTT, e-mail, Telegram, notifications) and, compared with the version you last approved, adds no privileged node, changes no recipient or destination, reaches no new host, adds or moves no secret reference, turns on no risk switch, uses no credential for a different request, changes no setting of how often it runs, and changes nothing a global variable receives or a tool reads from one.',
+    residual: GUESSING_RESIDUAL
   },
   {
     value: 'all',
     label: 'All flows',
-    risk: 'Agents with the deploy scope may deploy, start and stop any flow, including privileged ones that run commands, write files, query databases or switch GPIO and I2C devices. A leaked token or a misled agent could take over this device.'
+    risk: 'Agents with the deploy scope may deploy, start and stop any flow, including privileged ones that run commands, write files, query databases or switch GPIO and I2C devices. A leaked token or a misled agent could take over this device.',
+    residual: GUESSING_RESIDUAL
   }
 ]
 
