@@ -121,8 +121,8 @@ func (sinkNode) Ports() (inputs, outputs []types.Port) {
 	return []types.Port{{ID: "input", DataType: types.DataTypeAny}}, nil
 }
 
-// TestCalledRunActorReachesHistory: the actor of FlowRuntime.Call ends up on
-// the persisted run.
+// TestCalledRunActorReachesHistory: the actor of FlowRuntime.Call and the
+// version of the definition the runtime runs end up on the persisted run.
 func TestCalledRunActorReachesHistory(t *testing.T) {
 	store := newFakeStore()
 	rec := NewRecorder(store, WithHub(NewHub()), WithFlushInterval(5*time.Millisecond))
@@ -140,6 +140,7 @@ func TestCalledRunActorReachesHistory(t *testing.T) {
 		func(map[string]interface{}) (node.Node, error) { return sinkNode{node.NewBaseNode(nil)}, nil }))
 
 	f := flow.NewFlow("called")
+	f.Version = 3
 	trig := flow.NewNode("tool", types.NodeCategoryInput)
 	sink := flow.NewNode("sink", types.NodeCategoryOutput)
 	f.AddNode(*trig)
@@ -162,4 +163,24 @@ func TestCalledRunActorReachesHistory(t *testing.T) {
 	run := store.getRun(res.RunID)
 	assert.Equal(t, f.ID, run.FlowID)
 	assert.Equal(t, "token:bot", run.Actor)
+	assert.Equal(t, 3, run.FlowVersion)
+}
+
+// The run records the version its first event reports (the executor's,
+// ADR-0022); later events do not change it.
+func TestRecorderRecordsTheRunsFlowVersion(t *testing.T) {
+	store := newFakeStore()
+	rec := NewRecorder(store, WithHub(NewHub()))
+
+	first := runningEvent("r1", "f1", "n1", "x")
+	first.FlowVersion = 4
+	rec.persist(first, time.Now())
+	later := withActor(successEvent("r1", "f1", "n1", "x"), "editor")
+	later.FlowVersion = 4
+	rec.persist(later, time.Now())
+	rec.persist(runningEvent("unknown", "f1", "n1", "x"), time.Now())
+
+	assert.Equal(t, 4, store.getRun("r1").FlowVersion)
+	assert.Equal(t, "editor", store.getRun("r1").Actor)
+	assert.Equal(t, 0, store.getRun("unknown").FlowVersion)
 }

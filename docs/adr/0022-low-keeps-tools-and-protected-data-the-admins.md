@@ -1,6 +1,6 @@
 # ADR-0022: `low` keeps published tools and protected data the admin's
 
-**Status:** Accepted
+**Status:** Accepted (how a run's version is told superseded by ADR-0023)
 **Date:** 2026-11-09
 **Deciders:** maintainer
 **Supersedes:** ADR-0019 (only the list of alert kinds `low` refuses);

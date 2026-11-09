@@ -16,11 +16,12 @@ import (
 
 var runsBase = time.Date(2026, 11, 8, 10, 0, 0, 0, time.UTC)
 
-// addRun records a finished run of flowID started at runsBase+offset.
+// addRun records a finished run of flowID started at runsBase+offset, of
+// version 1 (the admin's, as CreateFlow stores it).
 func (e *readsEnv) addRun(flowID, runID, actor string, offset, took time.Duration, status string, events ...storage.NodeEventRecord) {
 	e.t.Helper()
 	start := runsBase.Add(offset)
-	require.NoError(e.t, e.store.UpsertFlowRunWithActor(runID, flowID, actor, start))
+	require.NoError(e.t, e.store.StartFlowRun(storage.RunStart{ID: runID, FlowID: flowID, Actor: actor, FlowVersion: 1, StartedAt: start}))
 	errs := 0
 	for i := range events {
 		events[i].RunID, events[i].FlowID = runID, flowID
@@ -175,7 +176,6 @@ func TestReadsWithoutHistory(t *testing.T) {
 func TestGetRunShowsTheNodeEvents(t *testing.T) {
 	e := newReadsEnv(t)
 	f := e.save(manualFlow("events"))
-	e.approvedDeployment(f.ID)
 	e.addRun(f.ID, "run-1", "token:bot", 0, 40*time.Millisecond, "error",
 		storage.NodeEventRecord{NodeID: "trigger", NodeType: "trigger-manual", Phase: "success", MsgID: "m1", DurationMs: 0.5},
 		storage.NodeEventRecord{NodeID: "log", NodeType: "action-log", Phase: "error", MsgID: "m1", DurationMs: 12.25, Error: "boom"},
@@ -227,7 +227,6 @@ func TestGetRunUnknown(t *testing.T) {
 func TestGetRunCapsErrorsAndTheRun(t *testing.T) {
 	e := newReadsEnv(t)
 	f := e.save(manualFlow("big"))
-	e.approvedDeployment(f.ID)
 	long := strings.Repeat("é", maxRunFieldBytes)
 	events := []storage.NodeEventRecord{{NodeID: "n0", NodeType: "action-log", Phase: "error", Error: long}}
 	for i := range 200 {
@@ -297,7 +296,6 @@ func TestRunViewsRedactSecrets(t *testing.T) {
 	require.NoError(t, e.secrets.Set("API_KEY", value))
 	require.NoError(t, e.secrets.Set("QUOTED", quoted))
 	f := e.save(manualFlow("leaky"))
-	e.approvedDeployment(f.ID)
 
 	var events []storage.NodeEventRecord
 	for _, v := range []string{value, quoted} {
@@ -354,7 +352,6 @@ func TestReadsRedactLiteralSensitiveConfig(t *testing.T) {
 	f.AddNode(*httpN)
 	f.AddNode(*debug)
 	e.save(f)
-	e.approvedDeployment(f.ID)
 	e.addRun(f.ID, "run-1", "token:bot "+headerCred, 0, time.Second, "error",
 		storage.NodeEventRecord{NodeID: "telegram", NodeType: "action-telegram", Phase: "error", Error: "unauthorized bot " + botToken + `; reply {"token":` + jsonString(botToken) + `}`},
 		storage.NodeEventRecord{NodeID: "http", NodeType: "action-http", Phase: "error", Error: "header Bearer " + headerCred + " rejected"},
@@ -418,7 +415,6 @@ func TestGetRunReadsABoundedPartOfTheRun(t *testing.T) {
 	e := newReadsEnv(t, func(o *ReadsOptions) { o.History = history })
 	history.SQLiteStore = e.store
 	f := e.save(manualFlow("huge"))
-	e.approvedDeployment(f.ID)
 
 	var events []storage.NodeEventRecord
 	for i := range 1500 {
@@ -460,7 +456,6 @@ func TestGetRunHidesASecretCutInStorage(t *testing.T) {
 	require.NoError(t, e.secrets.Set("LONG", long))
 	require.NoError(t, e.secrets.Set("STRADDLING", straddling))
 	f := e.save(manualFlow("cut"))
-	e.approvedDeployment(f.ID)
 	// 120 long secrets (shrinking by 54 bytes each), filler, then the
 	// straddling secret starting 10 characters before the cut.
 	head := strings.Repeat(long, 120)

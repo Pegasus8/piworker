@@ -195,7 +195,9 @@ func (r *FlowRuntime) RunDone(runID string) <-chan struct{}
   `errors.Is(err, flow.ErrBusy)` to `busy` (retryable), never to an internal
   error.
 - A trigger-tool with no active router edge (`targetCount == 0`) fails deploy.
-- `flow_runs` gains an `actor` column, filled from the run's meta `actor`.
+- `flow_runs` gains an `actor` column, filled from the run's meta `actor`,
+  and a `flow_version` column, the stored version the runtime runs, which
+  every `NodeEvent` carries (`FlowVersion`, ADR-0023).
 
 ## 5. Tool nodes, schemas, risk
 
@@ -381,13 +383,15 @@ Shared by REST and MCP (thin adapters):
   hidden settings, split around `{{…}}` templates, whole, as words and as the
   path segments, query values and userinfo of their URLs (parts under 8
   bytes are kept, but a URL password of 4). Agents see a run's recorded
-  errors only when the run is of a version the admin approved and deployed
-  (ADR-0022): it started in a later second than the flow's current
-  deployment marker (stamped in seconds), and the version the marker names
-  is admin-approved. Any other run's errors — an agent's deployment at
-  `low` or `all`, a run before the current deployment, a flow without a
-  marker or whose version was pruned — read as a fixed text naming why;
-  phases, nodes and timings are shown. A node an agent deployed could
+  errors only when the run is of a version an admin approved, whoever
+  deployed it (ADR-0022, ADR-0023): the runtime reports the stored version
+  it runs with every node event, the history keeps it with the run
+  (`flow_runs.flow_version`, from the run's first event), and that version
+  is stored and admin-approved. The deployment marker plays no part, so
+  neither the moment it is written nor when the recorder stamps a run
+  matters. Any other run's errors — of an agent's version, of a run
+  recorded without a version (before it was kept) or of a pruned version —
+  read as a fixed text naming why; phases, nodes and timings are shown. A node an agent deployed could
   otherwise raise an error on purpose to hand back what it read
   (variables, metadata, a credential's response), and redaction by value
   cannot stop an encoded copy. The editor sees every error. An unknown
@@ -403,9 +407,10 @@ Shared by REST and MCP (thin adapters):
   Accepted (action item 2): `author` and `read` with the agent's text in a
   stored version, either one it deploys from its own draft (`deploy` at
   `low` or `all`, no approval per round) or a draft the admin approves
-  (any level): a visible setting or the flow's name, or, once the admin
-  deploys the approved draft, an error a run of it records (the run
-  errors of an agent's own deployment are withheld, above). Over such a
+  (any level): a visible setting or the flow's name, or, once the
+  approved draft is deployed (by the admin, or by an agent at `low` or
+  `all`), an error a run of it records (the run errors of a version no
+  admin approved are withheld, above). Over such a
   version the agent's later drafts read a guess back with `author` alone
   (alert `before` values are redacted by comparison, and a kept setting
   whose stored value holds a known value is withheld, `"<redacted>"` in

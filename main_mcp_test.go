@@ -1277,15 +1277,13 @@ func TestMCPReadCanaries(t *testing.T) {
 	realErr := realNodeError(t, "action-http", hook)
 	require.Contains(t, realErr, canaries["webhook url path"])
 	require.NoError(t, app.store.CreateFlow(f))
-	// The admin deployed the version it approved before the run: agents see
-	// the errors only of such runs (ADR-0022).
-	require.NoError(t, app.store.RecordDeployment(f.ID, storage.Deployment{
-		Version: 1, ActorKind: storage.VersionActorEditor, DeployedAt: time.Now().Add(-time.Hour)}))
 
-	// A recorded run: its errors echo credentials typed into Sensitive
-	// settings and the secret, literally and encoded.
+	// A recorded run of the version the admin saved (agents see the errors
+	// only of runs of a version an admin approved, ADR-0022): its errors
+	// echo credentials typed into Sensitive settings and the secret,
+	// literally and encoded.
 	now := time.Now()
-	require.NoError(t, app.store.UpsertFlowRunWithActor("run-1", f.ID, "token:bot "+secret, now))
+	require.NoError(t, app.store.StartFlowRun(storage.RunStart{ID: "run-1", FlowID: f.ID, Actor: "token:bot " + secret, FlowVersion: f.Version, StartedAt: now}))
 	var records []storage.NodeEventRecord
 	for i, msg := range []string{
 		"401 Unauthorized for Bearer " + canaries["http header"],

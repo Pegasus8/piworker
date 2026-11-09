@@ -9,11 +9,11 @@ import (
 // ErrFlowRunNotFound is returned when a run does not exist in the given flow.
 var ErrFlowRunNotFound = errors.New("flow run not found")
 
-const flowRunColumns = `id, flow_id, started_at, finished_at, status, node_count, error_count, actor`
+const flowRunColumns = `id, flow_id, started_at, finished_at, status, node_count, error_count, actor, flow_version`
 
 func scanFlowRun(row interface{ Scan(...any) error }) (FlowRun, error) {
 	var r FlowRun
-	err := row.Scan(&r.ID, &r.FlowID, &r.StartedAt, &r.FinishedAt, &r.Status, &r.NodeCount, &r.ErrorCount, &r.Actor)
+	err := row.Scan(&r.ID, &r.FlowID, &r.StartedAt, &r.FinishedAt, &r.Status, &r.NodeCount, &r.ErrorCount, &r.Actor, &r.FlowVersion)
 	return r, err
 }
 

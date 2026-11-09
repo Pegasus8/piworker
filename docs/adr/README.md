@@ -63,4 +63,5 @@ node recipe, UI changes and documentation do **not** need an ADR.
 | [0019](0019-lint-markers-and-change-alerts-define-low.md) | One Lint path, schema markers and change alerts define `low` | Accepted (the alert kinds `low` refuses extended by ADR-0022) |
 | [0020](0020-sandboxed-dry-run-and-node-test.md) | Sandboxed dry-run and node test; expressions honour their deadline | Accepted |
 | [0021](0021-agent-views-never-confirm-a-guess.md) | What agents see never confirms a guess | Accepted |
-| [0022](0022-low-keeps-tools-and-protected-data-the-admins.md) | `low` keeps published tools and protected data the admin's | Accepted |
+| [0022](0022-low-keeps-tools-and-protected-data-the-admins.md) | `low` keeps published tools and protected data the admin's | Accepted (how a run's version is told superseded by ADR-0023) |
+| [0023](0023-runs-record-the-version-they-ran.md) | Runs record the version they ran | Accepted |

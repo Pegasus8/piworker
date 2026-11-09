@@ -64,11 +64,9 @@ type RunHistory interface {
 	// maxErrorChars characters; CountFlowRunEvents counts them.
 	ListFlowRunEventsAfter(flowID, runID string, afterID int64, limit, maxErrorChars int) ([]storage.NodeEventRecord, error)
 	CountFlowRunEvents(flowID, runID string) (int, error)
-	// GetDeployment returns the flow's last deployment marker (nil: none)
-	// and GetFlowVersion one of its versions (storage.
-	// ErrFlowVersionNotFound): whether a run's version is one the admin
-	// approved (GetRun).
-	GetDeployment(flowID string) (*storage.Deployment, error)
+	// GetFlowVersion returns one of the flow's versions (storage.
+	// ErrFlowVersionNotFound): whether the version a run ran is one the
+	// admin approved (GetRun).
 	GetFlowVersion(flowID string, version int) (*storage.FlowVersion, error)
 }
 

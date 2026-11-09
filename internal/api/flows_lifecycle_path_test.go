@@ -66,6 +66,11 @@ func TestLockedDeployRecordsTheDeployment(t *testing.T) {
 	}))
 	t.Cleanup(h.manager.StopAll)
 	assert.Equal(t, 2, version)
+	// The runtime runs the stored version and reports it with every run
+	// (ADR-0022), whatever the marker says.
+	rt, ok := h.manager.GetRuntime(f.ID)
+	require.True(t, ok)
+	assert.Equal(t, 2, rt.Flow().Version)
 	stored, err := store.GetFlow(f.ID)
 	require.NoError(t, err)
 	assert.Equal(t, flow.FlowStateRunning, stored.State, "the restart intent is persisted")
@@ -98,9 +103,10 @@ func TestLockedDeployRecordsTheDeployment(t *testing.T) {
 	assert.Equal(t, 3, d.Version)
 	assert.Equal(t, storage.VersionActorEditor, d.ActorKind)
 	assert.Empty(t, d.TokenID)
-	rt, ok := h.manager.GetRuntime(f.ID)
+	rt, ok = h.manager.GetRuntime(f.ID)
 	require.True(t, ok)
 	assert.True(t, rt.IsRunning())
+	assert.Equal(t, 3, rt.Flow().Version)
 }
 
 func TestLockedDeployRefusals(t *testing.T) {

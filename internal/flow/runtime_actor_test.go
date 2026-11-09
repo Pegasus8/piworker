@@ -49,3 +49,26 @@ func TestActorOfIgnoresNonStringMeta(t *testing.T) {
 	msg.SetMeta("actor", "editor")
 	assert.Equal(t, "editor", actorOf(msg))
 }
+
+// Node events carry the version of the definition the runtime runs, as it
+// was when the runtime was built: the history records it with each run, so
+// what a run ran is known whatever happens to the flow or its deployment
+// marker afterwards (ADR-0022).
+func TestNodeEventsCarryTheRuntimesFlowVersion(t *testing.T) {
+	reg := callRegistryFor(t, map[string]node.NodeFactory{"pass": funcFactory(passFn)})
+	f := callGraph(map[string]string{"tool": "tool", "a": "pass"}, [2]string{"tool", "a"})
+	f.Version = 7
+	hook, read := collectObserver()
+	rt := startRuntime(t, f, reg, WithObserver(hook))
+	f.Version = 8 // the caller's copy moves on (a later save); the runtime does not
+
+	res, err := rt.Call(context.Background(), CallRequest{TriggerNodeID: "tool", Timeout: 3 * time.Second})
+	require.NoError(t, err)
+	require.Equal(t, CallStatusCompletedNoReply, res.Status)
+
+	events := read()
+	require.NotEmpty(t, events)
+	for _, e := range events {
+		assert.Equal(t, 7, e.FlowVersion, "%s %s", e.NodeID, e.Phase)
+	}
+}

@@ -27,20 +27,20 @@ func newFakeStore() *fakeStore {
 	return &fakeStore{runs: map[string]storage.FlowRun{}, upsertsBy: map[string]int{}}
 }
 
-// UpsertFlowRunWithActor mirrors the SQLite semantics: insert once, fill an
-// empty actor later, never replace one.
-func (f *fakeStore) UpsertFlowRunWithActor(runID, flowID, actor string, startedAt time.Time) error {
+// StartFlowRun mirrors the SQLite semantics: insert once (with the
+// version), fill an empty actor later, never replace one.
+func (f *fakeStore) StartFlowRun(start storage.RunStart) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.upsertsBy[runID]++
-	r, ok := f.runs[runID]
+	f.upsertsBy[start.ID]++
+	r, ok := f.runs[start.ID]
 	if !ok {
-		r = storage.FlowRun{ID: runID, FlowID: flowID, StartedAt: startedAt, Status: "running"}
+		r = storage.FlowRun{ID: start.ID, FlowID: start.FlowID, StartedAt: start.StartedAt, Status: "running", FlowVersion: start.FlowVersion}
 	}
 	if r.Actor == "" {
-		r.Actor = actor
+		r.Actor = start.Actor
 	}
-	f.runs[runID] = r
+	f.runs[start.ID] = r
 	return nil
 }
 

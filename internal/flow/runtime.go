@@ -87,12 +87,16 @@ type NodeEvent struct {
 	// Actor is the run's "actor" meta (who started it, e.g. "token:bot"),
 	// copied by the executor before the node runs so observers never read
 	// Input's meta while the node may still change it. "" when unknown.
-	Actor    string
-	Phase    string // NodePhaseRunning | NodePhaseSuccess | NodePhaseError
-	Input    *types.Message
-	Outputs  []*types.Message
-	Err      error
-	Duration time.Duration
+	Actor string
+	// FlowVersion is the stored version of the definition the runtime runs
+	// (Flow.Version when the runtime was built; 0 when unknown), so the
+	// history records which version each run ran (ADR-0022).
+	FlowVersion int
+	Phase       string // NodePhaseRunning | NodePhaseSuccess | NodePhaseError
+	Input       *types.Message
+	Outputs     []*types.Message
+	Err         error
+	Duration    time.Duration
 }
 
 // NodeEventHook receives NodeEvents. It runs inline on the node executor
@@ -104,9 +108,12 @@ type NodeEventHook func(NodeEvent)
 // FlowRuntime manages the execution of a single flow.
 // Each active flow runs in its own goroutine with message passing via channels.
 type FlowRuntime struct {
-	flow   *Flow
-	router *MessageRouter
-	logger zerolog.Logger
+	flow *Flow
+	// version is flow.Version when the runtime was built: what its node
+	// events report, whatever later happens to the caller's copy.
+	version int
+	router  *MessageRouter
+	logger  zerolog.Logger
 
 	// Node instances keyed by node ID
 	nodes map[string]node.Node
@@ -335,6 +342,7 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 
 	rt := &FlowRuntime{
 		flow:           f,
+		version:        f.Version,
 		logger:         logger,
 		nodes:          make(map[string]node.Node),
 		triggers:       make(map[string]node.TriggerNode),
@@ -824,12 +832,13 @@ func (r *FlowRuntime) executeNodeInSlot(routedMsg RoutedMessage, slot *semSlot) 
 	// Shared fields for every NodeEvent this execution emits; each fire point
 	// copies it and sets only Phase/Duration/Outputs/Err.
 	baseEvent := NodeEvent{
-		FlowID:   r.flow.ID,
-		NodeID:   routedMsg.TargetNode,
-		NodeType: flowNode.Type,
-		CorrID:   correlationID,
-		Actor:    actorOf(routedMsg.Message),
-		Input:    routedMsg.Message,
+		FlowID:      r.flow.ID,
+		NodeID:      routedMsg.TargetNode,
+		NodeType:    flowNode.Type,
+		CorrID:      correlationID,
+		Actor:       actorOf(routedMsg.Message),
+		FlowVersion: r.version,
+		Input:       routedMsg.Message,
 	}
 
 	// A panic inside a node's Process must not take down the executor goroutine
@@ -1111,9 +1120,10 @@ func (r *FlowRuntime) runDone(correlationID string) {
 	}
 	if r.observer != nil {
 		r.observer(NodeEvent{
-			FlowID: r.flow.ID,
-			CorrID: correlationID,
-			Phase:  NodePhaseRunFinished,
+			FlowID:      r.flow.ID,
+			CorrID:      correlationID,
+			FlowVersion: r.version,
+			Phase:       NodePhaseRunFinished,
 		})
 	}
 	r.calls.runFinished(correlationID)

@@ -11,27 +11,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// deployedAt records a deployment of version of flowID by kind at at (the
-// marker the lifecycle path records).
-func (e *readsEnv) deployedAt(flowID string, version int, kind string, at time.Time) {
+// addRunOf records a run of version of flowID (as the recorder does with
+// the version the runtime reports) failing with event.
+func (e *readsEnv) addRunOf(flowID, runID string, version int, offset time.Duration, event storage.NodeEventRecord) {
 	e.t.Helper()
-	require.NoError(e.t, e.store.RecordDeployment(flowID, storage.Deployment{Version: version, ActorKind: kind, DeployedAt: at}))
-}
-
-// approvedDeployment records that the admin deployed version 1 of flowID
-// (admin-approved) before the runs of these tests.
-func (e *readsEnv) approvedDeployment(flowID string) {
-	e.deployedAt(flowID, 1, storage.VersionActorEditor, runsBase.Add(-time.Hour))
+	start := runsBase.Add(offset)
+	require.NoError(e.t, e.store.StartFlowRun(storage.RunStart{ID: runID, FlowID: flowID, FlowVersion: version, StartedAt: start}))
+	event.RunID, event.FlowID, event.CreatedAt = runID, flowID, start.Add(time.Millisecond)
+	require.NoError(e.t, e.store.InsertNodeEvents([]storage.NodeEventRecord{event}))
+	require.NoError(e.t, e.store.FinishFlowRun(runID, "error", start.Add(time.Second), 1, 1))
 }
 
 // What an agent deployed itself may raise errors on purpose to hand back
 // data (audit finding F2): an agent sees a run's recorded errors only when
-// the run started after the admin deployed a version the admin approved.
-// Otherwise (an agent's deployment, or a run whose version cannot be told)
-// the errors are withheld; the editor sees them.
-func TestGetRunWithholdsErrorsOfRunsNotOfAnApprovedDeployment(t *testing.T) {
+// the version the run ran, recorded with the run, is one an admin approved.
+// Otherwise (an agent's version, or a run whose version is unknown or
+// pruned) the errors are withheld; the editor sees them. The deployment
+// marker plays no part: a run of an agent's version recorded before the
+// marker names it, or still queued in the recorder when the admin
+// redeploys an approved version, is still the agent's.
+func TestGetRunWithholdsErrorsOfRunsNotOfAnApprovedVersion(t *testing.T) {
 	e := newReadsEnv(t)
-	f := e.save(manualFlow("runs"))
+	f := e.save(manualFlow("runs")) // version 1, the admin's
 	leak := storage.NodeEventRecord{NodeID: "peek", NodeType: "process-transform", Phase: "error",
 		Error: `time: invalid duration "{\"door_code\": \"8231-SECRET\"}"`}
 	agent := readsAgent(storage.ScopeRead)
@@ -45,30 +46,43 @@ func TestGetRunWithholdsErrorsOfRunsNotOfAnApprovedDeployment(t *testing.T) {
 		return run.Events[0].Error
 	}
 
-	// No deployment recorded: which version ran is unknown.
-	e.addRun(f.ID, "unknown", "", 0, time.Second, "error", leak)
-	assert.NotContains(t, errorOf(agent, "unknown"), "8231")
+	// A run of the admin's version shows its errors, with no deployment
+	// marker recorded at all.
+	e.addRunOf(f.ID, "approved", 1, 0, leak)
+	assert.Contains(t, errorOf(agent, "approved"), "8231-SECRET")
+
+	// A run recorded without a version (before versions were recorded).
+	e.addRunOf(f.ID, "unknown", 0, time.Minute, leak)
 	assert.Equal(t, withheldRunError, errorOf(agent, "unknown"))
 	assert.Contains(t, errorOf(EditorActor(), "unknown"), "8231-SECRET", "the editor sees it")
 
-	// The admin deployed the version it approved: its runs show errors.
-	e.deployedAt(f.ID, 1, storage.VersionActorEditor, runsBase.Add(time.Minute))
-	e.addRun(f.ID, "approved", "", 2*time.Minute, time.Second, "error", leak)
-	assert.Contains(t, errorOf(agent, "approved"), "8231-SECRET")
-	assert.Equal(t, withheldRunError, errorOf(agent, "unknown"), "a run before that deployment")
-	e.addRun(f.ID, "same-second", "", time.Minute+500*time.Millisecond, time.Second, "error", leak)
-	assert.Equal(t, withheldRunError, errorOf(agent, "same-second"), "the marker counts in seconds")
-
-	// An agent deployed its own version: its runs do not.
+	// An agent saves version 2. The marker still names version 1 (the
+	// window between Deploy and RecordDeployment, or a marker that failed
+	// to record): the runs of version 2 are still the agent's.
 	g := mustStored(t, e, f.ID)
 	nodeOfFlow(g, "log").Config["message"] = "changed"
 	v, err := e.store.UpdateFlowVersioned(g, 0, storage.VersionMeta{ActorKind: storage.VersionActorAgent, TokenID: "tok-1", TokenName: "reader"})
 	require.NoError(t, err)
-	e.deployedAt(f.ID, v, storage.VersionActorAgent, runsBase.Add(3*time.Minute))
-	e.addRun(f.ID, "agents", "", 4*time.Minute, time.Second, "error", leak)
-	assert.Equal(t, withheldRunError, errorOf(agent, "agents"))
-	assert.Equal(t, withheldRunError, errorOf(agent, "approved"), "the current deployment decides")
-	assert.Contains(t, errorOf(EditorActor(), "agents"), "8231-SECRET")
+	require.Equal(t, 2, v)
+	require.NoError(t, e.store.RecordDeployment(f.ID, storage.Deployment{Version: 1, ActorKind: storage.VersionActorEditor, DeployedAt: runsBase}))
+	e.addRunOf(f.ID, "window", v, 2*time.Minute, leak)
+	assert.Equal(t, withheldRunError, errorOf(agent, "window"))
+
+	// The admin redeploys version 1 while runs of version 2 are still
+	// queued in the recorder: they are stamped after the new marker but
+	// are still the agent's.
+	require.NoError(t, e.store.RecordDeployment(f.ID, storage.Deployment{Version: 1, ActorKind: storage.VersionActorEditor, DeployedAt: runsBase.Add(3 * time.Minute)}))
+	e.addRunOf(f.ID, "queued", v, 4*time.Minute, leak)
+	assert.Equal(t, withheldRunError, errorOf(agent, "queued"))
+	assert.Contains(t, errorOf(EditorActor(), "queued"), "8231-SECRET")
+
+	// Which deployment is current does not change what an earlier run ran.
+	require.NoError(t, e.store.RecordDeployment(f.ID, storage.Deployment{Version: v, ActorKind: storage.VersionActorAgent, DeployedAt: runsBase.Add(5 * time.Minute)}))
+	assert.Contains(t, errorOf(agent, "approved"), "8231-SECRET")
+
+	// A version that is not stored (pruned) is unknown.
+	e.addRunOf(f.ID, "pruned", 99, 6*time.Minute, leak)
+	assert.Equal(t, withheldRunError, errorOf(agent, "pruned"))
 }
 
 func mustStored(t *testing.T, e *readsEnv, id string) *flow.Flow {

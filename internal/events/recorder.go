@@ -15,9 +15,10 @@ import (
 // here (rather than importing the concrete *storage.SQLiteStore) keeps the
 // recorder unit-testable with a fake and documents exactly what it touches.
 type HistoryStore interface {
-	// UpsertFlowRunWithActor records a run's start (idempotent) and who started
-	// it; a later call fills an empty actor but never replaces one.
-	UpsertFlowRunWithActor(runID, flowID, actor string, startedAt time.Time) error
+	// StartFlowRun records a run's start (idempotent), who started it and
+	// the version it ran; a later call fills an empty actor but never
+	// replaces one, and keeps the version.
+	StartFlowRun(start storage.RunStart) error
 	FinishFlowRun(runID, status string, finishedAt time.Time, nodeCount, errorCount int) error
 	InsertNodeEvents(batch []storage.NodeEventRecord) error
 	PruneHistory(olderThan time.Time, maxRunsPerFlow int) (int, error)
@@ -217,7 +218,8 @@ func (r *Recorder) persist(e flow.NodeEvent, now time.Time) {
 	// Upsert on the first event of a run, and again only to fill in an actor
 	// the first event did not carry.
 	if !ok || (agg.actor == "" && actor != "") {
-		if err := r.store.UpsertFlowRunWithActor(e.CorrID, e.FlowID, actor, now); err != nil {
+		start := storage.RunStart{ID: e.CorrID, FlowID: e.FlowID, Actor: actor, FlowVersion: e.FlowVersion, StartedAt: now}
+		if err := r.store.StartFlowRun(start); err != nil {
 			r.log.Warn().Err(err).Msg("upsert flow run failed")
 		}
 		if !ok {
