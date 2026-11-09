@@ -1764,6 +1764,42 @@ with a real `mcp.NewClient` over `StreamableClientTransport` against
 `ListTools`, annotations, `CallTool` structured content, invalid args → isError,
 401/403 cases, hidden tool not callable, foreign `runId` rejected, approval
 flow, read redaction canaries (one canary per string/map config field of every
-registered node type), drafts round-trip, agent-deploy policy levels. Golden
-raw JSON-RPC tests for protocol versions 2025-06-18, 2025-11-25 and 2026-07-28.
-Binary size measured for `build-arm64` and `build-arm` (`-s -w`).
+registered node type), drafts round-trip, agent-deploy policy levels.
+
+Golden raw JSON-RPC exchanges (`TestMCPProtocolGolden`,
+`testdata/mcp_exchanges_<version>.golden.json`) for 2025-06-18, 2025-11-25
+and 2026-07-28 (with the per-request `_meta` and the `Mcp-Method` and
+`Mcp-Name` headers), each version on a fresh app over the real router and
+TLS: the handshake (`initialize`; at 2026-07-28 `server/discover`, and
+`initialize` settling on 2025-11-25), `tools/list` of a token with every
+scope and the privileged flag (author enabled, agent deploy `all`), a flow
+tool's reply and its `invalid_arguments`, a `confirm: admin` call approved
+in the editor and fetched with `pw_get_result`, `pw_list_flows`,
+`pw_validate_flow` with issues, `pw_save_draft` on a stale base,
+`pw_deploy_flow` refused at `low`, `prompts/list` and both prompts, invalid
+prompt params, `ping`, an unknown method, `subscriptions/listen`, a
+`tools/call` whose name is not a string, a built-in tool's invalid
+arguments and an unknown tool. Only generated ids (numbered placeholders:
+an id reads the same everywhere, text blocks included) and durations are
+normalised; tokens are not recorded. The author and deploy tools refer to
+`internal/mcpserver/testdata/tools_author_deploy.golden.json` (one source of
+truth), checked equal at every version. Goldens change only with `-update`
+(`go test -run TestMCPProtocolGolden . -update`) and are reviewed as diffs; a
+mismatch prints a short line diff. The test also checks that every tool call
+is answered alike at every version once what 2026-07-28 adds to each result
+(`resultType: "complete"`, the server's identity in `_meta`) is checked and
+set aside. The goldens show where the versions differ by design: 2026-07-28
+has no `ping` (`-32601`), answers `-32601` with HTTP 404 and `-32602` with
+400, and refuses a `tools/call` whose name is not a string on its `Mcp-Name`
+header (`-32020`). Two departures from the specs are the same at every
+version: unknown and hidden tools are `not_found` `isError` results, not
+protocol errors (ADR-0015), and invalid arguments are `isError` results, as
+2025-11-25 asks, also at 2025-06-18, whose spec lists them among protocol
+errors.
+
+Binary sizes (`-trimpath -ldflags "-s -w"`, cgo with
+`gcc-aarch64-linux-gnu`/`gcc-arm-linux-gnueabihf`; not committed), measured
+in wave 5 against `revival`: linux/arm64 22.75 MiB (+3.64 MiB, +19%),
+linux/arm (GOARM=7) 23.19 MiB (+3.66 MiB), linux/amd64 23.99 MiB (+3.98
+MiB); the `piworker-mcp` bridge 6.1 to 6.8 MiB per platform (six, `make
+build-mcp-bridge-all`).
