@@ -714,8 +714,8 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   clear text.
 - `mcp.enabled = true` with auth disabled is a startup error.
 - The MCP audit is pruned at start and hourly (30 days, at most 50 000 rows;
-  privileged calls are never evicted early, and reads and prompts go before
-  tool calls, §9).
+  privileged rows, refusals excepted, are never evicted early, and reads
+  and prompts go before tool calls, §9).
 - Tools: dynamic tools + `pw_get_result{runId}` (call; waits up to 10 s for a
   running call); `pw_list_flows`,
   `pw_get_flow` (both show each flow's `version`, the base of a draft of
@@ -885,8 +885,12 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   args_sha256, args_preview, outcome, dur_ms)`, one row per agent tool call
   and per agent read (§8); async batched writes; retention
   30 days by time; rejections (`busy`, cooldown, invalid args) stored as
-  per-token per-minute counters (`mcp_rejections`); privileged calls (and
-  deploys of privileged flows, refused ones included) never evicted early.
+  per-token per-minute counters (`mcp_rejections`); privileged rows are
+  never evicted early: a privileged tool's call that started a run or
+  queued an approval, and a privileged flow's deploy or stop that reached
+  the lifecycle path (§10). A refusal before that point (`forbidden`,
+  `reconfirm_required`, a refused deploy) is an ordinary row, so an agent
+  retrying a refused call cannot fill the SD card with rows kept 30 days.
   The row cap evicts as many rows as lie beyond the newest 50 000 (never
   privileged ones), reads and prompts first, oldest first whatever their age
   (`storage.IsMCPAuditRead`: `pw_list_flows`, `pw_get_flow`, `pw_list_runs`,

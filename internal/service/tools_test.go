@@ -842,6 +842,65 @@ func TestAgentCallsAreAudited(t *testing.T) {
 	assert.Equal(t, 1, rejections[0].Count)
 }
 
+// A call of a privileged tool is a privileged audit row (never evicted
+// early) only when it reached the runtime or queued an approval. A refusal
+// before that (a suspended or stale grant, a token without the privileged
+// flag) is an ordinary row the row cap may evict, so an agent retrying a
+// refused call cannot fill the audit with rows that are kept 30 days.
+func TestRefusedPrivilegedCallsAreNotPrivilegedRows(t *testing.T) {
+	e := newEnv(t)
+	priv := e.deploy(fan(strictConfig(), command()))
+	confirmCfg := strictConfig()
+	confirmCfg["confirm"] = "admin"
+	privConfirm := e.deploy(fan(confirmCfg, step{id: "cmd", typ: "action-command", config: map[string]any{"command": "true"}}))
+	require.Equal(t, node.RiskPrivileged, priv.Risk)
+	require.Equal(t, node.RiskPrivileged, privConfirm.Risk)
+	args := map[string]any{"door": "left"}
+
+	unflagged := e.agent(storage.NewAPIToken{Grants: grant(priv)})
+	_, err := e.call(unflagged, priv, args)
+	requireKind(t, err, ErrPermissionDenied)
+
+	stale := priv
+	stale.Fingerprint = "sha256:" + strings.Repeat("0", 64)
+	changed := e.agent(storage.NewAPIToken{Privileged: true, Grants: grant(stale)})
+	_, err = e.call(changed, priv, args) // suspends the grant
+	requireKind(t, err, ErrReconfirmRequired)
+	tok, err := e.store.GetAPIToken(changed.TokenID)
+	require.NoError(t, err)
+	require.True(t, tok.Grants[0].Suspended)
+	suspended := AgentActor(agentauth.TokenInfo{ID: tok.ID, Name: tok.Name, Scopes: tok.Scopes, Privileged: true, Grants: tok.Grants})
+	_, err = e.call(suspended, priv, args)
+	requireKind(t, err, ErrReconfirmRequired)
+
+	require.NoError(t, e.audit.Flush())
+	rows, err := e.store.ListMCPAudit(storage.MCPAuditFilter{})
+	require.NoError(t, err)
+	require.Len(t, rows, 3)
+	for _, r := range rows {
+		assert.Contains(t, []string{"forbidden", "reconfirm_required"}, r.Outcome)
+		assert.Equal(t, priv.ToolName, r.Tool)
+		assert.False(t, r.Privileged, "%s: refused before the runtime", r.Outcome)
+	}
+
+	// A run and a queued approval of a privileged tool are privileged rows.
+	allowed := e.agent(storage.NewAPIToken{Privileged: true, Grants: append(grant(priv), grant(privConfirm)...)})
+	res, err := e.call(allowed, priv, args)
+	require.NoError(t, err)
+	require.NotEmpty(t, res.RunID)
+	e.waitIdle(priv)
+	res, err = e.call(allowed, privConfirm, args)
+	require.NoError(t, err)
+	require.Equal(t, flow.CallStatusApprovalRequired, res.Status)
+	require.NoError(t, e.audit.Flush())
+	rows, err = e.store.ListMCPAudit(storage.MCPAuditFilter{TokenID: allowed.TokenID})
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	for _, r := range rows {
+		assert.True(t, r.Privileged, "%s: %s", r.Tool, r.Outcome)
+	}
+}
+
 func TestAuditPreviewIsRedacted(t *testing.T) {
 	e := newEnv(t)
 	require.NoError(t, e.secrets.Set("api_key", canary))

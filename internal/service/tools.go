@@ -574,7 +574,11 @@ func (t *Tools) record(actor Actor, ref ToolRef, info *flow.ToolInfo, args map[s
 	}
 	if info != nil {
 		entry.Tool, entry.FlowID = info.ToolName, info.FlowID
-		entry.Privileged = info.Risk == node.RiskPrivileged
+		// Privileged rows are never evicted early, so only a call that
+		// started a run or queued an approval (both carry a RunID) is one;
+		// a refusal before that is an ordinary row the row cap may evict,
+		// so a loop of refused calls cannot fill the audit (as for deploys).
+		entry.Privileged = info.Risk == node.RiskPrivileged && res.RunID != ""
 	}
 	if data, mErr := json.Marshal(nonNilArgs(args)); mErr == nil {
 		sum := sha256.Sum256(data)

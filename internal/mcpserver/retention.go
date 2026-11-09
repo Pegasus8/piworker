@@ -10,12 +10,18 @@ import (
 const (
 	// DefaultAuditRetentionInterval is how often the MCP audit is pruned.
 	DefaultAuditRetentionInterval = time.Hour
-	// DefaultAuditMaxRows caps the audit rows kept within the 30-day
-	// retention (privileged calls are never evicted early). A row holds at
-	// most ~1 KiB (a 512-byte argument preview, a tool name the service caps
-	// at 128 bytes, a token name of at most 64 and IDs), so the
-	// table stays within ~50 MiB on a Raspberry Pi's SD card even when a
-	// token calls at its full rate (30/min) for the whole period.
+	// DefaultAuditMaxRows caps the ordinary audit rows kept within the
+	// 30-day retention. A row holds at most ~1 KiB (a 512-byte argument
+	// preview, a tool name the service caps at 128 bytes, a token name of at
+	// most 64 and IDs), so ordinary rows stay within ~50 MiB on a Raspberry
+	// Pi's SD card even when a token calls at its full rate (30/min) for the
+	// whole period. Privileged rows are outside the cap and kept the full
+	// 30 days: they are only what the admin let the token do on the device
+	// (a privileged tool's run or queued approval, with the privileged flag
+	// and a grant; a privileged flow's deploy or stop that reached the
+	// lifecycle path, at agent deploy `all`), bounded by the tool's own
+	// limits and the token's rate. Refusals are ordinary rows, so a loop of
+	// refused calls or deploys cannot grow the table past the cap.
 	DefaultAuditMaxRows = 50_000
 )
 
