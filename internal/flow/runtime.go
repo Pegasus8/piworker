@@ -178,12 +178,20 @@ type FlowRuntime struct {
 	lenientConfig bool
 
 	// tools are the tools this flow publishes, computed by the risk analysis
-	// at deploy (see analyzeRuntimeTools) and immutable afterwards.
+	// at deploy (see validateDeployable) and immutable afterwards.
 	tools []ToolInfo
 
 	// nodeContext, when set, wraps the context every node of the runtime
 	// gets (trigger Start and Process); see WithNodeContext.
 	nodeContext func(context.Context) context.Context
+
+	// noMetrics keeps the runtime out of the process-wide metrics (see
+	// withoutMetrics).
+	noMetrics bool
+
+	// routeGate, when set, is asked before each message is routed (see
+	// withRouteGate).
+	routeGate func(msg *types.Message, copies int) bool
 }
 
 // RuntimeOption is a functional option for configuring the FlowRuntime.
@@ -1202,29 +1210,14 @@ func (m *RuntimeManager) deploy(ctx context.Context, f *Flow, extra ...RuntimeOp
 	}
 
 	// Validate against the ports supplied by the instantiated nodes, not a
-	// possibly missing or stale cache in an imported/editor definition. Which
-	// nodes are triggers is decided server-side — by the instance implementing
-	// node.TriggerNode or by the registered type's category — never by the
-	// client-supplied Category field.
-	if err := f.validate(func(n *Node) bool {
-		if _, ok := rt.triggers[n.ID]; ok {
-			return true
-		}
-		info, ok := m.registry.Get(n.Type)
-		return ok && info.Category == NodeCategoryInput
-	}); err != nil {
+	// possibly missing or stale cache in an imported/editor definition, then
+	// the tool risk analysis (ADR-0013): security checks, never lenient.
+	tools, issues, err := validateDeployable(rt, m.registry)
+	if err != nil {
 		metrics.RecordFlowDeployment(false)
 		return err
 	}
-	if err := rt.ValidateCallTriggers(); err != nil {
-		metrics.RecordFlowDeployment(false)
-		return err
-	}
-	// Tool risk analysis (ADR-0013): security checks, never lenient.
-	if err := m.analyzeRuntimeTools(rt); err != nil {
-		metrics.RecordFlowDeployment(false)
-		return err
-	}
+	m.keepTools(rt, tools, issues)
 
 	// Start the runtime
 	if err := rt.Start(ctx); err != nil {

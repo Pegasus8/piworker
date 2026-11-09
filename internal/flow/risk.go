@@ -628,18 +628,9 @@ func (r *FlowRuntime) toolSpecs() map[string]node.ToolSpec {
 	return specs
 }
 
-// analyzeRuntimeTools runs the tool risk analysis on a runtime about to
-// start: error issues fail the deploy (a *ValidationError), warnings are
-// logged, and the tools are kept for Tools.
-func (m *RuntimeManager) analyzeRuntimeTools(rt *FlowRuntime) error {
-	specs := rt.toolSpecs()
-	if len(specs) == 0 {
-		return nil
-	}
-	tools, issues := AnalyzeTools(rt.flow, m.registry, specs)
-	if err := issueError(issues); err != nil {
-		return err
-	}
+// keepTools logs the warning issues of a deploy's tool analysis and keeps
+// its tools for Tools.
+func (m *RuntimeManager) keepTools(rt *FlowRuntime, tools []ToolInfo, issues []Issue) {
 	for _, i := range issues {
 		m.logger.Warn().
 			Str("flowID", rt.flow.ID).
@@ -648,7 +639,6 @@ func (m *RuntimeManager) analyzeRuntimeTools(rt *FlowRuntime) error {
 			Msg(i.Message)
 	}
 	rt.tools = tools
-	return nil
 }
 
 // Tools returns the tools published by the running flows, sorted by tool
