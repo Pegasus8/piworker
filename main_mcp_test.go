@@ -826,6 +826,12 @@ func TestMCPReadCanaries(t *testing.T) {
 	})
 	add("tg", "action-telegram", map[string]any{"botToken": "123456:" + plant("telegram bot token"), "chatId": plant("telegram chat"), "message": plant("telegram message")})
 	add("db", "action-database", map[string]any{"dsn": "postgres://u:" + plant("database dsn") + "@db/x"})
+	// A webhook URL whose token sits in its path: the real node's error
+	// names the URL, path included (the node redacts only the query).
+	hook := map[string]any{"method": "POST", "url": "http://127.0.0.1:1/services/T000/B000/" + plant("webhook url path") + "?wait=true"}
+	add("hook2", "action-http", hook)
+	realErr := realNodeError(t, "action-http", hook)
+	require.Contains(t, realErr, canaries["webhook url path"])
 	require.NoError(t, app.store.CreateFlow(f))
 
 	// A recorded run: its errors echo credentials typed into Sensitive
@@ -843,6 +849,7 @@ func TestMCPReadCanaries(t *testing.T) {
 		"echoed query key=" + url.QueryEscape(secret),
 		"echoed basic " + base64.StdEncoding.EncodeToString([]byte(secret)),
 		`echoed payload {"apiKey":` + string(mustJSON(t, secret)) + `}`,
+		realErr,
 	} {
 		records = append(records, storage.NodeEventRecord{RunID: "run-1", FlowID: f.ID, NodeID: "http", NodeType: "action-http",
 			Phase: "error", Error: msg, CreatedAt: now.Add(time.Duration(i) * time.Millisecond)})
@@ -898,6 +905,19 @@ func TestMCPReadCanaries(t *testing.T) {
 	assert.Contains(t, answers["pw_get_run"], `"actorToken":"bot `+sentinel+`"`)
 	assert.Contains(t, answers["pw_list_flows"], f.ID)
 	assert.Contains(t, answers["diagnose_flow"], f.ID)
+}
+
+// realNodeError runs a real node of nodeType with cfg once and returns its
+// error, the text the run recorder stores.
+func realNodeError(t *testing.T, nodeType string, cfg map[string]any) string {
+	t.Helper()
+	n, err := node.DefaultRegistry.Create(nodeType, cfg)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err = n.Process(ctx, types.NewMessage(map[string]any{"x": 1}, types.DataTypeObject))
+	require.Error(t, err)
+	return err.Error()
 }
 
 func mustJSON(t *testing.T, v any) []byte {
