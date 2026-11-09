@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Bot } from 'lucide-vue-next'
 import { Badge, Button } from '@/components/ui'
 import { useAgentStore } from '@/stores/agent'
@@ -8,13 +8,19 @@ import { useAuthStore } from '@/stores/auth'
 import { mcpStatus } from '@/lib/agentAccess'
 
 const router = useRouter()
+const route = useRoute()
 const agent = useAgentStore()
 const auth = useAuthStore()
-const tabs = [
-  { to: '/agents', label: 'Tokens' },
-  { to: '/agents/approvals', label: 'Approvals' },
-  { to: '/agents/audit', label: 'Audit' }
-]
+// The badges come from the passive pending count the app polls in the
+// background (ApprovalsNotice): approvals waiting, drafts to review.
+const tabs = computed(() => [
+  { to: '/agents', label: 'Tokens', count: 0, countLabel: '' },
+  { to: '/agents/approvals', label: 'Approvals', count: agent.pendingCount, countLabel: `${agent.pendingCount} waiting` },
+  { to: '/agents/drafts', label: 'Drafts', count: agent.pendingDrafts, countLabel: `${agent.pendingDrafts} to review` },
+  { to: '/agents/audit', label: 'Audit', count: 0, countLabel: '' }
+])
+// A draft's review page belongs to the Drafts tab.
+const isActive = (to: string) => route.path === to || (to === '/agents/drafts' && route.path.startsWith('/agents/drafts/'))
 
 // Whether agents can connect at all (mcp.enabled, and lan_access with TLS
 // off): read once per visit, shared with the page's own reads.
@@ -48,15 +54,15 @@ onMounted(() => {
         :key="tab.to"
         :to="tab.to"
         class="lab-button inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium"
-        exact-active-class="border-primary bg-primary text-primary-foreground"
-        :class="$route.path === tab.to ? '' : 'border-input hover:bg-accent'"
+        :class="isActive(tab.to) ? 'border-primary bg-primary text-primary-foreground' : 'border-input hover:bg-accent'"
+        :aria-current="isActive(tab.to) ? 'page' : undefined"
       >
         {{ tab.label }}
         <span
-          v-if="tab.to === '/agents/approvals' && agent.pendingCount"
+          v-if="tab.count"
           class="rounded-full bg-destructive px-1.5 text-xs font-semibold text-destructive-foreground"
-          :aria-label="`${agent.pendingCount} waiting`"
-        >{{ agent.pendingCount }}</span>
+          :aria-label="tab.countLabel"
+        >{{ tab.count }}</span>
       </RouterLink>
     </nav>
     <p v-if="!auth.authEnabled" role="alert" class="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
