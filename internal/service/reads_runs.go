@@ -146,8 +146,7 @@ func (r *Reads) ListRuns(ctx context.Context, actor Actor, flowID string, limit 
 
 // GetRun shows a recorded run of a stored flow with its node events (in
 // order, errors redacted and bounded, the whole JSON within
-// maxReadViewBytes). A
-// run of another flow is unknown.
+// maxReadViewBytes). A run of another flow is unknown.
 func (r *Reads) GetRun(ctx context.Context, actor Actor, flowID, runID string) (_ RunView, err error) {
 	defer r.audited(actor, ReadToolGetRun, readArgs{FlowID: flowID, RunID: runID}, r.now())(&err)
 	if err := r.authorize(ctx, actor); err != nil {
