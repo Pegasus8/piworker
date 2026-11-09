@@ -46,7 +46,8 @@ type SecretsListResponse struct {
 }
 
 // ListSecrets returns the stored secrets, each marked short or not, so the
-// editor can tell the admin which values an agent could guess (ADR-0021).
+// editor can tell the admin which values an agent could confirm a guess of
+// (ADR-0021).
 func (h *SecretsHandler) ListSecrets(w http.ResponseWriter, _ *http.Request) {
 	entries := h.store.List()
 	items := make([]SecretItem, 0, len(entries))

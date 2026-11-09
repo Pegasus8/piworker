@@ -93,12 +93,14 @@ func (s *Store) Delete(name string) error {
 }
 
 // ShortValueRunes is the number of characters (runes, not bytes) below which
-// a secret value counts as short. The read views agents use hide known
-// secret values by comparison (ADR-0021), so an agent allowed to author,
-// deploy and read flows can write a guess into a flow or a run and see
-// whether it comes back hidden. Only a short value (a PIN, a word, a short
-// password) falls to the guesses that allows; 16 characters is the length of
-// a generated password or API key, beyond any practical number of guesses.
+// a secret value counts as short. What agents read (the read views, tool
+// results) hides known secret values by comparison (ADR-0021), so an agent
+// whose own text comes back to it (a tool that repeats its arguments, an
+// error a run records, a flow it deploys) can see whether a guess comes back
+// hidden. A short value (a PIN, a word, a short password) falls to the
+// guesses that allows. 16 random characters, a generated password or API
+// key, are beyond any practical number of guesses; length alone is not: a
+// long word or date is still guessable, which no length check can see.
 const ShortValueRunes = 16
 
 // IsShort reports whether value has fewer than ShortValueRunes runes.
