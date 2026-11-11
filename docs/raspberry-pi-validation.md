@@ -10,12 +10,13 @@ needed. In that directory run:
 python3 validate_pi.py
 ```
 
-The script detects ARM64 versus ARMv7, verifies the selected archive's checksum,
-extracts only known regular files and starts a temporary instance on a free
-loopback port. It tests first-account setup, login, embedded assets, real flow
-deployment/manual execution, persistent global/flow variables, secret-name
-storage, restored flows/sessions after process restart, and account recovery.
-It stops its instance and removes its temporary database afterward.
+The script detects ARM64, ARMv7 or x86_64 (it runs on any supported Linux
+machine, not only a Pi), verifies the selected archive's checksum, extracts only
+known regular files and starts a temporary instance on a free loopback port. It
+tests first-account setup, login, embedded assets, real flow deployment/manual
+execution, persistent global/flow variables, secret-name storage, restored
+flows/sessions after process restart, and account recovery. It stops its
+instance and removes its temporary database afterward.
 
 Each run writes `piworker-validation-<id>.json` in the current directory, without
 credentials or session tokens. Exit code 0 means all automated checks passed,

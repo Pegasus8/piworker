@@ -8,10 +8,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/Pegasus8/piworker/internal/hostsys"
 )
 
 // probeHost reads the host figures Linux shows cheaply: statfs of the data
@@ -81,59 +82,13 @@ func (h linuxHost) memory() *MemoryStatus {
 	return &MemoryStatus{TotalBytes: total, AvailableBytes: avail}
 }
 
-// cpuTemperature reads the CPU's thermal zone (by its type), or else the
-// first zone with a plausible reading, in degrees Celsius.
+// cpuTemperature reads the CPU's sensor (hostsys.CPUTemperature), in
+// degrees Celsius.
 func (h linuxHost) cpuTemperature() *float64 {
-	zones, err := filepath.Glob(filepath.Join(h.sys, "class", "thermal", "thermal_zone*"))
-	if err != nil || len(zones) == 0 {
-		return nil
-	}
-	sort.Slice(zones, func(a, b int) bool { return zoneNumber(zones[a]) < zoneNumber(zones[b]) })
-	var first *float64
-	for _, zone := range zones {
-		t := zoneTemperature(zone)
-		if t == nil {
-			continue
-		}
-		if isCPUZone(zone) {
-			return t
-		}
-		if first == nil {
-			first = t
-		}
-	}
-	return first
-}
-
-func zoneNumber(path string) int {
-	n, err := strconv.Atoi(strings.TrimPrefix(filepath.Base(path), "thermal_zone"))
-	if err != nil {
-		return 1 << 30
-	}
-	return n
-}
-
-func isCPUZone(zone string) bool {
-	data, ok := readSmall(filepath.Join(zone, "type"))
-	if !ok {
-		return false
-	}
-	kind := strings.ToLower(strings.TrimSpace(string(data)))
-	return strings.Contains(kind, "cpu") || kind == "x86_pkg_temp" || kind == "coretemp"
-}
-
-// zoneTemperature reads a zone's millidegrees; nil when unreadable or
-// outside -50..150 °C.
-func zoneTemperature(zone string) *float64 {
-	data, ok := readSmall(filepath.Join(zone, "temp"))
+	c, ok := hostsys.CPUTemperature(h.sys)
 	if !ok {
 		return nil
 	}
-	milli, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
-	if err != nil || milli < -50_000 || milli > 150_000 {
-		return nil
-	}
-	c := float64(milli) / 1000
 	return &c
 }
 

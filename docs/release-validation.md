@@ -160,3 +160,23 @@ source commit. It validates the supplied kit on this Pi, not all advertised CPU
 architectures or a subsequently rebuilt/tagged candidate. The two candidates
 exercise replacement/rollback with different version metadata; legacy migration
 and cross-version schema migration remain unvalidated.
+
+## x86_64 native validation — 2026-11-11
+
+Candidate: `9a64d6c` on `claude/stoic-shannon-9ik9n2` plus the x86_64
+temperature fix (System Metric and host status read `x86_pkg_temp`, or the
+`coretemp`/`k10temp` hwmon sensor, instead of `thermal_zone0`).
+
+Environment: Linux x86_64 cloud container (Ubuntu, glibc 2.39), Go 1.27.3,
+Bun 1.3.14; no systemd, no thermal or hwmon sensors.
+
+| Check | Result |
+|-------|--------|
+| `make build-linux` (embedded frontend, CGO, `x86_64-linux-gnu-gcc`) | `piworker-linux-amd64` built, ELF x86-64. |
+| `validate_pi.py --binary build/piworker-linux-amd64` | All 9 checks passed: version, startup/health, first-account setup, embedded UI assets, login, flow deploy and execution, data surviving restart, account recovery. |
+| `go test ./...`, `go test -race` on the touched packages, `make fmt-check vet test-installer` | Passed. |
+
+Not tested on x86_64: `piworkerctl install` with systemd and the GitHub
+download (`validate_installation.py`), a physical reboot, and a real CPU
+sensor (covered by fixture tests for Raspberry Pi, Intel and AMD layouts).
+

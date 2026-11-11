@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Pegasus8/piworker/internal/hostsys"
 	"github.com/Pegasus8/piworker/internal/metrics"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
@@ -149,6 +150,9 @@ func (t *SysMetricTrigger) compare(value float64) bool {
 	return value > t.threshold
 }
 
+// sysfsRoot is where sysfs is mounted; tests point it at a fake tree.
+var sysfsRoot = "/sys"
+
 // readSystemMetric reads the requested metric from the OS. It targets Linux
 // (/proc, /sys) and returns an error on platforms where the source is absent.
 func readSystemMetric(metric string) (float64, error) {
@@ -202,17 +206,15 @@ func readMemoryUsedPercent() (float64, error) {
 	return (total - available) / total * 100, nil
 }
 
-// readCPUTemperature returns the CPU temperature in °C from the thermal zone.
+// readCPUTemperature returns the CPU temperature in °C: the CPU's thermal
+// zone on a Raspberry Pi or Intel PC, its hwmon chip (coretemp, k10temp) where
+// there is no such zone, as on most AMD PCs.
 func readCPUTemperature() (float64, error) {
-	data, err := os.ReadFile("/sys/class/thermal/thermal_zone0/temp")
-	if err != nil {
-		return 0, err
+	c, ok := hostsys.CPUTemperature(sysfsRoot)
+	if !ok {
+		return 0, fmt.Errorf("no CPU temperature sensor found under %s", sysfsRoot)
 	}
-	milli, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64)
-	if err != nil {
-		return 0, err
-	}
-	return milli / 1000, nil
+	return c, nil
 }
 
 func sysMetricConfigSchema() node.ConfigSchema {
@@ -273,7 +275,7 @@ func SysMetricTriggerInfo() node.NodeTypeInfo {
 
 Polls a system metric and fires once when it crosses the configured threshold
 (edge-triggered, not on every sample). Reads from ` + "`/proc`" + ` and ` + "`/sys`" + `, so it
-targets Linux / Raspberry Pi.
+needs Linux (Raspberry Pi, ARM boards, x86_64 PCs).
 
 ## Metrics
 
@@ -281,7 +283,7 @@ targets Linux / Raspberry Pi.
 |--------|--------|------|
 | cpu | /proc/loadavg | 1-min load average |
 | memory | /proc/meminfo | used percent (0-100) |
-| temperature | /sys/class/thermal/thermal_zone0/temp | °C |
+| temperature | CPU zone (cpu-thermal, x86_pkg_temp), else hwmon coretemp/k10temp | °C |
 
 ## Configuration
 
@@ -294,7 +296,7 @@ targets Linux / Raspberry Pi.
 
 ## Use Cases
 
-- Alert when the Pi overheats
+- Alert when the device overheats
 - Throttle work when load is high
 - Notify on low free memory
 `,

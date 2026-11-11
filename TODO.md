@@ -80,5 +80,19 @@ selector contextual de nombres están implementados. Queda como ampliación:
 - [ ] Validar en hardware real los nodos GPIO Edge, GPIO Write, I2C Read y
   DS18B20 y quitarles la marca de experimentales.
 
+## Domótica Zigbee
+
+Análisis y propuesta por fases en [docs/design/zigbee.md](docs/design/zigbee.md)
+(integración vía Zigbee2MQTT).
+
+- [ ] Fase 0: presupuesto del listado de tipos de nodo para agentes (hoy sobran
+  ~200 bytes de 64 KiB) y conexiones MQTT compartidas (cada una con su ADR).
+- [ ] Fase 1: nodos Zigbee Device, Zigbee Set, Zigbee Get, Timer reiniciable y
+  Sol (amanecer/atardecer), con recetas y un `docker-compose.zigbee.yml`.
+- [ ] Fase 2: descubrimiento de dispositivos (`bridge/devices`) y selectores en
+  el editor; estado del bridge y permit join solo para el administrador.
+- [ ] Fase 3: caché de estado de dispositivos, reporte de baterías y flujos de
+  ejemplo importables.
+
 Lo que falta para publicar está en
 [docs/release-checklist.md](docs/release-checklist.md#launch-gap-review-2026-11-11).

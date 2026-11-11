@@ -20,6 +20,11 @@ version. The version number and release date have not been selected.
 - A [user guide](docs/guide/README.md): getting started, concepts, recipes, AI
   agents and troubleshooting, plus a node reference generated from the nodes'
   own schemas.
+- The System Metric trigger and the agents' host status read the CPU's
+  temperature on x86_64 PCs too: the CPU thermal zone (`x86_pkg_temp`) or, on
+  most AMD machines, the `coretemp`/`k10temp` sensor, instead of the first
+  thermal zone (a board sensor on PCs). The automated validation script passes
+  on x86_64.
 - Health checks return HTTP 503 when storage is closed. Resizing the flow editor
   keeps nodes reachable on smaller screens.
 
