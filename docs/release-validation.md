@@ -185,7 +185,7 @@ sensor (covered by fixture tests for Raspberry Pi, Intel and AMD layouts).
 
 Candidate: `d07a641` on `claude/stoic-shannon-9ik9n2` (backend). Linux x86_64
 container; the PiWorker binary with `-tls=off -auth=false`, a real MQTT broker
-(amqtt 0.11, Python) and a script playing Zigbee2MQTT with the SONOFF S60ZBTPF
+(amqtt 0.12.1, Python) and a script playing Zigbee2MQTT with the SONOFF S60ZBTPF
 and SNZB-02P definitions of `internal/zigbee/testdata/bridge_devices.json`
 (retained bridge state, info and devices; it answers `/set` and `/get`).
 
