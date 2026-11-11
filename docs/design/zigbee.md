@@ -1,6 +1,6 @@
 # Zigbee home automation — analysis and proposal
 
-Status: implemented (2026-11-11), ADR-0024, ADR-0025 and ADR-0026 Proposed
+Status: implemented (2026-11-11), ADR-0024, ADR-0025 and ADR-0026 accepted
 until merged. User documentation: [docs/guide/zigbee.md](../guide/zigbee.md).
 Not validated on real hardware yet. Each phase below lists whether it follows
 the "new node" recipe (no ADR) or changes a contract (ADR in the same change,

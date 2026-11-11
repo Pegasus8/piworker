@@ -1,6 +1,6 @@
 # ADR-0025: MQTT nodes share their broker connections
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-11
 **Deciders:** maintainer
 **Design:** [docs/design/zigbee.md §4, phase 0b](../design/zigbee.md)

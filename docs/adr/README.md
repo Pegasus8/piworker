@@ -65,6 +65,6 @@ node recipe, UI changes and documentation do **not** need an ADR.
 | [0021](0021-agent-views-never-confirm-a-guess.md) | What agents see never confirms a guess | Accepted |
 | [0022](0022-low-keeps-tools-and-protected-data-the-admins.md) | `low` keeps published tools and protected data the admin's | Accepted (how a run's version is told superseded by ADR-0023) |
 | [0023](0023-runs-record-the-version-they-ran.md) | Runs record the version they ran | Accepted |
-| [0024](0024-node-type-list-without-filters-omits-documentation.md) | The node-type list without filters omits documentation | Proposed |
-| [0025](0025-shared-mqtt-connections.md) | MQTT nodes share their broker connections | Proposed |
-| [0026](0026-named-broker-connections.md) | Named broker connections for the Zigbee nodes | Proposed |
+| [0024](0024-node-type-list-without-filters-omits-documentation.md) | The node-type list without filters omits documentation | Accepted |
+| [0025](0025-shared-mqtt-connections.md) | MQTT nodes share their broker connections | Accepted |
+| [0026](0026-named-broker-connections.md) | Named broker connections for the Zigbee nodes | Accepted |

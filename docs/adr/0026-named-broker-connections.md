@@ -1,6 +1,6 @@
 # ADR-0026: Named broker connections for the Zigbee nodes
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-11
 **Deciders:** maintainer
 **Design:** [docs/design/zigbee.md](../design/zigbee.md)

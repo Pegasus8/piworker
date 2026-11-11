@@ -1,6 +1,6 @@
 # ADR-0024: The node-type list without filters omits documentation
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-11
 **Deciders:** maintainer
 **Design:** [docs/design/mcp.md §10](../design/mcp.md), [docs/design/zigbee.md §4, phase 0a](../design/zigbee.md)
