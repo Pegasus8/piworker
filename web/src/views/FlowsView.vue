@@ -9,6 +9,8 @@ import { useApi } from '@/composables/useApi'
 import { visibleText } from '@/lib/agentAccess'
 import { Button, Card, Input, Switch, Badge } from '@/components/ui'
 import SecretsDialog from '@/components/SecretsDialog.vue'
+import BrokerConnectionsDialog from '@/components/BrokerConnectionsDialog.vue'
+import ExamplesDialog from '@/components/ExamplesDialog.vue'
 import FlowMarks from '@/components/agent/FlowMarks.vue'
 import AgentText from '@/components/agent/AgentText.vue'
 import VersionHistoryDialog from '@/components/flow/VersionHistoryDialog.vue'
@@ -25,7 +27,9 @@ import {
   Download,
   Upload,
   KeyRound,
-  History
+  History,
+  Cable,
+  LayoutTemplate
 } from 'lucide-vue-next'
 
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
@@ -43,6 +47,8 @@ const api = useApi()
 const searchQuery = ref('')
 const showSecrets = ref(false)
 const showVariables = ref(false)
+const showConnections = ref(false)
+const showExamples = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 
 async function handleDuplicate(id: string) {
@@ -193,14 +199,23 @@ async function logout() {
             <KeyRound class="mr-2 h-4 w-4" />
             Secrets
           </Button>
+          <Button variant="outline" @click="showConnections = true" title="Broker connections to Zigbee2MQTT">
+            <Cable class="mr-2 h-4 w-4" />
+            Connections
+          </Button>
           <Button variant="outline" :disabled="pending" @click="triggerImport" title="Import a flow from JSON">
             <Upload class="mr-2 h-4 w-4" />
             Import
+          </Button>
+          <Button variant="outline" @click="showExamples = true" title="Create a flow from an example">
+            <LayoutTemplate class="mr-2 h-4 w-4" />
+            Examples
           </Button>
           <Button @click="createNewFlow">
             <Plus class="mr-2 h-4 w-4" />
             New Flow
           </Button>
+          <Button variant="ghost" @click="router.push('/zigbee')" title="Zigbee networks, devices and pairing">Zigbee</Button>
           <Button variant="ghost" @click="router.push('/trust')" title="HTTPS and trusting this device">HTTPS</Button>
           <Button
             v-if="authStore.authEnabled"
@@ -395,6 +410,8 @@ async function logout() {
     <!-- Secrets manager -->
     <SecretsDialog v-model:open="showSecrets" />
     <VariablesDialog v-model:open="showVariables" />
+    <BrokerConnectionsDialog v-model:open="showConnections" />
+    <ExamplesDialog v-model:open="showExamples" @manage-connections="showConnections = true" />
 
     <!-- Hidden file input for flow import -->
     <input

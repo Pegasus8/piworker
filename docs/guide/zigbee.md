@@ -76,7 +76,8 @@ list creates the recipes below with your connection and device names.
 Expressions (Filter, Switch, Transform, Set Variable) can read any device's last
 report: `zigbee("bedroom_climate").humidity`, or
 `zigbee("home", "bedroom_climate")` to name the connection. It is `nil` until the
-device has reported since PiWorker started, and always `nil` in a dry-run.
+device has reported since PiWorker started, and always `nil` in a dry-run: write
+`zigbee("bedroom_climate")?.humidity ?? 0` when it may be missing.
 
 ### Example devices
 
@@ -113,8 +114,9 @@ offline by Zigbee2MQTT after about 25 hours without a report.)
 `off`.
 
 **Daily low-battery check.** Cron `0 9 * * *` → Filter
-`zigbee("bedroom_climate") != nil && zigbee("bedroom_climate").battery < 20` →
-Notify "Change the sensor's battery".
+`(zigbee("bedroom_climate")?.battery ?? 100) < 20` → Notify "Change the
+sensor's battery". (`?.` and `??` keep the condition false, not an error, while
+the sensor has not reported its battery.)
 
 ## Troubleshooting
 

@@ -1,4 +1,5 @@
 import type { Node, Edge } from '@vue-flow/core'
+import type { SuggestSource } from '@/lib/zigbee'
 
 export type NodeCategory = 'trigger' | 'process' | 'action'
 
@@ -22,6 +23,8 @@ export interface ConfigField {
   default?: any
   options?: { label: string; value: string }[]
   placeholder?: string
+  /** Where a free-text setting finds suggestions (the value stays free text). */
+  suggest?: SuggestSource
 }
 
 // The persisted model contains node identity, position and application data.

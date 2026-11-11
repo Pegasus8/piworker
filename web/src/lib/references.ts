@@ -6,7 +6,8 @@ const credentials: Record<string, string[]> = {
 }
 const templates: Record<string, string[]> = {
  'process-template': ['template'], 'action-http': ['url','body'], 'action-email': ['subject','body'],
- 'action-telegram': ['message'], 'action-notify': ['message'], 'action-mqtt': ['topic','payload'], 'action-file': ['content']
+ 'action-telegram': ['message'], 'action-notify': ['message'], 'action-mqtt': ['topic','payload'], 'action-file': ['content'],
+ 'action-zigbee': ['device','value','payload']
 }
 const expressions: Record<string, string[]> = {
  'process-transform': ['expression'], 'process-switch': ['condition'], 'process-filter': ['condition'], 'set-var': ['value']

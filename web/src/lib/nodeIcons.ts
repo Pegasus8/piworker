@@ -4,7 +4,7 @@
 import type { Component } from 'vue'
 import {
   Activity, Bell, Braces, Bug, Clock, Code, Cpu, Database, FileText, Filter, Gauge, GitBranch, Globe, HelpCircle,
-  Hourglass, Layers, Mail, Merge, Play, Radio, Reply, Rss, Send, Terminal, Thermometer, Timer, ToggleLeft,
+  Hourglass, Layers, Mail, Merge, Play, Power, Radio, Reply, Rss, Send, Sunset, Terminal, Thermometer, Timer, ToggleLeft,
   ToggleRight, Type, Variable, Wand2, Webhook, Wrench, Zap
 } from 'lucide-vue-next'
 
@@ -16,7 +16,7 @@ const ALIASES: Record<string, string> = {
 
 const COMPONENTS: Record<string, Component> = {
   Activity, Bell, Braces, Bug, Clock, Code, Cpu, Database, FileText, Filter, Gauge, GitBranch, Globe, HelpCircle,
-  Hourglass, Layers, Mail, Merge, Play, Radio, Reply, Rss, Send, Terminal, Thermometer, Timer, ToggleLeft,
+  Hourglass, Layers, Mail, Merge, Play, Power, Radio, Reply, Rss, Send, Sunset, Terminal, Thermometer, Timer, ToggleLeft,
   ToggleRight, Type, Variable, Wand2, Webhook, Wrench, Zap
 }
 
