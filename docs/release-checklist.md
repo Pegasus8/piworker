@@ -30,6 +30,88 @@ published. Recheck each item against the exact commit chosen for the tag.
 - [ ] Record the Pi OS and selected architecture; validate other advertised
   architectures too, or explicitly narrow support.
 
+## Launch gap review (2026-11-11)
+
+Reviewed at `a5e2022` on `revival` (CI green for that commit: runs
+[27](https://github.com/Pegasus8/piworker/actions/runs/42682905527) and
+[28](https://github.com/Pegasus8/piworker/actions/runs/42682919812)). The code
+is feature-complete for a first release; what remains is validation of the
+candidate, publication and repository housekeeping. In order:
+
+**Blocking the release**
+
+- [x] The first publication is a **prerelease** (decided 2026-11-11). It is
+  the only way to exercise the installer's real download path before a stable
+  release moves `latest`. The tag workflow now drafts a tag with a hyphen as a
+  prerelease, and the README documents installing by tag.
+- [ ] Choose the version number. The only earlier tag is `v0.1.0-alpha.1`
+  (2020), so any `v0.2.0-…` or `v1.0.0-…` prerelease tag sorts after it.
+- [ ] Run every unchecked item under [Candidate validation](#candidate-validation)
+  against the tagged commit: archives and checksums, the six bridge binaries,
+  `scripts/smoke_container.py`, the agent authoring smoke test, browser setup
+  and editing on the Pi.
+- [x] Hardware nodes (GPIO Edge/Write, I2C Read, DS18B20) have no recorded run
+  on a real Pi: they ship marked **experimental** (decided 2026-11-11) in the
+  editor's node list and documentation card, the node reference, the README,
+  the user guide and the release notes. Drop the mark once each is validated.
+- [ ] Record the Pi OS and architecture already validated and decide on the
+  other advertised CPUs (ARMv7, x86_64): validate or narrow the claim.
+- [x] Migration from the 2020 release is **not supported** (decided
+  2026-11-11); the README, the user guide and the release notes say so.
+
+**Blocking the announcement**
+
+- [ ] Nothing a new user can follow works until a release exists: the only
+  published release is `v0.1.0-alpha.1` (2020), so
+  `releases/latest/download/piworkerctl` and the `ghcr.io` image in the README
+  and the user guide do not resolve to the revival yet.
+- [ ] PR #288 (`revival` → `master`) is still a draft. Until it merges (or the
+  default branch changes) the repository homepage shows the 2020 README, and
+  Dependabot keeps opening pull requests against the removed `webui/frontend`
+  (about twenty are open). Merge, then close those.
+- [ ] After publication, remove the prepublication notices from the README and
+  from `docs/guide/getting-started.md`, and rerun their commands on a fresh
+  machine.
+
+**Housekeeping worth doing before announcing**
+
+- [x] Triaged the 29 open issues from 2019–2021 (2026-11-11). Closed 20, each
+  with a note: 16 delivered by the revival (#1, #22, #43, #58, #65, #80, #81,
+  #89, #91, #93, #137, #165, #166, #167, #169, #175) and 4 that only applied to
+  the 2020 code (#113, #159, #164, #176). Nine stay open because they are
+  still valid: #92 and #168 (node ideas), #112 (user management), #128
+  (automatic backups), #129 (automatic updates), #170 (design, theme choice),
+  #171 (accessibility), #172 (translations) and #249 (files created relative
+  to the working directory).
+- [x] [`SECURITY.md`](../SECURITY.md) asks for reports through GitHub's
+  private vulnerability reporting.
+- [ ] Enable **Private vulnerability reporting** in the repository settings
+  (Settings → Advanced Security); without it the link in `SECURITY.md` does
+  not accept reports.
+- [x] `make fmt-check`, `make fmt` and the pre-commit hook use the `gofmt` of
+  the Go version in `go.mod` instead of the first one on `PATH`.
+
+**Documentation (done in this review)**
+
+- [x] User guide under [`docs/guide`](guide/README.md): getting started with
+  screenshots, concepts, recipes, AI agents step by step, troubleshooting.
+- [x] Node reference generated from the registry and kept current by
+  `TestNodeReferenceDocIsCurrent`.
+- [x] README: links to the guide, the node names shown in the editor, the
+  endpoints missing from the API reference (import/export/duplicate, manual
+  injection, runs and events, flow variables, node test, metrics), and the
+  claim that `/api/node-types` returns `risk` (it does not).
+- [ ] The README is still about 1,400 lines of mixed user, operator and
+  developer reference. After the release, move configuration, HTTPS and the
+  AI agents reference into `docs/` and keep the README as an overview.
+
+**Known limits to state, not to fix, for this release**
+
+Secrets are not encrypted at rest; variables and secrets have no export or
+restore; an undefined secret in an optional credential resolves to an empty
+string; one administrator per installation; the editor does not show a node's
+risk; the interface is English only. See [TODO](../TODO.md).
+
 See the [local validation report](release-validation.md) for completed checks,
 environment limits and generated packages, and the
 [Pi checklist](raspberry-pi-validation.md) for the owner's final hardware validation.
@@ -51,13 +133,14 @@ environment limits and generated packages, and the
 - [x] Update the release notes for the AI agents work (ADR-0009…0023): agent
   tokens and tools, authoring through drafts, the agent deploy levels, versions and
   rollback, the bridge, and the behaviour changes under "Compatibility and limits".
-- [ ] Choose the version and stable versus prerelease status; replace `Unreleased`
-  only when publishing. `v*` tags currently prepare drafts without automatically
-  classifying prereleases. Review the draft's prerelease flag explicitly.
-- [ ] Validate migration from the old 2020 release if it is to be supported.
-  Otherwise retain the explicit unvalidated-migration notice and require backups.
-- [ ] After the first compatible stable release is public, update the README's
-  prepublication notices and verify its download commands from a fresh machine.
+- [ ] Choose the version; replace `Unreleased` only when publishing. The first
+  publication is a prerelease: a `v*` tag with a hyphen is drafted with the
+  prerelease flag. Still review the flag on the draft before publishing.
+- [x] Migration from the old 2020 release is not supported; the notices say so.
+- [x] Provide a task-oriented [user guide](guide/README.md) besides the README
+  reference, with a node reference generated from the registry.
+- [ ] After the first compatible stable release is public, update the prepublication
+  notices in the README and the user guide and verify its download commands from a fresh machine.
 
 Native HTTPS is implemented: a local CA generated on first start, automatic
 server-certificate renewal, the "Trust this device" page and `piworkerctl tls`

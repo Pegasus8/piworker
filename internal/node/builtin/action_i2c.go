@@ -152,8 +152,11 @@ func I2CActionInfo() node.NodeTypeInfo {
 	return node.NodeTypeInfo{
 		Type:        "action-i2c",
 		Name:        "I2C Read",
-		Description: "Read bytes from an I2C device",
+		Description: "Read bytes from an I2C device (experimental)",
 		Documentation: `## I2C Read
+
+> **Experimental.** This node has not been validated on real hardware for this
+> release. Test it with your own wiring before relying on it.
 
 Reads ` + "`length`" + ` bytes from an I2C device, optionally after writing a
 ` + "`register`" + ` address first. Runs on a Raspberry Pi (or any host periph.io

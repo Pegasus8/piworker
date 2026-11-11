@@ -260,6 +260,10 @@ hidden).
    Factories and `Validate` must reject bad config (deploy maps that to 400).
 4. Multi-output nodes: declare each output port and set `SourcePort` on every
    emitted message. Add a `_test.go` next to it.
+   Regenerate the user guide's node reference, which a test compares with the
+   registry: `go test -run TestNodeReferenceDocIsCurrent ./internal/node/builtin -update`
+   (`docs/guide/nodes.md`; the rest of the user guide in `docs/guide/` is
+   hand-written, update it when behaviour users see changes).
 5. Triggers: `Start` returns an error only for invalid config or exclusive
    resources (wrap the latter with `node.ErrResourceConflict` → 409);
    network-dependent triggers connect/retry in the background and never

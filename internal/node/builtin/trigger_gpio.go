@@ -167,8 +167,11 @@ func GPIOTriggerInfo() node.NodeTypeInfo {
 	return node.NodeTypeInfo{
 		Type:        "trigger-gpio",
 		Name:        "GPIO Edge",
-		Description: "Trigger when a GPIO input pin changes level",
+		Description: "Trigger when a GPIO input pin changes level (experimental)",
 		Documentation: `## GPIO Edge
+
+> **Experimental.** This node has not been validated on real hardware for this
+> release. Test it with your own wiring before relying on it.
 
 Watches a GPIO input pin and emits a message on each configured edge. Runs on a
 Raspberry Pi (or any host periph.io supports); elsewhere Start fails clearly.

@@ -17,6 +17,9 @@ version. The version number and release date have not been selected.
 - `piworkerctl install`, `update` and `uninstall` for Linux/systemd. Updates verify
   checksums and back up data; uninstall retains accounts, flows and configuration.
 - `piworker -version` reports the build version without starting the server.
+- A [user guide](docs/guide/README.md): getting started, concepts, recipes, AI
+  agents and troubleshooting, plus a node reference generated from the nodes'
+  own schemas.
 - Health checks return HTTP 503 when storage is closed. Resizing the flow editor
   keeps nodes reachable on smaller screens.
 
@@ -200,9 +203,16 @@ version. The version number and release date have not been selected.
   Standalone binaries do not require systemd. ARMv6 and native macOS/Windows
   release binaries of PiWorker are not provided (only of the `piworker-mcp`
   bridge). Docker is the alternative on those desktop OSes.
-- The old `v0.1.0-alpha.1` release from 2020 is not compatible with the installer.
-  Its database migration has not been validated. Test with a copy and retain the
-  original binary and data; no automatic migration guarantee is made.
+- Migration from the `v0.1.0-alpha.1` release of 2020 is **not supported**. The
+  revival is a new program with a different data model: it does not read the
+  old tasks or database, and the installer does not touch an old installation.
+  Install it separately and recreate your automations as flows.
+- The hardware nodes (GPIO Edge, GPIO Write, I2C Read, DS18B20 Temperature) are
+  **experimental**: covered by automated tests, not yet validated on real
+  hardware. The editor and the node reference mark them.
+- The first publication is a **prerelease**. Prereleases are installed by tag
+  (`piworkerctl install vX.Y.Z-…`, or the image tag); they never become
+  GitHub's latest release or the image's `latest`.
 - Existing accounts from the revival session-authentication migration retain
   their password hashes. Legacy JWT sessions must sign in again; Bearer JWT API
   authentication and the `jwt_secret` setting are no longer supported.

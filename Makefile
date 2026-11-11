@@ -20,7 +20,10 @@ GOTEST=$(GOCMD) test
 GOGET=$(GOCMD) get
 GOMOD=$(GOCMD) mod
 GOVET=$(GOCMD) vet
-GOFMT=gofmt
+# The gofmt of the Go version in go.mod, not whichever is first on PATH: with an
+# older Go installed and the toolchain downloaded automatically, PATH's gofmt
+# formats differently and fmt-check would report files CI accepts.
+GOFMT=$(shell $(GOCMD) env GOROOT)/bin/gofmt
 
 # Build output
 BINARY_NAME=piworker
