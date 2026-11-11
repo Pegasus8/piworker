@@ -106,6 +106,7 @@ func evalExpr(ctx context.Context, program *vm.Program, msg *types.Message) (int
 		"timestamp":   msg.Timestamp.Format(time.RFC3339),
 		"id":          msg.ID,
 		"ctx":         runCtx,
+		"zigbee":      zigbeeStateFunc(ctx),
 		exprGuardName: newExprGuard(runCtx, sb),
 	}
 	if env["meta"] == nil {

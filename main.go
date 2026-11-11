@@ -33,6 +33,7 @@ import (
 	"github.com/Pegasus8/piworker/internal/vars"
 	"github.com/Pegasus8/piworker/internal/webhook"
 	"github.com/Pegasus8/piworker/internal/webui"
+	"github.com/Pegasus8/piworker/internal/zigbee"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
@@ -122,6 +123,11 @@ func main() {
 	if err := brokers.DefaultStore.Attach(store); err != nil {
 		log.Fatal().Err(err).Msg("Failed to load broker connections")
 	}
+	// Watch each connection's Zigbee2MQTT network: device discovery for the
+	// editor and the device states expressions read.
+	zigbee.Default = zigbee.NewManager(brokers.DefaultStore)
+	zigbee.Default.Start()
+	defer zigbee.Default.Stop()
 
 	// Persist flow variables (set-var/get-var) so they survive restarts.
 	if err := vars.DefaultStore.Attach(store); err != nil {
@@ -485,6 +491,11 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 	api.NewVariablesHandler(vars.DefaultStore).RegisterRoutes(router)
 	// Broker connections (passwords write-only).
 	api.NewConnectionsHandler(brokers.DefaultStore, brokers.Tester{}, log.Logger).RegisterRoutes(router)
+	networks := zigbee.Default
+	if networks == nil { // not started (tests): no network to show
+		networks = zigbee.NewManager(brokers.DefaultStore)
+	}
+	api.NewZigbeeHandler(networks).RegisterRoutes(router)
 
 	healthHandler := api.NewHealthHandler(store)
 	router.HandleFunc(healthPath, healthHandler.Health).Methods(http.MethodGet, http.MethodHead)
