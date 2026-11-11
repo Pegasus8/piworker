@@ -419,6 +419,8 @@ sudo systemctl start piworker
 | **Webhook** | `trigger-webhook` | Fire on an incoming HTTP request to `/webhooks/<path>` |
 | **RSS Feed** | `trigger-rss` | Poll a feed for new entries |
 | **MQTT Subscribe** | `trigger-mqtt` | Receive messages from an MQTT broker |
+| **Zigbee Device** | `trigger-zigbee` | React to a Zigbee device's change or availability ([Zigbee guide](docs/guide/zigbee.md)) |
+| **Sun** | `trigger-sun` | Fire at sunrise, sunset, dawn or dusk (computed locally) |
 | **GPIO Edge** | `trigger-gpio` | React to Raspberry Pi pin changes (experimental) |
 | **DS18B20 Temperature** | `trigger-ds18b20` | Poll a 1-Wire temperature sensor (experimental) |
 | **System Metric** | `trigger-sysmetric` | Fire when CPU / memory / temperature crosses a threshold |
@@ -428,6 +430,8 @@ sudo systemctl start piworker
 | Node | Type | Description |
 |------|------|-------------|
 | **Delay** | `process-delay` | Delay messages by a specified duration |
+| **Timer** | `process-timer` | Fire once no message came for a while (retriggerable) |
+| **Zigbee Get** | `process-zigbee-get` | Read a Zigbee device's current value |
 | **Debug** | `process-debug` | Inspect messages flowing through the flow |
 | **Transform** | `process-transform` | Reshape the payload with a sandboxed expression |
 | **Filter** | `process-filter` | Pass a message through only when a condition is true |
@@ -451,6 +455,7 @@ sudo systemctl start piworker
 | **Email** | `action-email` | Send an email via SMTP |
 | **Database** | `action-database` | Execute SQLite, PostgreSQL or MySQL queries |
 | **MQTT Publish** | `action-mqtt` | Publish to an MQTT broker |
+| **Zigbee Set** | `action-zigbee` | Turn a Zigbee device on/off or set one of its properties |
 | **GPIO Write** | `action-gpio` | Set a Raspberry Pi output pin (experimental) |
 | **I2C Read** | `action-i2c` | Read from an I2C device (experimental) |
 | **Write File** | `action-file` | Write or append the message to a file |
@@ -469,8 +474,9 @@ sudo systemctl start piworker
 Each node type also declares a **risk**: `privileged` for nodes that act on
 the host (Execute Command, Write File, Database, GPIO Write, I2C Read),
 `external` for nodes that send data elsewhere (HTTP Request, MQTT Publish,
-Email, Telegram, Notify) and `safe` for the rest. The risk is listed in the
-node reference and reported to agents by `pw_list_node_types`;
+Zigbee Set, Zigbee Get, Email, Telegram, Notify) and `safe` for the rest. The
+risk is listed in the node reference and reported to agents by
+`pw_list_node_types`;
 `/api/node-types` does not include it. Schema properties may be marked
 `sensitive` (credentials, never echoed) and `agentVisible` (harmless values
 that agents may read); numeric properties state their `unit`.

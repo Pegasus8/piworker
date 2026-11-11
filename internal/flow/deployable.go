@@ -3,6 +3,7 @@ package flow
 import (
 	"context"
 
+	"github.com/Pegasus8/piworker/internal/brokers"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/secrets"
 )
@@ -47,7 +48,9 @@ func validateDeployable(rt *FlowRuntime, reg *node.Registry) ([]ToolInfo, []Issu
 // (node.SecretRequirer) is not defined in the store of ctx
 // (secrets.FromContext: the process-wide store for a deploy). It is Lint's
 // collector (requiredSecretFindings), so Lint reports the same secrets
-// (IssueUndefinedSecret). The dry-run does not call it.
+// (IssueUndefinedSecret). It also refuses a broker connection a node names
+// (node.ConnectionRequirer) that is not defined (IssueUndefinedConnection).
+// The dry-run does not call it.
 func checkRequiredSecrets(ctx context.Context, rt *FlowRuntime) error {
 	instances := make(map[int]node.Node, len(rt.nodes))
 	for i := range rt.flow.Nodes {
@@ -56,5 +59,9 @@ func checkRequiredSecrets(ctx context.Context, rt *FlowRuntime) error {
 			instances[i] = inst
 		}
 	}
-	return firstError(requiredSecretFindings(rt.flow, instances, secrets.FromContext(ctx)))
+	if err := firstError(requiredSecretFindings(rt.flow, instances, secrets.FromContext(ctx))); err != nil {
+		return err
+	}
+	// The broker connections nodes name (ADR-0026), from the store of ctx.
+	return firstError(requiredConnectionFindings(rt.flow, instances, brokers.FromContext(ctx)))
 }

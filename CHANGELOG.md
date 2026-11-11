@@ -20,6 +20,28 @@ version. The version number and release date have not been selected.
 - A [user guide](docs/guide/README.md): getting started, concepts, recipes, AI
   agents and troubleshooting, plus a node reference generated from the nodes'
   own schemas.
+- Zigbee home automation through Zigbee2MQTT ([guide](docs/guide/zigbee.md)):
+  named broker connections defined once under **Connections** (password
+  write-only; ADR-0026), the nodes Zigbee Device (state, one property with a
+  minimum change, button actions, availability), Zigbee Set (on/off/toggle,
+  one property or a JSON object; never the bridge), Zigbee Get, a
+  retriggerable Timer and Sun (sunrise/sunset/dawn/dusk), a **Zigbee** page
+  with the devices, their current values and permit join, device and property
+  suggestions in node settings, `zigbee(device)` in expressions (the last
+  reported state; `nil` in a dry-run) and `docker-compose.zigbee.yml`
+  (Mosquitto, Zigbee2MQTT and PiWorker). Deploy refuses a node naming a
+  connection that does not exist (`undefined_connection`).
+- `pw_list_node_types` without arguments lists every type's structure and
+  leaves documentation to a category or type request (ADR-0024).
+- MQTT Subscribe and MQTT Publish nodes on one broker with the same
+  credentials and no client id of their own share a connection (ADR-0025),
+  instead of one connection per node; nodes with overlapping topic filters
+  get separate connections, so no node receives a message twice.
+- The System Metric trigger and the agents' host status read the CPU's
+  temperature on x86_64 PCs too: the CPU thermal zone (`x86_pkg_temp`) or, on
+  most AMD machines, the `coretemp`/`k10temp` sensor, instead of the first
+  thermal zone (a board sensor on PCs). The automated validation script passes
+  on x86_64.
 - Health checks return HTTP 503 when storage is closed. Resizing the flow editor
   keeps nodes reachable on smaller screens.
 
@@ -95,8 +117,9 @@ version. The version number and release date have not been selected.
   `call` gets `pw_get_result` for calls that waited for approval or
   outlasted their timeout.
 - Authoring (`author` scope, only with `[mcp] author_enabled`):
-  `pw_list_node_types`, `pw_validate_flow` (every problem a deploy would
-  find, from the same checks), `pw_save_draft`, `pw_get_draft` and the
+  `pw_list_node_types` (without arguments the structure of every type,
+  documentation by category or type; ADR-0024), `pw_validate_flow` (every
+  problem a deploy would find, from the same checks), `pw_save_draft`, `pw_get_draft` and the
   `author_flow` prompt. Agents write drafts, never flows: a whole flow or
   operations against the version they read (a stale one is a conflict),
   without changing Agent Tool or Agent Reply nodes, webhook paths or tokens,

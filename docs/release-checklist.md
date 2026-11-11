@@ -56,6 +56,9 @@ candidate, publication and repository housekeeping. In order:
   the user guide and the release notes. Drop the mark once each is validated.
 - [ ] Record the Pi OS and architecture already validated and decide on the
   other advertised CPUs (ARMv7, x86_64): validate or narrow the claim.
+  x86_64: the automated checks passed natively on 2026-11-11
+  ([report](release-validation.md#x86_64-native-validation--2026-11-11));
+  the systemd installer and a reboot remain to be run on a real PC.
 - [x] Migration from the 2020 release is **not supported** (decided
   2026-11-11); the README, the user guide and the release notes say so.
 

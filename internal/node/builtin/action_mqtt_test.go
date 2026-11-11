@@ -2,8 +2,8 @@ package builtin
 
 import (
 	"context"
+	"github.com/Pegasus8/piworker/internal/mqtttest"
 	"net"
-	"strings"
 	"testing"
 	"time"
 
@@ -29,7 +29,7 @@ func TestMqttActionParsesConfig(t *testing.T) {
 	assert.Equal(t, byte(1), a.qos)
 	assert.True(t, a.retained)
 	// Lazily connected: constructing must not dial the broker.
-	assert.Nil(t, a.client)
+	assert.Nil(t, a.conn)
 }
 
 func TestMqttActionRequiresBrokerAndTopic(t *testing.T) {
@@ -44,26 +44,30 @@ func TestMqttActionClampsQoS(t *testing.T) {
 	assert.Equal(t, byte(0), a.qos, "out-of-range QoS falls back to 0")
 }
 
-func TestMqttActionDefaultClientIDIsUnique(t *testing.T) {
-	a := newMqttAction(t, map[string]interface{}{"broker": "tcp://x:1883", "topic": "t"})
-	b := newMqttAction(t, map[string]interface{}{"broker": "tcp://x:1883", "topic": "t", "clientId": ""})
-	assert.True(t, strings.HasPrefix(a.clientID, "piworker-pub-"), a.clientID)
-	assert.NotEqual(t, a.clientID, b.clientID)
+// Without a client id of its own (empty, or the constant older flows
+// stored) the action shares a pooled connection (ADR-0025).
+func TestMqttActionClientID(t *testing.T) {
+	for _, v := range []string{"", "  ", "piworker-pub"} {
+		a := newMqttAction(t, map[string]interface{}{"broker": "tcp://x:1883", "topic": "t", "clientId": v})
+		assert.Empty(t, a.clientID, "clientId %q", v)
+	}
+	assert.Empty(t, newMqttAction(t, map[string]interface{}{"broker": "tcp://x:1883", "topic": "t"}).clientID)
+	assert.Equal(t, "mine", newMqttAction(t, map[string]interface{}{"broker": "tcp://x:1883", "topic": "t", "clientId": "mine"}).clientID)
 }
 
 func TestMqttActionPublishesAndCloseDisconnects(t *testing.T) {
-	b := newFakeBroker(t)
-	a := newMqttAction(t, map[string]interface{}{"broker": b.url(), "topic": "out/t", "payload": "hi", "qos": 1})
+	b := mqtttest.New(t)
+	a := newMqttAction(t, map[string]interface{}{"broker": b.URL(), "topic": "out/t", "payload": "hi", "qos": 1})
 
 	_, err := a.Process(context.Background(), types.NewMessage("x", types.DataTypeString))
 	require.NoError(t, err)
-	_, _, pubs, _ := b.snapshot()
+	_, _, pubs, _ := b.Snapshot()
 	assert.Equal(t, []string{"out/t=hi"}, pubs)
 
 	require.NoError(t, a.Close())
 	require.Eventually(t, func() bool {
-		_, _, _, d := b.snapshot()
-		return d == 1 && b.connCount() == 0
+		_, _, _, d := b.Snapshot()
+		return d == 1 && b.ConnCount() == 0
 	}, 5*time.Second, 20*time.Millisecond, "Close must disconnect the publish client")
 	require.NoError(t, a.Close(), "Close is idempotent")
 }

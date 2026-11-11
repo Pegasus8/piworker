@@ -14,6 +14,8 @@ const router = createRouter({
     { path: '/agents/drafts', name: 'agent-drafts', component: () => import('@/views/DraftsView.vue'), meta: { requiresAuth: true } },
     { path: '/agents/drafts/:id', name: 'agent-draft', component: () => import('@/views/DraftReviewView.vue'), meta: { requiresAuth: true } },
     { path: '/agents/audit', name: 'agent-audit', component: () => import('@/views/AuditView.vue'), meta: { requiresAuth: true } },
+    // Zigbee2MQTT networks of the broker connections: devices, readings, permit join.
+    { path: '/zigbee', name: 'zigbee', component: () => import('@/views/ZigbeeView.vue'), meta: { requiresAuth: true } },
     // Public: reachable from the login page and the HTTP warning.
     { path: '/trust', name: 'trust', component: () => import('@/views/TrustView.vue'), meta: { requiresAuth: false } },
     {

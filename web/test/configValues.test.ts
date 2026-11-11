@@ -99,3 +99,25 @@ test('JSON text is stored as a parsed object', () => {
   expect(bad.error).toStartWith('Invalid JSON')
   expect(bad.value).toBeUndefined()
 })
+
+test('a string setting with a suggestion source keeps it, unknown sources are ignored', () => {
+  const fields = configFieldsFromSchema({
+    required: ['connection', 'device'],
+    properties: {
+      connection: { type: 'string', title: 'Connection', options: 'connections' },
+      device: { type: 'string', title: 'Device', options: 'zigbee-devices' },
+      property: { type: 'string', title: 'Property', options: 'zigbee-settable' },
+      command: { type: 'string', enum: ['on', 'off'] },
+      other: { type: 'string', options: 'not-a-source' }
+    }
+  })
+  const byKey = Object.fromEntries(fields.map(f => [f.key, f]))
+  expect(byKey.connection.type).toBe('text')
+  expect(byKey.connection.suggest).toBe('connections')
+  expect(byKey.device.suggest).toBe('zigbee-devices')
+  expect(byKey.property.suggest).toBe('zigbee-settable')
+  // Enum choices stay in options; suggestions never turn a field into a select.
+  expect(byKey.command.suggest).toBeUndefined()
+  expect(byKey.command.options?.length).toBe(2)
+  expect(byKey.other.suggest).toBeUndefined()
+})

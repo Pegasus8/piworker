@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/metrics"
+	"github.com/Pegasus8/piworker/internal/mqttpool"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -20,7 +21,7 @@ type MqttTrigger struct {
 	*node.BaseNode
 
 	broker   string
-	clientID string
+	clientID string // own client id; "" shares a pooled connection (ADR-0025)
 	username string
 	password string
 	topic    string
@@ -31,7 +32,7 @@ type MqttTrigger struct {
 
 	mu      sync.Mutex
 	running bool
-	client  mqtt.Client
+	sub     *mqttpool.Sub
 }
 
 // NewMqttTrigger creates an MqttTrigger from configuration.
@@ -54,7 +55,7 @@ func NewMqttTrigger(config map[string]interface{}) (node.Node, error) {
 	return &MqttTrigger{
 		BaseNode: base,
 		broker:   broker,
-		clientID: resolveMqttClientID(base.GetConfigString("clientId", ""), "piworker-sub"),
+		clientID: ownMqttClientID(base.GetConfigString("clientId", ""), "piworker-sub"),
 		username: base.GetConfigString("username", ""), // {{secret.NAME}} resolved by Start
 		password: base.GetConfigString("password", ""),
 		topic:    topic,
@@ -85,13 +86,11 @@ func mqttMessagePayload(topic string, payload []byte) map[string]interface{} {
 // before returning and leaving the client to retry in the background.
 const mqttInitialConnectWait = 2 * time.Second
 
-// Start connects to the broker and subscribes to the topic.
-//
-// The subscription is (re)issued from the OnConnect handler: with a clean
-// session the broker forgets subscriptions whenever the connection drops, so
-// subscribing only once would silently stop delivery after the first Wi-Fi
-// flap. If the broker is not reachable yet (e.g. the Pi booted before the
-// network came up) Start still succeeds and the client keeps retrying in the
+// Start subscribes to the topic on a shared connection to the broker
+// (ADR-0025), which subscribes again on every reconnect: with a clean
+// session the broker forgets subscriptions whenever the connection drops. If
+// the broker is not reachable yet (e.g. the Pi booted before the network
+// came up) Start still succeeds and the connection keeps retrying in the
 // background.
 func (t *MqttTrigger) Start(ctx context.Context, out chan<- *types.Message) error {
 	t.mu.Lock()
@@ -100,7 +99,7 @@ func (t *MqttTrigger) Start(ctx context.Context, out chan<- *types.Message) erro
 		return fmt.Errorf("trigger already running")
 	}
 
-	handler := func(_ mqtt.Client, m mqtt.Message) {
+	handler := func(m mqtt.Message) {
 		msg := types.NewMessage(mqttMessagePayload(m.Topic(), m.Payload()), types.DataTypeObject)
 		msg.SourcePort = "output"
 		msg.Topic = "mqtt"
@@ -113,54 +112,32 @@ func (t *MqttTrigger) Start(ctx context.Context, out chan<- *types.Message) erro
 		}
 	}
 
-	opts := newMqttClientOptions(t.broker, t.clientID, expandSecrets(ctx, t.username), expandSecrets(ctx, t.password)).
-		SetConnectRetry(true).
-		SetConnectRetryInterval(t.connectRetryInterval).
-		SetOnConnectHandler(func(c mqtt.Client) {
-			// Runs in its own goroutine, so waiting here is safe.
-			tok := c.Subscribe(t.topic, t.qos, handler)
-			if !tok.WaitTimeout(mqttConnectTimeout) {
-				log.Warn().Str("topic", t.topic).Msg("mqtt subscribe timed out")
-				return
-			}
-			if err := tok.Error(); err != nil {
-				log.Error().Err(err).Str("topic", t.topic).Msg("mqtt subscribe failed")
-			}
-		}).
-		SetConnectionLostHandler(func(_ mqtt.Client, err error) {
-			log.Warn().Err(err).Str("broker", t.broker).Msg("mqtt connection lost; reconnecting")
-		})
-
-	client := mqtt.NewClient(opts)
-	tok := client.Connect()
-	// Wait only briefly: the runtime starts triggers synchronously, and an
-	// unreachable broker is not a configuration error. Only invalid config
-	// (checked in the constructor) makes Start fail.
-	if !tok.WaitTimeout(t.initialConnectWait) {
-		log.Warn().Str("broker", t.broker).Msg("mqtt broker not reachable yet; retrying in background")
-	} else if err := tok.Error(); err != nil {
-		log.Warn().Err(err).Str("broker", t.broker).Msg("mqtt connect failed; retrying in background")
+	ep := mqttEndpointFor(ctx, t.broker, t.username, t.password, t.clientID)
+	sub, fresh := mqttpool.Subscribe(ep, t.topic, t.qos, handler, t.connectRetryInterval)
+	// Wait only briefly for a new connection: the runtime starts triggers
+	// synchronously, and an unreachable broker is not a configuration error.
+	// Only invalid config (checked in the constructor) makes Start fail.
+	if fresh {
+		if err := sub.Conn().WaitUp(ctx, t.initialConnectWait); err != nil {
+			log.Warn().Str("broker", t.broker).Msg("mqtt broker not reachable yet; retrying in background")
+		}
 	}
 
-	t.client = client
+	t.sub = sub
 	t.running = true
 	return nil
 }
 
-// Stop unsubscribes and disconnects. It also aborts a pending connect retry.
+// Stop ends the subscription; the shared connection closes (aborting a
+// pending connect retry) once no node uses it.
 func (t *MqttTrigger) Stop() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if !t.running {
 		return nil
 	}
-	if t.client != nil {
-		if t.client.IsConnected() {
-			t.client.Unsubscribe(t.topic).WaitTimeout(time.Second)
-		}
-		t.client.Disconnect(250)
-		t.client = nil
-	}
+	t.sub.Release()
+	t.sub = nil
 	t.running = false
 	return nil
 }
@@ -188,7 +165,7 @@ func mqttTriggerConfigSchema() node.ConfigSchema {
 			"broker":   {Type: "string", Title: "Broker", Description: "Broker URL, e.g. tcp://host:1883", Destination: true},
 			"topic":    {Type: "string", Title: "Topic", Description: "Topic filter to subscribe to (supports +/# wildcards)", Destination: true},
 			"qos":      {Type: "number", Title: "QoS", Description: "0, 1 or 2", Default: 0, Minimum: &minQoS, Maximum: &maxQoS, AgentVisible: true},
-			"clientId": {Type: "string", Title: "Client ID", Description: "MQTT client id (leave empty for a unique per-node id)", Default: ""},
+			"clientId": {Type: "string", Title: "Client ID", Description: "Own MQTT client id; leave empty to share a connection with the other MQTT nodes on this broker", Default: ""},
 			"username": {Type: "string", Title: "Username", Description: "Optional ({{secret.NAME}} supported)"},
 			"password": {Type: "string", Title: "Password", Description: "Optional; use {{secret.NAME}}", Sensitive: true},
 		},
@@ -221,13 +198,14 @@ payloads are parsed; others pass through as strings. Credentials support
 | broker | string | - | Broker URL (tcp://host:1883) |
 | topic | string | - | Topic filter (+/# wildcards) |
 | qos | number | 0 | 0, 1 or 2 |
-| clientId | string | (unique) | Client id; empty generates piworker-sub-<random> per node |
+| clientId | string | (shared) | Own client id; empty shares a connection |
 | username/password | string | - | Optional credentials |
 
 ## Connection
 
-The node reconnects automatically after a network drop and re-subscribes on
-every (re)connect. If the broker is unreachable when the flow starts (e.g. the
+MQTT nodes on one broker with the same credentials and no client id of their
+own share a connection. It reconnects automatically after a network drop and
+re-subscribes on every (re)connect. If the broker is unreachable when the flow starts (e.g. the
 device booted before the network was up) the flow still starts and the node
 keeps retrying in the background.
 

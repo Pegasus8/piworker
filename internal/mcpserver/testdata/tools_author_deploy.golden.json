@@ -797,12 +797,12 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Lists the node types flows are built from, triggers (input) first, then processing and actions (output): type id, name, risk (safe, external: reaches other services, privileged: acts on the device), ports, settings (type, bounds, default, and the markers sensitive, agentVisible, destination, riskSwitch, operation and rate, present when true) and documentation. A dynamic URL or host, or a risk switch turned on, makes a node privileged. Documentation left out to keep the list small (documentationOmitted) comes with the type alone (type). trigger-tool and action-reply (flow tools) are listed for reference: agents cannot add, change or remove them.",
+    "description": "Lists the node types flows are built from, triggers (input) first, then processing and actions (output): type id, name, risk (safe, external: reaches other services, privileged: acts on the device), ports, settings (type, bounds, default, and the markers sensitive, agentVisible, destination, riskSwitch, operation and rate, present when true) and documentation. A dynamic URL or host, or a risk switch turned on, makes a node privileged. Without arguments the documentation is left out (documentationOmitted): ask for a category or a type to read it; documentation left out to keep a category small comes with the type alone. trigger-tool and action-reply (flow tools) are listed for reference: agents cannot add, change or remove them.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "category": {
-          "description": "Only the types of this category: input (triggers), processing or output (actions).",
+          "description": "Only the types of this category, with their documentation: input (triggers), processing or output (actions).",
           "enum": [
             "input",
             "processing",

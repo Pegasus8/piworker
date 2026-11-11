@@ -13,7 +13,9 @@ import { useApi } from '@/composables/useApi'
 import NodeDocumentation from './NodeDocumentation.vue'
 import NodePlayground from './NodePlayground.vue'
 import TestTool from './TestTool.vue'
-import type { NodeTestDraft } from '@/types'
+import type { ConfigField, NodeTestDraft } from '@/types'
+import { useZigbeeStore } from '@/stores/zigbee'
+import { fieldHint, findNetwork, suggestions, type SuggestionContext } from '@/lib/zigbee'
 
 const flowsStore = useFlowsStore()
 const nodeTypesStore = useNodeTypesStore()
@@ -80,6 +82,43 @@ watch(
   { immediate: true, deep: true }
 )
 
+// Suggestions of settings with a source (broker connections, Zigbee devices
+// and their properties): read when the panel opens, again when it names a
+// connection the networks do not know yet. A failure leaves the fields free text.
+const zigbeeStore = useZigbeeStore()
+const suggestionsNotice = ref('')
+const suggestFields = computed(() => (nodeTypeConfig.value?.configSchema ?? []).filter(f => f.suggest))
+const triedConnections = new Set<string>()
+async function loadSuggestions(force = false) {
+ const fields = suggestFields.value
+ if (!fields.length) return
+ const ok = await zigbeeStore.loadSuggestions({
+  connections: fields.some(f => f.suggest === 'connections'),
+  networks: fields.some(f => f.suggest !== 'connections'),
+  force
+ })
+ suggestionsNotice.value = ok ? '' : 'Suggestions could not be loaded. You can still type the values.'
+}
+// Also when the node types arrive after the panel opened.
+watch(() => [selectedNode.value?.id, suggestFields.value.length] as const, ([id]) => {
+ suggestionsNotice.value = ''
+ triedConnections.clear()
+ if (id) void loadSuggestions(true)
+}, { immediate: true })
+watch(() => localConfig.value.connection, connection => {
+ if (typeof connection !== 'string' || !zigbeeStore.networksLoaded || triedConnections.has(connection)) return
+ if (findNetwork(zigbeeStore.networks, connection) || !zigbeeStore.connections.some(c => c.name === connection)) return
+ triedConnections.add(connection)
+ void loadSuggestions(true)
+})
+const suggestionContext = computed((): SuggestionContext => ({ connections: zigbeeStore.connections, networks: zigbeeStore.networks, config: localConfig.value }))
+function fieldSuggestions(field: ConfigField): string[] {
+ return field.suggest ? suggestions(field.suggest, suggestionContext.value) : []
+}
+function suggestHint(field: ConfigField): string {
+ return field.suggest ? fieldHint(field.suggest, suggestionContext.value) : ''
+}
+
 // undefined removes the setting, so the node uses its default.
 function updateField(key: string, value: any) {
   setConfigValue(localConfig.value, key, value)
@@ -140,6 +179,7 @@ onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
         <section class="min-w-0 space-y-4 lg:sticky lg:top-0 lg:self-start">
           <div><h3 class="font-semibold">Configuration</h3><p class="mt-1 text-sm text-muted-foreground">Apply changes to update the draft. Save the flow to keep them.</p></div>
           <p v-if="referencesError" role="alert" class="text-sm text-destructive">{{ referencesError }} <Button size="sm" variant="outline" @click="loadReferences">Retry references</Button></p>
+          <p v-if="suggestionsNotice" role="status" class="text-sm text-muted-foreground">{{ suggestionsNotice }} <Button size="sm" variant="outline" @click="loadSuggestions(true)">Retry suggestions</Button></p>
           <!-- Keyed per node: field editors with their own state (JSON text and
                its error) start fresh for each node. -->
           <div v-for="field in nodeTypeConfig.configSchema" :key="`${selectedNode.id}:${field.key}`">
@@ -156,8 +196,15 @@ onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
               :multiline="field.type === 'textarea' || field.type === 'cron' || ['expression','condition','template'].includes(field.key) || (selectedNode.data.nodeType === 'set-var' && field.key === 'value')"
               :mode="referenceMode(selectedNode.data.nodeType, field.key)"
               :options="fieldReferences(field.key)"
+              :list="field.suggest ? `${field.key}-suggestions` : undefined"
+              :describedby="suggestHint(field) ? `${field.key}-hint` : undefined"
               @update:model-value="v => updateField(field.key, v)"
             />
+            <!-- Suggestions (free text stays allowed) and what is known of the choice. -->
+            <datalist v-if="field.suggest" :id="`${field.key}-suggestions`">
+              <option v-for="value in fieldSuggestions(field)" :key="value" :value="value" />
+            </datalist>
+            <p v-if="suggestHint(field)" :id="`${field.key}-hint`" class="mt-1 break-words text-xs text-primary">{{ suggestHint(field) }}</p>
 
             <!-- Number Input -->
             <Input

@@ -72,3 +72,16 @@ func TestLinuxHostProbeUnknown(t *testing.T) {
 	assert.Nil(t, st.Disk, "an unreadable data directory has no disk figures")
 	assert.Equal(t, HostStatus{}, fakeLinux(t, nil).probe(""), "nothing to read: nothing reported")
 }
+
+// An AMD PC exposes the CPU only as a hwmon chip; its zone0 is the board.
+func TestLinuxHostProbeReadsTheCPUHwmon(t *testing.T) {
+	h := fakeLinux(t, map[string]string{
+		"sys/class/thermal/thermal_zone0/type": "acpitz\n",
+		"sys/class/thermal/thermal_zone0/temp": "16800\n",
+		"sys/class/hwmon/hwmon1/name":          "k10temp\n",
+		"sys/class/hwmon/hwmon1/temp1_input":   "55125\n",
+	})
+	st := h.probe("")
+	require.NotNil(t, st.CPUTemperatureC)
+	assert.InDelta(t, 55.125, *st.CPUTemperatureC, 1e-9)
+}

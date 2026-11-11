@@ -27,8 +27,10 @@ A trigger starts a flow: it has no input and emits a message when something happ
 | [MQTT Subscribe](#trigger-mqtt) | Trigger when a message arrives on an MQTT topic |
 | [Manual Inject](#trigger-manual) | Trigger flow manually with a button click |
 | [RSS Feed](#trigger-rss) | Trigger when an RSS/Atom feed gets a new item |
+| [Sun](#trigger-sun) | Trigger at sunrise, sunset, dawn or dusk |
 | [System Metric](#trigger-sysmetric) | Triggers when CPU, memory, or temperature crosses a threshold |
 | [Webhook](#trigger-webhook) | Triggers when an HTTP request hits its webhook URL |
+| [Zigbee Device](#trigger-zigbee) | Trigger when a Zigbee device reports a change or goes offline |
 
 <a id="trigger-tool"></a>
 
@@ -131,7 +133,7 @@ Trigger when a message arrives on an MQTT topic.
 | Setting | Key | Type | Default | Description |
 |---------|-----|------|---------|-------------|
 | Broker (required) | `broker` | string | – | Broker URL, e.g. tcp://host:1883 |
-| Client ID | `clientId` | string | – | MQTT client id (leave empty for a unique per-node id) |
+| Client ID | `clientId` | string | – | Own MQTT client id; leave empty to share a connection with the other MQTT nodes on this broker |
 | Password | `password` | string | – | Optional; use {{secret.NAME}} |
 | QoS | `qos` | number | `0` | 0, 1 or 2 |
 | Topic (required) | `topic` | string | – | Topic filter to subscribe to (supports +/# wildcards) |
@@ -171,6 +173,24 @@ Trigger when an RSS/Atom feed gets a new item.
 | Feed URL (required) | `url` | string | – | RSS or Atom feed URL to poll |
 | Poll interval (s) | `intervalSec` | number (seconds) | `300` | How often to poll the feed, in seconds (minimum 10) |
 
+<a id="trigger-sun"></a>
+
+### Sun
+
+Trigger at sunrise, sunset, dawn or dusk.
+
+- **Type:** `trigger-sun`
+- **Risk:** `safe`
+- **Inputs:** none
+- **Outputs:** `output`
+
+| Setting | Key | Type | Default | Description |
+|---------|-----|------|---------|-------------|
+| Event | `event` | `sunrise`, `sunset`, `dawn`, `dusk` | `sunset` | sunrise, sunset, or civil dawn / dusk (sun 6° below the horizon) |
+| Latitude (required) | `latitude` | number (degrees) | – | Of the place, in degrees (south negative), e.g. -34.6 |
+| Longitude (required) | `longitude` | number (degrees) | – | Of the place, in degrees (west negative), e.g. -58.4 |
+| Offset (min) | `offset` | number (minutes) | `0` | Shift from the event, in minutes: negative before, positive after |
+
 <a id="trigger-sysmetric"></a>
 
 ### System Metric
@@ -206,6 +226,25 @@ Triggers when an HTTP request hits its webhook URL.
 | Path (required) | `path` | string | – | URL path segment under /webhooks/ (e.g. 'github-push') |
 | Secret Token | `token` | string | – | Optional shared secret, required as ?token=... or the X-Webhook-Token header ({{secret.NAME}} supported) |
 
+<a id="trigger-zigbee"></a>
+
+### Zigbee Device
+
+Trigger when a Zigbee device reports a change or goes offline.
+
+- **Type:** `trigger-zigbee`
+- **Risk:** `safe`
+- **Inputs:** none
+- **Outputs:** `output`, `availability`
+
+| Setting | Key | Type | Default | Description |
+|---------|-----|------|---------|-------------|
+| Connection (required) | `connection` | string | – | Broker connection to Zigbee2MQTT (defined under Connections) |
+| Device (required) | `device` | string | – | Zigbee2MQTT friendly name of the device or group |
+| Minimum change | `minChange` | number | `0` | Numbers only: fire when the value moved at least this much (in the property's own unit) since it last fired; 0 for any change |
+| Mode | `mode` | `change`, `every` | `change` | change: only when the value (or state) changes; every: on every report |
+| Property | `property` | string | – | Only this property (temperature, humidity, state, power, action…); empty for the whole state |
+
 ## Processing
 
 Processing nodes change, route or hold the messages that pass through them.
@@ -223,7 +262,9 @@ Processing nodes change, route or hold the messages that pass through them.
 | [Set Variable](#set-var) | Store a value into a named variable |
 | [Switch (If/Else)](#process-switch) | Route a message to one of two outputs based on a condition |
 | [Template](#process-template) | Render a text template from the message into a string |
+| [Timer](#process-timer) | Fire once no message came for a while (retriggerable) |
 | [Transform](#process-transform) | Transform payload using expressions |
+| [Zigbee Get](#process-zigbee-get) | Read a Zigbee device's current value |
 
 <a id="process-aggregate"></a>
 
@@ -405,6 +446,23 @@ Render a text template from the message into a string.
 |---------|-----|------|---------|-------------|
 | Template (required) | `template` | string | – | Text with {{payload.field}}, {{topic}}, {{meta.key}}, {{id}}, {{timestamp}} placeholders |
 
+<a id="process-timer"></a>
+
+### Timer
+
+Fire once no message came for a while (retriggerable).
+
+- **Type:** `process-timer`
+- **Risk:** `safe`
+- **Inputs:** `input`
+- **Outputs:** `output`
+
+| Setting | Key | Type | Default | Description |
+|---------|-----|------|---------|-------------|
+| Duration | `duration` | number | `5` | How long without a new message before it fires (in the unit below; at most 24 hours) |
+| Restart on each message | `restart` | boolean | `true` | Each message starts the countdown again; off: a running timer is not extended |
+| Unit | `durationUnit` | `seconds`, `minutes`, `hours` | `minutes` | Unit of the duration |
+
 <a id="process-transform"></a>
 
 ### Transform
@@ -419,6 +477,24 @@ Transform payload using expressions.
 | Setting | Key | Type | Default | Description |
 |---------|-----|------|---------|-------------|
 | Expression (required) | `expression` | string | `payload` | Expression to evaluate (e.g., payload.price * 1.21, upper(payload.name)) |
+
+<a id="process-zigbee-get"></a>
+
+### Zigbee Get
+
+Read a Zigbee device's current value.
+
+- **Type:** `process-zigbee-get`
+- **Risk:** `external`
+- **Inputs:** `input`
+- **Outputs:** `output`
+
+| Setting | Key | Type | Default | Description |
+|---------|-----|------|---------|-------------|
+| Connection (required) | `connection` | string | – | Broker connection to Zigbee2MQTT (defined under Connections) |
+| Device (required) | `device` | string | – | Zigbee2MQTT friendly name of the device or group |
+| Property | `property` | string | `state` | The property to read (state, power, energy…) |
+| Timeout (s) | `timeout` | number (seconds) | `5` | How long to wait for the answer, in seconds |
 
 ## Actions
 
@@ -438,6 +514,7 @@ Actions do something with a message: notify, call a service, write, switch a pin
 | [Notify](#action-notify) | Send a notification to Discord, Slack, or ntfy |
 | [Telegram](#action-telegram) | Send a message via a Telegram bot |
 | [Write File](#action-file) | Write or append the message content to a file |
+| [Zigbee Set](#action-zigbee) | Turn a Zigbee device on or off or set one of its properties |
 
 <a id="action-reply"></a>
 
@@ -602,7 +679,7 @@ Publish a message to an MQTT topic.
 | Setting | Key | Type | Default | Description |
 |---------|-----|------|---------|-------------|
 | Broker (required) | `broker` | string | – | Broker URL, e.g. tcp://host:1883 |
-| Client ID | `clientId` | string | – | MQTT client id (leave empty for a unique per-node id) |
+| Client ID | `clientId` | string | – | Own MQTT client id; leave empty to share a connection with the other MQTT nodes on this broker |
 | Password | `password` | string | – | Optional; use {{secret.NAME}} |
 | Payload | `payload` | string | `{{payload}}` | Message payload (supports {{templates}}) |
 | QoS | `qos` | number | `0` | 0, 1 or 2 |
@@ -664,4 +741,24 @@ Write or append the message content to a file.
 | Content | `content` | string | `{{payload}}` | Content to write (supports {{payload.field}} templates) |
 | File Path (required) | `path` | string | – | Absolute or relative path of the file to write |
 | Mode | `mode` | `append`, `overwrite` | `append` | append to the file or overwrite it |
+
+<a id="action-zigbee"></a>
+
+### Zigbee Set
+
+Turn a Zigbee device on or off or set one of its properties.
+
+- **Type:** `action-zigbee`
+- **Risk:** `external`
+- **Inputs:** `input`
+- **Outputs:** `output`
+
+| Setting | Key | Type | Default | Description |
+|---------|-----|------|---------|-------------|
+| Command | `command` | `on`, `off`, `toggle`, `set`, `raw` | `toggle` | on, off, toggle (the state), set (one property) or raw (a JSON object) |
+| Connection (required) | `connection` | string | – | Broker connection to Zigbee2MQTT (defined under Connections) |
+| Device (required) | `device` | string | – | Zigbee2MQTT friendly name of the device or group (supports {{templates}}) |
+| Payload | `payload` | string | – | For raw: a JSON object sent as is (supports {{templates}}) |
+| Property | `property` | string | – | For set: the property to set (brightness, color_temp, power_on_behavior…) |
+| Value | `value` | string | – | For set: the value (supports {{templates}}; numbers and true/false are sent as such) |
 

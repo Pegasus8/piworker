@@ -14,6 +14,7 @@ itself, see the [README](../../README.md#development-setup).
 | Install PiWorker and build your first flow in ten minutes | [Getting started](getting-started.md) |
 | Understand messages, expressions, templates, variables and secrets | [Concepts](concepts.md) |
 | Copy a working automation and adapt it | [Recipes](recipes.md) |
+| Automate Zigbee sensors, plugs and lights | [Zigbee devices](zigbee.md) |
 | Look up a node and its settings | [Node reference](nodes.md) |
 | Let Claude or another AI agent use your flows | [AI agents](agents.md) |
 | Fix something that does not work | [Troubleshooting](troubleshooting.md) |

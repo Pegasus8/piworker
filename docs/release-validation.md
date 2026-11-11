@@ -160,3 +160,40 @@ source commit. It validates the supplied kit on this Pi, not all advertised CPU
 architectures or a subsequently rebuilt/tagged candidate. The two candidates
 exercise replacement/rollback with different version metadata; legacy migration
 and cross-version schema migration remain unvalidated.
+
+## x86_64 native validation — 2026-11-11
+
+Candidate: `9a64d6c` on `claude/stoic-shannon-9ik9n2` plus the x86_64
+temperature fix (System Metric and host status read `x86_pkg_temp`, or the
+`coretemp`/`k10temp` hwmon sensor, instead of `thermal_zone0`).
+
+Environment: Linux x86_64 cloud container (Ubuntu, glibc 2.39), Go 1.27.3,
+Bun 1.3.14; no systemd, no thermal or hwmon sensors.
+
+| Check | Result |
+|-------|--------|
+| `make build-linux` (embedded frontend, CGO, `x86_64-linux-gnu-gcc`) | `piworker-linux-amd64` built, ELF x86-64. |
+| `validate_pi.py --binary build/piworker-linux-amd64` | All 9 checks passed: version, startup/health, first-account setup, embedded UI assets, login, flow deploy and execution, data surviving restart, account recovery. |
+| `go test ./...`, `go test -race` on the touched packages, `make fmt-check vet test-installer` | Passed. |
+
+Not tested on x86_64: `piworkerctl install` with systemd and the GitHub
+download (`validate_installation.py`), a physical reboot, and a real CPU
+sensor (covered by fixture tests for Raspberry Pi, Intel and AMD layouts).
+
+
+## Zigbee smoke test (simulated Zigbee2MQTT) — 2026-11-11
+
+Candidate: `d07a641` on `claude/stoic-shannon-9ik9n2` (backend). Linux x86_64
+container; the PiWorker binary with `-tls=off -auth=false`, a real MQTT broker
+(amqtt 0.12.1, Python) and a script playing Zigbee2MQTT with the SONOFF S60ZBTPF
+and SNZB-02P definitions of `internal/zigbee/testdata/bridge_devices.json`
+(retained bridge state, info and devices; it answers `/set` and `/get`).
+
+12/12 checks passed through the REST API: connection test; connection stored
+with its password never listed; discovery of the devices, the bridge (online,
+version) and the sensor's cached state; a flow "humidity ≥ 65 → plug on,
+≤ 55 → off" created and deployed, turning the simulated plug on at 71 % and off
+at 52 %; permit join publishing `{"time":240,"value":true}`; and a flow naming
+an undefined connection refused at deploy with 400.
+
+Not tested: a real coordinator, real devices and Zigbee2MQTT itself.
