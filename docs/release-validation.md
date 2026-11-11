@@ -180,3 +180,20 @@ Not tested on x86_64: `piworkerctl install` with systemd and the GitHub
 download (`validate_installation.py`), a physical reboot, and a real CPU
 sensor (covered by fixture tests for Raspberry Pi, Intel and AMD layouts).
 
+
+## Zigbee smoke test (simulated Zigbee2MQTT) — 2026-11-11
+
+Candidate: `d07a641` on `claude/stoic-shannon-9ik9n2` (backend). Linux x86_64
+container; the PiWorker binary with `-tls=off -auth=false`, a real MQTT broker
+(amqtt 0.11, Python) and a script playing Zigbee2MQTT with the SONOFF S60ZBTPF
+and SNZB-02P definitions of `internal/zigbee/testdata/bridge_devices.json`
+(retained bridge state, info and devices; it answers `/set` and `/get`).
+
+12/12 checks passed through the REST API: connection test; connection stored
+with its password never listed; discovery of the devices, the bridge (online,
+version) and the sensor's cached state; a flow "humidity ≥ 65 → plug on,
+≤ 55 → off" created and deployed, turning the simulated plug on at 71 % and off
+at 52 %; permit join publishing `{"time":240,"value":true}`; and a flow naming
+an undefined connection refused at deploy with 400.
+
+Not tested: a real coordinator, real devices and Zigbee2MQTT itself.
