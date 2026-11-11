@@ -75,10 +75,14 @@ candidate, publication and repository housekeeping. In order:
 
 **Housekeeping worth doing before announcing**
 
-- [ ] Triage the 29 open issues from 2019–2021. Most describe the previous
-  implementation; several are delivered by the revival (#1 documentation, #43
-  Docker image, #65 and #167 variables in the UI, #89 tests, #93 HTTP request,
-  #169 authentication).
+- [x] Triaged the 29 open issues from 2019–2021 (2026-11-11). Closed 20, each
+  with a note: 16 delivered by the revival (#1, #22, #43, #58, #65, #80, #81,
+  #89, #91, #93, #137, #165, #166, #167, #169, #175) and 4 that only applied to
+  the 2020 code (#113, #159, #164, #176). Nine stay open because they are
+  still valid: #92 and #168 (node ideas), #112 (user management), #128
+  (automatic backups), #129 (automatic updates), #170 (design, theme choice),
+  #171 (accessibility), #172 (translations) and #249 (files created relative
+  to the working directory).
 - [x] [`SECURITY.md`](../SECURITY.md) asks for reports through GitHub's
   private vulnerability reporting.
 - [ ] Enable **Private vulnerability reporting** in the repository settings
