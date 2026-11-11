@@ -30,6 +30,77 @@ published. Recheck each item against the exact commit chosen for the tag.
 - [ ] Record the Pi OS and selected architecture; validate other advertised
   architectures too, or explicitly narrow support.
 
+## Launch gap review (2026-11-11)
+
+Reviewed at `a5e2022` on `revival` (CI green for that commit: runs
+[27](https://github.com/Pegasus8/piworker/actions/runs/42682905527) and
+[28](https://github.com/Pegasus8/piworker/actions/runs/42682919812)). The code
+is feature-complete for a first release; what remains is validation of the
+candidate, publication and repository housekeeping. In order:
+
+**Blocking the release**
+
+- [ ] Choose the version and whether the first publication is a prerelease.
+  Recommended: publish a prerelease first. It is the only way to exercise the
+  installer's real download path before a stable release moves `latest`.
+- [ ] Run every unchecked item under [Candidate validation](#candidate-validation)
+  against the tagged commit: archives and checksums, the six bridge binaries,
+  `scripts/smoke_container.py`, the agent authoring smoke test, browser setup
+  and editing on the Pi.
+- [ ] Hardware nodes (GPIO Edge/Write, I2C Read, DS18B20) have no recorded run
+  on a real Pi. Validate them or mark them experimental in the release notes.
+- [ ] Record the Pi OS and architecture already validated and decide on the
+  other advertised CPUs (ARMv7, x86_64): validate or narrow the claim.
+- [ ] Decide the legacy (2020) migration policy. Recommended: declare it
+  unsupported for this release and keep the backup notice.
+
+**Blocking the announcement**
+
+- [ ] Nothing a new user can follow works until a release exists: the only
+  published release is `v0.1.0-alpha.1` (2020), so
+  `releases/latest/download/piworkerctl` and the `ghcr.io` image in the README
+  and the user guide do not resolve to the revival yet.
+- [ ] PR #288 (`revival` → `master`) is still a draft. Until it merges (or the
+  default branch changes) the repository homepage shows the 2020 README, and
+  Dependabot keeps opening pull requests against the removed `webui/frontend`
+  (about twenty are open). Merge, then close those.
+- [ ] After publication, remove the prepublication notices from the README and
+  from `docs/guide/getting-started.md`, and rerun their commands on a fresh
+  machine.
+
+**Housekeeping worth doing before announcing**
+
+- [ ] Triage the 29 open issues from 2019–2021. Most describe the previous
+  implementation; several are delivered by the revival (#1 documentation, #43
+  Docker image, #65 and #167 variables in the UI, #89 tests, #93 HTTP request,
+  #169 authentication).
+- [ ] Add `SECURITY.md` with a private reporting channel. PiWorker now ships a
+  CA, agent tokens and command execution; reports need somewhere to go.
+- [ ] `make fmt-check` runs the `gofmt` found on `PATH`. With an older Go
+  installed and the toolchain downloaded automatically, it reports files that
+  the project's Go version considers formatted. Use the toolchain's `gofmt`.
+
+**Documentation (done in this review)**
+
+- [x] User guide under [`docs/guide`](guide/README.md): getting started with
+  screenshots, concepts, recipes, AI agents step by step, troubleshooting.
+- [x] Node reference generated from the registry and kept current by
+  `TestNodeReferenceDocIsCurrent`.
+- [x] README: links to the guide, the node names shown in the editor, the
+  endpoints missing from the API reference (import/export/duplicate, manual
+  injection, runs and events, flow variables, node test, metrics), and the
+  claim that `/api/node-types` returns `risk` (it does not).
+- [ ] The README is still about 1,400 lines of mixed user, operator and
+  developer reference. After the release, move configuration, HTTPS and the
+  AI agents reference into `docs/` and keep the README as an overview.
+
+**Known limits to state, not to fix, for this release**
+
+Secrets are not encrypted at rest; variables and secrets have no export or
+restore; an undefined secret in an optional credential resolves to an empty
+string; one administrator per installation; the editor does not show a node's
+risk; the interface is English only. See [TODO](../TODO.md).
+
 See the [local validation report](release-validation.md) for completed checks,
 environment limits and generated packages, and the
 [Pi checklist](raspberry-pi-validation.md) for the owner's final hardware validation.
@@ -56,8 +127,10 @@ environment limits and generated packages, and the
   classifying prereleases. Review the draft's prerelease flag explicitly.
 - [ ] Validate migration from the old 2020 release if it is to be supported.
   Otherwise retain the explicit unvalidated-migration notice and require backups.
-- [ ] After the first compatible stable release is public, update the README's
-  prepublication notices and verify its download commands from a fresh machine.
+- [x] Provide a task-oriented [user guide](guide/README.md) besides the README
+  reference, with a node reference generated from the registry.
+- [ ] After the first compatible stable release is public, update the prepublication
+  notices in the README and the user guide and verify its download commands from a fresh machine.
 
 Native HTTPS is implemented: a local CA generated on first start, automatic
 server-certificate renewal, the "Trust this device" page and `piworkerctl tls`

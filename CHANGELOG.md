@@ -17,6 +17,9 @@ version. The version number and release date have not been selected.
 - `piworkerctl install`, `update` and `uninstall` for Linux/systemd. Updates verify
   checksums and back up data; uninstall retains accounts, flows and configuration.
 - `piworker -version` reports the build version without starting the server.
+- A [user guide](docs/guide/README.md): getting started, concepts, recipes, AI
+  agents and troubleshooting, plus a node reference generated from the nodes'
+  own schemas.
 - Health checks return HTTP 503 when storage is closed. Resizing the flow editor
   keeps nodes reachable on smaller screens.
 

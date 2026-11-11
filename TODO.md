@@ -36,7 +36,7 @@ descarga de la CA y los webhooks). Ver la [guía de operación](docs/operations.
   `Secure` mediante `session_secure` para un proxy HTTPS externo. Esta opción no
   activa TLS. Las cabeceras de transporte del proxy no se confían implícitamente.
   Con HTTPS nativo las cookies son siempre `Secure`.
-- [ ] Cerrar el issue #287 una vez integrado.
+- [x] Issue #287: ya no figura entre los issues abiertos (revisado el 2026-11-11).
 
 La confianza del navegador requiere una acción en los dispositivos cliente o
 un certificado emitido por una autoridad que ya reconozcan; el servidor no puede
@@ -64,3 +64,18 @@ selector contextual de nombres están implementados. Queda como ampliación:
   Actualmente SQLite guarda los valores sin cifrado propio de la aplicación.
 - [ ] Diseñar exportación/restauración explícita de variables globales, por flujo y secretos;
   exportar un flujo no incluye los almacenes de la instalación.
+
+## Documentación
+
+- [x] Guía de usuario en [docs/guide](docs/guide/README.md): primeros pasos con
+  capturas, conceptos, recetas, agentes y resolución de problemas.
+- [x] Referencia de nodos generada desde el registro
+  (`TestNodeReferenceDocIsCurrent`).
+- [ ] Reducir el README a una vista general y mover la referencia de
+  configuración, HTTPS y agentes a `docs/`.
+- [ ] Mostrar el riesgo de cada nodo en el editor (hoy solo lo ven los agentes
+  y la referencia de nodos).
+- [ ] Flujos de ejemplo importables desde la pantalla vacía del editor.
+
+Lo que falta para publicar está en
+[docs/release-checklist.md](docs/release-checklist.md#launch-gap-review-2026-11-11).

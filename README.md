@@ -16,6 +16,25 @@ A **visual flow-based automation system** for Raspberry Pi and other devices. Cr
 - **Version history** - Every save of a flow is a numbered version, with one-click rollback to the version you last approved
 - **Fast** - Go backend with concurrent message processing
 
+## Documentation
+
+New to PiWorker? The **[user guide](docs/guide/README.md)** takes you from
+installation to a running flow without reading this whole page:
+
+| Guide | What it covers |
+|-------|----------------|
+| [Getting started](docs/guide/getting-started.md) | Install, open the editor, create your account and build your first flow |
+| [Concepts](docs/guide/concepts.md) | Messages, templates and expressions, deploy and stop, variables, secrets, versions |
+| [Recipes](docs/guide/recipes.md) | Complete flows to copy: notifications, webhooks, schedules, sensors, GPIO |
+| [Node reference](docs/guide/nodes.md) | Every node with its ports and settings |
+| [AI agents](docs/guide/agents.md) | Publish a flow as a tool and connect Claude, step by step |
+| [Troubleshooting](docs/guide/troubleshooting.md) | Symptoms and fixes |
+
+This README is the reference: installation options, configuration, security
+model, API and development. Decisions are recorded in [docs/adr](docs/adr/README.md).
+
+![The PiWorker editor with a running flow](docs/guide/images/editor-running.png)
+
 ## Quick Start
 
 For maintenance and recovery, see the [operations guide](docs/operations.md).
@@ -387,7 +406,7 @@ sudo systemctl start piworker
 | **Cron Schedule** | `trigger-cron` | Fire on a cron schedule (e.g., `0 9 * * *`) |
 | **Manual Inject** | `trigger-manual` | Fire on demand from the UI or API |
 | **Webhook** | `trigger-webhook` | Fire on an incoming HTTP request to `/webhooks/<path>` |
-| **RSS / Atom** | `trigger-rss` | Poll a feed for new entries |
+| **RSS Feed** | `trigger-rss` | Poll a feed for new entries |
 | **MQTT Subscribe** | `trigger-mqtt` | Receive messages from an MQTT broker |
 | **GPIO Edge** | `trigger-gpio` | React to Raspberry Pi pin changes |
 | **DS18B20 Temperature** | `trigger-ds18b20` | Poll a 1-Wire temperature sensor |
@@ -414,7 +433,7 @@ sudo systemctl start piworker
 | Node | Type | Description |
 |------|------|-------------|
 | **Log** | `action-log` | Log messages with a configurable level |
-| **Command** | `action-command` | Execute shell commands (inputs are passed as literal arguments; values starting with `-` need `allowDashArgs`) |
+| **Execute Command** | `action-command` | Execute shell commands (inputs are passed as literal arguments; values starting with `-` need `allowDashArgs`) |
 | **HTTP Request** | `action-http` | Call an HTTP API (SSRF-guarded, size-capped) |
 | **Notify** | `action-notify` | Send to Discord / Slack / ntfy |
 | **Telegram** | `action-telegram` | Send a message via a Telegram bot |
@@ -427,16 +446,20 @@ sudo systemctl start piworker
 | **Agent Reply** | `action-reply` | Answer the agent tool call that started the run |
 
 > Each node ships an in-app documentation card and a configuration schema, so the
-> editor renders its settings form automatically.
+> editor renders its settings form automatically. The settings of every node are
+> listed in the [node reference](docs/guide/nodes.md), which is generated from
+> the same schemas.
 
-Each node type also declares a **risk** in `/api/node-types` (`risk`): `privileged`
-for nodes that act on the host (Command, Write File, Database, GPIO Write, I2C
-Read), `external` for nodes that send data elsewhere (HTTP Request, MQTT
-Publish, Email, Telegram, Notify) and `safe` for the rest. Schema properties
-may be marked `sensitive` (credentials, never echoed) and `agentVisible`
-(harmless values that agents may read); numeric properties state their `unit`.
+Each node type also declares a **risk**: `privileged` for nodes that act on
+the host (Execute Command, Write File, Database, GPIO Write, I2C Read),
+`external` for nodes that send data elsewhere (HTTP Request, MQTT Publish,
+Email, Telegram, Notify) and `safe` for the rest. The risk is listed in the
+node reference and reported to agents by `pw_list_node_types`;
+`/api/node-types` does not include it. Schema properties may be marked
+`sensitive` (credentials, never echoed) and `agentVisible` (harmless values
+that agents may read); numeric properties state their `unit`.
 
-**Command** refuses a placeholder value that starts with `-` (for example
+**Execute Command** refuses a placeholder value that starts with `-` (for example
 `-rf` or `--output=/etc/passwd` arriving in a payload) when the placeholder
 begins its argument, because the program would read it as an option. Behind
 literal text in the same argument (`"temp={{payload}}"`, `--value={{payload}}`,
@@ -1215,6 +1238,18 @@ preserved during migration.
 | PATCH | `/api/flows/{id}/toggle` | Turn a flow on or off: `{"enabled": bool, "version": N}`; turning it on with a stale `version` is `409` (`currentVersion`) and deploys nothing |
 | GET | `/api/flows/{id}/versions` | Version history (`limit`), newest first |
 | POST | `/api/flows/{id}/rollback` | Restore the version last approved as a new version (`409` when there is none to restore) |
+| POST | `/api/flows/{id}/duplicate` | Create a stopped copy of a flow |
+| GET | `/api/flows/{id}/export` | Download a flow definition (no variables or secret values) |
+| POST | `/api/flows/import` | Create a flow from an exported definition |
+| POST | `/api/flows/{id}/inject/{nodeId}` | Fire a Manual Inject node of a running flow; optional `{"payload": …}` override |
+
+### Runs and live events
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/flows/{id}/runs` | Recorded executions, newest first (`limit`, 50 by default) |
+| GET | `/api/flows/{id}/runs/{runId}/events` | Node events, durations and errors of one run (no payloads) |
+| GET | `/api/flows/{id}/events` | Live event stream (Server-Sent Events) used by the editor's Activity panel |
 
 ### Variables and secrets
 
@@ -1222,6 +1257,8 @@ preserved during migration.
 |--------|----------|-------------|
 | GET | `/api/variables` | List global variables |
 | PUT, DELETE | `/api/variables/{name}` | Set (`{"value": …}`) or delete a global variable |
+| GET | `/api/flows/{id}/variables` | List the variables of one flow |
+| PUT, DELETE | `/api/flows/{id}/variables/{name}` | Set or delete a flow variable |
 | GET | `/api/secrets` | `{"secrets": [{"name", "short"}], "shortBelow": 16}`: names only, never values or lengths; `short` marks a value under `shortBelow` characters, which an agent could confirm a guess of |
 | PUT, DELETE | `/api/secrets/{name}` | Set (`{"value": "…"}`) or delete a secret |
 
@@ -1229,13 +1266,16 @@ preserved during migration.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/node-types` | List available node types |
+| GET | `/api/node-types` | List available node types (`category` filters by `input`, `processing` or `output`) |
+| GET | `/api/node-types/{type}` | One node type with its documentation and configuration schema |
+| POST | `/api/nodes/{type}/test` | Run one processing node once on a sample message (the editor's payload playground); nothing is deployed |
 
-### Health
+### Health and metrics
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/health` | HTTP 200 when healthy; HTTP 503 when storage is closed |
+| GET | `/api/metrics` | Prometheus metrics (needs a session when authentication is on) |
 
 ### HTTPS
 
@@ -1298,6 +1338,8 @@ piworker/
 ├── Makefile                # Build automation
 │
 ├── cmd/piworker-mcp/       # Claude Desktop stdio bridge to /mcp
+├── scripts/                # piworkerctl installer and validation scripts
+├── docs/                   # User guide, operations, ADRs and design
 │
 ├── internal/
 │   ├── api/                # REST API handlers
@@ -1310,6 +1352,10 @@ piworker/
 │   ├── agentauth/          # Agent token verification
 │   ├── toolschema/         # Closed JSON Schema subset of tool inputs
 │   ├── tlsca/              # Local CA and server certificate
+│   ├── config/             # Defaults, TOML and environment configuration
+│   ├── vars/, secrets/     # Variable and secret stores
+│   ├── webhook/            # The /webhooks/ hub
+│   ├── events/, metrics/   # Run events and Prometheus metrics
 │   ├── storage/            # SQLite persistence
 │   ├── types/              # Shared types (Message, Port, etc.)
 │   └── webui/              # Embedded frontend assets
@@ -1356,10 +1402,11 @@ Dependabot monitors Go modules, the Bun lockfile in `web/`, and GitHub Actions.
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/my-feature`
 3. Follow [AGENTS.md](AGENTS.md): write a failing behavior test, implement, then refactor
-4. Run relevant checks: `make test` for Go, `make frontend-test frontend-test-e2e` for frontend behavior; use `make test-race` for concurrency changes
-5. Commit: `git commit -m "Add my feature"`
-6. Push: `git push origin feature/my-feature`
-7. Open a Pull Request
+4. Update the documentation with the change: the [user guide](docs/guide/README.md) for anything users see; after adding a node or changing a setting, regenerate the node reference with `go test -run TestNodeReferenceDocIsCurrent ./internal/node/builtin -update`
+5. Run relevant checks: `make test` for Go, `make frontend-test frontend-test-e2e` for frontend behavior; use `make test-race` for concurrency changes
+6. Commit: `git commit -m "Add my feature"`
+7. Push: `git push origin feature/my-feature`
+8. Open a Pull Request
 
 ---
 
