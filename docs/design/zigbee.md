@@ -1,9 +1,24 @@
 # Zigbee home automation — analysis and proposal
 
-Status: proposed (2026-11-11). Phase 0 is implemented (ADR-0024, ADR-0025,
-both Proposed until merged); the rest is not. Each phase below lists whether
-it follows the "new node" recipe (no ADR) or changes a contract (ADR in the
-same change, see [docs/adr/README.md](../adr/README.md)).
+Status: implemented (2026-11-11), ADR-0024, ADR-0025 and ADR-0026 Proposed
+until merged. User documentation: [docs/guide/zigbee.md](../guide/zigbee.md).
+Not validated on real hardware yet. Each phase below lists whether it follows
+the "new node" recipe (no ADR) or changes a contract (ADR in the same change,
+see [docs/adr/README.md](../adr/README.md)).
+
+What was built, where it differs from the proposal below:
+
+- Nodes take a **named broker connection** (ADR-0026, `internal/brokers`)
+  instead of per-node broker settings; deploy refuses an undefined one
+  (`undefined_connection`). Zigbee Device has two outputs (`output` for the
+  state, `availability`) instead of an availability mode.
+- Pools and protocol live in `internal/mqttpool` and `internal/zigbee`;
+  `zigbee.Manager` watches `<base>/#` per connection (discovery, bridge,
+  device states) and serves `/api/zigbee` and the expressions'
+  `zigbee(device)`; schemas name suggestion sources (`ConfigProperty.Options`).
+- Timer is a processing node that is also a trigger: its emission is a new
+  run. Sun computes events locally (NOAA algorithm). The `isDaylight` /
+  `isBetween` expression helpers were not added.
 
 Decided with the owner (2026-11-11): Zigbee2MQTT is the only backend for now
 (no deCONZ). First hardware: a SONOFF temperature and humidity sensor and
@@ -101,7 +116,7 @@ arrives again with every battery or illuminance report).
   (credentials typed once) but a new storage + REST contract; can come later
   on top of the pool (open question 1).
 
-### Phase 1 — Zigbee nodes (follow the "new node" recipe)
+### Phase 1 — Zigbee nodes (follow the "new node" recipe) — done
 
 All take `broker`, credentials and `baseTopic` (default `zigbee2mqtt`) like the
 MQTT nodes, so they work with any Z2M install.
@@ -124,7 +139,7 @@ Each node ships with tests against the in-process fake broker that the MQTT
 tests already use (`mqtt_fakebroker_test.go`), recipes in
 `docs/guide/recipes.md`, and the regenerated node reference.
 
-### Phase 2 — discovery in the editor (REST contract → ADR)
+### Phase 2 — discovery in the editor (REST contract → ADR) — done (ADR-0026)
 
 - Backend subscribes once per configured broker to `<base>/bridge/devices`
   (retained) and `<base>/bridge/state`; `GET /api/zigbee/devices` returns
@@ -137,7 +152,7 @@ tests already use (`mqtt_fakebroker_test.go`), recipes in
   Settings; a
   **permit join** button for 2–4 minutes, admin only, never an agent tool.
 
-### Phase 3 — house-level conveniences (later, optional)
+### Phase 3 — house-level conveniences — done (state in expressions, recipes, examples)
 
 - Device state cache: last known state of every device readable from
   expressions (`zigbee("door").contact`) and by `get-var`-style nodes, so
@@ -166,13 +181,9 @@ USB 3 interferes with 2.4 GHz Zigbee on both Pis and PCs.
 
 ## 6. Open questions
 
-1. A named broker connection in Settings on top of the pool (ADR-0025,
-   Option C): credentials and base topic typed once, nodes pick the
-   connection from a list, device discovery (Phase 2) knows which broker to
-   ask. Costs a storage table, REST endpoints, a Settings page and a flow
-   model reference (ADR). Pending the owner's decision.
+1. Named broker connections: decided and built (ADR-0026).
 2. Should Zigbee Set refuse commands to `<base>/bridge/…` (renames, removal,
    permit join) outright? Recommended: yes — those are admin operations.
-3. Which SONOFF models exactly (SNZB-02, SNZB-02D, S26R2ZB, S31 Lite zb,
-   S60ZB…)? Plugs that measure power (S60ZB) would add power/energy
-   readings and an "appliance finished" recipe.
+3. Devices: SONOFF S60ZBTPF (plug with power metering) and SNZB-02P
+   (temperature and humidity); the tests use their Zigbee2MQTT definitions
+   and the recipes cover them.

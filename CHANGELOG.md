@@ -20,6 +20,19 @@ version. The version number and release date have not been selected.
 - A [user guide](docs/guide/README.md): getting started, concepts, recipes, AI
   agents and troubleshooting, plus a node reference generated from the nodes'
   own schemas.
+- Zigbee home automation through Zigbee2MQTT ([guide](docs/guide/zigbee.md)):
+  named broker connections defined once under **Connections** (password
+  write-only; ADR-0026), the nodes Zigbee Device (state, one property with a
+  minimum change, button actions, availability), Zigbee Set (on/off/toggle,
+  one property or a JSON object; never the bridge), Zigbee Get, a
+  retriggerable Timer and Sun (sunrise/sunset/dawn/dusk), a **Zigbee** page
+  with the devices, their current values and permit join, device and property
+  suggestions in node settings, `zigbee(device)` in expressions (the last
+  reported state; `nil` in a dry-run) and `docker-compose.zigbee.yml`
+  (Mosquitto, Zigbee2MQTT and PiWorker). Deploy refuses a node naming a
+  connection that does not exist (`undefined_connection`).
+- `pw_list_node_types` without arguments lists every type's structure and
+  leaves documentation to a category or type request (ADR-0024).
 - MQTT Subscribe and MQTT Publish nodes on one broker with the same
   credentials and no client id of their own share a connection (ADR-0025),
   instead of one connection per node; nodes with overlapping topic filters

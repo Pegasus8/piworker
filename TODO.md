@@ -90,14 +90,18 @@ de temperatura y humedad SONOFF y enchufes SONOFF.
   ([ADR-0024](docs/adr/0024-node-type-list-without-filters-omits-documentation.md))
   y conexiones MQTT compartidas
   ([ADR-0025](docs/adr/0025-shared-mqtt-connections.md)).
-- [ ] Decidir si se agrega una conexión de broker con nombre en Ajustes
-  (credenciales y tema base una sola vez; base del descubrimiento).
-- [ ] Fase 1: nodos Zigbee Device, Zigbee Set, Zigbee Get, Timer reiniciable y
-  Sol (amanecer/atardecer), con recetas y un `docker-compose.zigbee.yml`.
-- [ ] Fase 2: descubrimiento de dispositivos (`bridge/devices`) y selectores en
-  el editor; estado del bridge y permit join solo para el administrador.
-- [ ] Fase 3: caché de estado de dispositivos, reporte de baterías y flujos de
-  ejemplo importables.
+- [x] Conexión de broker con nombre en el editor
+  ([ADR-0026](docs/adr/0026-named-broker-connections.md)).
+- [x] Fase 1: nodos Zigbee Device, Zigbee Set, Zigbee Get, Timer y Sol, con
+  `docker-compose.zigbee.yml` y la [guía](docs/guide/zigbee.md).
+- [x] Fase 2: descubrimiento de dispositivos, sugerencias en los ajustes de
+  los nodos, página Zigbee con estado del bridge y permit join (solo admin).
+- [x] Fase 3: estado de los dispositivos en expresiones (`zigbee("...")`),
+  recetas de batería y flujos de ejemplo.
+- [ ] Validar con hardware real (SONOFF S60ZBTPF y SNZB-02P, coordinador
+  USB) en una Raspberry Pi y en un PC x86_64.
+- [ ] Evaluar que los nodos MQTT también acepten una conexión con nombre, y
+  reiniciar los flujos que usan una conexión cuando esta cambia.
 
 Lo que falta para publicar está en
 [docs/release-checklist.md](docs/release-checklist.md#launch-gap-review-2026-11-11).

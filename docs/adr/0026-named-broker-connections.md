@@ -77,4 +77,4 @@ Option B.
 ## Action items
 
 1. [x] Store, table, REST routes, `node.ConnectionRequirer`, Lint issue.
-2. [ ] Editor: connections dialog, pickers (with discovery).
+2. [x] Editor: connections dialog, pickers (with discovery).
