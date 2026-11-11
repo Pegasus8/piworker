@@ -3,7 +3,6 @@ package builtin
 import (
 	"context"
 	"net"
-	"strings"
 	"testing"
 	"time"
 
@@ -100,21 +99,16 @@ func TestMqttTriggerStopDisconnects(t *testing.T) {
 	}, 5*time.Second, 20*time.Millisecond)
 }
 
-func TestMqttTriggerDefaultClientIDsAreUnique(t *testing.T) {
-	a := newMqttTrigger(t, map[string]interface{}{"broker": "tcp://x:1883", "topic": "t"})
-	b := newMqttTrigger(t, map[string]interface{}{"broker": "tcp://x:1883", "topic": "t"})
-	assert.True(t, strings.HasPrefix(a.clientID, "piworker-sub-"), a.clientID)
-	assert.NotEqual(t, a.clientID, b.clientID,
-		"two triggers on one broker with the same client id would kick each other off forever")
-	c := newMqttTrigger(t, map[string]interface{}{"broker": "tcp://x:1883", "topic": "t", "clientId": "mine"})
-	assert.Equal(t, "mine", c.clientID)
-
-	// The editor pre-fills schema defaults, and older flows stored the old
-	// constant default; both must still get a unique id.
+// Without a client id of its own (empty, pre-filled by the editor, or the
+// constant older flows stored) the trigger shares a pooled connection,
+// which gets a unique id (ADR-0025).
+func TestMqttTriggerClientID(t *testing.T) {
 	for _, v := range []string{"", "piworker-sub"} {
 		d := newMqttTrigger(t, map[string]interface{}{"broker": "tcp://x:1883", "topic": "t", "clientId": v})
-		assert.True(t, strings.HasPrefix(d.clientID, "piworker-sub-"), "clientId %q -> %q", v, d.clientID)
+		assert.Empty(t, d.clientID, "clientId %q", v)
 	}
+	c := newMqttTrigger(t, map[string]interface{}{"broker": "tcp://x:1883", "topic": "t", "clientId": "mine"})
+	assert.Equal(t, "mine", c.clientID)
 	assert.Equal(t, "", mqttTriggerConfigSchema().Properties["clientId"].Default)
 }
 
@@ -158,7 +152,7 @@ func TestMqttTriggerStartsBeforeBrokerIsReachable(t *testing.T) {
 
 	ln2, err := net.Listen("tcp", addr)
 	require.NoError(t, err)
-	b := &fakeBroker{t: t, ln: ln2, conns: map[net.Conn]bool{}}
+	b := &fakeBroker{t: t, ln: ln2, conns: map[net.Conn]bool{}, filters: map[net.Conn][]string{}}
 	go b.serve()
 	t.Cleanup(b.close)
 

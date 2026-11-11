@@ -20,6 +20,10 @@ version. The version number and release date have not been selected.
 - A [user guide](docs/guide/README.md): getting started, concepts, recipes, AI
   agents and troubleshooting, plus a node reference generated from the nodes'
   own schemas.
+- MQTT Subscribe and MQTT Publish nodes on one broker with the same
+  credentials and no client id of their own share a connection (ADR-0025),
+  instead of one connection per node; nodes with overlapping topic filters
+  get separate connections, so no node receives a message twice.
 - The System Metric trigger and the agents' host status read the CPU's
   temperature on x86_64 PCs too: the CPU thermal zone (`x86_pkg_temp`) or, on
   most AMD machines, the `coretemp`/`k10temp` sensor, instead of the first

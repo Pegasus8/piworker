@@ -1,8 +1,14 @@
 # Zigbee home automation — analysis and proposal
 
-Status: proposed (2026-11-11). Nothing here is implemented yet. Each phase
-below lists whether it follows the "new node" recipe (no ADR) or changes a
-contract (ADR in the same change, see [docs/adr/README.md](../adr/README.md)).
+Status: proposed (2026-11-11). Phase 0 is implemented (ADR-0024, ADR-0025,
+both Proposed until merged); the rest is not. Each phase below lists whether
+it follows the "new node" recipe (no ADR) or changes a contract (ADR in the
+same change, see [docs/adr/README.md](../adr/README.md)).
+
+Decided with the owner (2026-11-11): Zigbee2MQTT is the only backend for now
+(no deCONZ). First hardware: a SONOFF temperature and humidity sensor and
+SONOFF smart plugs, so Phase 1 starts with Zigbee Device (sensor readings,
+plug state, availability) and Zigbee Set (plug on/off/toggle).
 
 ## 1. Goal
 
@@ -74,23 +80,26 @@ arrives again with every battery or illuminance report).
 
 ## 4. Proposed features, by phase
 
-### Phase 0 — prerequisites (contract changes, ADRs)
+### Phase 0 — prerequisites (contract changes, ADRs) — done
 
 - **0a. Node-type listing budget** (MCP contract → ADR). Options: list
   documentation only when a `type` or `category` filter is given (agents
   already can ask for one type), or drop the "all builtins fit" requirement
-  and rely on the existing `documentationOmitted` path. Recommended: the
-  first — the unfiltered list keeps schemas and markers, which is what
-  authoring needs.
+  and rely on the existing `documentationOmitted` path. Done as the first:
+  [ADR-0024](../adr/0024-node-type-list-without-filters-omits-documentation.md)
+  (unfiltered list 33 KB of 64 KiB).
 - **0b. Shared MQTT connections** (runtime/resource semantics → ADR). A
   process-wide pool keyed by (broker URL, username, password reference) with
   reference counting, one subscription router per client, released through
   `node.Closer` (ADR-0008). Nodes keep their per-node settings; a node with an
   explicit `clientId` keeps a dedicated client (brokers use it for ACLs and
-  persistent sessions). Alternative considered: a named "broker connection"
+  persistent sessions). Done:
+  [ADR-0025](../adr/0025-shared-mqtt-connections.md); filters that overlap
+  never share a connection, because brokers send one copy per matching
+  subscription. Alternative considered: a named "broker connection"
   entity configured once in Settings and referenced by nodes — nicer UX
   (credentials typed once) but a new storage + REST contract; can come later
-  on top of the pool.
+  on top of the pool (open question 1).
 
 ### Phase 1 — Zigbee nodes (follow the "new node" recipe)
 
@@ -157,9 +166,13 @@ USB 3 interferes with 2.4 GHz Zigbee on both Pis and PCs.
 
 ## 6. Open questions
 
-1. Phase 0b: pool only, or also the named broker connection in Settings?
+1. A named broker connection in Settings on top of the pool (ADR-0025,
+   Option C): credentials and base topic typed once, nodes pick the
+   connection from a list, device discovery (Phase 2) knows which broker to
+   ask. Costs a storage table, REST endpoints, a Settings page and a flow
+   model reference (ADR). Pending the owner's decision.
 2. Should Zigbee Set refuse commands to `<base>/bridge/…` (renames, removal,
    permit join) outright? Recommended: yes — those are admin operations.
-3. Is deCONZ support wanted, or is Z2M the only backend?
-4. Which devices does the owner have? The first recipes and hardware
-   validation should cover them.
+3. Which SONOFF models exactly (SNZB-02, SNZB-02D, S26R2ZB, S31 Lite zb,
+   S60ZB…)? Plugs that measure power (S60ZB) would add power/energy
+   readings and an "appliance finished" recipe.

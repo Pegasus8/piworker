@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -12,17 +14,21 @@ import (
 // fakeBroker is a minimal in-process MQTT 3.1.1 broker for tests. It speaks
 // just enough of the protocol (CONNECT, SUBSCRIBE, UNSUBSCRIBE, PUBLISH QoS
 // 0/1, PINGREQ, DISCONNECT) to exercise the MQTT nodes without a real broker,
-// and lets a test drop every connection to simulate a network flap.
+// and lets a test drop every connection to simulate a network flap. route
+// delivers like Mosquitto's default (allow_duplicate_messages): one copy per
+// matching subscription of each connection.
 type fakeBroker struct {
 	t  *testing.T
 	ln net.Listener
 
-	mu          sync.Mutex
-	conns       map[net.Conn]bool
-	clientIDs   []string
-	subscribes  []string
-	publishes   []string
-	disconnects int
+	mu           sync.Mutex
+	conns        map[net.Conn]bool
+	filters      map[net.Conn][]string // each connection's subscriptions
+	clientIDs    []string
+	subscribes   []string
+	unsubscribes []string
+	publishes    []string
+	disconnects  int
 }
 
 func newFakeBroker(t *testing.T) *fakeBroker {
@@ -31,7 +37,7 @@ func newFakeBroker(t *testing.T) *fakeBroker {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	b := &fakeBroker{t: t, ln: ln, conns: map[net.Conn]bool{}}
+	b := &fakeBroker{t: t, ln: ln, conns: map[net.Conn]bool{}, filters: map[net.Conn][]string{}}
 	go b.serve()
 	t.Cleanup(b.close)
 	return b
@@ -52,6 +58,7 @@ func (b *fakeBroker) dropAll() {
 	for c := range b.conns {
 		_ = c.Close()
 		delete(b.conns, c)
+		delete(b.filters, c)
 	}
 }
 
@@ -80,6 +87,43 @@ func (b *fakeBroker) publishToAll(topic, payload string) {
 	}
 }
 
+// route sends a QoS 0 PUBLISH of topic to each connection once per
+// subscription of its that matches topic.
+func (b *fakeBroker) route(topic, payload string) {
+	body := append(mqttString(topic), payload...)
+	pkt := append([]byte{0x30}, mqttRemainingLength(len(body))...)
+	pkt = append(pkt, body...)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for c, filters := range b.filters {
+		for _, f := range filters {
+			if fakeTopicMatches(f, topic) {
+				_, _ = c.Write(pkt)
+			}
+		}
+	}
+}
+
+func (b *fakeBroker) unsubscribed() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.unsubscribes...)
+}
+
+// fakeTopicMatches reports whether an MQTT topic filter matches topic.
+func fakeTopicMatches(filter, topic string) bool {
+	f, t := strings.Split(filter, "/"), strings.Split(topic, "/")
+	for i, level := range f {
+		if level == "#" {
+			return true
+		}
+		if i >= len(t) || (level != "+" && level != t[i]) {
+			return false
+		}
+	}
+	return len(f) == len(t)
+}
+
 func (b *fakeBroker) serve() {
 	for {
 		c, err := b.ln.Accept()
@@ -98,6 +142,7 @@ func (b *fakeBroker) handle(c net.Conn) {
 		_ = c.Close()
 		b.mu.Lock()
 		delete(b.conns, c)
+		delete(b.filters, c)
 		b.mu.Unlock()
 	}()
 	r := bufio.NewReader(c)
@@ -143,11 +188,23 @@ func (b *fakeBroker) handle(c net.Conn) {
 				p += 2 + tLen + 1
 				b.mu.Lock()
 				b.subscribes = append(b.subscribes, topic)
+				if !slices.Contains(b.filters[c], topic) {
+					b.filters[c] = append(b.filters[c], topic)
+				}
 				b.mu.Unlock()
 			}
 			resp := append([]byte{0x90, byte(2 + len(granted)), pid[0], pid[1]}, granted...)
 			_, _ = c.Write(resp)
 		case 10: // UNSUBSCRIBE
+			for p := 2; p < len(body); {
+				tLen := int(binary.BigEndian.Uint16(body[p:]))
+				topic := string(body[p+2 : p+2+tLen])
+				p += 2 + tLen
+				b.mu.Lock()
+				b.unsubscribes = append(b.unsubscribes, topic)
+				b.filters[c] = slices.DeleteFunc(b.filters[c], func(f string) bool { return f == topic })
+				b.mu.Unlock()
+			}
 			_, _ = c.Write([]byte{0xB0, 0x02, body[0], body[1]})
 		case 12: // PINGREQ
 			_, _ = c.Write([]byte{0xD0, 0x00})

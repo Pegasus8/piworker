@@ -22,21 +22,22 @@ const (
 	mqttMaxReconnectInterval = time.Minute
 )
 
-// defaultMqttClientID returns a client id unique to this node instance. MQTT
+// defaultMqttClientID returns a client id unique to one connection. MQTT
 // brokers disconnect the older session when a second client connects with
-// the same id, so a shared constant default makes two nodes on one broker
+// the same id, so a shared constant makes two connections to one broker
 // knock each other off in a reconnect loop.
 func defaultMqttClientID(prefix string) string {
 	return prefix + "-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
 }
 
-// resolveMqttClientID returns the configured client id, or a unique default
-// when it is empty or still the old shared constant (prefix itself), which
-// older flows stored because the editor pre-filled it.
-func resolveMqttClientID(configured, prefix string) string {
+// ownMqttClientID returns the client id a node configured for itself, or ""
+// to use a pooled connection (ADR-0025) when it is empty or still the old
+// shared constant default (prefix itself), which older flows stored because
+// the editor pre-filled it.
+func ownMqttClientID(configured, prefix string) string {
 	configured = strings.TrimSpace(configured)
-	if configured == "" || configured == prefix {
-		return defaultMqttClientID(prefix)
+	if configured == prefix {
+		return ""
 	}
 	return configured
 }
@@ -62,13 +63,13 @@ func newMqttClientOptions(broker, clientID, username, password string) *mqtt.Cli
 	return opts
 }
 
-// MqttAction publishes a message to an MQTT topic. The client connects lazily on
-// first use and is reused for the node's lifetime.
+// MqttAction publishes a message to an MQTT topic. It takes a shared
+// connection (ADR-0025) on first use and holds it until Close.
 type MqttAction struct {
 	*node.BaseNode
 
 	broker   string
-	clientID string
+	clientID string // own client id; "" shares a pooled connection
 	username string
 	password string
 	topic    string
@@ -76,8 +77,8 @@ type MqttAction struct {
 	qos      byte
 	retained bool
 
-	mu     sync.Mutex
-	client mqtt.Client
+	mu   sync.Mutex
+	conn *mqttConn
 }
 
 // NewMqttAction creates an MqttAction from configuration.
@@ -101,7 +102,7 @@ func NewMqttAction(config map[string]interface{}) (node.Node, error) {
 	return &MqttAction{
 		BaseNode: base,
 		broker:   broker,
-		clientID: resolveMqttClientID(base.GetConfigString("clientId", ""), "piworker-pub"),
+		clientID: ownMqttClientID(base.GetConfigString("clientId", ""), "piworker-pub"),
 		username: base.GetConfigString("username", ""), // {{secret.NAME}} resolved on connect
 		password: base.GetConfigString("password", ""),
 		topic:    topic,
@@ -126,23 +127,20 @@ func waitMqttToken(ctx context.Context, tok mqtt.Token, timeout time.Duration) e
 	}
 }
 
+// ensureClient takes the node's connection on first use and waits until it
+// is up, ctx is done or mqttConnectTimeout passes. A connection that is not
+// up keeps retrying in the background for the next message.
 func (a *MqttAction) ensureClient(ctx context.Context) (mqtt.Client, error) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.client == nil {
-		a.client = mqtt.NewClient(newMqttClientOptions(a.broker, a.clientID,
-			expandSecrets(ctx, a.username), expandSecrets(ctx, a.password)))
+	if a.conn == nil {
+		a.conn, _ = mqttAcquire(mqttEndpointFor(ctx, a.broker, a.username, a.password, a.clientID), mqttConnectRetryInterval)
 	}
-	if !a.client.IsConnected() {
-		if err := waitMqttToken(ctx, a.client.Connect(), mqttConnectTimeout); err != nil {
-			// Drop the half-open client so a later message starts afresh
-			// instead of racing an abandoned connect attempt.
-			a.client.Disconnect(0)
-			a.client = nil
-			return nil, err
-		}
+	conn := a.conn
+	a.mu.Unlock()
+	if err := conn.waitUp(ctx, mqttConnectTimeout); err != nil {
+		return nil, err
 	}
-	return a.client, nil
+	return conn.client, nil
 }
 
 // Process renders the topic/payload and publishes the message.
@@ -168,14 +166,15 @@ func (a *MqttAction) Process(ctx context.Context, msg *types.Message) ([]*types.
 // The runtime closes nodes implementing node.Closer when a flow stops.
 var _ node.Closer = (*MqttAction)(nil)
 
-// Close disconnects the publish client. The runtime calls it when the flow
-// stops; without it every redeploy leaked a connection to the broker.
+// Close releases the node's connection, which closes once no node uses it.
+// The runtime calls it when the flow stops; without it every redeploy leaked
+// a connection to the broker.
 func (a *MqttAction) Close() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.client != nil {
-		a.client.Disconnect(250)
-		a.client = nil
+	if a.conn != nil {
+		mqttRelease(a.conn)
+		a.conn = nil
 	}
 	return nil
 }
@@ -206,7 +205,7 @@ func mqttActionConfigSchema() node.ConfigSchema {
 			"payload":  {Type: "string", Title: "Payload", Description: "Message payload (supports {{templates}})", Default: "{{payload}}"},
 			"qos":      {Type: "number", Title: "QoS", Description: "0, 1 or 2", Default: 0, Minimum: &minQoS, Maximum: &maxQoS, AgentVisible: true},
 			"retained": {Type: "boolean", Title: "Retained", Description: "Set the retained flag", Default: false, AgentVisible: true},
-			"clientId": {Type: "string", Title: "Client ID", Description: "MQTT client id (leave empty for a unique per-node id)", Default: ""},
+			"clientId": {Type: "string", Title: "Client ID", Description: "Own MQTT client id; leave empty to share a connection with the other MQTT nodes on this broker", Default: ""},
 			"username": {Type: "string", Title: "Username", Description: "Optional ({{secret.NAME}} supported)"},
 			"password": {Type: "string", Title: "Password", Description: "Optional; use {{secret.NAME}}", Sensitive: true},
 		},
@@ -229,7 +228,9 @@ func MqttActionInfo() node.NodeTypeInfo {
 		Documentation: `## MQTT Publish
 
 Publishes the rendered payload to an MQTT topic. Credentials support
-` + "`{{secret.NAME}}`" + `. The connection is established lazily and reused.
+` + "`{{secret.NAME}}`" + `. The connection is established lazily and shared with the other
+MQTT nodes on the broker that use the same credentials and no client id of
+their own.
 
 ## Configuration
 
@@ -240,7 +241,7 @@ Publishes the rendered payload to an MQTT topic. Credentials support
 | payload | string | {{payload}} | Payload (templated) |
 | qos | number | 0 | 0, 1 or 2 |
 | retained | boolean | false | Retained flag |
-| clientId | string | (unique) | Client id; empty generates piworker-pub-<random> per node |
+| clientId | string | (shared) | Own client id; empty shares a connection |
 | username/password | string | - | Optional credentials |
 `,
 		Category: types.NodeCategoryOutput,

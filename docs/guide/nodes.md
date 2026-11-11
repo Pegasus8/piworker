@@ -131,7 +131,7 @@ Trigger when a message arrives on an MQTT topic.
 | Setting | Key | Type | Default | Description |
 |---------|-----|------|---------|-------------|
 | Broker (required) | `broker` | string | – | Broker URL, e.g. tcp://host:1883 |
-| Client ID | `clientId` | string | – | MQTT client id (leave empty for a unique per-node id) |
+| Client ID | `clientId` | string | – | Own MQTT client id; leave empty to share a connection with the other MQTT nodes on this broker |
 | Password | `password` | string | – | Optional; use {{secret.NAME}} |
 | QoS | `qos` | number | `0` | 0, 1 or 2 |
 | Topic (required) | `topic` | string | – | Topic filter to subscribe to (supports +/# wildcards) |
@@ -602,7 +602,7 @@ Publish a message to an MQTT topic.
 | Setting | Key | Type | Default | Description |
 |---------|-----|------|---------|-------------|
 | Broker (required) | `broker` | string | – | Broker URL, e.g. tcp://host:1883 |
-| Client ID | `clientId` | string | – | MQTT client id (leave empty for a unique per-node id) |
+| Client ID | `clientId` | string | – | Own MQTT client id; leave empty to share a connection with the other MQTT nodes on this broker |
 | Password | `password` | string | – | Optional; use {{secret.NAME}} |
 | Payload | `payload` | string | `{{payload}}` | Message payload (supports {{templates}}) |
 | QoS | `qos` | number | `0` | 0, 1 or 2 |

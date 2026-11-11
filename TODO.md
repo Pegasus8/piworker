@@ -83,10 +83,15 @@ selector contextual de nombres están implementados. Queda como ampliación:
 ## Domótica Zigbee
 
 Análisis y propuesta por fases en [docs/design/zigbee.md](docs/design/zigbee.md)
-(integración vía Zigbee2MQTT).
+(integración vía Zigbee2MQTT, único backend por ahora). Primer hardware: sensor
+de temperatura y humedad SONOFF y enchufes SONOFF.
 
-- [ ] Fase 0: presupuesto del listado de tipos de nodo para agentes (hoy sobran
-  ~200 bytes de 64 KiB) y conexiones MQTT compartidas (cada una con su ADR).
+- [x] Fase 0: presupuesto del listado de tipos de nodo para agentes
+  ([ADR-0024](docs/adr/0024-node-type-list-without-filters-omits-documentation.md))
+  y conexiones MQTT compartidas
+  ([ADR-0025](docs/adr/0025-shared-mqtt-connections.md)).
+- [ ] Decidir si se agrega una conexión de broker con nombre en Ajustes
+  (credenciales y tema base una sola vez; base del descubrimiento).
 - [ ] Fase 1: nodos Zigbee Device, Zigbee Set, Zigbee Get, Timer reiniciable y
   Sol (amanecer/atardecer), con recetas y un `docker-compose.zigbee.yml`.
 - [ ] Fase 2: descubrimiento de dispositivos (`bridge/devices`) y selectores en
