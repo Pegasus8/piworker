@@ -100,8 +100,9 @@ version. The version number and release date have not been selected.
   `call` gets `pw_get_result` for calls that waited for approval or
   outlasted their timeout.
 - Authoring (`author` scope, only with `[mcp] author_enabled`):
-  `pw_list_node_types`, `pw_validate_flow` (every problem a deploy would
-  find, from the same checks), `pw_save_draft`, `pw_get_draft` and the
+  `pw_list_node_types` (without arguments the structure of every type,
+  documentation by category or type; ADR-0024), `pw_validate_flow` (every
+  problem a deploy would find, from the same checks), `pw_save_draft`, `pw_get_draft` and the
   `author_flow` prompt. Agents write drafts, never flows: a whole flow or
   operations against the version they read (a stale one is a conflict),
   without changing Agent Tool or Agent Reply nodes, webhook paths or tokens,

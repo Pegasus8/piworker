@@ -29,7 +29,8 @@ type NodeTypeList struct {
 	// Total counts the types matching the filters, listed or not.
 	Total int `json:"total"`
 	// Truncated: types or documentation were left out, or documentation
-	// cut, to keep the list within maxNodeTypeListBytes.
+	// cut, to keep the list within maxNodeTypeListBytes. Documentation a
+	// list without filters omits does not count.
 	Truncated bool `json:"truncated"`
 }
 
@@ -46,8 +47,8 @@ type NodeTypeView struct {
 	// Documentation is the type's markdown documentation, cut to
 	// maxNodeTypeDocBytes.
 	Documentation string `json:"documentation,omitempty"`
-	// DocumentationOmitted: left out to keep the list small (ask for the
-	// type alone).
+	// DocumentationOmitted: left out of a list without filters, or to keep
+	// the list small (ask for the category or the type alone).
 	DocumentationOmitted bool `json:"documentationOmitted,omitempty"`
 }
 
@@ -112,8 +113,11 @@ func categoryOrder(c types.NodeCategory) int {
 // any), ordered by category and type, within maxNodeTypeListBytes: every
 // type's structure first, in order while it fits, then the documentation in
 // order while it fits (documentationOmitted otherwise), each cut to
-// maxNodeTypeDocBytes.
+// maxNodeTypeDocBytes. Without a filter it lists the structures only, every
+// documentation omitted, so the whole registry fits (ADR-0024): an agent
+// asks for a category or a type to read the documentation.
 func listNodeTypes(reg NodeTypeLister, category, typ string) NodeTypeList {
+	withDocs := category != "" || typ != ""
 	var infos []node.NodeTypeInfo
 	for _, info := range reg.List() {
 		if (category == "" || string(info.Category) == category) && (typ == "" || info.Type == typ) {
@@ -142,6 +146,10 @@ func listNodeTypes(reg NodeTypeLister, category, typ string) NodeTypeList {
 	for i := range list.Types {
 		doc := infos[i].Documentation
 		if doc == "" {
+			continue
+		}
+		if !withDocs {
+			list.Types[i].DocumentationOmitted = true // asked for, not cut: not truncated
 			continue
 		}
 		cut := shorten(doc, maxNodeTypeDocBytes)

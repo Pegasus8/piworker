@@ -802,7 +802,10 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
     KiB: every type's structure first, in order while it fits, then the
     documentation in order while it fits (`documentationOmitted`),
     `truncated` when anything was left out or cut, `total` the matching
-    types. An unknown `type` is `invalid_arguments` (counted). It runs no
+    types. Without `category` and `type` the documentation is left out of
+    every type (`documentationOmitted`, not `truncated`), so the whole
+    registry fits; agents ask for a category or a type to read it
+    (ADR-0024). An unknown `type` is `invalid_arguments` (counted). It runs no
     service, so the endpoint audits it like the read views' reads (an
     `mcp_audit` row: token, `pw_list_node_types`, the `category` and `type`
     as arguments, `completed`, duration).
