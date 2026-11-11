@@ -54,6 +54,9 @@ func TestBuiltinRiskClassification(t *testing.T) {
 		"action-email":    node.RiskExternal,
 		"action-telegram": node.RiskExternal,
 		"action-notify":   node.RiskExternal,
+		// Zigbee commands and requests go out through the broker.
+		"action-zigbee":      node.RiskExternal,
+		"process-zigbee-get": node.RiskExternal,
 	}
 	for _, info := range registeredTypes(t) {
 		expected, listed := want[info.Type]
@@ -168,6 +171,8 @@ func TestFreeTextPropertiesAreNotAgentVisible(t *testing.T) {
 // on another setting.
 var unitless = map[string]bool{
 	"count": true, "limit": true, "maxKeys": true, "qos": true, "port": true, "threshold": true,
+	"minChange": true, // in the unit of the Zigbee property it watches
+	"duration":  true, // the timer's, in its durationUnit
 }
 
 // Numeric settings state their unit both in Unit (quoted by deploy errors)
@@ -338,6 +343,12 @@ var operations = []string{
 	"action-database.query",
 	"action-http.body",
 	"action-http.method",
+	// What a Zigbee command does to the device. The node uses no credential
+	// of its own (its connection holds them), like MQTT Publish, so the
+	// marks raise no credentialed_request_changed alert today.
+	"action-zigbee.command",
+	"action-zigbee.payload",
+	"action-zigbee.property",
 }
 
 func TestOperationPropertiesAreMarked(t *testing.T) {
@@ -365,12 +376,16 @@ var rates = []string{
 	"process-join.count",
 	"process-ratelimit.limit",
 	"process-ratelimit.windowMs",
+	"process-timer.duration", // with restart off, at most one emission per duration
+	"process-timer.durationUnit",
 	"trigger-cron.expression",
 	"trigger-ds18b20.intervalSec",
 	"trigger-interval.interval",
 	"trigger-rss.intervalSec",
 	"trigger-sysmetric.interval",
 	"trigger-tool.cooldownMs",
+	"trigger-zigbee.minChange",
+	"trigger-zigbee.mode",
 }
 
 // rateName matches names that say they set a rate.

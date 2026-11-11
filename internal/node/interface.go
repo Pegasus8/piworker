@@ -109,7 +109,21 @@ type ConfigProperty struct {
 	// with one added or removed, on a flow that reaches other services
 	// (rate_changed): how often it sends is the admin's to approve.
 	Rate bool `json:"rate,omitempty"`
+	// Options names where the editor finds suggestions for a string value
+	// (the value stays free text): OptionsConnections (the broker
+	// connections), OptionsZigbeeDevices (the devices of the node's
+	// connection), OptionsZigbeeProperties / OptionsZigbeeSettable (what
+	// the node's device publishes / can be set).
+	Options string `json:"options,omitempty"`
 }
+
+// Suggestion sources of ConfigProperty.Options.
+const (
+	OptionsConnections      = "connections"
+	OptionsZigbeeDevices    = "zigbee-devices"
+	OptionsZigbeeProperties = "zigbee-properties"
+	OptionsZigbeeSettable   = "zigbee-settable"
+)
 
 // BaseNode provides a common implementation for simple nodes.
 // Embed this in your node implementations to get default behavior.
