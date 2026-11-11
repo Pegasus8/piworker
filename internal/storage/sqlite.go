@@ -149,6 +149,9 @@ CREATE TABLE IF NOT EXISTS vars (
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
 	}
+	if _, err := s.db.Exec(brokerConnectionsSchema); err != nil {
+		return err
+	}
 	if err := migrateHistory(s.db); err != nil {
 		return err
 	}

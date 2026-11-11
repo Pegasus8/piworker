@@ -237,19 +237,7 @@ func resolvePlaceholder(match string, msg *types.Message, ctx context.Context) (
 // from the store carried by ctx (secrets.FromContext): call it when the node
 // runs, with the context it was given, never from a factory.
 func expandSecrets(ctx context.Context, s string) string {
-	store := secrets.FromContext(ctx)
-	return templateRe.ReplaceAllStringFunc(s, func(match string) string {
-		parts := placeholderParts(match)
-		if parts[0] != "secret" {
-			return match
-		}
-		if len(parts) > 1 {
-			if v, ok := store.Get(parts[1]); ok {
-				return v
-			}
-		}
-		return ""
-	})
+	return secrets.Expand(ctx, s)
 }
 
 // expandSecretsStrict is expandSecrets for values that must not silently

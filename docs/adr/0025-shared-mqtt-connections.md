@@ -33,7 +33,7 @@ the problem the Zigbee nodes would make worse.
 
 | Dimension | Assessment |
 |---|---|
-| Complexity | Medium: a pool with reference counts and a per-filter fan-out (`mqtt_pool.go`) |
+| Complexity | Medium: a pool with reference counts and a per-filter fan-out (`internal/mqttpool`) |
 | Security | Connections are keyed by broker and resolved credentials; a node in a sandbox (ADR-0020) never shares one with nodes outside it |
 | Pi resources | One connection per broker and credentials in the common case (non-overlapping per-device topics) |
 | Maintenance | Same reconnect and resubscribe rules as before, in one place |
@@ -90,7 +90,7 @@ for ACLs and persistent sessions, and two connections cannot share an id.
 
 ## Action items
 
-1. [x] `mqtt_pool.go`; MQTT Subscribe and Publish use it; tests against the
-   fake broker, which now routes like Mosquitto.
+1. [x] `internal/mqttpool`; MQTT Subscribe and Publish use it; tests against
+   the fake broker (`internal/mqtttest`), which routes like Mosquitto.
 2. [x] Node documentation and the generated node reference describe the
    `clientId` setting.

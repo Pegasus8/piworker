@@ -19,6 +19,7 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/agentauth"
 	"github.com/Pegasus8/piworker/internal/api"
+	"github.com/Pegasus8/piworker/internal/brokers"
 	"github.com/Pegasus8/piworker/internal/config"
 	"github.com/Pegasus8/piworker/internal/events"
 	"github.com/Pegasus8/piworker/internal/flow"
@@ -115,6 +116,11 @@ func main() {
 	// so nodes can reference {{secret.NAME}} instead of embedding plaintext.
 	if err := secrets.DefaultStore.Attach(store); err != nil {
 		log.Fatal().Err(err).Msg("Failed to load secrets")
+	}
+
+	// Named MQTT broker connections the Zigbee nodes use (ADR-0026).
+	if err := brokers.DefaultStore.Attach(store); err != nil {
+		log.Fatal().Err(err).Msg("Failed to load broker connections")
 	}
 
 	// Persist flow variables (set-var/get-var) so they survive restarts.
@@ -477,6 +483,8 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 	secretsHandler := api.NewSecretsHandler(secrets.DefaultStore, log.Logger)
 	secretsHandler.RegisterRoutes(router)
 	api.NewVariablesHandler(vars.DefaultStore).RegisterRoutes(router)
+	// Broker connections (passwords write-only).
+	api.NewConnectionsHandler(brokers.DefaultStore, brokers.Tester{}, log.Logger).RegisterRoutes(router)
 
 	healthHandler := api.NewHealthHandler(store)
 	router.HandleFunc(healthPath, healthHandler.Health).Methods(http.MethodGet, http.MethodHead)

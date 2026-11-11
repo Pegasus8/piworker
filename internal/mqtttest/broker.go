@@ -1,4 +1,5 @@
-package builtin
+// Package mqtttest provides an in-process MQTT 3.1.1 broker for tests.
+package mqtttest
 
 import (
 	"bufio"
@@ -11,13 +12,13 @@ import (
 	"testing"
 )
 
-// fakeBroker is a minimal in-process MQTT 3.1.1 broker for tests. It speaks
+// Broker is a minimal in-process MQTT 3.1.1 broker for tests. It speaks
 // just enough of the protocol (CONNECT, SUBSCRIBE, UNSUBSCRIBE, PUBLISH QoS
 // 0/1, PINGREQ, DISCONNECT) to exercise the MQTT nodes without a real broker,
-// and lets a test drop every connection to simulate a network flap. route
+// and lets a test drop every connection to simulate a network flap. Route
 // delivers like Mosquitto's default (allow_duplicate_messages): one copy per
 // matching subscription of each connection.
-type fakeBroker struct {
+type Broker struct {
 	t  *testing.T
 	ln net.Listener
 
@@ -31,28 +32,37 @@ type fakeBroker struct {
 	disconnects  int
 }
 
-func newFakeBroker(t *testing.T) *fakeBroker {
+// New runs a broker on a free loopback port, closed at the end of the test.
+func New(t *testing.T) *Broker {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	b := &fakeBroker{t: t, ln: ln, conns: map[net.Conn]bool{}, filters: map[net.Conn][]string{}}
+	return Serve(t, ln)
+}
+
+// Serve runs a broker on ln (e.g. one listening on a port a test chose
+// earlier), closed at the end of the test.
+func Serve(t *testing.T, ln net.Listener) *Broker {
+	b := &Broker{t: t, ln: ln, conns: map[net.Conn]bool{}, filters: map[net.Conn][]string{}}
 	go b.serve()
-	t.Cleanup(b.close)
+	t.Cleanup(b.Close)
 	return b
 }
 
-func (b *fakeBroker) url() string { return "tcp://" + b.ln.Addr().String() }
+// URL is the broker's tcp:// URL.
+func (b *Broker) URL() string { return "tcp://" + b.ln.Addr().String() }
 
-func (b *fakeBroker) close() {
+// Close stops accepting connections and drops the open ones.
+func (b *Broker) Close() {
 	_ = b.ln.Close()
-	b.dropAll()
+	b.DropAll()
 }
 
-// dropAll closes every client connection without a DISCONNECT, the way a
+// DropAll closes every client connection without a DISCONNECT, the way a
 // Wi-Fi drop or broker restart looks to the client.
-func (b *fakeBroker) dropAll() {
+func (b *Broker) DropAll() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for c := range b.conns {
@@ -62,21 +72,23 @@ func (b *fakeBroker) dropAll() {
 	}
 }
 
-func (b *fakeBroker) snapshot() (clientIDs, subs, pubs []string, disconnects int) {
+// Snapshot returns the client ids, SUBSCRIBE filters and PUBLISHes (topic=payload) seen, and the DISCONNECTs.
+func (b *Broker) Snapshot() (clientIDs, subs, pubs []string, disconnects int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return append([]string(nil), b.clientIDs...), append([]string(nil), b.subscribes...),
 		append([]string(nil), b.publishes...), b.disconnects
 }
 
-func (b *fakeBroker) connCount() int {
+// ConnCount is the number of open client connections.
+func (b *Broker) ConnCount() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return len(b.conns)
 }
 
-// publishToAll sends a QoS 0 PUBLISH to every connected client.
-func (b *fakeBroker) publishToAll(topic, payload string) {
+// PublishToAll sends a QoS 0 PUBLISH to every connected client.
+func (b *Broker) PublishToAll(topic, payload string) {
 	body := append(mqttString(topic), payload...)
 	pkt := append([]byte{0x30}, mqttRemainingLength(len(body))...)
 	pkt = append(pkt, body...)
@@ -87,9 +99,9 @@ func (b *fakeBroker) publishToAll(topic, payload string) {
 	}
 }
 
-// route sends a QoS 0 PUBLISH of topic to each connection once per
+// Route sends a QoS 0 PUBLISH of topic to each connection once per
 // subscription of its that matches topic.
-func (b *fakeBroker) route(topic, payload string) {
+func (b *Broker) Route(topic, payload string) {
 	body := append(mqttString(topic), payload...)
 	pkt := append([]byte{0x30}, mqttRemainingLength(len(body))...)
 	pkt = append(pkt, body...)
@@ -97,21 +109,22 @@ func (b *fakeBroker) route(topic, payload string) {
 	defer b.mu.Unlock()
 	for c, filters := range b.filters {
 		for _, f := range filters {
-			if fakeTopicMatches(f, topic) {
+			if TopicMatches(f, topic) {
 				_, _ = c.Write(pkt)
 			}
 		}
 	}
 }
 
-func (b *fakeBroker) unsubscribed() []string {
+// Unsubscribed returns the UNSUBSCRIBE filters seen.
+func (b *Broker) Unsubscribed() []string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return append([]string(nil), b.unsubscribes...)
 }
 
-// fakeTopicMatches reports whether an MQTT topic filter matches topic.
-func fakeTopicMatches(filter, topic string) bool {
+// TopicMatches reports whether an MQTT topic filter matches topic.
+func TopicMatches(filter, topic string) bool {
 	f, t := strings.Split(filter, "/"), strings.Split(topic, "/")
 	for i, level := range f {
 		if level == "#" {
@@ -124,7 +137,7 @@ func fakeTopicMatches(filter, topic string) bool {
 	return len(f) == len(t)
 }
 
-func (b *fakeBroker) serve() {
+func (b *Broker) serve() {
 	for {
 		c, err := b.ln.Accept()
 		if err != nil {
@@ -137,7 +150,7 @@ func (b *fakeBroker) serve() {
 	}
 }
 
-func (b *fakeBroker) handle(c net.Conn) {
+func (b *Broker) handle(c net.Conn) {
 	defer func() {
 		_ = c.Close()
 		b.mu.Lock()

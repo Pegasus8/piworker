@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/metrics"
+	"github.com/Pegasus8/piworker/internal/mqttpool"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -31,7 +32,7 @@ type MqttTrigger struct {
 
 	mu      sync.Mutex
 	running bool
-	sub     *mqttSubHandle
+	sub     *mqttpool.Sub
 }
 
 // NewMqttTrigger creates an MqttTrigger from configuration.
@@ -112,12 +113,12 @@ func (t *MqttTrigger) Start(ctx context.Context, out chan<- *types.Message) erro
 	}
 
 	ep := mqttEndpointFor(ctx, t.broker, t.username, t.password, t.clientID)
-	sub, fresh := mqttSubscribe(ep, t.topic, t.qos, handler, t.connectRetryInterval)
+	sub, fresh := mqttpool.Subscribe(ep, t.topic, t.qos, handler, t.connectRetryInterval)
 	// Wait only briefly for a new connection: the runtime starts triggers
 	// synchronously, and an unreachable broker is not a configuration error.
 	// Only invalid config (checked in the constructor) makes Start fail.
 	if fresh {
-		if err := sub.conn.waitUp(ctx, t.initialConnectWait); err != nil {
+		if err := sub.Conn().WaitUp(ctx, t.initialConnectWait); err != nil {
 			log.Warn().Str("broker", t.broker).Msg("mqtt broker not reachable yet; retrying in background")
 		}
 	}
@@ -135,7 +136,7 @@ func (t *MqttTrigger) Stop() error {
 	if !t.running {
 		return nil
 	}
-	t.sub.release()
+	t.sub.Release()
 	t.sub = nil
 	t.running = false
 	return nil

@@ -67,3 +67,4 @@ node recipe, UI changes and documentation do **not** need an ADR.
 | [0023](0023-runs-record-the-version-they-ran.md) | Runs record the version they ran | Accepted |
 | [0024](0024-node-type-list-without-filters-omits-documentation.md) | The node-type list without filters omits documentation | Proposed |
 | [0025](0025-shared-mqtt-connections.md) | MQTT nodes share their broker connections | Proposed |
+| [0026](0026-named-broker-connections.md) | Named broker connections for the Zigbee nodes | Proposed |

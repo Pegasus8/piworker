@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"github.com/Pegasus8/piworker/internal/mqtttest"
 	"net"
 	"testing"
 	"time"
@@ -55,18 +56,18 @@ func TestMqttActionClientID(t *testing.T) {
 }
 
 func TestMqttActionPublishesAndCloseDisconnects(t *testing.T) {
-	b := newFakeBroker(t)
-	a := newMqttAction(t, map[string]interface{}{"broker": b.url(), "topic": "out/t", "payload": "hi", "qos": 1})
+	b := mqtttest.New(t)
+	a := newMqttAction(t, map[string]interface{}{"broker": b.URL(), "topic": "out/t", "payload": "hi", "qos": 1})
 
 	_, err := a.Process(context.Background(), types.NewMessage("x", types.DataTypeString))
 	require.NoError(t, err)
-	_, _, pubs, _ := b.snapshot()
+	_, _, pubs, _ := b.Snapshot()
 	assert.Equal(t, []string{"out/t=hi"}, pubs)
 
 	require.NoError(t, a.Close())
 	require.Eventually(t, func() bool {
-		_, _, _, d := b.snapshot()
-		return d == 1 && b.connCount() == 0
+		_, _, _, d := b.Snapshot()
+		return d == 1 && b.ConnCount() == 0
 	}, 5*time.Second, 20*time.Millisecond, "Close must disconnect the publish client")
 	require.NoError(t, a.Close(), "Close is idempotent")
 }

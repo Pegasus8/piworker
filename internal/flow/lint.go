@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Pegasus8/piworker/internal/brokers"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/secrets"
 )
@@ -63,6 +64,10 @@ const (
 	// secret store, not on the definition: the admin may define the secret
 	// later (see EnvironmentIssue).
 	IssueUndefinedSecret = "undefined_secret"
+	// IssueUndefinedConnection: a setting names a broker connection
+	// (node.ConnectionRequirer, ADR-0026) the store does not define. Like
+	// IssueUndefinedSecret it depends on the environment.
+	IssueUndefinedConnection = "undefined_connection"
 )
 
 // EnvironmentIssue reports whether an issue depends on the environment the
@@ -70,7 +75,9 @@ const (
 // such an error still blocks a deploy, but not a dry-run (whose secret store
 // is empty by design) or the storing of a draft (the admin may define the
 // secret before approving it).
-func EnvironmentIssue(i Issue) bool { return i.Code == IssueUndefinedSecret }
+func EnvironmentIssue(i Issue) bool {
+	return i.Code == IssueUndefinedSecret || i.Code == IssueUndefinedConnection
+}
 
 // BlockingIssues returns the error issues of issues that are not
 // EnvironmentIssues, in order (never nil): the problems of the definition
@@ -274,6 +281,46 @@ func requiredSecretFindings(f *Flow, instances map[int]node.Node, store *secrets
 				err := NewValidationError("node %s (%s): %s", n.ID, n.Type, msg)
 				out = append(out, nodeFinding(i, prop, IssueUndefinedSecret, IssueError, msg, err))
 			}
+		}
+	}
+	return out
+}
+
+// requiredConnectionFindings reports every broker connection a node
+// (node.ConnectionRequirer) names and store does not define, in node ID
+// order, then property; the err is the *ValidationError deploy returns.
+func requiredConnectionFindings(f *Flow, instances map[int]node.Node, store *brokers.Store) []finding {
+	idx := make([]int, 0, len(instances))
+	for i := range instances {
+		idx = append(idx, i)
+	}
+	sort.Slice(idx, func(a, b int) bool {
+		if f.Nodes[idx[a]].ID != f.Nodes[idx[b]].ID {
+			return f.Nodes[idx[a]].ID < f.Nodes[idx[b]].ID
+		}
+		return idx[a] < idx[b]
+	})
+	var out []finding
+	for _, i := range idx {
+		req, ok := instances[i].(node.ConnectionRequirer)
+		if !ok {
+			continue
+		}
+		required := req.RequiredConnections()
+		props := make([]string, 0, len(required))
+		for prop := range required {
+			props = append(props, prop)
+		}
+		sort.Strings(props)
+		n := &f.Nodes[i]
+		for _, prop := range props {
+			name := required[prop]
+			if _, defined := store.Get(name); defined {
+				continue
+			}
+			msg := fmt.Sprintf("config.%s names broker connection %q, which is not defined", prop, name)
+			err := NewValidationError("node %s (%s): %s", n.ID, n.Type, msg)
+			out = append(out, nodeFinding(i, prop, IssueUndefinedConnection, IssueError, msg, err))
 		}
 	}
 	return out
@@ -677,8 +724,10 @@ func LintContext(ctx context.Context, f *Flow, reg *node.Registry) []Issue {
 	_, tools := analyzeTools(f, reg, specs)
 	all = append(all, tools...)
 
-	// Secrets the strict settings cannot work without (deploy's last check).
+	// Secrets the strict settings cannot work without and the broker
+	// connections nodes name (deploy's last checks).
 	all = append(all, requiredSecretFindings(f, instances, secrets.FromContext(ctx))...)
+	all = append(all, requiredConnectionFindings(f, instances, brokers.FromContext(ctx))...)
 
 	all = append(all, positionFindings(f)...)
 	return lintIssues(f, reg, all)

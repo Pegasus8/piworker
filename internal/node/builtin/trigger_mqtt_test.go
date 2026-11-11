@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"github.com/Pegasus8/piworker/internal/mqtttest"
 	"net"
 	"testing"
 	"time"
@@ -57,14 +58,14 @@ func startMqttTrigger(t *testing.T, tr *MqttTrigger) chan *types.Message {
 	return out
 }
 
-func subscribeCount(b *fakeBroker) int {
-	_, subs, _, _ := b.snapshot()
+func subscribeCount(b *mqtttest.Broker) int {
+	_, subs, _, _ := b.Snapshot()
 	return len(subs)
 }
 
 func TestMqttTriggerResubscribesAfterReconnect(t *testing.T) {
-	b := newFakeBroker(t)
-	tr := newMqttTrigger(t, map[string]interface{}{"broker": b.url(), "topic": "sensors/#"})
+	b := mqtttest.New(t)
+	tr := newMqttTrigger(t, map[string]interface{}{"broker": b.URL(), "topic": "sensors/#"})
 	out := startMqttTrigger(t, tr)
 
 	require.Eventually(t, func() bool { return subscribeCount(b) == 1 },
@@ -72,11 +73,11 @@ func TestMqttTriggerResubscribesAfterReconnect(t *testing.T) {
 
 	// Network flap: the broker forgets the (clean) session, so the client
 	// must subscribe again once it reconnects.
-	b.dropAll()
+	b.DropAll()
 	require.Eventually(t, func() bool { return subscribeCount(b) >= 2 },
 		10*time.Second, 50*time.Millisecond, "subscription must be restored after reconnect")
 
-	b.publishToAll("sensors/temp", `{"v":1}`)
+	b.PublishToAll("sensors/temp", `{"v":1}`)
 	select {
 	case msg := <-out:
 		assert.Equal(t, "sensors/temp", msg.Payload.(map[string]interface{})["topic"])
@@ -86,16 +87,16 @@ func TestMqttTriggerResubscribesAfterReconnect(t *testing.T) {
 }
 
 func TestMqttTriggerStopDisconnects(t *testing.T) {
-	b := newFakeBroker(t)
-	tr := newMqttTrigger(t, map[string]interface{}{"broker": b.url(), "topic": "t"})
+	b := mqtttest.New(t)
+	tr := newMqttTrigger(t, map[string]interface{}{"broker": b.URL(), "topic": "t"})
 	startMqttTrigger(t, tr)
 	require.Eventually(t, func() bool { return subscribeCount(b) == 1 },
 		5*time.Second, 20*time.Millisecond)
 
 	require.NoError(t, tr.Stop())
 	require.Eventually(t, func() bool {
-		_, _, _, d := b.snapshot()
-		return d == 1 && b.connCount() == 0
+		_, _, _, d := b.Snapshot()
+		return d == 1 && b.ConnCount() == 0
 	}, 5*time.Second, 20*time.Millisecond)
 }
 
@@ -152,9 +153,7 @@ func TestMqttTriggerStartsBeforeBrokerIsReachable(t *testing.T) {
 
 	ln2, err := net.Listen("tcp", addr)
 	require.NoError(t, err)
-	b := &fakeBroker{t: t, ln: ln2, conns: map[net.Conn]bool{}, filters: map[net.Conn][]string{}}
-	go b.serve()
-	t.Cleanup(b.close)
+	b := mqtttest.Serve(t, ln2)
 
 	require.Eventually(t, func() bool { return subscribeCount(b) == 1 },
 		10*time.Second, 50*time.Millisecond)

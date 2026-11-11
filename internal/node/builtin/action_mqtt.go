@@ -7,28 +7,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Pegasus8/piworker/internal/mqttpool"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"github.com/google/uuid"
 )
 
-const (
-	mqttConnectTimeout       = 10 * time.Second
-	mqttConnectRetryInterval = 10 * time.Second
-	mqttKeepAlive            = 30 * time.Second
-	mqttPingTimeout          = 10 * time.Second
-	mqttWriteTimeout         = 10 * time.Second
-	mqttMaxReconnectInterval = time.Minute
-)
+// mqttConnectTimeout bounds waiting for a connection or a publish.
+const mqttConnectTimeout = mqttpool.ConnectTimeout
 
-// defaultMqttClientID returns a client id unique to one connection. MQTT
-// brokers disconnect the older session when a second client connects with
-// the same id, so a shared constant makes two connections to one broker
-// knock each other off in a reconnect loop.
-func defaultMqttClientID(prefix string) string {
-	return prefix + "-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
-}
+// mqttConnectRetryInterval is the wait between connection attempts.
+const mqttConnectRetryInterval = mqttpool.RetryInterval
 
 // ownMqttClientID returns the client id a node configured for itself, or ""
 // to use a pooled connection (ADR-0025) when it is empty or still the old
@@ -42,25 +31,12 @@ func ownMqttClientID(configured, prefix string) string {
 	return configured
 }
 
-// newMqttClientOptions builds client options with bounded timeouts suitable
-// for a flaky Wi-Fi link.
-func newMqttClientOptions(broker, clientID, username, password string) *mqtt.ClientOptions {
-	opts := mqtt.NewClientOptions().
-		AddBroker(broker).
-		SetClientID(clientID).
-		SetConnectTimeout(mqttConnectTimeout).
-		SetKeepAlive(mqttKeepAlive).
-		SetPingTimeout(mqttPingTimeout).
-		SetWriteTimeout(mqttWriteTimeout).
-		SetAutoReconnect(true).
-		SetMaxReconnectInterval(mqttMaxReconnectInterval)
-	if username != "" {
-		opts.SetUsername(username)
-	}
-	if password != "" {
-		opts.SetPassword(password)
-	}
-	return opts
+// mqttEndpointFor is what a node connects with, its credentials resolved
+// through ctx, in the sandbox of ctx if any: nodes in a sandbox (ADR-0020)
+// never share a connection with nodes outside it.
+func mqttEndpointFor(ctx context.Context, broker, username, password, clientID string) mqttpool.Endpoint {
+	return mqttpool.Endpoint{Broker: broker, Username: expandSecrets(ctx, username), Password: expandSecrets(ctx, password),
+		ClientID: clientID, Sandbox: node.SandboxFrom(ctx)}
 }
 
 // MqttAction publishes a message to an MQTT topic. It takes a shared
@@ -78,7 +54,7 @@ type MqttAction struct {
 	retained bool
 
 	mu   sync.Mutex
-	conn *mqttConn
+	conn *mqttpool.Conn
 }
 
 // NewMqttAction creates an MqttAction from configuration.
@@ -133,14 +109,14 @@ func waitMqttToken(ctx context.Context, tok mqtt.Token, timeout time.Duration) e
 func (a *MqttAction) ensureClient(ctx context.Context) (mqtt.Client, error) {
 	a.mu.Lock()
 	if a.conn == nil {
-		a.conn, _ = mqttAcquire(mqttEndpointFor(ctx, a.broker, a.username, a.password, a.clientID), mqttConnectRetryInterval)
+		a.conn, _ = mqttpool.Acquire(mqttEndpointFor(ctx, a.broker, a.username, a.password, a.clientID), mqttConnectRetryInterval)
 	}
 	conn := a.conn
 	a.mu.Unlock()
-	if err := conn.waitUp(ctx, mqttConnectTimeout); err != nil {
+	if err := conn.WaitUp(ctx, mqttConnectTimeout); err != nil {
 		return nil, err
 	}
-	return conn.client, nil
+	return conn.Client(), nil
 }
 
 // Process renders the topic/payload and publishes the message.
@@ -173,7 +149,7 @@ func (a *MqttAction) Close() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.conn != nil {
-		mqttRelease(a.conn)
+		a.conn.Release()
 		a.conn = nil
 	}
 	return nil

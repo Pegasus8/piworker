@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"encoding/base64"
+	"github.com/Pegasus8/piworker/internal/mqtttest"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -196,7 +197,7 @@ func TestEmailSecretsResolveThroughContext(t *testing.T) {
 
 func TestMqttActionSecretsResolveThroughContext(t *testing.T) {
 	setSecret(t, "canary", ctxCanary)
-	b := newFakeBroker(t)
+	b := mqtttest.New(t)
 	for _, tc := range []struct {
 		name string
 		ctx  context.Context
@@ -208,12 +209,12 @@ func TestMqttActionSecretsResolveThroughContext(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := newMqttAction(t, map[string]interface{}{
-				"broker": b.url(), "topic": "t", "username": "u-{{secret.canary}}", "password": "{{secret.canary}}",
+				"broker": b.URL(), "topic": "t", "username": "u-{{secret.canary}}", "password": "{{secret.canary}}",
 			})
 			defer func() { _ = a.Close() }()
 			_, err := a.Process(tc.ctx, types.NewMessage("x", types.DataTypeString))
 			require.NoError(t, err)
-			r := a.conn.client.OptionsReader()
+			r := a.conn.Client().OptionsReader()
 			assert.Equal(t, "u-"+tc.want, r.Username())
 			assert.Equal(t, tc.want, r.Password())
 		})
@@ -222,7 +223,7 @@ func TestMqttActionSecretsResolveThroughContext(t *testing.T) {
 
 func TestMqttTriggerSecretsResolveThroughContext(t *testing.T) {
 	setSecret(t, "canary", ctxCanary)
-	b := newFakeBroker(t)
+	b := mqtttest.New(t)
 	for _, tc := range []struct {
 		name string
 		ctx  context.Context
@@ -234,12 +235,12 @@ func TestMqttTriggerSecretsResolveThroughContext(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tr := newMqttTrigger(t, map[string]interface{}{
-				"broker": b.url(), "topic": "t", "username": "u-{{secret.canary}}", "password": "{{secret.canary}}",
+				"broker": b.URL(), "topic": "t", "username": "u-{{secret.canary}}", "password": "{{secret.canary}}",
 			})
 			require.NoError(t, tr.Start(tc.ctx, make(chan *types.Message, 1)))
 			defer func() { _ = tr.Stop() }()
 			tr.mu.Lock()
-			r := tr.sub.conn.client.OptionsReader()
+			r := tr.sub.Conn().Client().OptionsReader()
 			tr.mu.Unlock()
 			assert.Equal(t, "u-"+tc.want, r.Username())
 			assert.Equal(t, tc.want, r.Password())
