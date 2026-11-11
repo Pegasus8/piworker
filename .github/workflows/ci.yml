@@ -92,4 +92,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" build/*.tar.gz build/SHA256SUMS build/piworkerctl build/piworker-mcp-* --draft --verify-tag --generate-notes
+        # A tag with a hyphen (v1.0.0-beta.1) is a prerelease: it never becomes
+        # GitHub's "latest" release and the image workflow leaves :latest alone.
+        run: |
+          prerelease=()
+          case "$RELEASE_TAG" in *-*) prerelease=(--prerelease) ;; esac
+          gh release create "$RELEASE_TAG" build/*.tar.gz build/SHA256SUMS build/piworkerctl build/piworker-mcp-* --draft --verify-tag --generate-notes "${prerelease[@]}"

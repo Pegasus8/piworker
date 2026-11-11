@@ -17,7 +17,8 @@ files=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
 if command -v goimports >/dev/null 2>&1; then
   formatter="goimports"
 else
-  formatter="gofmt"
+  # The gofmt of the Go version in go.mod; PATH may hold an older one.
+  formatter="$(go env GOROOT)/bin/gofmt"
 fi
 
 count=0

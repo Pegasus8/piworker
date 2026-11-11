@@ -40,19 +40,24 @@ candidate, publication and repository housekeeping. In order:
 
 **Blocking the release**
 
-- [ ] Choose the version and whether the first publication is a prerelease.
-  Recommended: publish a prerelease first. It is the only way to exercise the
-  installer's real download path before a stable release moves `latest`.
+- [x] The first publication is a **prerelease** (decided 2026-11-11). It is
+  the only way to exercise the installer's real download path before a stable
+  release moves `latest`. The tag workflow now drafts a tag with a hyphen as a
+  prerelease, and the README documents installing by tag.
+- [ ] Choose the version number. The only earlier tag is `v0.1.0-alpha.1`
+  (2020), so any `v0.2.0-…` or `v1.0.0-…` prerelease tag sorts after it.
 - [ ] Run every unchecked item under [Candidate validation](#candidate-validation)
   against the tagged commit: archives and checksums, the six bridge binaries,
   `scripts/smoke_container.py`, the agent authoring smoke test, browser setup
   and editing on the Pi.
-- [ ] Hardware nodes (GPIO Edge/Write, I2C Read, DS18B20) have no recorded run
-  on a real Pi. Validate them or mark them experimental in the release notes.
+- [x] Hardware nodes (GPIO Edge/Write, I2C Read, DS18B20) have no recorded run
+  on a real Pi: they ship marked **experimental** (decided 2026-11-11) in the
+  editor's node list and documentation card, the node reference, the README,
+  the user guide and the release notes. Drop the mark once each is validated.
 - [ ] Record the Pi OS and architecture already validated and decide on the
   other advertised CPUs (ARMv7, x86_64): validate or narrow the claim.
-- [ ] Decide the legacy (2020) migration policy. Recommended: declare it
-  unsupported for this release and keep the backup notice.
+- [x] Migration from the 2020 release is **not supported** (decided
+  2026-11-11); the README, the user guide and the release notes say so.
 
 **Blocking the announcement**
 
@@ -74,11 +79,13 @@ candidate, publication and repository housekeeping. In order:
   implementation; several are delivered by the revival (#1 documentation, #43
   Docker image, #65 and #167 variables in the UI, #89 tests, #93 HTTP request,
   #169 authentication).
-- [ ] Add `SECURITY.md` with a private reporting channel. PiWorker now ships a
-  CA, agent tokens and command execution; reports need somewhere to go.
-- [ ] `make fmt-check` runs the `gofmt` found on `PATH`. With an older Go
-  installed and the toolchain downloaded automatically, it reports files that
-  the project's Go version considers formatted. Use the toolchain's `gofmt`.
+- [x] [`SECURITY.md`](../SECURITY.md) asks for reports through GitHub's
+  private vulnerability reporting.
+- [ ] Enable **Private vulnerability reporting** in the repository settings
+  (Settings → Advanced Security); without it the link in `SECURITY.md` does
+  not accept reports.
+- [x] `make fmt-check`, `make fmt` and the pre-commit hook use the `gofmt` of
+  the Go version in `go.mod` instead of the first one on `PATH`.
 
 **Documentation (done in this review)**
 
@@ -122,11 +129,10 @@ environment limits and generated packages, and the
 - [x] Update the release notes for the AI agents work (ADR-0009…0023): agent
   tokens and tools, authoring through drafts, the agent deploy levels, versions and
   rollback, the bridge, and the behaviour changes under "Compatibility and limits".
-- [ ] Choose the version and stable versus prerelease status; replace `Unreleased`
-  only when publishing. `v*` tags currently prepare drafts without automatically
-  classifying prereleases. Review the draft's prerelease flag explicitly.
-- [ ] Validate migration from the old 2020 release if it is to be supported.
-  Otherwise retain the explicit unvalidated-migration notice and require backups.
+- [ ] Choose the version; replace `Unreleased` only when publishing. The first
+  publication is a prerelease: a `v*` tag with a hyphen is drafted with the
+  prerelease flag. Still review the flag on the draft before publishing.
+- [x] Migration from the old 2020 release is not supported; the notices say so.
 - [x] Provide a task-oriented [user guide](guide/README.md) besides the README
   reference, with a node reference generated from the registry.
 - [ ] After the first compatible stable release is public, update the prepublication

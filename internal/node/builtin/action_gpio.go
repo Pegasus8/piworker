@@ -108,8 +108,11 @@ func GPIOActionInfo() node.NodeTypeInfo {
 	return node.NodeTypeInfo{
 		Type:        "action-gpio",
 		Name:        "GPIO Write",
-		Description: "Set a GPIO output pin high or low",
+		Description: "Set a GPIO output pin high or low (experimental)",
 		Documentation: `## GPIO Write
+
+> **Experimental.** This node has not been validated on real hardware for this
+> release. Test it with your own wiring before relying on it.
 
 Drives a GPIO output pin. Runs on a Raspberry Pi (or any host periph.io
 supports); on other hosts the pin is not found and the node errors clearly.

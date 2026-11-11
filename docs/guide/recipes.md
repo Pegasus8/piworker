@@ -89,7 +89,8 @@ node.
 
 ## Log a temperature sensor to a file
 
-Needs a DS18B20 sensor and 1-Wire enabled on the Pi.
+Needs a DS18B20 sensor and 1-Wire enabled on the Pi. The DS18B20 node is
+[experimental](troubleshooting.md#a-gpio-i2c-or-sensor-node-fails).
 
 | # | Node | Settings |
 |---|------|----------|
@@ -102,7 +103,8 @@ in a directory the PiWorker service user can write to.
 
 ## Switch a pin from a button
 
-A button on GPIO17 turns a relay on GPIO27 on while it is pressed.
+A button on GPIO17 turns a relay on GPIO27 on while it is pressed. The GPIO
+nodes are [experimental](troubleshooting.md#a-gpio-i2c-or-sensor-node-fails).
 
 | # | Node | Settings |
 |---|------|----------|

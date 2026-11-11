@@ -77,5 +77,8 @@ selector contextual de nombres están implementados. Queda como ampliación:
   y la referencia de nodos).
 - [ ] Flujos de ejemplo importables desde la pantalla vacía del editor.
 
+- [ ] Validar en hardware real los nodos GPIO Edge, GPIO Write, I2C Read y
+  DS18B20 y quitarles la marca de experimentales.
+
 Lo que falta para publicar está en
 [docs/release-checklist.md](docs/release-checklist.md#launch-gap-review-2026-11-11).

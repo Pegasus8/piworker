@@ -210,8 +210,11 @@ func DS18B20TriggerInfo() node.NodeTypeInfo {
 	return node.NodeTypeInfo{
 		Type:        "trigger-ds18b20",
 		Name:        "DS18B20 Temperature",
-		Description: "Poll a 1-Wire DS18B20 temperature sensor",
+		Description: "Poll a 1-Wire DS18B20 temperature sensor (experimental)",
 		Documentation: `## DS18B20 Temperature
+
+> **Experimental.** This node has not been validated on real hardware for this
+> release. Test it with your own wiring before relying on it.
 
 Polls a 1-Wire DS18B20 sensor by reading ` + "`/sys/bus/w1/devices/<id>/w1_slave`" + `
 every ` + "`intervalSec`" + ` seconds and emits ` + "`{deviceId, celsius}`" + `. Requires

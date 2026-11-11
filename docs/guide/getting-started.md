@@ -49,9 +49,16 @@ find them out by itself. The address is then `https://<that name>:8443`.
 
 See [Build from source](../../README.md#option-3-build-from-source).
 
-> **Prepublication notice.** Before the first revival release is published, the download commands
-> above are not available yet: build from source. The
-> [release notes](../../CHANGELOG.md) say what has been published.
+> **Prepublication notice.** The commands above install the latest *stable*
+> release. While PiWorker is only published as a prerelease, install it by
+> tag as shown under
+> [Install, update and uninstall](../../README.md#install-update-and-uninstall-linux--raspberry-pi),
+> and use that tag instead of `latest` for the Docker image. Before any
+> release exists, build from source.
+
+> **Used the 2020 version of PiWorker?** This is a new program. It does not
+> read the old tasks or database, so install it separately and recreate your
+> automations as flows.
 
 ## 2. Open it in your browser
 

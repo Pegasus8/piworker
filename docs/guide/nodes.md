@@ -21,8 +21,8 @@ A trigger starts a flow: it has no input and emits a message when something happ
 |------|--------------|
 | [Agent Tool](#trigger-tool) | Publish this flow as a tool that AI agents can call over MCP |
 | [Cron Schedule](#trigger-cron) | Triggers based on a cron schedule expression |
-| [DS18B20 Temperature](#trigger-ds18b20) | Poll a 1-Wire DS18B20 temperature sensor |
-| [GPIO Edge](#trigger-gpio) | Trigger when a GPIO input pin changes level |
+| [DS18B20 Temperature](#trigger-ds18b20) | Poll a 1-Wire DS18B20 temperature sensor (experimental) |
+| [GPIO Edge](#trigger-gpio) | Trigger when a GPIO input pin changes level (experimental) |
 | [Interval Timer](#trigger-interval) | Triggers at regular time intervals |
 | [MQTT Subscribe](#trigger-mqtt) | Trigger when a message arrives on an MQTT topic |
 | [Manual Inject](#trigger-manual) | Trigger flow manually with a button click |
@@ -73,7 +73,7 @@ Triggers based on a cron schedule expression.
 
 ### DS18B20 Temperature
 
-Poll a 1-Wire DS18B20 temperature sensor.
+Poll a 1-Wire DS18B20 temperature sensor (experimental).
 
 - **Type:** `trigger-ds18b20`
 - **Risk:** `safe`
@@ -89,7 +89,7 @@ Poll a 1-Wire DS18B20 temperature sensor.
 
 ### GPIO Edge
 
-Trigger when a GPIO input pin changes level.
+Trigger when a GPIO input pin changes level (experimental).
 
 - **Type:** `trigger-gpio`
 - **Risk:** `safe`
@@ -430,9 +430,9 @@ Actions do something with a message: notify, call a service, write, switch a pin
 | [Database](#action-database) | Run a SQL query or statement against SQLite, Postgres or MySQL |
 | [Email](#action-email) | Send an email via SMTP |
 | [Execute Command](#action-command) | Executes a shell command |
-| [GPIO Write](#action-gpio) | Set a GPIO output pin high or low |
+| [GPIO Write](#action-gpio) | Set a GPIO output pin high or low (experimental) |
 | [HTTP Request](#action-http) | Makes HTTP requests to external APIs |
-| [I2C Read](#action-i2c) | Read bytes from an I2C device |
+| [I2C Read](#action-i2c) | Read bytes from an I2C device (experimental) |
 | [Log](#action-log) | Logs messages to the console/file |
 | [MQTT Publish](#action-mqtt) | Publish a message to an MQTT topic |
 | [Notify](#action-notify) | Send a notification to Discord, Slack, or ntfy |
@@ -518,7 +518,7 @@ Executes a shell command.
 
 ### GPIO Write
 
-Set a GPIO output pin high or low.
+Set a GPIO output pin high or low (experimental).
 
 - **Type:** `action-gpio`
 - **Risk:** `privileged`
@@ -558,7 +558,7 @@ Makes HTTP requests to external APIs.
 
 ### I2C Read
 
-Read bytes from an I2C device.
+Read bytes from an I2C device (experimental).
 
 - **Type:** `action-i2c`
 - **Risk:** `privileged`

@@ -134,6 +134,11 @@ really is a device on your network.
 
 ### A GPIO, I2C or sensor node fails
 
+The hardware nodes (GPIO Edge, GPIO Write, I2C Read, DS18B20 Temperature) are
+**experimental** in this release: they have automated tests but have not been
+validated on real hardware. Try them with your own wiring before relying on
+them, and report problems with the board model and OS.
+
 - These nodes need a Raspberry Pi (or a board with the same Linux
   interfaces); on another machine they report that the hardware is missing.
 - Enable the interface on the Pi (`sudo raspi-config` → *Interface Options*):

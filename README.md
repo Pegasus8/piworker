@@ -74,7 +74,14 @@ The service also starts after a reboot. Re-running `install` updates a managed
 installation; reinstalling after `uninstall` reuses the retained data.
 
 You can select a release explicitly with `sudo piworkerctl update vX.Y.Z`
-(replace `vX.Y.Z` with an actual compatible release tag). Updates also replace
+(replace `vX.Y.Z` with an actual compatible release tag). **Prereleases** are
+never "latest", so they are always installed by tag:
+
+```bash
+curl -fL https://github.com/Pegasus8/piworker/releases/download/vX.Y.Z-beta.1/piworkerctl -o piworkerctl && sudo bash ./piworkerctl install vX.Y.Z-beta.1
+```
+
+With Docker, use the image tag of the prerelease instead of `latest`. Updates also replace
 the manager with the version included in the verified release archive.
 Before the first compatible release, contributors can run the lifecycle tests
 with `make test-installer`; running the installer still requires published assets.
@@ -125,8 +132,12 @@ export PIWORKER_ADMIN_PASS='replace-with-a-unique-password'
 These variables never overwrite an existing account. Docker Compose reads them
 from the shell or a local, git-ignored `.env` file. Shell exports do not
 configure the native systemd service: use its TOML file or an explicitly
-configured systemd environment. Browser setup needs no bootstrap credentials. Compatibility with databases from the legacy 2020 release has not
-been validated; keep a full backup and test migration on a copy first.
+configured systemd environment. Browser setup needs no bootstrap credentials.
+
+**Coming from the 2020 release (`v0.1.0-alpha.1`)?** Migration is not
+supported: the revival is a new program with a different data model, and it
+does not read the old tasks or database. Install it separately and recreate
+your automations as flows.
 
 This README describes the revival branch, including changes not yet released.
 Build from source or use `make docker-build` to try this implementation. Published
@@ -408,8 +419,8 @@ sudo systemctl start piworker
 | **Webhook** | `trigger-webhook` | Fire on an incoming HTTP request to `/webhooks/<path>` |
 | **RSS Feed** | `trigger-rss` | Poll a feed for new entries |
 | **MQTT Subscribe** | `trigger-mqtt` | Receive messages from an MQTT broker |
-| **GPIO Edge** | `trigger-gpio` | React to Raspberry Pi pin changes |
-| **DS18B20 Temperature** | `trigger-ds18b20` | Poll a 1-Wire temperature sensor |
+| **GPIO Edge** | `trigger-gpio` | React to Raspberry Pi pin changes (experimental) |
+| **DS18B20 Temperature** | `trigger-ds18b20` | Poll a 1-Wire temperature sensor (experimental) |
 | **System Metric** | `trigger-sysmetric` | Fire when CPU / memory / temperature crosses a threshold |
 | **Agent Tool** | `trigger-tool` | Publish the flow as a typed tool that AI agents call over MCP |
 
@@ -440,10 +451,15 @@ sudo systemctl start piworker
 | **Email** | `action-email` | Send an email via SMTP |
 | **Database** | `action-database` | Execute SQLite, PostgreSQL or MySQL queries |
 | **MQTT Publish** | `action-mqtt` | Publish to an MQTT broker |
-| **GPIO Write** | `action-gpio` | Set a Raspberry Pi output pin |
-| **I2C Read** | `action-i2c` | Read from an I2C device |
+| **GPIO Write** | `action-gpio` | Set a Raspberry Pi output pin (experimental) |
+| **I2C Read** | `action-i2c` | Read from an I2C device (experimental) |
 | **Write File** | `action-file` | Write or append the message to a file |
 | **Agent Reply** | `action-reply` | Answer the agent tool call that started the run |
+
+> **Experimental hardware nodes.** GPIO Edge, GPIO Write, I2C Read and DS18B20
+> Temperature are covered by automated tests but have not been validated on
+> real hardware for this release. Test them with your own wiring before
+> relying on them, and please report what you find.
 
 > Each node ships an in-app documentation card and a configuration schema, so the
 > editor renders its settings form automatically. The settings of every node are
@@ -1221,8 +1237,8 @@ make build-arm        # Build for Raspberry Pi 3
 | POST | `/api/auth/recover` | Redeem a local recovery code and revoke account sessions |
 
 There is no public registration endpoint, user-management UI, or role system.
-The initial scope is one administrator per installation; existing accounts are
-preserved during migration.
+The initial scope is one administrator per installation; updates keep existing
+accounts.
 
 ### Flows
 
@@ -1386,6 +1402,8 @@ CGO builds for amd64/arm64/ARMv7, and multi-platform Docker builds. Linux archiv
 and SHA256 checksums are available as workflow artifacts.
 
 Pushing a `v*` tag runs the same checks and prepares a **draft GitHub release**.
+A tag with a hyphen (`v1.0.0-beta.1`) is drafted as a **prerelease**: it does
+not become GitHub's latest release and does not move the image's `latest` tag.
 Review the binaries before publishing the draft. Publishing a release triggers
 GHCR image publication for amd64, arm64, and ARMv7; stable releases also update
 `latest`. Make the GHCR package public for anonymous pulls. The release tag must
@@ -1396,6 +1414,10 @@ sequence and GitHub event references. Creating or editing these files locally
 does not publish anything.
 
 Dependabot monitors Go modules, the Bun lockfile in `web/`, and GitHub Actions.
+
+## Security
+
+Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
 ## Contributing
 
