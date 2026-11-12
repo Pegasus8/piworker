@@ -1,6 +1,6 @@
 # ADR-0027: Typed interface translations without an i18n library
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-12
 **Deciders:** maintainer
 
