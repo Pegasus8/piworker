@@ -5,8 +5,8 @@ settings that matter; anything not mentioned keeps its default. Connect the
 nodes from left to right unless a recipe says otherwise.
 
 Build them the way [Getting started](getting-started.md#4-build-your-first-flow)
-shows: add the node, fill in its settings, **Apply changes**, connect, **Save**,
-**Deploy**.
+shows: add the nodes in order (each one is connected after the selected one),
+fill in their settings, **Save**, **Deploy**.
 
 - [Tell me when the Pi overheats](#tell-me-when-the-pi-overheats)
 - [React to a webhook only when it matters](#react-to-a-webhook-only-when-it-matters)

@@ -33,7 +33,7 @@ ports interfere with Zigbee's 2.4 GHz radio, on a Pi and on a PC alike.
 
 ## 2. Add a connection
 
-In the flow list, open **Connections** and add one:
+In the navigation, under Settings, open **Broker connections** and add one:
 
 | Setting | Example |
 |---------|---------|
@@ -47,7 +47,7 @@ again; leave it empty when editing to keep it.
 
 ## 3. Pair your devices
 
-Open the **Zigbee** page, choose **Allow joining** (four minutes), and put the
+Open the **Zigbee devices** page, choose **Allow joining** (four minutes), and put the
 device in pairing mode. For SONOFF devices this is usually holding the button
 for about five seconds until the LED blinks; see the device's manual. The device
 appears in the list once Zigbee2MQTT has interviewed it.

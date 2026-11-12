@@ -1,58 +1,37 @@
 <script setup lang="ts">
-import VariablesDialog from '@/components/VariablesDialog.vue'
-import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, computed, watch, nextTick } from 'vue'
+import { RouterLink, useRouter } from 'vue-router'
 import { useFlowsStore, FlowVersionConflictError } from '@/stores/flows'
-import { useAuthStore } from '@/stores/auth'
-import { useAgentStore } from '@/stores/agent'
+import { useShellStore } from '@/stores/shell'
 import { useApi } from '@/composables/useApi'
 import { visibleText } from '@/lib/agentAccess'
-import { Button, Card, Input, Switch, Badge } from '@/components/ui'
-import SecretsDialog from '@/components/SecretsDialog.vue'
-import BrokerConnectionsDialog from '@/components/BrokerConnectionsDialog.vue'
+import { summarizeRuns, type RunSummary } from '@/lib/flowActivity'
+import { Button, Card, Input, Switch, Badge, Dialog, Menu } from '@/components/ui'
+import type { MenuAction } from '@/components/ui/Menu.vue'
 import ExamplesDialog from '@/components/ExamplesDialog.vue'
 import FlowMarks from '@/components/agent/FlowMarks.vue'
 import AgentText from '@/components/agent/AgentText.vue'
 import VersionHistoryDialog from '@/components/flow/VersionHistoryDialog.vue'
 import type { FlowListItem } from '@/types'
-import {
-  Plus,
-  Trash2,
-  Edit3,
-  Search,
-  Workflow,
-  Calendar,
-  LogOut,
-  Copy,
-  Download,
-  Upload,
-  KeyRound,
-  History,
-  Cable,
-  LayoutTemplate
-} from 'lucide-vue-next'
-
+import { Plus, Trash2, Edit3, Search, Workflow, Copy, Download, Upload, History, LayoutTemplate, AlertTriangle, Clock } from 'lucide-vue-next'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import OperationFeedback from '@/components/ui/OperationFeedback.vue'
 import { useFeedback } from '@/composables/useFeedback'
+import { messages as m, formatRelative, formatDate } from '@/i18n'
 
 const confirmation = ref<InstanceType<typeof ConfirmDialog>>()
 const { feedback, pending, run } = useFeedback()
 const router = useRouter()
 const flowsStore = useFlowsStore()
-const authStore = useAuthStore()
-const agentStore = useAgentStore()
+const shell = useShellStore()
 const api = useApi()
 
 const searchQuery = ref('')
-const showSecrets = ref(false)
-const showVariables = ref(false)
-const showConnections = ref(false)
 const showExamples = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 
 async function handleDuplicate(id: string) {
-  await run(async () => { await api.duplicateFlow(id); await flowsStore.fetchFlows() }, 'Flow duplicated.', 'Could not duplicate the flow. Try again.')
+  await run(async () => { await api.duplicateFlow(id); await flowsStore.fetchFlows() }, m.value.flows.duplicated, m.value.flows.duplicateFailed)
 }
 async function handleExport(id: string, name: string) {
   await run(async () => {
@@ -64,7 +43,7 @@ async function handleExport(id: string, name: string) {
     a.download = `${name.replace(/[^a-z0-9-_]+/gi, '_') || 'flow'}.json`
     a.click()
     URL.revokeObjectURL(url)
-  }, 'Export prepared. Check your downloads.', 'Could not export the flow. Try again.')
+  }, m.value.flows.exported, m.value.flows.exportFailed)
 }
 
 function triggerImport() {
@@ -79,15 +58,13 @@ async function onImportFile(event: Event) {
     const flow = JSON.parse(await file.text())
     const imported = await api.importFlow(flow)
     await router.push(`/editor/${imported.id}`)
-  }, 'Flow imported.', 'Could not import the flow. Check the JSON file and your connection, then try again.')
+  }, m.value.flows.imported, m.value.flows.importFailed)
   input.value = ''
-
 }
 
 onMounted(() => {
   flowsStore.fetchFlows()
 })
-
 
 const displayedFlows = computed(() => {
   const query = searchQuery.value.toLowerCase()
@@ -99,9 +76,28 @@ const displayedFlows = computed(() => {
   )
 })
 
-function editFlow(id: string) {
-  router.push(`/editor/${id}`)
-}
+// Recent runs of each listed flow (the last 20), a few requests at a time:
+// when it last ran and whether recent runs had errors.
+const activity = ref<Record<string, RunSummary | null>>({})
+let activityRequest = 0
+watch(() => flowsStore.flows.map(f => `${f.id}:${f.updatedAt}:${f.running}`).join(','), async () => {
+  const request = ++activityRequest
+  const queue = flowsStore.flows.map(f => f.id)
+  const worker = async () => {
+    for (let id = queue.shift(); id; id = queue.shift()) {
+      try {
+        const runs = await api.getFlowRuns(id, 20)
+        if (request === activityRequest) activity.value = { ...activity.value, [id]: summarizeRuns(Array.isArray(runs) ? runs : []) }
+      } catch {
+        if (request === activityRequest) activity.value = { ...activity.value, [id]: null }
+      }
+    }
+  }
+  await Promise.all([worker(), worker(), worker()])
+})
+
+const runningCount = computed(() => flowsStore.flows.filter(f => f.running).length)
+const failingCount = computed(() => flowsStore.flows.filter(f => f.state === 'failed' || (activity.value[f.id]?.failed ?? 0) > 0).length)
 
 async function toggleFlow(id: string, enabled: boolean) {
   let conflict: FlowVersionConflictError | null = null
@@ -112,7 +108,7 @@ async function toggleFlow(id: string, enabled: boolean) {
       if (e instanceof FlowVersionConflictError) conflict = e
       throw e
     }
-  }, enabled ? 'Flow deployed.' : 'Flow stopped.', 'Could not update the flow. Try again.')
+  }, enabled ? m.value.editor.deployed : m.value.editor.stopped, m.value.flows.toggleFailed)
   flowsStore.error = null
   if (conflict) await offerReview(id, conflict)
 }
@@ -121,13 +117,10 @@ async function toggleFlow(id: string, enabled: boolean) {
 // agent's version) deploys nothing: show the new version and offer to review
 // it in the editor first.
 async function offerReview(id: string, conflict: FlowVersionConflictError) {
-  const name = visibleText(flowsStore.flows.find(flow => flow.id === id)?.name ?? '') || 'This flow'
-  feedback.value = { kind: 'error', text: `Not deployed: “${name}” was changed since this list loaded (now version ${conflict.currentVersion}).` }
+  const name = visibleText(flowsStore.flows.find(flow => flow.id === id)?.name ?? '') || m.value.flows.thisFlow
+  feedback.value = { kind: 'error', text: m.value.flows.changedNotDeployed(name, conflict.currentVersion) }
   await flowsStore.fetchFlows()
-  if (await confirmation.value?.ask(
-    'This flow was changed',
-    `Version ${conflict.currentVersion} of “${name}” was saved after this list loaded, so it was not deployed. Open it to review that version before deploying it.`,
-    'Open in editor', 'Cancel')) await router.push(`/editor/${id}`)
+  if (await confirmation.value?.ask(m.value.flows.changedTitle, m.value.flows.changedBody(name, conflict.currentVersion), m.value.flows.openInEditor, m.value.common.cancel)) await router.push(`/editor/${id}`)
 }
 
 // Version history and rollback (docs/design/mcp.md §10). The dialog stays
@@ -140,264 +133,159 @@ function openHistory(flow: FlowListItem) {
   historyOpen.value = true
 }
 
-// Agent requests and drafts waiting for the admin (the passive badge count).
-const agentWaiting = computed(() => agentStore.pendingCount + agentStore.pendingDrafts)
-const agentsLabel = computed(() => {
-  const parts: string[] = []
-  const n = agentStore.pendingCount
-  const drafts = agentStore.pendingDrafts
-  if (n) parts.push(`${n} request${n === 1 ? '' : 's'} waiting for approval`)
-  if (drafts) parts.push(`${drafts} draft${drafts === 1 ? '' : 's'} to review`)
-  return parts.length ? `Agents: ${parts.join(', ')}` : 'Agents'
-})
-const agentsTarget = computed(() => agentStore.pendingCount ? '/agents/approvals' : agentStore.pendingDrafts ? '/agents/drafts' : '/agents')
-
 async function deleteFlow(id: string) {
   if (pending.value) return
-  const name = visibleText(flowsStore.flows.find(flow => flow.id === id)?.name ?? '') || 'this flow'
-  if (!await confirmation.value?.ask('Delete flow?', `Delete “${name}” and its configuration? This cannot be undone.`, 'Delete flow')) return
-  await run(() => flowsStore.deleteFlow(id), 'Flow deleted.', 'Could not delete the flow. Try again.')
+  const name = visibleText(flowsStore.flows.find(flow => flow.id === id)?.name ?? '') || m.value.flows.thisFlow
+  if (!await confirmation.value?.ask(m.value.flows.deleteTitle, m.value.flows.deleteBody(name), m.value.flows.deleteFlow)) return
+  await run(() => flowsStore.deleteFlow(id), m.value.flows.deleted, m.value.flows.deleteFailed)
   flowsStore.error = null
 }
 
-function formatDate(dateString: string) {
-  return new Date(dateString).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  })
+function actions(flow: FlowListItem): MenuAction[] {
+  return [
+    { label: m.value.flows.history, icon: History, run: () => openHistory(flow) },
+    { label: m.value.flows.duplicate, icon: Copy, disabled: pending.value, run: () => handleDuplicate(flow.id) },
+    { label: m.value.flows.export, icon: Download, disabled: pending.value, run: () => handleExport(flow.id, flow.name) },
+    { label: m.value.flows.deleteFlow, icon: Trash2, danger: true, separated: true, disabled: pending.value, run: () => deleteFlow(flow.id) }
+  ]
 }
 
+// A new flow gets its name first, so the list never fills with
+// "Untitled Flow"; it is created when it is first saved.
+const showNew = ref(false)
+const newName = ref('')
+async function openNew() {
+  newName.value = ''
+  showNew.value = true
+  await nextTick()
+  ;(document.getElementById('new-flow-name') as HTMLInputElement | null)?.focus()
+}
 function createNewFlow() {
-  flowsStore.initNewFlow()
-  router.push('/editor')
-}
-
-const logoutError = ref('')
-async function logout() {
-  logoutError.value = ''
-  try { await authStore.logout(); await router.push('/login') }
-  catch (e: any) {
-    if (e.response?.status === 401) { authStore.clearAuth(); await router.push('/login') }
-    else logoutError.value = 'Could not sign out. Check your connection and try again.'
-  }
+  const name = newName.value.trim()
+  if (!name) return
+  showNew.value = false
+  router.push({ path: '/editor', query: { name } })
 }
 </script>
 
 <template>
-  <div class="min-h-full bg-background">
-    <!-- Header -->
-    <header class="sticky top-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/60">
-      <div class="container mx-auto flex min-h-16 flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <div class="flex items-center gap-3">
-          <Workflow class="h-8 w-8 text-primary" />
-          <h1 class="text-xl font-bold">PiWorker</h1>
-        </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <Button variant="outline" @click="showVariables = true">Variables</Button>
-          <Button variant="outline" @click="showSecrets = true" title="Manage secrets">
-            <KeyRound class="mr-2 h-4 w-4" />
-            Secrets
-          </Button>
-          <Button variant="outline" @click="showConnections = true" title="Broker connections to Zigbee2MQTT">
-            <Cable class="mr-2 h-4 w-4" />
-            Connections
-          </Button>
-          <Button variant="outline" :disabled="pending" @click="triggerImport" title="Import a flow from JSON">
-            <Upload class="mr-2 h-4 w-4" />
-            Import
-          </Button>
-          <Button variant="outline" @click="showExamples = true" title="Create a flow from an example">
-            <LayoutTemplate class="mr-2 h-4 w-4" />
-            Examples
-          </Button>
-          <Button @click="createNewFlow">
-            <Plus class="mr-2 h-4 w-4" />
-            New Flow
-          </Button>
-          <Button variant="ghost" @click="router.push('/zigbee')" title="Zigbee networks, devices and pairing">Zigbee</Button>
-          <Button variant="ghost" @click="router.push('/trust')" title="HTTPS and trusting this device">HTTPS</Button>
-          <Button
-            v-if="authStore.authEnabled"
-            variant="ghost"
-            title="Agent access: tokens, approvals, drafts and audit"
-            :aria-label="agentsLabel"
-            @click="router.push(agentsTarget)"
-          >
-            Agents
-            <span v-if="agentWaiting" class="ml-1.5 rounded-full bg-destructive px-1.5 text-xs font-semibold text-destructive-foreground">{{ agentWaiting }}</span>
-          </Button>
-          <Button v-if="authStore.authEnabled" variant="ghost" @click="router.push('/account')">Account</Button>
-          <Button v-if="authStore.authEnabled" variant="ghost" size="icon" @click="logout" title="Logout" aria-label="Logout">
-            <LogOut class="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-    </header>
-
-    <!-- Main Content -->
-    <main class="lab-page container mx-auto max-w-7xl px-4 py-8 sm:px-8">
-      <p v-if="logoutError" role="alert" class="mb-4 text-sm text-destructive">{{ logoutError }}</p>
-      <section class="mb-8 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p class="mb-2 text-xs font-semibold uppercase tracking-widest text-primary">Your automation lab</p>
-          <h2 class="text-3xl font-semibold sm:text-4xl">Small flows. Big possibilities.</h2>
-          <p class="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">Connect ideas, automate the everyday, and let your Pi take it from here.</p>
-        </div>
-        <Badge variant="secondary">{{ flowsStore.flows.filter(flow => flow.running).length }} running</Badge>
-      </section>
-      <OperationFeedback :message="feedback" class="mb-4" @dismiss="feedback = null" />
-      <!-- Search -->
-      <div class="mb-6 flex items-center gap-4">
-        <div class="relative flex-1 max-w-md">
-          <Search class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            v-model="searchQuery"
-            aria-label="Search flows"
-            placeholder="Search flows..."
-            class="pl-9"
-          />
-        </div>
-        <div class="text-sm text-muted-foreground">
-          {{ displayedFlows.length }} flow{{ displayedFlows.length !== 1 ? 's' : '' }}
-        </div>
-      </div>
-
-      <!-- Loading State -->
-      <div v-if="flowsStore.loading && !flowsStore.flows.length" class="flex items-center justify-center py-12">
-        <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-      </div>
-
-      <!-- Error State -->
-      <div v-else-if="flowsStore.error && !flowsStore.flows.length" class="rounded-lg border border-destructive bg-destructive/10 p-4 text-center">
-        <p class="text-destructive">{{ flowsStore.error }}</p>
-        <Button variant="outline" class="mt-2" @click="flowsStore.fetchFlows">
-          Retry
-        </Button>
-      </div>
-
-      <!-- Empty State -->
-      <div v-else-if="displayedFlows.length === 0" class="lab-empty rounded-xl border border-dashed px-6 py-16 text-center">
-        <Workflow class="mx-auto h-16 w-16 text-primary/70" />
-        <h3 class="mt-4 text-lg font-medium">{{ searchQuery ? 'No matching flows' : 'No flows yet' }}</h3>
-        <p class="mt-2 text-muted-foreground">
-          {{ searchQuery ? 'Try a different name or clear your search.' : 'Every useful automation starts with a first connection.' }}
+  <main class="lab-page mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-8">
+    <!-- Title, at a glance, and the ways to make a flow -->
+    <section class="mb-6 flex flex-wrap items-end justify-between gap-4">
+      <div class="min-w-0">
+        <h1 class="text-2xl font-semibold sm:text-3xl">{{ m.flows.title }}</h1>
+        <p class="mt-2 flex flex-wrap gap-2 text-sm" aria-live="polite">
+          <Badge variant="secondary">{{ m.flows.total(flowsStore.flows.length) }}</Badge>
+          <Badge variant="secondary" :class="runningCount ? 'bg-primary/15 text-primary' : ''">{{ m.flows.running(runningCount) }}</Badge>
+          <Badge v-if="failingCount" variant="destructive">{{ m.flows.withErrors(failingCount) }}</Badge>
         </p>
-        <Button v-if="searchQuery" class="mt-4" variant="outline" @click="searchQuery = ''">Clear search</Button>
-        <Button v-else class="mt-4" @click="createNewFlow">
-          <Plus class="mr-2 h-4 w-4" />
-          Create Flow
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <Button variant="outline" :disabled="pending" :title="m.flows.importHint" @click="triggerImport">
+          <Upload class="mr-2 h-4 w-4" />{{ m.flows.import }}
+        </Button>
+        <Button variant="outline" :title="m.flows.examplesHint" @click="showExamples = true">
+          <LayoutTemplate class="mr-2 h-4 w-4" />{{ m.flows.examples }}
+        </Button>
+        <Button @click="openNew">
+          <Plus class="mr-2 h-4 w-4" />{{ m.flows.newFlow }}
         </Button>
       </div>
+    </section>
+    <OperationFeedback floating :message="feedback" @dismiss="feedback = null" />
 
-      <!-- Flows Grid -->
-      <div v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Card
-          v-for="flow in displayedFlows"
-          :key="flow.id"
-          class="group relative overflow-hidden transition-colors hover:border-primary/50 hover:shadow-md"
-        >
-          <div class="p-4">
-            <!-- Header -->
+    <!-- Search -->
+    <div v-if="flowsStore.flows.length" class="mb-6 flex items-center gap-4">
+      <div class="relative max-w-md flex-1">
+        <Search class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input v-model="searchQuery" :aria-label="m.flows.search" :placeholder="m.flows.searchPlaceholder" class="pl-9" />
+      </div>
+      <div v-if="searchQuery" class="text-sm text-muted-foreground">{{ m.flows.matches(displayedFlows.length) }}</div>
+    </div>
+
+    <!-- Loading State -->
+    <div v-if="flowsStore.loading && !flowsStore.flows.length" class="flex items-center justify-center py-12" role="status" :aria-label="m.common.loading">
+      <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+    </div>
+
+    <!-- Error State -->
+    <div v-else-if="flowsStore.error && !flowsStore.flows.length" class="rounded-lg border border-destructive bg-destructive/10 p-4 text-center">
+      <p class="text-destructive">{{ m.flows.loadFailed }}</p>
+      <Button variant="outline" class="mt-2" @click="flowsStore.fetchFlows">{{ m.common.retry }}</Button>
+    </div>
+
+    <!-- Empty State -->
+    <div v-else-if="displayedFlows.length === 0" class="lab-empty rounded-xl border border-dashed px-6 py-16 text-center">
+      <Workflow class="mx-auto h-16 w-16 text-primary/70" />
+      <h2 class="mt-4 text-lg font-medium">{{ searchQuery ? m.flows.noMatches : m.flows.empty }}</h2>
+      <p class="mx-auto mt-2 max-w-md text-muted-foreground">{{ searchQuery ? m.flows.noMatchesHint : m.flows.emptyHint }}</p>
+      <Button v-if="searchQuery" class="mt-4" variant="outline" @click="searchQuery = ''">{{ m.flows.clearSearch }}</Button>
+      <div v-else class="mt-4 flex flex-wrap justify-center gap-2">
+        <Button @click="openNew"><Plus class="mr-2 h-4 w-4" />{{ m.flows.createFlow }}</Button>
+        <Button variant="outline" @click="showExamples = true"><LayoutTemplate class="mr-2 h-4 w-4" />{{ m.flows.startFromExample }}</Button>
+      </div>
+    </div>
+
+    <!-- Flows Grid -->
+    <ul v-else class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <li v-for="flow in displayedFlows" :key="flow.id">
+        <Card class="flex h-full flex-col transition-colors hover:border-primary/50 hover:shadow-md">
+          <div class="flex flex-1 flex-col p-4">
             <div class="flex items-start justify-between gap-3">
-              <div class="flex-1 min-w-0">
+              <div class="min-w-0 flex-1">
                 <!-- Agents may name and describe flows (approved drafts): shown as
                      text, hidden characters revealed, here and in every label. -->
-                <h3 class="font-semibold truncate"><AgentText :text="flow.name" /></h3>
-                <p
-                  v-if="flow.description"
-                  class="mt-1 text-sm text-muted-foreground line-clamp-2"
-                >
-                  <AgentText :text="flow.description" />
-                </p>
+                <h2 class="truncate font-semibold"><RouterLink :to="`/editor/${flow.id}`" class="hover:underline"><AgentText :text="flow.name" /></RouterLink></h2>
+                <p v-if="flow.description" class="mt-1 line-clamp-2 text-sm text-muted-foreground"><AgentText :text="flow.description" /></p>
               </div>
-              <Switch
-                :disabled="pending" :aria-label="`${flow.running ? 'Stop' : 'Deploy'} ${visibleText(flow.name)}`"
-                :model-value="flow.running"
-                @update:model-value="(v) => toggleFlow(flow.id, v)"
-              />
+              <label class="flex shrink-0 items-center gap-2 text-xs font-medium" :class="flow.running ? 'text-primary' : flow.state === 'failed' ? 'text-destructive' : 'text-muted-foreground'">
+                {{ flow.running ? m.editor.running : flow.state === 'failed' ? m.editor.failed : m.editor.stoppedState }}
+                <Switch
+                  :disabled="pending || (!flow.running && flow.nodeCount === 0)" :title="!flow.running && flow.nodeCount === 0 ? m.editor.deployEmpty : undefined" :aria-label="flow.running ? m.flows.stopFlow(visibleText(flow.name)) : m.flows.deployFlow(visibleText(flow.name))"
+                  :model-value="flow.running"
+                  @update:model-value="(v) => toggleFlow(flow.id, v)"
+                />
+              </label>
             </div>
 
-            <!-- Meta -->
-            <div class="mt-4 flex items-center gap-4 text-xs text-muted-foreground">
-              <div class="flex items-center gap-1">
-                <Workflow class="h-3 w-3" />
-                {{ flow.nodeCount }} nodes
+            <!-- What it is, and how it has been doing -->
+            <dl class="mt-4 space-y-1.5 text-xs text-muted-foreground">
+              <div class="flex items-center gap-1.5">
+                <Workflow class="h-3.5 w-3.5" aria-hidden="true" />
+                <dt class="sr-only">{{ m.flows.size }}</dt>
+                <dd>{{ m.flows.nodes(flow.nodeCount) }} · <span :title="formatDate(flow.updatedAt, { dateStyle: 'medium', timeStyle: 'short' })">{{ m.flows.edited(formatRelative(flow.updatedAt)) }}</span></dd>
               </div>
-              <div class="flex items-center gap-1">
-                <Calendar class="h-3 w-3" />
-                {{ formatDate(flow.updatedAt) }}
+              <div class="flex items-center gap-1.5">
+                <Clock class="h-3.5 w-3.5" aria-hidden="true" />
+                <dt class="sr-only">{{ m.flows.lastRunLabel }}</dt>
+                <dd v-if="activity[flow.id] === undefined">…</dd>
+                <dd v-else-if="activity[flow.id] === null">{{ m.flows.runsUnknown }}</dd>
+                <dd v-else-if="!activity[flow.id]!.lastRunAt">{{ m.flows.neverRun }}</dd>
+                <dd v-else>{{ m.flows.lastRun(formatRelative(activity[flow.id]!.lastRunAt!)) }}</dd>
               </div>
-            </div>
+              <div v-if="activity[flow.id]?.failed" class="flex items-center gap-1.5 text-destructive">
+                <AlertTriangle class="h-3.5 w-3.5" aria-hidden="true" />
+                <dt class="sr-only">{{ m.flows.errorsLabel }}</dt>
+                <dd>{{ m.flows.recentErrors(activity[flow.id]!.failed, activity[flow.id]!.total) }}</dd>
+              </div>
+            </dl>
 
-            <!-- Status and agent marks (Deployed by agent, Changed by agent) -->
-            <div v-if="flow.running || flow.state === 'failed' || flow.agentChanged || flow.deployment?.actorKind === 'agent'" class="mt-3 flex flex-wrap gap-2">
-              <Badge
-                v-if="flow.running"
-                variant="default"
-                class="bg-primary text-primary-foreground"
-              >
-                Running
-              </Badge>
-              <Badge
-                v-else-if="flow.state === 'failed'"
-                variant="secondary"
-              >
-                Failed
-              </Badge>
+            <!-- Agent marks (Deployed by agent, Changed by agent) -->
+            <div v-if="flow.agentChanged || flow.deployment?.actorKind === 'agent'" class="mt-3 flex flex-wrap gap-2">
               <FlowMarks :flow="flow" />
             </div>
 
-            <!-- Actions -->
-            <div class="mt-4 flex gap-2 border-t pt-4">
-              <Button
-                variant="outline"
-                size="sm"
-                class="flex-1"
-                @click="editFlow(flow.id)"
-              >
-                <Edit3 class="mr-2 h-4 w-4" />
-                Edit
+            <div class="min-h-4 flex-1" />
+            <div class="flex items-center gap-2 border-t pt-3">
+              <Button variant="outline" size="sm" class="flex-1" @click="router.push(`/editor/${flow.id}`)">
+                <Edit3 class="mr-2 h-4 w-4" />{{ m.flows.edit }}
               </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                title="Version history"
-                :aria-label="`Version history of ${visibleText(flow.name)}`"
-                @click="openHistory(flow)"
-              >
-                <History class="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                :disabled="pending" title="Duplicate"
-                @click="handleDuplicate(flow.id)"
-              >
-                <Copy class="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                :disabled="pending" title="Export"
-                @click="handleExport(flow.id, flow.name)"
-              >
-                <Download class="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                class="text-destructive hover:bg-destructive/10"
-                :disabled="pending" title="Delete"
-                @click="deleteFlow(flow.id)"
-              >
-                <Trash2 class="h-4 w-4" />
-              </Button>
+              <Menu :label="m.flows.moreActions(visibleText(flow.name))" :actions="actions(flow)" />
             </div>
           </div>
         </Card>
-      </div>
-    </main>
+      </li>
+    </ul>
 
     <ConfirmDialog ref="confirmation" />
     <VersionHistoryDialog
@@ -407,19 +295,25 @@ async function logout() {
       :flow-name="historyFlow.name"
       :running="historyFlow.running"
     />
-    <!-- Secrets manager -->
-    <SecretsDialog v-model:open="showSecrets" />
-    <VariablesDialog v-model:open="showVariables" />
-    <BrokerConnectionsDialog v-model:open="showConnections" />
-    <ExamplesDialog v-model:open="showExamples" @manage-connections="showConnections = true" />
+    <ExamplesDialog v-model:open="showExamples" @manage-connections="shell.showBrokers = true" />
+    <Dialog v-model:open="showNew" :title="m.flows.newFlow">
+      <form class="space-y-4" @submit.prevent="createNewFlow">
+        <div>
+          <h2 class="text-lg font-semibold">{{ m.flows.newFlow }}</h2>
+          <p class="mt-1 text-sm text-muted-foreground">{{ m.flows.newFlowHint }}</p>
+        </div>
+        <div>
+          <label for="new-flow-name" class="text-sm font-medium">{{ m.editor.name }}</label>
+          <Input id="new-flow-name" v-model="newName" class="mt-1" :placeholder="m.flows.newFlowPlaceholder" required maxlength="120" />
+        </div>
+        <div class="flex justify-end gap-2">
+          <Button type="button" variant="outline" @click="showNew = false">{{ m.common.cancel }}</Button>
+          <Button type="submit" :disabled="!newName.trim()">{{ m.flows.create }}</Button>
+        </div>
+      </form>
+    </Dialog>
 
     <!-- Hidden file input for flow import -->
-    <input
-      ref="fileInput"
-      type="file"
-      accept="application/json,.json"
-      class="hidden"
-      @change="onImportFile"
-    />
-  </div>
+    <input ref="fileInput" type="file" accept="application/json,.json" class="hidden" @change="onImportFile" />
+  </main>
 </template>

@@ -179,7 +179,7 @@ function cancelLevel() {
   <main class="lab-page min-h-full bg-background p-4 sm:p-6">
     <div class="mx-auto max-w-4xl space-y-6">
       <AgentNav />
-      <OperationFeedback :message="feedback" @dismiss="feedback = null" />
+      <OperationFeedback floating :message="feedback" @dismiss="feedback = null" />
 
       <Card v-if="auth.authEnabled" class="space-y-4 p-4 sm:p-6">
         <div class="flex flex-wrap items-start justify-between gap-3">
@@ -333,7 +333,7 @@ function cancelLevel() {
         </p>
       </Card>
 
-      <Card class="space-y-2 p-4 sm:p-6">
+      <Card v-if="auth.authEnabled" class="space-y-2 p-4 sm:p-6">
         <h2 class="flex items-center gap-2 text-lg font-semibold"><Plug class="h-5 w-5 text-primary" aria-hidden="true" />Connect an agent</h2>
         <p class="text-sm text-muted-foreground">
           Agents connect to <code class="break-all">{{ endpoint }}</code> and send their token as a Bearer header. Each new

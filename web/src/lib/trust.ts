@@ -1,6 +1,7 @@
 // Guidance for trusting PiWorker's local certificate authority (CA) on each
 // platform. Steps are plain text plus optional commands; the view renders them
 // as text, never as HTML.
+import { msg } from '@/i18n'
 
 export type PlatformId = 'macos' | 'windows' | 'linux' | 'ios' | 'android' | 'firefox'
 
@@ -98,100 +99,108 @@ export function trustUrls(page: PageLocation, ports: ListenerPorts | null): { ht
   else base = null // PiWorker reported no plain listener
   const caDownload = base
     ? `curl -o ~/${CA_FILE} ${base}/${CA_FILE}`
-    : `# Save ${CA_FILE} with “Download CA certificate” above, as ~/${CA_FILE}`
+    : msg().trust.cliSaveComment(CA_FILE)
   return { httpsBase, caDownload }
 }
 
-const opensslVerify: TrustStep = {
-  text: 'Compare the SHA-256 fingerprint of the downloaded file with the one printed on the PiWorker device:',
-  code: `openssl x509 -in ${CA_FILE} -noout -fingerprint -sha256`
-}
-
-export const TRUST_GUIDES: Record<PlatformId, TrustGuide> = {
-  macos: {
-    label: 'macOS',
-    install: [
-      { text: `Download the CA certificate and double-click ${CA_FILE}. Keychain Access adds it to your login keychain.` },
-      { text: 'In Keychain Access, open “PiWorker Local CA …”, expand Trust and set “When using this certificate” to “Always Trust”. Close the window and confirm with your password.' },
-      { text: 'Or, for every user of this Mac, from Terminal:', code: `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/Downloads/${CA_FILE}` },
-      { text: 'Restart the browser. Safari, Chrome and Edge use this trust; Firefox has its own (see Firefox).' }
-    ],
-    verify: [
-      { text: 'Keychain Access shows the SHA-256 fingerprint in the certificate details. From Terminal:', code: `openssl x509 -in ~/Downloads/${CA_FILE} -noout -fingerprint -sha256` }
-    ],
-    remove: [
-      { text: 'Open Keychain Access, search for “PiWorker Local CA” in the login and System keychains, and delete it.' }
-    ]
-  },
-  windows: {
-    label: 'Windows',
-    install: [
-      { text: `Download the CA certificate and double-click ${CA_FILE}, then choose Install Certificate… → Current User.` },
-      { text: 'Choose “Place all certificates in the following store” → Browse → “Trusted Root Certification Authorities”, then Next → Finish, and confirm the security warning.' },
-      { text: 'Or from PowerShell:', code: `certutil -addstore -user Root $env:USERPROFILE\\Downloads\\${CA_FILE}` },
-      { text: 'Restart the browser. Edge and Chrome use this trust; Firefox has its own (see Firefox).' }
-    ],
-    verify: [
-      { text: 'From PowerShell, compare “Cert Hash(sha256)” (shown in lower case without colons):', code: `certutil -dump $env:USERPROFILE\\Downloads\\${CA_FILE}` }
-    ],
-    remove: [
-      { text: 'Run certmgr.msc, open Trusted Root Certification Authorities → Certificates, right-click “PiWorker Local CA …” and choose Delete.' }
-    ]
-  },
-  linux: {
-    label: 'Linux',
-    install: [
-      { text: 'Debian, Ubuntu and Raspberry Pi OS (system tools such as curl):', code: `sudo cp ${CA_FILE} /usr/local/share/ca-certificates/${CA_FILE} && sudo update-ca-certificates` },
-      { text: 'Fedora and RHEL:', code: `sudo cp ${CA_FILE} /etc/pki/ca-trust/source/anchors/ && sudo update-ca-trust` },
-      { text: 'Chrome and Chromium use their own store: Settings → Privacy and security → Security → Manage certificates → import the file as a trusted authority. Or (package libnss3-tools):', code: `certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "PiWorker Local CA" -i ${CA_FILE}` }
-    ],
-    verify: [opensslVerify],
-    remove: [
-      { text: 'Debian, Ubuntu and Raspberry Pi OS:', code: `sudo rm /usr/local/share/ca-certificates/${CA_FILE} && sudo update-ca-certificates --fresh` },
-      { text: 'Fedora and RHEL:', code: `sudo rm /etc/pki/ca-trust/source/anchors/${CA_FILE} && sudo update-ca-trust` },
-      { text: 'Chrome and Chromium: delete it in Manage certificates, or:', code: 'certutil -d sql:$HOME/.pki/nssdb -D -n "PiWorker Local CA"' }
-    ]
-  },
-  ios: {
-    label: 'iPhone / iPad',
-    install: [
-      { text: 'Open this page in Safari (other browsers cannot install profiles), tap Download CA certificate and allow the download.' },
-      { text: 'Open Settings → Profile Downloaded → Install, enter your passcode and confirm.' },
-      { text: 'Then Settings → General → About → Certificate Trust Settings, and turn on full trust for “PiWorker Local CA …”.' }
-    ],
-    verify: [
-      { text: 'Settings → General → VPN & Device Management → PiWorker Local CA → More Details shows the SHA-256 fingerprint.' }
-    ],
-    remove: [
-      { text: 'Settings → General → VPN & Device Management → PiWorker Local CA → Remove Profile.' }
-    ]
-  },
-  android: {
-    label: 'Android',
-    install: [
-      { text: `Download the CA certificate (${CA_FILE}).` },
-      { text: 'Open Settings → Security & privacy → More security settings → Encryption & credentials → Install a certificate → CA certificate → Install anyway, and choose the file. Menu names vary by manufacturer: search Settings for “CA certificate”.' },
-      { text: 'Chrome trusts it after a restart. Many apps ignore certificates installed by the user.' }
-    ],
-    verify: [
-      { text: 'Encryption & credentials → Trusted credentials → User → PiWorker Local CA shows the SHA-256 fingerprint.' }
-    ],
-    remove: [
-      { text: 'Encryption & credentials → Trusted credentials → User → PiWorker Local CA → Remove.' }
-    ]
-  },
-  firefox: {
-    label: 'Firefox',
-    install: [
-      { text: 'Desktop Firefox has its own certificate store. Use “Open in Firefox” above, tick “Trust this CA to identify websites” and confirm.' },
-      { text: 'Or Settings → Privacy & Security → Certificates → View Certificates → Authorities → Import.' },
-      { text: 'On Windows and macOS you can instead let Firefox use the system trust: open about:config and set security.enterprise_roots.enabled to true.' }
-    ],
-    verify: [
-      { text: 'In the import dialog, choose View: the SHA-256 fingerprint is listed under Fingerprints.' }
-    ],
-    remove: [
-      { text: 'Settings → Privacy & Security → View Certificates → Authorities, select the PiWorker entry and choose Delete or Distrust.' }
-    ]
+function guides(): Record<PlatformId, TrustGuide> {
+  const t = msg().trust
+  const g = t.guides
+  const opensslVerify: TrustStep = {
+    text: t.opensslVerify,
+    code: `openssl x509 -in ${CA_FILE} -noout -fingerprint -sha256`
+  }
+  return {
+    macos: {
+      label: 'macOS',
+      install: [
+        { text: g.macos.download(CA_FILE) },
+        { text: g.macos.alwaysTrust },
+        { text: g.macos.terminal, code: `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/Downloads/${CA_FILE}` },
+        { text: g.macos.restart }
+      ],
+      verify: [
+        { text: g.macos.verify, code: `openssl x509 -in ~/Downloads/${CA_FILE} -noout -fingerprint -sha256` }
+      ],
+      remove: [
+        { text: g.macos.remove }
+      ]
+    },
+    windows: {
+      label: 'Windows',
+      install: [
+        { text: g.windows.download(CA_FILE) },
+        { text: g.windows.store },
+        { text: g.windows.powershell, code: `certutil -addstore -user Root $env:USERPROFILE\\Downloads\\${CA_FILE}` },
+        { text: g.windows.restart }
+      ],
+      verify: [
+        { text: g.windows.verify, code: `certutil -dump $env:USERPROFILE\\Downloads\\${CA_FILE}` }
+      ],
+      remove: [
+        { text: g.windows.remove }
+      ]
+    },
+    linux: {
+      label: 'Linux',
+      install: [
+        { text: g.linux.debian, code: `sudo cp ${CA_FILE} /usr/local/share/ca-certificates/${CA_FILE} && sudo update-ca-certificates` },
+        { text: g.linux.fedora, code: `sudo cp ${CA_FILE} /etc/pki/ca-trust/source/anchors/ && sudo update-ca-trust` },
+        { text: g.linux.chrome, code: `certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "PiWorker Local CA" -i ${CA_FILE}` }
+      ],
+      verify: [opensslVerify],
+      remove: [
+        { text: g.linux.removeDebian, code: `sudo rm /usr/local/share/ca-certificates/${CA_FILE} && sudo update-ca-certificates --fresh` },
+        { text: g.linux.fedora, code: `sudo rm /etc/pki/ca-trust/source/anchors/${CA_FILE} && sudo update-ca-trust` },
+        { text: g.linux.removeChrome, code: 'certutil -d sql:$HOME/.pki/nssdb -D -n "PiWorker Local CA"' }
+      ]
+    },
+    ios: {
+      label: g.ios.label,
+      install: [
+        { text: g.ios.safari },
+        { text: g.ios.profile },
+        { text: g.ios.fullTrust }
+      ],
+      verify: [
+        { text: g.ios.verify }
+      ],
+      remove: [
+        { text: g.ios.remove }
+      ]
+    },
+    android: {
+      label: 'Android',
+      install: [
+        { text: g.android.download(CA_FILE) },
+        { text: g.android.install },
+        { text: g.android.chrome }
+      ],
+      verify: [
+        { text: g.android.verify }
+      ],
+      remove: [
+        { text: g.android.remove }
+      ]
+    },
+    firefox: {
+      label: 'Firefox',
+      install: [
+        { text: g.firefox.own },
+        { text: g.firefox.import },
+        { text: g.firefox.enterprise }
+      ],
+      verify: [
+        { text: g.firefox.verify }
+      ],
+      remove: [
+        { text: g.firefox.remove }
+      ]
+    }
   }
 }
+
+/** The guide of each platform, in the interface language at the time it is read. */
+export const TRUST_GUIDES = Object.defineProperties({}, Object.fromEntries(
+  PLATFORMS.map(id => [id, { enumerable: true, get: () => guides()[id] }])
+)) as Record<PlatformId, TrustGuide>

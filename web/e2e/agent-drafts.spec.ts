@@ -240,13 +240,14 @@ test('rejecting sends the reason', async ({ page }) => {
 test('flows show agent markers, the history rolls back with confirmation, and a stale list toggle deploys nothing', async ({ page }) => {
   const requests = await mockServer(page)
   await page.goto('/')
-  const card = page.locator('.group').filter({ hasText: 'Garage' })
+  const card = page.getByRole('listitem').filter({ hasText: 'Garage' })
   await expect(card.getByText('Deployed by agent laptop')).toBeVisible()
   await expect(card.getByText('Changed by agent')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Agents: 1 draft to review' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Agents: 1 draft to review' })).toBeVisible()
   await page.screenshot({ path: 'test-results/flows-agent-marks.png', fullPage: true })
 
-  await page.getByRole('button', { name: 'Version history of Garage' }).click()
+  await card.getByRole('button', { name: 'More actions for Garage' }).click()
+  await page.getByRole('menuitem', { name: 'Version history' }).click()
   const history = page.getByRole('dialog', { name: 'Version history' })
   await expect(history.getByText('Not approved by you')).toHaveCount(2)
   await expect(history.getByText('Last approved by you')).toBeVisible()
@@ -263,9 +264,9 @@ test('flows show agent markers, the history rolls back with confirmation, and a 
 
   // Agents may name and describe flows: hidden characters are revealed in
   // the card, the labels and the dialogs.
-  const pump = page.locator('.group').filter({ hasText: 'Pump' })
+  const pump = page.getByRole('listitem').filter({ hasText: 'Pump' })
   await expect(pump.getByText('Waters the garden\\u200B')).toBeVisible()
-  await expect(pump.getByRole('button', { name: 'Version history of Pump\\u202Egnp' })).toBeVisible()
+  await expect(pump.getByRole('button', { name: 'More actions for Pump\\u202Egnp' })).toBeVisible()
   await expect(pump.getByRole('switch', { name: 'Deploy Pump\\u202Egnp' })).toBeVisible()
 
   await page.getByRole('switch', { name: 'Deploy Lights' }).click()

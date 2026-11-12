@@ -94,6 +94,8 @@ export function configFieldsFromSchema(schema: any): ConfigField[] {
       required: required.includes(key),
       default: p.default,
       placeholder: p.description || '',
+      unit: typeof p.unit === 'string' && p.unit ? p.unit : undefined,
+      sensitive: p.sensitive === true || undefined,
       options: hasEnum ? p.enum.map((v: string) => ({ label: v, value: v })) : undefined,
       // A suggestion source of a free-text setting (ConfigProperty.Options).
       suggest: type === 'text' ? suggestSource(p.options) : undefined

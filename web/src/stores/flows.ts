@@ -5,6 +5,8 @@ import type { ApplyResult } from '@/lib/drafts'
 import { useApi } from '@/composables/useApi'
 import { ports, validConnection } from '@/lib/ports'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
+import { autoEdge, nextPosition } from '@/lib/autoConnect'
+import { msg } from '@/i18n'
 
 // Map backend categories to frontend categories
 const backendCategoryMap: Record<string, NodeCategory> = {
@@ -56,6 +58,52 @@ export const useFlowsStore = defineStore('flows', () => {
   const selectedNodeId = ref<string | null>(null)
   const isDirty = ref(false)
 
+  // Undo/redo of canvas changes: snapshots of nodes and edges taken before
+  // each change. Consecutive edits of one node's settings share one step.
+  type Snapshot = { nodes: FlowNode[]; edges: FlowEdge[] }
+  const HISTORY_LIMIT = 100
+  const past = ref<Snapshot[]>([])
+  const future = ref<Snapshot[]>([])
+  let lastGroup: { key: string; at: number } | null = null
+  const canUndo = computed(() => past.value.length > 0)
+  const canRedo = computed(() => future.value.length > 0)
+  function snapshot(): Snapshot {
+    return JSON.parse(JSON.stringify({ nodes: nodes.value, edges: edges.value }))
+  }
+  function record(group?: string) {
+    const now = Date.now()
+    if (group && lastGroup?.key === group && now - lastGroup.at < 2000) { lastGroup.at = now; return }
+    lastGroup = group ? { key: group, at: now } : null
+    past.value = [...past.value.slice(-(HISTORY_LIMIT - 1)), snapshot()]
+    future.value = []
+  }
+  function restore(state: Snapshot) {
+    nodes.value = state.nodes
+    edges.value = state.edges
+    if (selectedNodeId.value && !nodes.value.some(n => n.id === selectedNodeId.value)) selectedNodeId.value = null
+    isDirty.value = true
+    lastGroup = null
+  }
+  function undo() {
+    const previous = past.value[past.value.length - 1]
+    if (!previous) return
+    future.value = [...future.value, snapshot()]
+    past.value = past.value.slice(0, -1)
+    restore(previous)
+  }
+  function redo() {
+    const next = future.value[future.value.length - 1]
+    if (!next) return
+    past.value = [...past.value, snapshot()]
+    future.value = future.value.slice(0, -1)
+    restore(next)
+  }
+  function clearHistory() {
+    past.value = []
+    future.value = []
+    lastGroup = null
+  }
+
   const invalidConnections = computed(() => edges.value.filter(edge => !validConnection(edge, nodes.value, edges.value.filter(other => other.id !== edge.id), nodeTypesStore.getById)))
 
   const selectedNode = computed(() => {
@@ -102,6 +150,7 @@ export const useFlowsStore = defineStore('flows', () => {
       nodes.value = transformNodes(flow.nodes || [])
       edges.value = transformEdges(flow.connections || flow.edges || [])
       isDirty.value = false
+      clearHistory()
     } catch (e) {
       if (!isCurrent()) return
       error.value = e instanceof Error ? e.message : 'Failed to fetch flow'
@@ -421,13 +470,28 @@ export const useFlowsStore = defineStore('flows', () => {
 
   // Node operations
   function addNode(node: FlowNode) {
+    record()
     nodes.value.push(node)
     isDirty.value = true
+  }
+
+  // Adds a node after another (or alone) and connects them when both have
+  // a port for it: one undo step.
+  function addNodeAfter(node: FlowNode, afterId: string | null) {
+    record()
+    const after = afterId ? nodes.value.find(n => n.id === afterId) : undefined
+    node.position = nextPosition(after, nodes.value)
+    nodes.value.push(node)
+    const edge = after ? autoEdge(after, node, nodes.value, edges.value, nodeTypesStore.getById) : null
+    if (edge) edges.value = [...edges.value, edge]
+    isDirty.value = true
+    return edge
   }
 
   function updateNode(id: string, updates: Partial<FlowNode>) {
     const idx = nodes.value.findIndex(n => n.id === id)
     if (idx !== -1) {
+      record(updates.position ? undefined : `node:${id}`)
       nodes.value[idx] = { ...nodes.value[idx], ...updates }
       isDirty.value = true
     }
@@ -436,12 +500,14 @@ export const useFlowsStore = defineStore('flows', () => {
   function updateNodeConfig(id: string, config: Record<string, any>) {
     const idx = nodes.value.findIndex(n => n.id === id)
     if (idx !== -1) {
+      record(`config:${id}`)
       nodes.value[idx].data.config = config
       isDirty.value = true
     }
   }
 
   function removeNode(id: string) {
+    record()
     nodes.value = nodes.value.filter(n => n.id !== id)
     edges.value = edges.value.filter(e => e.source !== id && e.target !== id)
     if (selectedNodeId.value === id) {
@@ -462,12 +528,15 @@ export const useFlowsStore = defineStore('flows', () => {
            e.sourceHandle === edge.sourceHandle && e.targetHandle === edge.targetHandle
     )
     if (!exists) {
+      record()
       edges.value = [...edges.value, edge]
       isDirty.value = true
     }
   }
 
   function removeEdge(id: string) {
+    if (!edges.value.some(e => e.id === id)) return
+    record()
     edges.value = edges.value.filter(e => e.id !== id)
     isDirty.value = true
   }
@@ -487,13 +556,14 @@ export const useFlowsStore = defineStore('flows', () => {
     edges.value = []
     selectedNodeId.value = null
     isDirty.value = false
+    clearHistory()
   }
 
-  function initNewFlow() {
+  function initNewFlow(name?: string) {
     discardPendingFlowFetch()
     currentFlow.value = {
       id: '',
-      name: 'Untitled Flow',
+      name: name?.trim() || msg().editor.untitled,
       description: '',
       state: 'inactive',
       nodes: [],
@@ -505,6 +575,7 @@ export const useFlowsStore = defineStore('flows', () => {
     edges.value = []
     selectedNodeId.value = null
     isDirty.value = false
+    clearHistory()
   }
 
   return {
@@ -536,8 +607,15 @@ export const useFlowsStore = defineStore('flows', () => {
     resetCurrentFlow,
     initNewFlow,
 
+    // History
+    canUndo,
+    canRedo,
+    undo,
+    redo,
+
     // Node operations
     addNode,
+    addNodeAfter,
     updateNode,
     updateNodeConfig,
     removeNode,

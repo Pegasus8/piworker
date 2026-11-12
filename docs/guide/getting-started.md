@@ -96,21 +96,27 @@ Type the code, choose a username and a password, and the flow list opens. The
 code works once and expires after 30 minutes; if it expired, restart PiWorker
 to get a new one.
 
+The interface is in English or Spanish. It follows your browser's language;
+change it at the bottom of the navigation or on the sign-in page.
+
 ## 4. Build your first flow
 
 The flow prints a message every five seconds. It needs nothing but PiWorker,
 so it works on any machine.
 
-**Create the flow.** Choose **New Flow**. The editor opens with the node list
-on the left and an empty canvas.
+**Create the flow.** Choose **New Flow**, type a name such as `My first flow`
+and choose **Create**. The editor opens with the node list on the left and an
+empty canvas.
 
 **Add three nodes.** Click a node in the list to add it (or drag it onto the
-canvas). Each time, its settings open; fill them in and choose **Apply
-changes**.
+canvas). Its settings open beside the canvas, and what you type applies to the
+flow right away. A node you add while another is selected is placed after it
+and connected to it, so clicking the three nodes below in turn builds the whole
+chain.
 
 | Add this node (section) | Setting | Value |
 |-------------------------|---------|-------|
-| **Interval Timer** (Triggers) | Interval (ms) | `5000` |
+| **Interval Timer** (Triggers) | Interval | `5` seconds |
 | **Template** (Processing) | Template | `Tick number {{payload.count}}` |
 | **Debug** (Processing) | – | leave as it is |
 
@@ -125,13 +131,14 @@ saved.
 
 ![The Template node's settings with the payload playground showing "Tick number 3"](images/node-playground.png)
 
-**Connect them.** Drag from the dot on the right edge of **Interval Timer** to
-the dot on the left edge of **Template**, then from **Template** to **Debug**.
-On a phone or if dragging is awkward, use **Connections** above the node list
-and pick the nodes from the lists instead.
+**Check the connections.** A line joins **Interval Timer** to **Template** and
+**Template** to **Debug**. To connect nodes yourself, drag from the dot on the
+right edge of one node to the dot on the left edge of another; on a phone, or
+if dragging is awkward, use **Connections** above the canvas and pick the nodes
+from the lists instead.
 
-**Name and save.** Choose **Settings**, type a name such as `My first flow`,
-then **Done** and **Save**.
+**Save.** Choose **Save** (or press Ctrl+S, ⌘S on a Mac). Undo and redo
+(Ctrl+Z, Ctrl+Y) are next to the editor tools while you build.
 
 ![The editor with Interval Timer, Template and Debug connected in a row](images/editor-flow.png)
 

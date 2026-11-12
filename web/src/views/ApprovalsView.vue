@@ -118,7 +118,7 @@ const decisions = computed(() => agent.recentDecisions)
   <main class="lab-page min-h-full bg-background p-4 sm:p-6">
     <div class="mx-auto max-w-4xl space-y-6">
       <AgentNav />
-      <OperationFeedback :message="feedback" @dismiss="feedback = null" />
+      <OperationFeedback floating :message="feedback" @dismiss="feedback = null" />
 
       <template v-if="auth.authEnabled">
         <div class="flex flex-wrap items-end justify-between gap-3">

@@ -34,7 +34,6 @@ async function save() {
 <template>
  <main class="lab-page min-h-full bg-background p-6">
   <div class="mx-auto max-w-md space-y-6">
-   <Button variant="ghost" @click="router.push('/')">Back to flows</Button>
    <div><h1 class="text-2xl font-bold">Account</h1><p class="text-muted-foreground">{{ auth.user?.username }}</p></div>
    <Card class="p-6">
     <h2 class="text-lg font-semibold mb-2">Change password</h2>

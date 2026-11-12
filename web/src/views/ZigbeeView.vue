@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import { Button, Card, Badge } from '@/components/ui'
-import { ArrowLeft, Cable, RadioTower, RefreshCw } from 'lucide-vue-next'
+import { Cable, RadioTower, RefreshCw } from 'lucide-vue-next'
 import BrokerConnectionsDialog from '@/components/BrokerConnectionsDialog.vue'
 import OperationFeedback from '@/components/ui/OperationFeedback.vue'
 import { useFeedback } from '@/composables/useFeedback'
@@ -11,7 +10,6 @@ import { apiErrorMessage } from '@/stores/agent'
 import { PERMIT_JOIN_SECONDS, ZIGBEE_POLL_MS, useZigbeeStore } from '@/stores/zigbee'
 import { formatDuration, keyValues, permitJoinRemaining, relativeTime, type ZigbeeNetwork } from '@/lib/zigbee'
 
-const router = useRouter()
 const store = useZigbeeStore()
 const { feedback, pending, run } = useFeedback()
 
@@ -88,7 +86,6 @@ function onConnectionsChanged() {
 <template>
   <main class="lab-page min-h-full bg-background p-4 sm:p-6">
     <div class="mx-auto max-w-6xl space-y-6">
-      <Button variant="ghost" @click="router.push('/')"><ArrowLeft class="mr-2 h-4 w-4" />Back to flows</Button>
 
       <header class="flex flex-wrap items-end justify-between gap-4">
         <div class="space-y-2">
@@ -104,7 +101,7 @@ function onConnectionsChanged() {
         </div>
       </header>
 
-      <OperationFeedback :message="feedback" @dismiss="feedback = null" />
+      <OperationFeedback floating :message="feedback" @dismiss="feedback = null" />
       <p v-if="loadError" role="alert" class="text-sm text-destructive">{{ loadError }}</p>
       <p v-else-if="pollError" role="status" class="text-sm text-amber-700 dark:text-amber-400">{{ pollError }}</p>
 

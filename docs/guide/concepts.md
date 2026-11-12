@@ -157,8 +157,9 @@ reading, a counter. Variables are kept across restarts.
 | **Global** | every flow | `vars["threshold"]` | `{{vars.threshold}}` |
 | **This flow** | only this flow | `flowVars["threshold"]` | `{{flowVars.threshold}}` |
 
-- Create and edit them under **Variables** (in the flow list for globals, in
-  the editor for both scopes), or from a flow with the **Set Variable** node.
+- Create and edit them under **Variables** (in the navigation, under
+  Settings, for globals; **Flow variables** in the editor for both scopes), or
+  from a flow with the **Set Variable** node.
 - Read them in expressions and templates as shown above, or with the **Get
   Variable** node, which puts the value in the payload.
 - The same name may exist in both scopes. They are separate values: a flow
@@ -172,7 +173,7 @@ in them.
 ## Secrets
 
 Passwords, tokens and webhook URLs that contain a token belong under
-**Secrets** (in the flow list). You give each one a name; after saving, the
+**Secrets** (in the navigation, under Settings). You give each one a name; after saving, the
 value is never shown again, only replaced.
 
 Use a secret by writing `{{secret.NAME}}` in a credential setting: the
@@ -204,6 +205,6 @@ History matters most when [AI agents](agents.md) may change your flows:
 
 ## Copying flows around
 
-On a flow card you can **duplicate** a flow or **export** it as a file, and
+On a flow card, the **⋯** menu can **duplicate** a flow or **export** it as a file, and
 **Import** in the flow list loads such a file. Variables and secret values are
 not part of an export: create them again on the other installation.

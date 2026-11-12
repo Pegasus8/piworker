@@ -13,8 +13,11 @@ import {
   Square,
   Settings,
   Workflow,
-  History
+  History,
+  Undo2,
+  Redo2
 } from 'lucide-vue-next'
+import { messages as m } from '@/i18n'
 
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import OperationFeedback from '@/components/ui/OperationFeedback.vue'
@@ -55,7 +58,7 @@ onMounted(async () => {
   if (flowId.value) {
     await flowsStore.fetchFlow(flowId.value)
   } else {
-    flowsStore.initNewFlow()
+    flowsStore.initNewFlow(typeof route.query.name === 'string' ? route.query.name : undefined)
   }
 })
 
@@ -95,7 +98,7 @@ async function handleSave(): Promise<boolean> {
       if (e instanceof FlowVersionConflictError) conflict = e
       throw e
     }
-  }, 'Flow saved.', 'Could not save the flow. Your changes are still here. Try again.')
+  }, m.value.editor.saved, m.value.editor.saveFailed)
   isSaving.value = false
   if (conflict) await offerReload(conflict, 'saved')
   return saved
@@ -106,24 +109,23 @@ async function handleSave(): Promise<boolean> {
 // offer to reload it, which discards the changes made here, or to keep
 // editing.
 async function offerReload(conflict: FlowVersionConflictError, action: 'saved' | 'deployed') {
-  feedback.value = { kind: 'error', text: `Not ${action}: this flow was changed since you opened it (now version ${conflict.currentVersion}).` }
+  const t = m.value.editor
+  feedback.value = { kind: 'error', text: action === 'saved' ? t.conflictNotSaved(conflict.currentVersion) : t.conflictNotDeployed(conflict.currentVersion) }
   const reload = await confirmation.value?.ask(
-    'This flow was changed elsewhere',
-    action === 'saved'
-      ? `Version ${conflict.currentVersion} was saved after you opened this flow. Reload it to see that version; the changes you made here will be lost. Cancel keeps your changes on screen, unsaved.`
-      : `Version ${conflict.currentVersion} was saved after you opened this flow, so it was not deployed. Reload it to review that version before deploying it.`,
-    'Reload', 'Cancel')
+    t.conflictTitle,
+    action === 'saved' ? t.conflictSaveBody(conflict.currentVersion) : t.conflictDeployBody(conflict.currentVersion),
+    t.reload, m.value.common.cancel)
   if (reload && flowId.value) {
     flowsStore.isDirty = false
     await flowsStore.fetchFlow(flowId.value)
-    feedback.value = { kind: 'success', text: `Reloaded version ${flowsStore.currentFlow?.version ?? conflict.currentVersion}.` }
+    feedback.value = { kind: 'success', text: m.value.editor.reloaded(flowsStore.currentFlow?.version ?? conflict.currentVersion) }
   }
 }
 
 async function handleDeploy() {
   if (pending.value || isSaving.value || isDeploying.value || isStopping.value) return
   if (isRunning.value) {
-    await run(() => flowsStore.stopFlow(), 'Flow stopped.', 'Could not stop the flow. Try again.')
+    await run(() => flowsStore.stopFlow(), m.value.editor.stopped, m.value.editor.stopFailed)
   } else {
     if ((!flowsStore.currentFlow?.id || flowsStore.isDirty) && !await handleSave()) return
     let conflict: FlowVersionConflictError | null = null
@@ -134,7 +136,7 @@ async function handleDeploy() {
         if (e instanceof FlowVersionConflictError) conflict = e
         throw e
       }
-    }, 'Flow deployed.', 'Could not deploy the flow. Check its configuration and try again.')
+    }, m.value.editor.deployed, m.value.editor.deployFailed)
     if (conflict) await offerReload(conflict, 'deployed')
   }
 }
@@ -142,8 +144,35 @@ function handleBack() { router.push('/') }
 onBeforeRouteLeave(async to => {
   // Session expiry must still redirect to authentication.
   if (to.name === 'login' || !flowsStore.isDirty) return true
-  return !!await confirmation.value?.ask('Discard unsaved changes?', 'Your changes have not been saved to this flow.', 'Discard changes', 'Keep editing')
+  return !!await confirmation.value?.ask(m.value.editor.discardTitle, m.value.editor.discardBody, m.value.editor.discard, m.value.editor.keepEditing)
 })
+// Ctrl/Cmd+S saves; Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z (or Ctrl+Y) undo and
+// redo canvas changes, except while typing in a field (the field's own undo).
+function typing(target: EventTarget | null) {
+  const el = target as HTMLElement | null
+  return !!el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName))
+}
+function onKeydown(event: KeyboardEvent) {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return
+  if (document.querySelector('dialog[open]')) return
+  const key = event.key.toLowerCase()
+  if (key === 's') {
+    event.preventDefault()
+    if (flowsStore.isDirty) void handleSave()
+  } else if (!typing(event.target) && key === 'z') {
+    event.preventDefault()
+    if (event.shiftKey) flowsStore.redo(); else flowsStore.undo()
+  } else if (!typing(event.target) && key === 'y') {
+    event.preventDefault()
+    flowsStore.redo()
+  }
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
+const mod = isMac ? '⌘' : 'Ctrl+'
+// An empty flow has nothing to run.
+const deployBlocked = computed(() => !isRunning.value && (flowsStore.invalidConnections.length > 0 || flowsStore.nodes.length === 0))
 function beforeUnload(event: BeforeUnloadEvent) {
   if (flowsStore.isDirty) { event.preventDefault(); event.returnValue = '' }
 }
@@ -171,15 +200,15 @@ function updateFlowDescription(value: string | number) {
     <!-- Header -->
     <header :inert="pending || flowsStore.loading" class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-3">
       <div class="flex min-w-0 flex-wrap items-center gap-2">
-        <Button variant="ghost" size="icon" aria-label="Back to flows" @click="handleBack">
+        <Button variant="ghost" size="icon" :aria-label="m.editor.back" :title="m.editor.back" @click="handleBack">
           <ArrowLeft class="h-4 w-4" />
         </Button>
 
         <div class="flex items-center gap-3">
-          <Workflow class="h-5 w-5 text-primary" />
+          <Workflow class="h-5 w-5 text-primary" aria-hidden="true" />
           <Input
             v-if="flowsStore.currentFlow"
-            aria-label="Flow name"
+            :aria-label="m.editor.flowName"
             :model-value="flowsStore.currentFlow.name"
             class="h-8 w-48 border-transparent bg-transparent px-2 text-base font-medium hover:border-input focus:border-input"
             @update:model-value="updateFlowName"
@@ -187,54 +216,60 @@ function updateFlowDescription(value: string | number) {
         </div>
 
         <Badge v-if="flowsStore.isDirty" variant="secondary" class="text-xs">
-          Unsaved
+          {{ m.editor.unsaved }}
         </Badge>
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
-        <Badge v-if="flowsStore.currentFlow" :variant="flowsStore.currentFlow.state === 'failed' ? 'destructive' : 'secondary'">{{ isRunning ? 'Running' : flowsStore.currentFlow.state === 'failed' ? 'Failed' : 'Stopped' }}</Badge>
+        <Badge v-if="flowsStore.currentFlow" :variant="flowsStore.currentFlow.state === 'failed' ? 'destructive' : isRunning ? 'default' : 'secondary'">{{ isRunning ? m.editor.running : flowsStore.currentFlow.state === 'failed' ? m.editor.failed : m.editor.stoppedState }}</Badge>
         <FlowMarks v-if="flowsStore.currentFlow?.id" :flow="flowsStore.currentFlow" />
-        <span v-if="flowsStore.currentFlow?.version" class="text-xs text-muted-foreground">Version {{ flowsStore.currentFlow.version }}</span>
+        <span v-if="flowsStore.currentFlow?.version" class="text-xs text-muted-foreground">{{ m.editor.version(flowsStore.currentFlow.version) }}</span>
 
         <Button variant="outline" size="sm" @click="showSettings = true">
           <Settings class="mr-2 h-4 w-4" />
-          Settings
+          {{ m.editor.settings }}
         </Button>
 
         <Button
           variant="outline"
           size="sm"
+          :title="`${m.editor.save} (${mod}S)`"
           :disabled="!flowsStore.isDirty || pending || isSaving"
           @click="handleSave"
         >
           <Save class="mr-2 h-4 w-4" />
-          {{ isSaving ? 'Saving...' : 'Save' }}
+          {{ isSaving ? m.editor.saving : m.editor.save }}
         </Button>
 
         <Button
           size="sm"
           :variant="isRunning ? 'destructive' : 'default'"
-          :disabled="(!isRunning && flowsStore.invalidConnections.length > 0) || pending || isSaving || isDeploying || isStopping || (!flowId && !flowsStore.currentFlow?.name)"
+          :title="!isRunning && flowsStore.nodes.length === 0 ? m.editor.deployEmpty : undefined"
+          :disabled="deployBlocked || pending || isSaving || isDeploying || isStopping || (!flowId && !flowsStore.currentFlow?.name)"
           @click="handleDeploy"
         >
           <Play v-if="!isRunning" class="mr-2 h-4 w-4" />
           <Square v-else class="mr-2 h-4 w-4" />
-          {{ isDeploying ? 'Deploying...' : isStopping ? 'Stopping...' : isRunning ? 'Stop' : 'Deploy' }}
+          {{ isDeploying ? m.editor.deploying : isStopping ? m.editor.stopping : isRunning ? m.editor.stop : m.editor.deploy }}
         </Button>
       </div>
     </header>
 
-    <p v-if="flowsStore.invalidConnections.length" role="alert" class="px-4 py-2 text-sm text-destructive">This flow has {{ flowsStore.invalidConnections.length }} invalid connection(s). Open Connections to choose valid ports before deploying.</p>
-    <OperationFeedback :message="feedback" class="shrink-0 m-2" @dismiss="feedback = null" />
-    <p v-if="flowsStore.loading && !pending" role="status" class="px-4 py-2 text-sm">Loading flow…</p>
-    <div v-if="flowsStore.error && !feedback" role="alert" class="px-4 py-2 text-sm text-destructive">Could not load the flow. <Button variant="outline" size="sm" @click="flowId && flowsStore.fetchFlow(flowId)">Retry</Button></div>
-    <nav :inert="pending || flowsStore.loading" aria-label="Editor tools" class="flex shrink-0 flex-wrap gap-2 border-b bg-card px-4 py-2">
-      <Button class="md:hidden" size="sm" variant="outline" @click="showNodes = true">Add nodes</Button>
-      <Button size="sm" variant="outline" @click="showVariables = true">Variables</Button>
-      <Button size="sm" variant="outline" @click="showConnections = true">Connections</Button>
-      <Button v-if="flowId" size="sm" variant="outline" @click="showHistory = true"><History class="mr-2 h-4 w-4" aria-hidden="true" />History</Button>
-      <Button v-if="flowsStore.nodes.some(n => n.data.nodeType === 'trigger-manual' && n.data.enabled !== false)" size="sm" variant="outline" :disabled="!isRunning || flowsStore.isDirty" :title="!isRunning ? 'Deploy the flow first' : flowsStore.isDirty ? 'Stop and save changes before running manually' : 'Send a message through this flow'" @click="showManualRun = true">Run manually</Button>
-      <span class="self-center text-xs text-muted-foreground">{{ flowsStore.nodes.length }} nodes · {{ flowsStore.edges.length }} connections</span>
+    <p v-if="flowsStore.invalidConnections.length" role="alert" class="px-4 py-2 text-sm text-destructive">{{ m.editor.invalidConnections(flowsStore.invalidConnections.length) }}</p>
+    <OperationFeedback floating :message="feedback" @dismiss="feedback = null" />
+    <p v-if="flowsStore.loading && !pending" role="status" class="px-4 py-2 text-sm">{{ m.editor.loading }}</p>
+    <div v-if="flowsStore.error && !feedback" role="alert" class="px-4 py-2 text-sm text-destructive">{{ m.editor.loadFailed }} <Button variant="outline" size="sm" @click="flowId && flowsStore.fetchFlow(flowId)">{{ m.common.retry }}</Button></div>
+    <nav :inert="pending || flowsStore.loading" :aria-label="m.editor.tools" class="flex shrink-0 flex-wrap items-center gap-2 border-b bg-card px-4 py-2">
+      <Button class="md:hidden" size="sm" variant="outline" @click="showNodes = true">{{ m.editor.addNodes }}</Button>
+      <div class="flex items-center">
+        <Button size="icon" variant="ghost" class="h-8 w-8" :disabled="!flowsStore.canUndo" :aria-label="m.editor.undo" :title="`${m.editor.undo} (${mod}Z)`" @click="flowsStore.undo()"><Undo2 class="h-4 w-4" /></Button>
+        <Button size="icon" variant="ghost" class="h-8 w-8" :disabled="!flowsStore.canRedo" :aria-label="m.editor.redo" :title="`${m.editor.redo} (${mod}${isMac ? '⇧Z' : 'Y'})`" @click="flowsStore.redo()"><Redo2 class="h-4 w-4" /></Button>
+      </div>
+      <Button size="sm" variant="outline" :title="m.editor.flowVariablesHint" @click="showVariables = true">{{ m.editor.flowVariables }}</Button>
+      <Button size="sm" variant="outline" :title="m.editor.connectionsHint" @click="showConnections = true">{{ m.editor.connections }}</Button>
+      <Button v-if="flowId" size="sm" variant="outline" @click="showHistory = true"><History class="mr-2 h-4 w-4" aria-hidden="true" />{{ m.editor.history }}</Button>
+      <Button v-if="flowsStore.nodes.some(n => n.data.nodeType === 'trigger-manual' && n.data.enabled !== false)" size="sm" variant="outline" :disabled="!isRunning || flowsStore.isDirty" :title="!isRunning ? m.editor.runManualNotDeployed : flowsStore.isDirty ? m.editor.runManualDirty : m.editor.runManualHint" @click="showManualRun = true">{{ m.editor.runManually }}</Button>
+      <span class="self-center text-xs text-muted-foreground">{{ m.editor.counts(flowsStore.nodes.length, flowsStore.edges.length) }}</span>
     </nav>
     <!-- Main Editor Area -->
     <div :inert="pending || flowsStore.loading" class="flex min-h-0 flex-1 overflow-hidden">
@@ -248,7 +283,7 @@ function updateFlowDescription(value: string | number) {
         <FlowCanvas ref="canvas" />
       </main>
 
-      <!-- Config Panel (slides in from right) -->
+      <!-- Settings of the selected node, beside the canvas -->
       <NodeConfigPanel />
     </div>
 
@@ -267,44 +302,43 @@ function updateFlowDescription(value: string | number) {
       :running="isRunning"
       :dirty="flowsStore.isDirty"
     />
-    <Dialog v-model:open="showNodes" title="Add nodes" class="p-0">
-      <div class="flex h-[65dvh] flex-col"><div class="flex justify-end p-2"><Button variant="ghost" size="sm" @click="showNodes = false">Done</Button></div><div class="min-h-0 flex-1"><NodePalette @add="addNode" /></div></div>
+    <Dialog v-model:open="showNodes" :title="m.editor.addNodes" class="p-0">
+      <div class="flex h-[65dvh] flex-col"><div class="flex justify-end p-2"><Button variant="ghost" size="sm" @click="showNodes = false">{{ m.common.done }}</Button></div><div class="min-h-0 flex-1"><NodePalette @add="addNode" /></div></div>
     </Dialog>
     <!-- Settings Dialog -->
-    <Dialog v-model:open="showSettings" title="Flow settings">
+    <Dialog v-model:open="showSettings" :title="m.editor.flowSettings">
       <template #default="{ close }">
         <div class="space-y-4">
           <div>
-            <h2 class="text-lg font-semibold">Flow Settings</h2>
-            <p class="text-sm text-muted-foreground">
-              Configure your flow settings.
-            </p>
+            <h2 class="text-lg font-semibold">{{ m.editor.flowSettings }}</h2>
           </div>
 
           <div v-if="flowsStore.currentFlow" class="space-y-4">
             <div>
-              <label class="text-sm font-medium">Name</label>
+              <label for="flow-settings-name" class="text-sm font-medium">{{ m.editor.name }}</label>
               <Input
-                aria-label="Flow name"
-            :model-value="flowsStore.currentFlow.name"
+                id="flow-settings-name"
+                :aria-label="m.editor.flowName"
+                :model-value="flowsStore.currentFlow.name"
                 class="mt-1"
                 @update:model-value="updateFlowName"
               />
             </div>
             <div>
-              <label class="text-sm font-medium">Description</label>
+              <label for="flow-settings-description" class="text-sm font-medium">{{ m.editor.description }}</label>
               <Input
+                id="flow-settings-description"
                 :model-value="flowsStore.currentFlow.description || ''"
-                placeholder="Optional description..."
+                :placeholder="m.editor.descriptionPlaceholder"
                 class="mt-1"
                 @update:model-value="updateFlowDescription"
               />
             </div>
-            <p class="text-sm text-muted-foreground">Deploy starts this flow and restores it when PiWorker restarts. Stop it before saving changes. Manual triggers wait for you to send a message.</p>
+            <p class="text-sm text-muted-foreground">{{ m.editor.settingsHint }}</p>
           </div>
 
           <div class="flex justify-end gap-2">
-            <Button @click="close">Done</Button>
+            <Button @click="close">{{ m.common.done }}</Button>
           </div>
         </div>
       </template>

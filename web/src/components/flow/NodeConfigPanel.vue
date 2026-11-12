@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useFlowsStore } from '@/stores/flows'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
-import { Button, Input, Label, Select, Switch, ScrollArea, Dialog } from '@/components/ui'
-import { X, Save, Trash2 } from 'lucide-vue-next'
+import { Button, Input, Label, Select, Switch } from '@/components/ui'
+import { X, Trash2, CheckCircle2 } from 'lucide-vue-next'
+import DurationInput from './DurationInput.vue'
+import { isDurationUnit } from '@/lib/duration'
+import { messages as m } from '@/i18n'
+import { nodeIcon } from '@/lib/nodeIcons'
 import ReferenceInput from './ReferenceInput.vue'
 import KeyValueInput from './KeyValueInput.vue'
 import JsonInput from './JsonInput.vue'
@@ -20,9 +24,7 @@ import { fieldHint, findNetwork, suggestions, type SuggestionContext } from '@/l
 const flowsStore = useFlowsStore()
 const nodeTypesStore = useNodeTypesStore()
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
-import { onBeforeRouteLeave } from 'vue-router'
 const confirmation = ref<InstanceType<typeof ConfirmDialog>>()
-const configDirty = computed(() => JSON.stringify(localConfig.value) !== JSON.stringify(selectedNode.value?.data.config || {}))
 const examples: Record<string, string> = {
   expression: 'payload.temperature * 1.8 + 32',
   condition: 'payload.temperature > 25',
@@ -48,10 +50,10 @@ async function loadReferences() {
  variableNames.value = result[0].status === 'fulfilled' ? Object.keys(result[0].value || {}) : []
  flowVariableNames.value = result[2].status === 'fulfilled' ? Object.keys(result[2].value || {}) : []
  secretNames.value = result[1].status === 'fulfilled' ? result[1].value.secrets.map(s => s.name) : []
- referencesError.value = result.some(r => r.status === 'rejected') ? 'Some references could not be loaded. You can still edit the field.' : ''
+ referencesError.value = result.some(r => r.status === 'rejected') ? m.value.editor.referencesError : ''
 }
-// JSON fields whose text does not parse: their value is not applied, so
-// "Apply changes" waits until they are fixed.
+// JSON fields whose text does not parse: their value is not applied until
+// they are fixed.
 const invalidFields = ref<string[]>([])
 function setInvalid(key: string, invalid: boolean) {
   invalidFields.value = invalid ? [...new Set([...invalidFields.value, key])] : invalidFields.value.filter(k => k !== key)
@@ -97,7 +99,7 @@ async function loadSuggestions(force = false) {
   networks: fields.some(f => f.suggest !== 'connections'),
   force
  })
- suggestionsNotice.value = ok ? '' : 'Suggestions could not be loaded. You can still type the values.'
+ suggestionsNotice.value = ok ? '' : m.value.editor.suggestionsError
 }
 // Also when the node types arrive after the panel opened.
 watch(() => [selectedNode.value?.id, suggestFields.value.length] as const, ([id]) => {
@@ -124,201 +126,187 @@ function updateField(key: string, value: any) {
   setConfigValue(localConfig.value, key, value)
 }
 
-function handleSave() {
-  if (invalidFields.value.length) return
-  if (selectedNode.value) {
-    flowsStore.updateNodeConfig(selectedNode.value.id, { ...localConfig.value })
-    flowsStore.selectNode(null)
-  }
-}
+// Settings apply to the flow as they are typed (one undo step per node and
+// burst of edits); a JSON field that does not parse waits until it does.
+watch(localConfig, config => {
+  const node = selectedNode.value
+  if (!node || invalidFields.value.length) return
+  if (JSON.stringify(config) === JSON.stringify(node.data.config || {})) return
+  flowsStore.updateNodeConfig(node.id, { ...config })
+}, { deep: true })
+watch(invalidFields, fields => {
+  const node = selectedNode.value
+  if (!node || fields.length || JSON.stringify(localConfig.value) === JSON.stringify(node.data.config || {})) return
+  flowsStore.updateNodeConfig(node.id, { ...localConfig.value })
+})
 
-async function handleCancel() {
-  if (configDirty.value && !await confirmation.value?.ask('Discard node changes?', 'Your configuration changes have not been applied.', 'Discard changes', 'Keep editing')) return
+function close() {
   flowsStore.selectNode(null)
 }
-onBeforeRouteLeave(async to => to.name === 'login' || !selectedNode.value || !configDirty.value || !!await confirmation.value?.ask('Discard node changes?', 'Your configuration changes have not been applied.', 'Discard changes', 'Keep editing'))
 
 async function handleDelete() {
-  if (selectedNode.value && await confirmation.value?.ask('Delete node?', 'Remove this node and its connections? Save the flow to persist this change.', 'Delete node')) {
+  if (selectedNode.value && await confirmation.value?.ask(m.value.editor.deleteNodeTitle, m.value.editor.deleteNodeBody, m.value.editor.deleteNode)) {
     flowsStore.removeNode(selectedNode.value.id)
   }
 }
-function beforeUnload(event: BeforeUnloadEvent) {
-  if (selectedNode.value && configDirty.value) { event.preventDefault(); event.returnValue = '' }
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && !event.defaultPrevented && !(event.target as HTMLElement | null)?.closest('dialog')) close()
 }
-onMounted(() => window.addEventListener('beforeunload', beforeUnload))
-onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
+const icon = computed(() => nodeIcon(selectedNode.value?.data.icon || ''))
+const duration = (field: ConfigField) => (field.type === 'number' || field.type === 'integer') && isDurationUnit(field.unit)
 </script>
 
 <template>
-  <Dialog :open="!!selectedNode && !!nodeTypeConfig" title="Node configuration" :class="isProcessing ? 'max-w-6xl' : 'max-w-lg'" @update:open="handleCancel">
-    <div v-if="selectedNode && nodeTypeConfig">
-      <!-- Header -->
-      <div class="flex items-center justify-between border-b p-4">
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-1">
-            <h3 class="font-semibold truncate">{{ selectedNode.data.label }}</h3>
-            <NodeDocumentation
-              v-if="nodeTypeConfig.documentation"
-              :title="nodeTypeConfig.name"
-              :documentation="nodeTypeConfig.documentation"
-            />
-          </div>
-          <p class="text-sm text-muted-foreground">
-            {{ nodeTypeConfig.description }}
-          </p>
+  <aside v-if="selectedNode && nodeTypeConfig" :aria-label="m.editor.nodeSettings"
+    class="fixed inset-0 z-40 flex flex-col bg-card md:static md:z-auto md:w-[400px] md:shrink-0 md:border-l"
+    :class="isProcessing ? 'xl:w-[520px]' : ''" @keydown="onKeydown">
+    <div class="flex items-start gap-3 border-b p-4">
+      <component :is="icon" class="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-1">
+          <h2 class="truncate font-semibold">{{ selectedNode.data.label }}</h2>
+          <NodeDocumentation v-if="nodeTypeConfig.documentation" :title="nodeTypeConfig.name" :documentation="nodeTypeConfig.documentation" />
         </div>
-        <Button variant="ghost" size="icon" class="flex-shrink-0" aria-label="Close configuration" @click="handleCancel">
-          <X class="h-4 w-4" />
-        </Button>
+        <p class="text-sm text-muted-foreground">{{ nodeTypeConfig.description }}</p>
       </div>
+      <Button variant="ghost" size="icon" class="shrink-0" :aria-label="m.editor.closeSettings" :title="m.editor.closeSettings" @click="close">
+        <X class="h-4 w-4" />
+      </Button>
+    </div>
 
-      <!-- Config Fields -->
-      <ScrollArea class="max-h-[65dvh] p-4">
-        <div class="grid min-w-0 gap-6" :class="isProcessing ? 'lg:grid-cols-[minmax(0,0.8fr)_minmax(0,2fr)]' : ''">
-        <section class="min-w-0 space-y-4 lg:sticky lg:top-0 lg:self-start">
-          <div><h3 class="font-semibold">Configuration</h3><p class="mt-1 text-sm text-muted-foreground">Apply changes to update the draft. Save the flow to keep them.</p></div>
-          <p v-if="referencesError" role="alert" class="text-sm text-destructive">{{ referencesError }} <Button size="sm" variant="outline" @click="loadReferences">Retry references</Button></p>
-          <p v-if="suggestionsNotice" role="status" class="text-sm text-muted-foreground">{{ suggestionsNotice }} <Button size="sm" variant="outline" @click="loadSuggestions(true)">Retry suggestions</Button></p>
-          <!-- Keyed per node: field editors with their own state (JSON text and
-               its error) start fresh for each node. -->
-          <div v-for="field in nodeTypeConfig.configSchema" :key="`${selectedNode.id}:${field.key}`">
-            <Label :for="field.key" class="mb-2 block">
-              {{ field.label }}
-              <span v-if="field.required" aria-hidden="true" class="text-destructive">*</span>
-            </Label>
+    <div class="min-h-0 flex-1 space-y-6 overflow-y-auto p-4">
+      <section class="min-w-0 space-y-4">
+        <p class="flex items-center gap-2 text-xs text-muted-foreground"><CheckCircle2 class="h-3.5 w-3.5 text-primary" aria-hidden="true" />{{ m.editor.autoApply }}</p>
+        <p v-if="referencesError" role="alert" class="text-sm text-destructive">{{ referencesError }} <Button size="sm" variant="outline" @click="loadReferences">{{ m.editor.retryReferences }}</Button></p>
+        <p v-if="suggestionsNotice" role="status" class="text-sm text-muted-foreground">{{ suggestionsNotice }} <Button size="sm" variant="outline" @click="loadSuggestions(true)">{{ m.editor.retrySuggestions }}</Button></p>
+        <p v-if="!nodeTypeConfig.configSchema.length" class="text-sm text-muted-foreground">{{ m.editor.noSettings }}</p>
+        <!-- Keyed per node: field editors with their own state (JSON text and
+             its error) start fresh for each node. -->
+        <div v-for="field in nodeTypeConfig.configSchema" :key="`${selectedNode.id}:${field.key}`">
+          <Label :for="field.key" class="mb-2 block">
+            {{ field.label }}
+            <span v-if="field.required" aria-hidden="true" class="text-destructive">*</span>
+          </Label>
 
-            <ReferenceInput
-              v-if="['text','textarea','cron'].includes(field.type)"
-              :id="field.key" :required="field.required"
-              :model-value="String(localConfig[field.key] ?? '')"
-              :placeholder="field.placeholder"
-              :multiline="field.type === 'textarea' || field.type === 'cron' || ['expression','condition','template'].includes(field.key) || (selectedNode.data.nodeType === 'set-var' && field.key === 'value')"
-              :mode="referenceMode(selectedNode.data.nodeType, field.key)"
-              :options="fieldReferences(field.key)"
-              :list="field.suggest ? `${field.key}-suggestions` : undefined"
-              :describedby="suggestHint(field) ? `${field.key}-hint` : undefined"
-              @update:model-value="v => updateField(field.key, v)"
-            />
-            <!-- Suggestions (free text stays allowed) and what is known of the choice. -->
-            <datalist v-if="field.suggest" :id="`${field.key}-suggestions`">
-              <option v-for="value in fieldSuggestions(field)" :key="value" :value="value" />
-            </datalist>
-            <p v-if="suggestHint(field)" :id="`${field.key}-hint`" class="mt-1 break-words text-xs text-primary">{{ suggestHint(field) }}</p>
-
-            <!-- Number Input -->
-            <Input
-              v-else-if="field.type === 'number'"
-              :id="field.key"
-              :aria-required="field.required"
-              type="number"
-              :model-value="localConfig[field.key] ?? ''"
-              :placeholder="field.default !== undefined ? `Default: ${field.default}` : ''"
-              @update:model-value="(v) => updateField(field.key, v === '' ? undefined : v)"
-            />
-
-            <!-- Integer Input: stores whole numbers -->
-            <Input
-              v-else-if="field.type === 'integer'"
-              :id="field.key"
-              :aria-required="field.required"
-              type="number"
-              step="1"
-              inputmode="numeric"
-              :model-value="localConfig[field.key] ?? ''"
-              :placeholder="field.default !== undefined ? `Default: ${field.default}` : ''"
-              @update:model-value="(v) => updateField(field.key, integerFromInput(String(v)))"
-            />
-
-            <!-- JSON object (e.g. a tool's input schema) -->
-            <JsonInput
-              v-else-if="field.type === 'json'"
-              :id="field.key"
-              :label="field.label"
-              :required="field.required"
-              :model-value="localConfig[field.key]"
-              @update:model-value="(v) => updateField(field.key, v)"
-              @update:invalid="(bad) => setInvalid(field.key, bad)"
-            />
-
-            <!-- Name/value pairs (object settings such as HTTP headers) -->
-            <KeyValueInput
-              v-else-if="field.type === 'keyvalue'"
-              :id="field.key"
-              :label="field.label"
-              :model-value="localConfig[field.key]"
-              @update:model-value="(v) => updateField(field.key, v)"
-            />
-
-            <!-- Select -->
-            <Select
-              v-else-if="field.type === 'select'"
-              :id="field.key"
-              :aria-required="field.required"
-              :model-value="localConfig[field.key] ?? ''"
-              :options="field.options || []"
-              :placeholder="field.placeholder || 'Select...'"
-              @update:model-value="(v) => updateField(field.key, v)"
-            />
-
-            <!-- Boolean Switch -->
-            <div
-              v-else-if="field.type === 'boolean'"
-              class="flex items-center justify-between"
-            >
-              <Switch
-                :id="field.key"
-              :aria-required="field.required"
-                :model-value="!!localConfig[field.key]"
-                @update:model-value="(v) => updateField(field.key, v)"
-              />
-            </div>
-            <p v-if="field.placeholder" class="mt-2 break-words text-xs text-muted-foreground">{{ field.placeholder }}</p>
-            <div v-if="examples[field.key]" class="mt-2 space-y-1">
-              <Button variant="ghost" size="sm" :aria-label="`Use example for ${field.label}`" @click="updateField(field.key, examples[field.key])">Use temperature example</Button>
-              <p class="text-xs text-muted-foreground">Replaces this field. Use the sample payload in the playground to try it.</p>
-            </div>
-          </div>
-
-          <!-- Agent tools: call the deployed tool (REST twin of an MCP call). -->
-          <TestTool
-            v-if="selectedNode.data.nodeType === 'trigger-tool'"
-            :key="`test-tool:${selectedNode.id}`"
-            :flow-id="flowsStore.currentFlow?.id || undefined"
-            :node-id="selectedNode.id"
-            :schema="selectedNode.data.config?.inputSchema"
-            :running="!!flowsStore.currentFlow?.running"
-            :dirty="flowsStore.isDirty"
+          <ReferenceInput
+            v-if="['text','textarea','cron'].includes(field.type)"
+            :id="field.key" :required="field.required"
+            :model-value="String(localConfig[field.key] ?? '')"
+            :placeholder="field.placeholder"
+            :multiline="field.type === 'textarea' || field.type === 'cron' || ['expression','condition','template'].includes(field.key) || (selectedNode.data.nodeType === 'set-var' && field.key === 'value')"
+            :mode="referenceMode(selectedNode.data.nodeType, field.key)"
+            :options="fieldReferences(field.key)"
+            :list="field.suggest ? `${field.key}-suggestions` : undefined"
+            :describedby="suggestHint(field) ? `${field.key}-hint` : undefined"
+            @update:model-value="v => updateField(field.key, v)"
           />
-        </section>
-        <NodePlayground :flow-id="flowsStore.currentFlow?.id || undefined" v-if="isProcessing" :key="selectedNode.id" :node-type="selectedNode.data.nodeType" :config="localConfig" :draft="playgroundDrafts[selectedNode.id]" @draft="playgroundDrafts[selectedNode.id] = $event" />
-        </div>
-      </ScrollArea>
+          <!-- Suggestions (free text stays allowed) and what is known of the choice. -->
+          <datalist v-if="field.suggest" :id="`${field.key}-suggestions`">
+            <option v-for="value in fieldSuggestions(field)" :key="value" :value="value" />
+          </datalist>
+          <p v-if="suggestHint(field)" :id="`${field.key}-hint`" class="mt-1 break-words text-xs text-primary">{{ suggestHint(field) }}</p>
 
-      <!-- Actions -->
-      <div class="grid grid-cols-2 gap-2 border-t bg-card pt-4 sm:flex">
-        <Button
-          variant="destructive"
-          size="sm"
-          class="flex-shrink-0"
-          @click="handleDelete"
-        >
-          <Trash2 class="mr-2 h-4 w-4" />
-          Delete
-        </Button>
-        <div class="hidden flex-1 sm:block" />
-        <Button variant="outline" size="sm" @click="handleCancel">
-          Cancel
-        </Button>
-        <p v-if="invalidFields.length" role="status" class="col-span-2 text-xs text-destructive sm:self-center">
-          Fix the JSON in {{ invalidFields.length === 1 ? 'one field' : `${invalidFields.length} fields` }} to apply changes.
-        </p>
-        <Button size="sm" class="col-span-2" :disabled="invalidFields.length > 0" @click="handleSave">
-          <Save class="mr-2 h-4 w-4" />
-          Apply changes
-        </Button>
-      </div>
+          <!-- Time settings: typed in a friendly unit, stored in the node's. -->
+          <DurationInput
+            v-else-if="duration(field)"
+            :id="field.key"
+            :required="field.required"
+            :model-value="localConfig[field.key]"
+            :base-unit="field.unit!"
+            :integer="field.type === 'integer'"
+            :placeholder="field.default !== undefined ? m.editor.defaultValue(String(field.default)) : ''"
+            @update:model-value="v => updateField(field.key, v)"
+          />
+
+          <!-- Number Input -->
+          <Input
+            v-else-if="field.type === 'number'"
+            :id="field.key"
+            :aria-required="field.required"
+            type="number"
+            :model-value="localConfig[field.key] ?? ''"
+            :placeholder="field.default !== undefined ? m.editor.defaultValue(String(field.default)) : ''"
+            @update:model-value="(v) => updateField(field.key, v === '' ? undefined : v)"
+          />
+
+          <!-- Integer Input: stores whole numbers -->
+          <Input
+            v-else-if="field.type === 'integer'"
+            :id="field.key"
+            :aria-required="field.required"
+            type="number"
+            step="1"
+            inputmode="numeric"
+            :model-value="localConfig[field.key] ?? ''"
+            :placeholder="field.default !== undefined ? m.editor.defaultValue(String(field.default)) : ''"
+            @update:model-value="(v) => updateField(field.key, integerFromInput(String(v)))"
+          />
+
+          <!-- JSON object (e.g. a tool's input schema) -->
+          <JsonInput
+            v-else-if="field.type === 'json'"
+            :id="field.key"
+            :label="field.label"
+            :required="field.required"
+            :model-value="localConfig[field.key]"
+            @update:model-value="(v) => updateField(field.key, v)"
+            @update:invalid="(bad) => setInvalid(field.key, bad)"
+          />
+
+          <!-- Name/value pairs (object settings such as HTTP headers) -->
+          <KeyValueInput
+            v-else-if="field.type === 'keyvalue'"
+            :id="field.key"
+            :label="field.label"
+            :model-value="localConfig[field.key]"
+            @update:model-value="(v) => updateField(field.key, v)"
+          />
+
+          <!-- Select -->
+          <Select
+            v-else-if="field.type === 'select'"
+            :id="field.key"
+            :aria-required="field.required"
+            :model-value="localConfig[field.key] ?? ''"
+            :options="field.options || []"
+            :placeholder="field.placeholder || m.editor.selectPlaceholder"
+            @update:model-value="(v) => updateField(field.key, v)"
+          />
+
+          <!-- Boolean Switch -->
+          <div v-else-if="field.type === 'boolean'" class="flex items-center justify-between">
+            <Switch :id="field.key" :aria-required="field.required" :model-value="!!localConfig[field.key]" @update:model-value="(v) => updateField(field.key, v)" />
+          </div>
+          <p v-if="field.placeholder" class="mt-2 break-words text-xs text-muted-foreground">{{ field.placeholder }}</p>
+          <div v-if="examples[field.key]" class="mt-2 space-y-1">
+            <Button variant="ghost" size="sm" :aria-label="m.editor.useExampleFor(field.label)" @click="updateField(field.key, examples[field.key])">{{ m.editor.useExample }}</Button>
+            <p class="text-xs text-muted-foreground">{{ m.editor.useExampleHint }}</p>
+          </div>
+        </div>
+        <p v-if="invalidFields.length" role="status" class="text-xs text-destructive">{{ m.editor.fixJson(invalidFields.length) }}</p>
+
+        <!-- Agent tools: call the deployed tool (REST twin of an MCP call). -->
+        <TestTool
+          v-if="selectedNode.data.nodeType === 'trigger-tool'"
+          :key="`test-tool:${selectedNode.id}`"
+          :flow-id="flowsStore.currentFlow?.id || undefined"
+          :node-id="selectedNode.id"
+          :schema="selectedNode.data.config?.inputSchema"
+          :running="!!flowsStore.currentFlow?.running"
+          :dirty="flowsStore.isDirty"
+        />
+      </section>
+      <NodePlayground v-if="isProcessing" :key="selectedNode.id" :flow-id="flowsStore.currentFlow?.id || undefined" :node-type="selectedNode.data.nodeType" :config="localConfig" :draft="playgroundDrafts[selectedNode.id]" @draft="playgroundDrafts[selectedNode.id] = $event" />
+    </div>
+
+    <div class="flex items-center gap-2 border-t p-3">
+      <Button variant="ghost" size="sm" class="text-destructive hover:bg-destructive/10 hover:text-destructive" @click="handleDelete">
+        <Trash2 class="mr-2 h-4 w-4" />
+        {{ m.editor.deleteNode }}
+      </Button>
+      <div class="flex-1" />
+      <Button size="sm" variant="outline" @click="close">{{ m.common.done }}</Button>
     </div>
     <ConfirmDialog ref="confirmation" />
-  </Dialog>
+  </aside>
 </template>

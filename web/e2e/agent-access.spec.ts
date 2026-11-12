@@ -111,7 +111,7 @@ const lastTotals = (requests: Req[]) => last(requests, 'GET', '/agent/audit/reje
 test('the navigation badge counts pending approvals and leads to the agent pages', async ({ page }) => {
   await mockServer(page)
   await page.goto('/')
-  const agents = page.getByRole('button', { name: 'Agents: 2 requests waiting for approval' })
+  const agents = page.getByRole('link', { name: 'Agents: 2 requests waiting for approval' })
   await expect(agents).toBeVisible()
   await expect(page.getByRole('status').filter({ hasText: 'waiting for your approval' })).toBeVisible()
   await agents.click()
@@ -129,7 +129,7 @@ test('polling pauses while the tab is hidden', async ({ page }) => {
   const requests = await mockServer(page, { pending: 0 })
   await page.clock.install()
   await page.goto('/')
-  await expect(page.getByRole('button', { name: 'Agents', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Agents', exact: true })).toBeVisible()
   // The badge polls the lightweight count only.
   const polls = () => requests.filter(r => r.path === '/agent/approvals/pending-count').length
   await expect.poll(polls).toBe(1)

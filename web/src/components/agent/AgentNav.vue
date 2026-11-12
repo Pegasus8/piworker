@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Bot } from 'lucide-vue-next'
-import { Badge, Button } from '@/components/ui'
+import { RouterLink, useRoute } from 'vue-router'
+import { Bot, Info } from 'lucide-vue-next'
+import { Badge } from '@/components/ui'
 import { useAgentStore } from '@/stores/agent'
 import { useAuthStore } from '@/stores/auth'
 import { mcpStatus } from '@/lib/agentAccess'
 
-const router = useRouter()
 const route = useRoute()
 const agent = useAgentStore()
 const auth = useAuthStore()
@@ -35,7 +34,6 @@ onMounted(() => {
 
 <template>
   <header class="space-y-4">
-    <Button variant="ghost" @click="router.push('/')"><ArrowLeft class="mr-2 h-4 w-4" />Back to flows</Button>
     <div class="space-y-2">
       <h1 class="flex items-center gap-2 text-2xl font-bold"><Bot class="h-6 w-6 text-primary" aria-hidden="true" />Agent access</h1>
       <p class="text-muted-foreground">
@@ -48,7 +46,7 @@ onMounted(() => {
       <Badge :variant="mcpVariant">{{ mcp.label }}</Badge>
       <p class="min-w-0 flex-1 text-muted-foreground">{{ mcp.detail }}</p>
     </section>
-    <nav aria-label="Agent access sections" class="flex flex-wrap gap-2">
+    <nav v-if="auth.authEnabled" aria-label="Agent access sections" class="flex flex-wrap gap-2">
       <RouterLink
         v-for="tab in tabs"
         :key="tab.to"
@@ -65,9 +63,11 @@ onMounted(() => {
         >{{ tab.count }}</span>
       </RouterLink>
     </nav>
-    <p v-if="!auth.authEnabled" role="alert" class="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-      Agent access needs sign-in. This PiWorker runs with authentication turned off, so agent tokens, approvals and the
-      audit log are not available.
+    <!-- Not an error: a valid set-up without accounts, where agents have no place. -->
+    <p v-if="!auth.authEnabled" role="note" class="flex gap-2 rounded-lg border bg-muted/40 p-3 text-sm">
+      <Info class="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+      <span>Agent access needs sign-in. This PiWorker runs with authentication turned off, so agent tokens, approvals and the
+      audit log are not available. Start PiWorker without <code>-auth=false</code> to use them.</span>
     </p>
   </header>
 </template>
