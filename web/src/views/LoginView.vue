@@ -5,6 +5,8 @@ import { useAuthStore } from '@/stores/auth'
 import { useApi } from '@/composables/useApi'
 import { Button, Card, Input, Label } from '@/components/ui'
 import { Workflow, AlertCircle, Loader2 } from 'lucide-vue-next'
+import LanguageSelect from '@/components/LanguageSelect.vue'
+import { messages as m } from '@/i18n'
 
 const router = useRouter()
 const route = useRoute()
@@ -18,7 +20,7 @@ const code = ref('')
 const localError = ref<string | null>(null)
 const creating = computed(() => authStore.setupRequired)
 const choosingPassword = computed(() => creating.value || recovering.value)
-const title = computed(() => creating.value ? 'Create your administrator account' : recovering.value ? 'Recover your account' : 'Sign in to continue')
+const title = computed(() => creating.value ? m.value.auth.createTitle : recovering.value ? m.value.auth.recoverTitle : m.value.auth.signInTitle)
 const formValid = computed(() => {
   if (!username.value.trim() || !password.value) return false
   if (choosingPassword.value) {
@@ -45,7 +47,7 @@ async function handleSubmit() {
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
     await router.replace(redirect.startsWith('/') && !redirect.startsWith('//') && !redirect.startsWith('/login') ? redirect : '/')
   } catch (e: any) {
-    localError.value = e.response?.data?.error || 'Could not sign in. Please try again.'
+    localError.value = e.response?.data?.error || m.value.auth.signInFailed
   } finally { authStore.setLoading(false) }
 }
 function toggleRecovery() {
@@ -64,54 +66,55 @@ function toggleRecovery() {
         </div>
         <p class="text-sm font-medium text-muted-foreground mb-2">PiWorker</p>
         <h1 class="text-2xl font-bold">{{ title }}</h1>
-        <p v-if="creating" class="text-sm text-muted-foreground mt-2">One account to manage this installation.</p>
+        <p v-if="creating" class="text-sm text-muted-foreground mt-2">{{ m.auth.createHint }}</p>
       </div>
       <Card class="p-6">
         <div v-if="creating" class="mb-5 text-sm text-muted-foreground space-y-2">
-          <p>Enter the setup code shown in the terminal when PiWorker starts, then choose your credentials.</p>
-          <p>The code expires after 30 minutes. Restart PiWorker to generate a new one, or use the local setup-code command.</p>
+          <p>{{ m.auth.setupCodeHint }}</p>
+          <p>{{ m.auth.setupCodeExpiry }}</p>
         </div>
         <div v-if="recovering" class="mb-5 text-sm text-muted-foreground space-y-2">
-          <p>Run this on the device hosting PiWorker</p>
+          <p>{{ m.auth.recoverRun }}</p>
           <code class="block rounded bg-muted p-3 break-words">piworker -db /path/to/piworker.db -recover-account USERNAME</code>
-          <p>Use the same database as your server and replace USERNAME with your account name. Enter the one-use code below within 30 minutes.</p>
+          <p>{{ m.auth.recoverHint }}</p>
         </div>
-        <p v-if="route.query.changed && !choosingPassword" role="status" class="mb-4 text-sm">Password changed. Sign in again on each device.</p>
+        <p v-if="route.query.changed && !choosingPassword" role="status" class="mb-4 text-sm">{{ m.auth.passwordChanged }}</p>
         <form @submit.prevent="handleSubmit" class="space-y-4">
           <div v-if="localError || authStore.error" role="alert" class="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
             <AlertCircle class="h-4 w-4 flex-shrink-0" /><span>{{ localError || authStore.error }}</span>
           </div>
           <div v-if="choosingPassword" class="space-y-2">
-            <Label for="code">{{ creating ? 'Setup code' : 'Recovery code' }}</Label>
+            <Label for="code">{{ creating ? m.auth.setupCode : m.auth.recoveryCode }}</Label>
             <Input id="code" v-model="code" autocomplete="off" :disabled="authStore.loading" />
           </div>
           <div class="space-y-2">
-            <Label for="username">Username</Label>
+            <Label for="username">{{ m.auth.username }}</Label>
             <Input id="username" v-model="username" autocomplete="username" :disabled="authStore.loading" />
           </div>
           <div class="space-y-2">
-            <Label for="password">Password</Label>
+            <Label for="password">{{ m.auth.password }}</Label>
             <Input id="password" v-model="password" type="password" :autocomplete="choosingPassword ? 'new-password' : 'current-password'" :disabled="authStore.loading" />
-            <p v-if="choosingPassword" class="text-xs text-muted-foreground">Use at least 8 characters (maximum 72 bytes).</p>
+            <p v-if="choosingPassword" class="text-xs text-muted-foreground">{{ m.auth.passwordRule }}</p>
           </div>
           <div v-if="choosingPassword" class="space-y-2">
-            <Label for="confirmPassword">Confirm password</Label>
+            <Label for="confirmPassword">{{ m.auth.confirmPassword }}</Label>
             <Input id="confirmPassword" v-model="confirmPassword" type="password" autocomplete="new-password" :disabled="authStore.loading" />
-            <p v-if="confirmPassword && password !== confirmPassword" class="text-xs text-destructive">Passwords do not match.</p>
+            <p v-if="confirmPassword && password !== confirmPassword" class="text-xs text-destructive">{{ m.auth.mismatch }}</p>
           </div>
           <Button type="submit" class="w-full" :disabled="!formValid || authStore.loading">
             <Loader2 v-if="authStore.loading" class="mr-2 h-4 w-4 animate-spin" />
-            {{ creating ? 'Create account' : recovering ? 'Reset password' : 'Sign in' }}
+            {{ creating ? m.auth.createAccount : recovering ? m.auth.resetPassword : m.auth.signIn }}
           </Button>
         </form>
         <button v-if="!creating" type="button" class="mt-4 text-sm text-primary hover:underline" :disabled="authStore.loading" @click="toggleRecovery">
-          {{ recovering ? 'Back to sign in' : 'Forgot password?' }}
+          {{ recovering ? m.auth.backToSignIn : m.auth.forgot }}
         </button>
       </Card>
       <p class="text-center text-xs text-muted-foreground">
-        Certificate warning in your browser? <RouterLink to="/trust" class="text-primary hover:underline">Trust this device</RouterLink>
+        {{ m.auth.certWarning }} <RouterLink to="/trust" class="text-primary hover:underline">{{ m.auth.trustDevice }}</RouterLink>
       </p>
-      <p class="text-center text-xs text-muted-foreground">Automation made simple</p>
+      <p class="text-center text-xs text-muted-foreground">{{ m.auth.tagline }}</p>
+      <LanguageSelect class="mx-auto w-full max-w-[12rem]" />
     </div>
   </div>
 </template>

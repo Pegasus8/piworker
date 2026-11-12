@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { marked } from 'marked'
 import { Button, Dialog, ScrollArea } from '@/components/ui'
 import { HelpCircle, X } from 'lucide-vue-next'
+import { messages as m } from '@/i18n'
 
 interface Props {
   title: string
@@ -32,19 +33,20 @@ const renderedMarkdown = computed(() => {
       variant="ghost"
       size="icon"
       class="h-8 w-8"
-      title="View documentation"
+      :title="m.flowTools.docs.view"
+      :aria-label="m.flowTools.docs.view"
       @click="isOpen = true"
     >
       <HelpCircle class="h-4 w-4" />
     </Button>
 
     <!-- Documentation Dialog -->
-    <Dialog v-model:open="isOpen" class="max-w-2xl max-h-[80vh]">
+    <Dialog v-model:open="isOpen" :title="m.flowTools.docs.dialogTitle(title)" class="max-w-2xl max-h-[80vh]">
       <template #default="{ close }">
         <!-- Header -->
         <div class="flex items-center justify-between mb-4">
           <h2 class="text-xl font-semibold">{{ title }}</h2>
-          <Button variant="ghost" size="icon" @click="close">
+          <Button variant="ghost" size="icon" :aria-label="m.common.close" :title="m.common.close" @click="close">
             <X class="h-4 w-4" />
           </Button>
         </div>

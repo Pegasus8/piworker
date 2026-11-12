@@ -120,6 +120,7 @@ export default {
     nested: '[Nested data — see Raw message]',
   },
   docs: {
+    dialogTitle: (name: string) => `${name} documentation`,
     view: 'View documentation',
   },
   keyValue: {

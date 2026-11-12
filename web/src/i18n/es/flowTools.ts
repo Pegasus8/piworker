@@ -121,6 +121,7 @@ const es: typeof en = {
     nested: '[Datos anidados: ver Mensaje en bruto]',
   },
   docs: {
+    dialogTitle: (name: string) => `Documentación de ${name}`,
     view: 'Ver la documentación',
   },
   keyValue: {

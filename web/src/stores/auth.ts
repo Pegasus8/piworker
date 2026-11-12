@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useApi } from '@/composables/useApi'
+import { msg } from '@/i18n'
 
 export interface AuthUser { username: string }
 export const useAuthStore = defineStore('auth', () => {
@@ -43,7 +44,7 @@ export const useAuthStore = defineStore('auth', () => {
     } catch {
       authEnabled.value = true
       user.value = null
-      error.value = 'Cannot connect to PiWorker. Please try again.'
+      error.value = msg().auth.cannotConnect
     }
   }
   return { user, loading, error, authEnabled, setupRequired, isAuthenticated,

@@ -38,7 +38,7 @@ function versionConflict(e: unknown): FlowVersionConflictError | null {
   const response = (e as { response?: { status?: number; data?: any } })?.response
   const current = response?.data?.data?.currentVersion
   if (response?.status !== 409 || typeof current !== 'number') return null
-  return new FlowVersionConflictError(current, String(response.data?.error || 'The flow was changed since you loaded it'))
+  return new FlowVersionConflictError(current, String(response.data?.error || msg().flowTools.errors.versionConflict))
 }
 
 export const useFlowsStore = defineStore('flows', () => {
@@ -118,7 +118,7 @@ export const useFlowsStore = defineStore('flows', () => {
     try {
       flows.value = await api.getFlows()
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Failed to fetch flows'
+      error.value = e instanceof Error ? e.message : msg().flowTools.errors.fetchFlows
     } finally {
       loading.value = false
     }
@@ -153,7 +153,7 @@ export const useFlowsStore = defineStore('flows', () => {
       clearHistory()
     } catch (e) {
       if (!isCurrent()) return
-      error.value = e instanceof Error ? e.message : 'Failed to fetch flow'
+      error.value = e instanceof Error ? e.message : msg().flowTools.errors.fetchFlow
     } finally {
       if (isCurrent()) loading.value = false
     }
@@ -238,7 +238,7 @@ export const useFlowsStore = defineStore('flows', () => {
       })
       return flow
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Failed to create flow'
+      error.value = e instanceof Error ? e.message : msg().flowTools.errors.createFlow
       throw e
     } finally {
       loading.value = false
@@ -292,7 +292,7 @@ export const useFlowsStore = defineStore('flows', () => {
         }
       }
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Failed to save flow'
+      error.value = e instanceof Error ? e.message : msg().flowTools.errors.saveFlow
       throw e
     } finally {
       loading.value = false
@@ -311,7 +311,7 @@ export const useFlowsStore = defineStore('flows', () => {
         edges.value = []
       }
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Failed to delete flow'
+      error.value = e instanceof Error ? e.message : msg().flowTools.errors.deleteFlow
       throw e
     } finally {
       loading.value = false
@@ -338,7 +338,7 @@ export const useFlowsStore = defineStore('flows', () => {
       // of guessing from the list.
       if (enabled) await refreshFlowState(id)
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Failed to toggle flow'
+      error.value = e instanceof Error ? e.message : msg().flowTools.errors.toggleFlow
       throw e
     } finally {
       loading.value = false
@@ -365,7 +365,7 @@ export const useFlowsStore = defineStore('flows', () => {
       if (running) markEditorDeployment(flowId, version ?? flows.value.find(f => f.id === flowId)?.version)
       applyRunningState(flowId, running)
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Failed to deploy flow'
+      error.value = e instanceof Error ? e.message : msg().flowTools.errors.deployFlow
       throw e
     } finally {
       isDeploying.value = false
@@ -382,7 +382,7 @@ export const useFlowsStore = defineStore('flows', () => {
       const running = await api.stopFlow(flowId)
       applyRunningState(flowId, running)
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Failed to stop flow'
+      error.value = e instanceof Error ? e.message : msg().flowTools.errors.stopFlow
       throw e
     } finally {
       isStopping.value = false

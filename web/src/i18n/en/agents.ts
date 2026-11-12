@@ -35,11 +35,6 @@ export default {
     loweringKeepsDeployed: 'Lowering the level undoes nothing agents already did: flows they deployed keep running, privileged ones included. Look for “Deployed by agent” and “Changed by agent” on the flows, then stop them or use History → Roll back to return to the version you last approved. Agents → Audit lists every agent deploy and stop.',
     desktopCommandNote: 'Claude Desktop does not start servers through your shell, so your PATH does not apply: "command" must be the full path of piworker-mcp. Change it if you installed the bridge elsewhere.',
     desktopPlainHttpNote: 'TLS is off, so the bridge connects over plain HTTP, which piworker-mcp accepts only to this machine (127.0.0.1 or [::1]): Claude Desktop must run on the PiWorker device itself. For other computers, turn HTTPS on (mode = "auto" in the [tls] section of piworker.toml, then restart) and create the set-up again: it then uses the https address and --ca-fingerprint.',
-    // Shown by the shell commands the admin copies and runs.
-    pastePrompt: 'Paste the token, then press Enter (it is not shown): ',
-    pastePromptWindows: 'Paste the token',
-    notAToken: 'That is not a PiWorker token (pwk_...).',
-    icaclsFailed: 'icacls failed: the token was not saved.',
     mcp: {
       unknownLabel: 'MCP status unknown',
       unknownDetail: 'The server\'s agent settings could not be read.',
@@ -316,7 +311,8 @@ export default {
     what: { token: 'Token', command: 'Command', commands: 'Commands', configuration: 'Configuration' },
     dialogTitle: 'Copy your new token',
     title: 'Copy your token now',
-    onlyTime: 'This is the only time PiWorker shows it. Store it like a password: anyone who has it can use the access of',
+    onlyTime: 'This is the only time PiWorker shows it. Store it like a password: anyone who has it can use the access of “',
+    onlyTimeEnd: '”.',
     newToken: 'New token',
     copyToken: 'Copy token',
     saveCa: (file: string) => `1. Save PiWorker's CA certificate as ~/${file} (see`,

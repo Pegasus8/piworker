@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
 import { cn } from '@/lib/utils'
+import { messages as m } from '@/i18n'
 
-const props = withDefaults(defineProps<{ open?: boolean; class?: string; title?: string }>(), { open: false, title: 'Dialog' })
+const props = withDefaults(defineProps<{ open?: boolean; class?: string; title?: string }>(), { open: false, title: undefined })
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 const dialog = ref<HTMLDialogElement>()
 function close() { emit('update:open', false) }
@@ -20,7 +21,7 @@ watch(() => props.open, async open => {
 
 <template>
   <Teleport to="body">
-    <dialog ref="dialog" :aria-label="title"
+    <dialog ref="dialog" :aria-label="title ?? m.flowTools.dialog"
       :class="cn('lab-dialog m-auto w-[calc(100%-2rem)] max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-xl border bg-card p-6 shadow-2xl', props.class)"
       @cancel.prevent="close" @click="onBackdrop">
       <slot :close="close" />

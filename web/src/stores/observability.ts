@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { useApi } from '@/composables/useApi'
+import { msg } from '@/i18n'
 import type { FlowEvent, FlowRun, NodePhase, NodeEventRecord } from '@/types'
 
 const MAX_DEBUG_ENTRIES = 200
@@ -95,7 +96,7 @@ export const useObservabilityStore = defineStore('observability', () => {
       const result = await api.getFlowRuns(flowId)
       if (request === runsRequest) runs.value = result
     } catch {
-      if (request === runsRequest) runsError.value = 'Could not load run history. Try again.'
+      if (request === runsRequest) runsError.value = msg().flowTools.errors.runs
     } finally {
       if (request === runsRequest) runsLoading.value = false
     }
@@ -121,7 +122,7 @@ export const useObservabilityStore = defineStore('observability', () => {
       const result = await api.getRunEvents(flowId, runId)
       if (request === eventsRequest) runEvents.value = result
     } catch {
-      if (request === eventsRequest) eventsError.value = 'Could not load run details. Try again.'
+      if (request === eventsRequest) eventsError.value = msg().flowTools.errors.runDetails
     } finally {
       if (request === eventsRequest) eventsLoading.value = false
     }
