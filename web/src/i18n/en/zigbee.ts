@@ -25,6 +25,7 @@ export default {
   joinClosed: (connection: string) => `Joining closed on “${connection}”.`,
   bridgeFailed: 'Could not reach the bridge. Try again.',
   intro: 'The devices Zigbee2MQTT reports on each broker connection, with their latest readings. Use their names in Zigbee nodes.',
+  loading: 'Loading',
   refresh: 'Refresh',
   connections: 'Connections',
   noConnectionsTitle: 'No broker connections yet',

@@ -8,6 +8,7 @@ import { Button, Label, Textarea } from '@/components/ui'
 import { Play } from 'lucide-vue-next'
 import { useApi } from '@/composables/useApi'
 import { argsTextFromSchema, callErrorText, callResultText, parseToolArgs } from '@/lib/toolCall'
+import { messages as m } from '@/i18n'
 
 const props = defineProps<{
   flowId?: string
@@ -26,8 +27,8 @@ let controller: AbortController | undefined
 
 const parsed = computed(() => parseToolArgs(args.value))
 const blocked = computed(() => {
-  if (!props.flowId) return 'Save the flow, then deploy it to test this tool.'
-  if (!props.running) return 'Deploy the flow to test this tool.'
+  if (!props.flowId) return m.value.agents.test.saveFirst
+  if (!props.running) return m.value.agents.test.deployFirst
   return ''
 })
 
@@ -61,12 +62,9 @@ onUnmounted(() => controller?.abort())
 
 <template>
   <section aria-labelledby="test-tool-title" class="space-y-2 border-t pt-4">
-    <h3 id="test-tool-title" class="font-semibold">Test tool</h3>
-    <p class="text-sm text-muted-foreground">
-      Call the deployed tool the way an agent would. Connected actions will execute.
-      The arguments are checked against the deployed input schema; confirmation does not apply here.
-    </p>
-    <Label for="test-tool-args" class="block">Arguments (JSON object)</Label>
+    <h3 id="test-tool-title" class="font-semibold">{{ m.agents.test.title }}</h3>
+    <p class="text-sm text-muted-foreground">{{ m.agents.test.intro }}</p>
+    <Label for="test-tool-args" class="block">{{ m.agents.test.args }}</Label>
     <Textarea
       id="test-tool-args"
       v-model="args"
@@ -79,10 +77,10 @@ onUnmounted(() => controller?.abort())
     />
     <p v-if="parsed.error" id="test-tool-args-error" role="alert" class="break-words text-xs text-destructive">{{ parsed.error }}</p>
     <p v-if="blocked" role="status" class="text-xs text-muted-foreground">{{ blocked }}</p>
-    <p v-else-if="dirty" class="text-xs text-muted-foreground">The deployed version runs: unsaved changes are not part of it.</p>
+    <p v-else-if="dirty" class="text-xs text-muted-foreground">{{ m.agents.test.dirty }}</p>
     <Button size="sm" :disabled="!!blocked || !!parsed.error || pending" @click="run">
       <Play class="mr-2 h-4 w-4" />
-      {{ pending ? 'Running…' : 'Run' }}
+      {{ pending ? m.agents.test.running : m.agents.test.run }}
     </Button>
     <pre
       v-if="output"

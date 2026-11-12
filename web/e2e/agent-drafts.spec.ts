@@ -96,7 +96,7 @@ async function mockServer(page: Page, opts: MockOptions = {}) {
       case 'GET /flows': return ok({ flows: [
         { id: 'f1', name: 'Garage', state: flowRunning ? 'running' : 'inactive', nodes: [{}], version: versions.current, agentChanged: versions.current !== versions.lastAdminApproved,
           deployment: f1Deployment },
-        { id: 'f2', name: 'Lights', state: 'inactive', nodes: [], version: 1, agentChanged: false, deployment: null },
+        { id: 'f2', name: 'Lights', state: 'inactive', nodes: [{}], version: 1, agentChanged: false, deployment: null },
         { id: 'f3', name: 'Pump\u202Egnp', description: 'Waters the garden\u200B', state: 'inactive', nodes: [], version: 1, agentChanged: false, deployment: null }
       ], total: 3 })
       case 'GET /flows/f1': return ok({

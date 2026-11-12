@@ -109,9 +109,9 @@ const item = 'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-m
     </div>
   </nav>
 
-  <!-- Mounted only while open: pages may hold their own copy of a dialog,
-       and two mounted copies would share element ids. -->
-  <VariablesDialog v-if="shell.showVariables" v-model:open="shell.showVariables" />
-  <SecretsDialog v-if="shell.showSecrets" v-model:open="shell.showSecrets" />
-  <BrokerConnectionsDialog v-if="shell.showBrokers" v-model:open="shell.showBrokers" />
+  <!-- The one copy of each global dialog (pages open them through the shell
+       store, so element ids stay unique). -->
+  <VariablesDialog v-model:open="shell.showVariables" />
+  <SecretsDialog v-model:open="shell.showSecrets" @changed="shell.secretsChanged++" />
+  <BrokerConnectionsDialog v-model:open="shell.showBrokers" @changed="shell.brokersChanged++" />
 </template>

@@ -9,6 +9,7 @@ import AgentText from '@/components/agent/AgentText.vue'
 import { useAgentStore, apiErrorMessage } from '@/stores/agent'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime, type AuditFilters } from '@/lib/agentAccess'
+import { messages as m } from '@/i18n'
 
 const agent = useAgentStore()
 const auth = useAuthStore()
@@ -33,7 +34,7 @@ async function run(action: () => Promise<void>) {
   try {
     await action()
   } catch (e) {
-    error.value = apiErrorMessage(e, 'Could not load the audit log.')
+    error.value = apiErrorMessage(e, m.value.agents.audit.loadFailed)
   } finally {
     loading.value = false
   }
@@ -62,44 +63,44 @@ const inputClass = 'flex h-9 w-full rounded-md border border-input bg-background
       <template v-if="auth.authEnabled">
         <Card class="space-y-4 p-4 sm:p-6">
           <div>
-            <h2 class="text-lg font-semibold">Audit log</h2>
-            <p class="text-sm text-muted-foreground">Every call by an agent, kept for 30 days. Arguments are previews, shown as sent.</p>
+            <h2 class="text-lg font-semibold">{{ m.agents.audit.title }}</h2>
+            <p class="text-sm text-muted-foreground">{{ m.agents.audit.intro }}</p>
           </div>
           <form class="grid gap-3 sm:grid-cols-3 lg:grid-cols-6" @submit.prevent="apply">
             <div class="space-y-1">
-              <Label for="audit-token" class="text-xs">Token</Label>
+              <Label for="audit-token" class="text-xs">{{ m.agents.audit.token }}</Label>
               <select id="audit-token" v-model="form.tokenId" :class="inputClass" :disabled="loading">
-                <option value="">All tokens</option>
+                <option value="">{{ m.agents.audit.allTokens }}</option>
                 <option v-for="t in agent.tokens" :key="t.id" :value="t.id">{{ t.name }}</option>
               </select>
             </div>
             <div class="space-y-1">
-              <Label for="audit-tool" class="text-xs">Tool</Label>
+              <Label for="audit-tool" class="text-xs">{{ m.agents.audit.tool }}</Label>
               <Input id="audit-tool" v-model="form.tool" class="h-9" placeholder="garage_open" :disabled="loading" />
             </div>
             <div class="space-y-1">
-              <Label for="audit-flow" class="text-xs">Flow</Label>
+              <Label for="audit-flow" class="text-xs">{{ m.agents.audit.flow }}</Label>
               <select id="audit-flow" v-model="form.flowId" :class="inputClass" :disabled="loading">
-                <option value="">All flows</option>
+                <option value="">{{ m.agents.audit.allFlows }}</option>
                 <option v-for="f in flows" :key="f.id" :value="f.id">{{ f.name }}</option>
               </select>
             </div>
             <div class="space-y-1">
-              <Label for="audit-outcome" class="text-xs">Outcome</Label>
-              <Input id="audit-outcome" v-model="form.outcome" class="h-9" list="audit-outcomes" placeholder="Any" :disabled="loading" />
+              <Label for="audit-outcome" class="text-xs">{{ m.agents.audit.outcome }}</Label>
+              <Input id="audit-outcome" v-model="form.outcome" class="h-9" list="audit-outcomes" :placeholder="m.agents.audit.any" :disabled="loading" />
               <datalist id="audit-outcomes"><option v-for="o in outcomes" :key="o" :value="o" /></datalist>
             </div>
             <div class="space-y-1">
-              <Label for="audit-since" class="text-xs">From</Label>
+              <Label for="audit-since" class="text-xs">{{ m.agents.audit.from }}</Label>
               <Input id="audit-since" v-model="form.since" type="datetime-local" class="h-9" :disabled="loading" />
             </div>
             <div class="space-y-1">
-              <Label for="audit-until" class="text-xs">To</Label>
+              <Label for="audit-until" class="text-xs">{{ m.agents.audit.to }}</Label>
               <Input id="audit-until" v-model="form.until" type="datetime-local" class="h-9" :disabled="loading" />
             </div>
             <div class="flex flex-wrap gap-2 sm:col-span-3 lg:col-span-6">
-              <Button type="submit" size="sm" :disabled="loading">Apply filters</Button>
-              <Button size="sm" variant="outline" :disabled="loading" @click="clear">Clear</Button>
+              <Button type="submit" size="sm" :disabled="loading">{{ m.agents.audit.apply }}</Button>
+              <Button size="sm" variant="outline" :disabled="loading" @click="clear">{{ m.agents.audit.clear }}</Button>
             </div>
           </form>
         </Card>
@@ -108,19 +109,16 @@ const inputClass = 'flex h-9 w-full rounded-md border border-input bg-background
 
         <Card v-if="rejectionTotals.length" class="space-y-3 p-4 sm:p-6">
           <div>
-            <h2 class="text-lg font-semibold">Rejected calls</h2>
-            <p class="text-sm text-muted-foreground">
-              Calls refused before running (busy, cooling down or invalid arguments) are counted per minute, not listed.
-              The token and time filters apply; the tool, flow and outcome filters do not apply to these counts.
-            </p>
+            <h2 class="text-lg font-semibold">{{ m.agents.audit.rejectedTitle }}</h2>
+            <p class="text-sm text-muted-foreground">{{ m.agents.audit.rejectedIntro }}</p>
             <p v-if="agent.rejectionsTruncated" class="text-sm text-amber-700 dark:text-amber-400">
-              Only the {{ rejectionTotals.length }} largest totals are listed; narrow the token or time filters to see the others.
+              {{ m.agents.audit.truncated(rejectionTotals.length) }}
             </p>
           </div>
           <div class="overflow-x-auto">
-            <table aria-label="Rejected calls" class="w-full text-left text-sm">
+            <table :aria-label="m.agents.audit.rejectedTitle" class="w-full text-left text-sm">
               <thead class="text-xs text-muted-foreground">
-                <tr><th class="py-2 pr-4 font-medium">Token</th><th class="py-2 pr-4 font-medium">Reason</th><th class="py-2 pr-4 font-medium">Count</th><th class="py-2 font-medium">Last</th></tr>
+                <tr><th class="py-2 pr-4 font-medium">{{ m.agents.audit.token }}</th><th class="py-2 pr-4 font-medium">{{ m.agents.audit.reason }}</th><th class="py-2 pr-4 font-medium">{{ m.agents.audit.count }}</th><th class="py-2 font-medium">{{ m.agents.audit.last }}</th></tr>
               </thead>
               <tbody>
                 <tr v-for="r in rejectionTotals" :key="r.tokenId + r.reason" class="border-t">
@@ -135,19 +133,19 @@ const inputClass = 'flex h-9 w-full rounded-md border border-input bg-background
         </Card>
 
         <Card class="p-0">
-          <p v-if="!loading && !agent.audit.length && !error" class="p-6 text-center text-sm text-muted-foreground">No agent calls recorded.</p>
+          <p v-if="!loading && !agent.audit.length && !error" class="p-6 text-center text-sm text-muted-foreground">{{ m.agents.audit.empty }}</p>
           <div v-else class="overflow-x-auto">
-            <table aria-label="Agent calls" class="w-full text-left text-sm">
+            <table :aria-label="m.agents.audit.calls" class="w-full text-left text-sm">
               <thead class="text-xs text-muted-foreground">
                 <tr>
-                  <th class="px-4 py-2 font-medium">Time</th>
-                  <th class="px-4 py-2 font-medium">Token</th>
-                  <th class="px-4 py-2 font-medium">Tool</th>
-                  <th class="px-4 py-2 font-medium">Flow</th>
-                  <th class="px-4 py-2 font-medium">Run</th>
-                  <th class="px-4 py-2 font-medium">Outcome</th>
-                  <th class="px-4 py-2 font-medium">Duration</th>
-                  <th class="px-4 py-2 font-medium">Arguments</th>
+                  <th class="px-4 py-2 font-medium">{{ m.agents.audit.time }}</th>
+                  <th class="px-4 py-2 font-medium">{{ m.agents.audit.token }}</th>
+                  <th class="px-4 py-2 font-medium">{{ m.agents.audit.tool }}</th>
+                  <th class="px-4 py-2 font-medium">{{ m.agents.audit.flow }}</th>
+                  <th class="px-4 py-2 font-medium">{{ m.agents.audit.run }}</th>
+                  <th class="px-4 py-2 font-medium">{{ m.agents.audit.outcome }}</th>
+                  <th class="px-4 py-2 font-medium">{{ m.agents.audit.duration }}</th>
+                  <th class="px-4 py-2 font-medium">{{ m.agents.audit.args }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -156,7 +154,7 @@ const inputClass = 'flex h-9 w-full rounded-md border border-input bg-background
                   <td class="break-words px-4 py-2">{{ e.tokenName || e.tokenId }}</td>
                   <td class="px-4 py-2">
                     <span class="break-all font-mono text-xs"><AgentText :text="e.tool" /></span>
-                    <Badge v-if="e.privileged" variant="destructive" class="ml-1">privileged</Badge>
+                    <Badge v-if="e.privileged" variant="destructive" class="ml-1">{{ m.agents.audit.privileged }}</Badge>
                   </td>
                   <td class="break-words px-4 py-2">{{ flowName(e.flowId) }}</td>
                   <td class="break-all px-4 py-2 font-mono text-xs">{{ e.runId }}</td>
@@ -168,7 +166,7 @@ const inputClass = 'flex h-9 w-full rounded-md border border-input bg-background
             </table>
           </div>
           <div v-if="agent.auditHasMore" class="border-t p-3 text-center">
-            <Button variant="outline" size="sm" :disabled="loading" @click="loadMore">Load more</Button>
+            <Button variant="outline" size="sm" :disabled="loading" @click="loadMore">{{ m.agents.audit.loadMore }}</Button>
           </div>
         </Card>
       </template>

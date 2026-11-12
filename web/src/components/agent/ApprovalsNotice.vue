@@ -7,6 +7,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import { BellRing } from 'lucide-vue-next'
 import { useAgentStore } from '@/stores/agent'
 import { useAuthStore } from '@/stores/auth'
+import { messages as m } from '@/i18n'
 
 const agent = useAgentStore()
 const auth = useAuthStore()
@@ -25,9 +26,7 @@ watch(() => auth.authEnabled && auth.user !== null, signedIn => {
 onBeforeUnmount(() => release?.())
 
 const visible = computed(() => agent.pendingCount > 0 && auth.user !== null && route.path !== '/agents/approvals')
-const text = computed(() => agent.pendingCount === 1
-  ? '1 agent request is waiting for your approval.'
-  : `${agent.pendingCount} agent requests are waiting for your approval.`)
+const text = computed(() => m.value.agents.notice.waiting(agent.pendingCount))
 </script>
 
 <template>
@@ -39,7 +38,7 @@ const text = computed(() => agent.pendingCount === 1
     <BellRing class="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
     <p>
       {{ text }}
-      <RouterLink to="/agents/approvals" class="font-semibold underline underline-offset-2">Review</RouterLink>
+      <RouterLink to="/agents/approvals" class="font-semibold underline underline-offset-2">{{ m.agents.notice.review }}</RouterLink>
     </p>
   </aside>
 </template>

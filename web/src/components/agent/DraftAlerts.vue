@@ -8,17 +8,19 @@
 // flow. Every value and message is agent data, rendered as text.
 import { computed } from 'vue'
 import AgentText from '@/components/agent/AgentText.vue'
+import { messages as m } from '@/i18n'
 import { alertKind, alertLocation, alertValues, draftIcon, type DraftAlert } from '@/lib/drafts'
 
-const props = withDefaults(defineProps<{
+const props = defineProps<{
   alerts: DraftAlert[] | null
   names: ReadonlyMap<string, string>
   /** Node ID → the field paths of the same comparison's node diff (fieldPaths). */
   fields?: ReadonlyMap<string, ReadonlySet<string>>
   /** Node ID → its settings in the proposed flow (proposedSettings). */
   proposed?: ReadonlyMap<string, Readonly<Record<string, unknown>>>
+  /** Default: no alerts at all (m.drafts.noAlerts). */
   emptyText?: string
-}>(), { emptyText: 'No alerts: no destination, secret, credential or risk changes.' })
+}>()
 
 const list = computed(() => (props.alerts ?? []).map(a => ({
   a,
@@ -31,7 +33,7 @@ const list = computed(() => (props.alerts ?? []).map(a => ({
 <template>
   <p v-if="!list.length" class="flex items-center gap-2 rounded-md border p-3 text-sm text-muted-foreground">
     <component :is="draftIcon('ShieldCheck')" class="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-    {{ emptyText }}
+    {{ emptyText ?? m.drafts.noAlerts }}
   </p>
   <ul v-else class="space-y-2">
     <li
@@ -50,20 +52,20 @@ const list = computed(() => (props.alerts ?? []).map(a => ({
         <p v-if="a.message" class="whitespace-pre-wrap break-words"><AgentText :text="a.message" /></p>
         <dl v-if="values.before !== undefined || values.after !== undefined" class="grid gap-1 text-xs sm:grid-cols-2">
           <div v-if="values.before !== undefined">
-            <dt class="text-muted-foreground">Before</dt>
+            <dt class="text-muted-foreground">{{ m.drafts.before }}</dt>
             <dd dir="ltr" class="whitespace-pre-wrap break-all font-mono [unicode-bidi:bidi-override]"><AgentText :text="values.before" /></dd>
           </div>
           <div v-if="values.after !== undefined">
-            <dt class="text-muted-foreground">After</dt>
+            <dt class="text-muted-foreground">{{ m.drafts.after }}</dt>
             <dd dir="ltr" class="whitespace-pre-wrap break-all font-mono [unicode-bidi:bidi-override]"><AgentText :text="values.after" /></dd>
           </div>
         </dl>
-        <p v-else-if="values.inFieldDiff" class="text-xs text-muted-foreground">The values are in the node's changes below.</p>
+        <p v-else-if="values.inFieldDiff" class="text-xs text-muted-foreground">{{ m.drafts.valuesInDiff }}</p>
         <dl v-else-if="values.unchanged !== undefined" class="text-xs">
-          <dt class="text-muted-foreground">Value (the setting itself did not change)</dt>
+          <dt class="text-muted-foreground">{{ m.drafts.unchangedValue }}</dt>
           <dd dir="ltr" class="whitespace-pre-wrap break-all font-mono [unicode-bidi:bidi-override]"><AgentText :text="values.unchanged" /></dd>
         </dl>
-        <p v-else-if="onSetting" class="text-xs text-muted-foreground">This setting's value is not shown here.</p>
+        <p v-else-if="onSetting" class="text-xs text-muted-foreground">{{ m.drafts.valueNotShown }}</p>
       </div>
     </li>
   </ul>

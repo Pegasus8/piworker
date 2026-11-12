@@ -2,6 +2,7 @@
 // synchronous tool calls): "editor" for the editor's Test tool,
 // "token:<name>" for an agent token, empty when the flow's own trigger fired.
 import { visibleText } from '@/lib/agentAccess'
+import { msg } from '@/i18n'
 
 export interface RunActor {
   kind: 'trigger' | 'editor' | 'agent' | 'other'
@@ -13,12 +14,13 @@ export interface RunActor {
 const TOKEN_PREFIX = 'token:'
 
 export function runActor(actor: string | undefined): RunActor {
-  if (!actor) return { kind: 'trigger', label: 'Trigger', title: 'Started by the flow\'s trigger' }
-  if (actor === 'editor') return { kind: 'editor', label: 'Editor', title: 'Started from the editor (Test tool)' }
+  const t = msg().agents.actor
+  if (!actor) return { kind: 'trigger', label: t.trigger, title: t.triggerTitle }
+  if (actor === 'editor') return { kind: 'editor', label: t.editor, title: t.editorTitle }
   if (actor.startsWith(TOKEN_PREFIX)) {
-    const name = visibleText(actor.slice(TOKEN_PREFIX.length)) || '(unnamed)'
-    return { kind: 'agent', label: `Agent ${name}`, title: `Started by the agent token “${name}”` }
+    const name = visibleText(actor.slice(TOKEN_PREFIX.length)) || t.unnamed
+    return { kind: 'agent', label: t.agent(name), title: t.agentTitle(name) }
   }
   const shown = visibleText(actor)
-  return { kind: 'other', label: shown, title: `Started by ${shown}` }
+  return { kind: 'other', label: shown, title: t.otherTitle(shown) }
 }

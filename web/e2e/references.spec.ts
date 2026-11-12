@@ -39,7 +39,7 @@ test('variables manager validates JSON, preserves types, and recovers from a fai
 test('expression autocomplete inserts a global reference at the caret with keyboard selection',async({page})=>{
  await page.goto('/editor/ref')
  await page.locator('.vue-flow__node').filter({hasText:'Transform'}).click()
- const config=page.getByRole('dialog',{name:'Node configuration'})
+ const config=page.getByRole('complementary',{name:'Node settings'})
  const expression=config.getByLabel('Expression',{exact:true})
  await expression.fill('payload + vars.thr')
  await expect(config.getByRole('option',{name:'threshold',exact:true})).toBeVisible()
@@ -53,7 +53,7 @@ test('expression autocomplete inserts a global reference at the caret with keybo
 test('secret names are suggested only in supported credential fields',async({page})=>{
  await page.goto('/editor/ref')
  await page.locator('.vue-flow__node').filter({hasText:'Telegram'}).click()
- const config=page.getByRole('dialog',{name:'Node configuration'})
+ const config=page.getByRole('complementary',{name:'Node settings'})
  const token=config.getByLabel('Bot Token',{exact:true})
  await token.fill('{{secret.BOT')
  await config.getByRole('option',{name:'BOT_TOKEN',exact:true}).click()
@@ -67,7 +67,7 @@ test('reference loading can fail and retry without discarding the expression',as
  await page.route('**/api/variables',route=>fail?route.fulfill({status:500,json:{error:'Offline'}}):route.fallback())
  await page.goto('/editor/ref')
  await page.locator('.vue-flow__node').filter({hasText:'Transform'}).click()
- const config=page.getByRole('dialog',{name:'Node configuration'})
+ const config=page.getByRole('complementary',{name:'Node settings'})
  await expect(config.getByRole('alert')).toContainText('references could not be loaded')
  await config.getByLabel('Expression',{exact:true}).fill('payload + vars.thr')
  fail=false
@@ -83,6 +83,7 @@ test('mobile variable editing and deletion require explicit confirmation',async(
  let removed=0
  await page.route('**/api/variables/threshold',route=>{if(route.request().method()==='DELETE')removed++;return route.fulfill({json:{success:true}})})
  await page.goto('/')
+ await page.getByRole('button',{name:'Open navigation'}).click()
  await page.getByRole('button',{name:'Variables',exact:true}).click()
  const dialog=page.getByRole('dialog',{name:'Global variables'})
  await dialog.getByRole('button',{name:'Edit variable threshold'}).click()
@@ -108,7 +109,7 @@ test('flow variables are managed separately with inline documentation and autoco
   return route.fulfill({json:{success:true,data:{variables:local}}})
  })
  await page.goto('/editor/ref')
- await page.getByRole('button',{name:'Variables',exact:true}).click()
+ await page.getByRole('button',{name:'Flow variables',exact:true}).click()
  const dialog=page.getByRole('dialog',{name:'Flow variables',exact:true})
  await expect(dialog).toContainText('Only this flow')
  await dialog.getByText('How to use variables', {exact:true}).click()
@@ -133,7 +134,7 @@ test('flow variables are managed separately with inline documentation and autoco
 
 test('cancelling a scope switch keeps the selected scope and variable draft',async({page})=>{
  await page.goto('/editor/ref')
- await page.getByRole('button',{name:'Variables',exact:true}).click()
+ await page.getByRole('button',{name:'Flow variables',exact:true}).click()
  const dialog=page.getByRole('dialog',{name:'Flow variables',exact:true})
  await dialog.getByLabel('Variable name',{exact:true}).fill('unsaved')
  await dialog.getByLabel('Variable value',{exact:true}).fill('keep me')

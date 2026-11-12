@@ -4,6 +4,7 @@
 // cancelled; the password is cleared as soon as the dialog closes.
 import { ref, onBeforeUnmount } from 'vue'
 import { Button, Dialog, Input, Label } from '@/components/ui'
+import { messages as m } from '@/i18n'
 
 const open = ref(false)
 const password = ref('')
@@ -35,11 +36,11 @@ defineExpose({ ask })
       <h2 class="text-lg font-semibold">{{ options.title }}</h2>
       <p class="mt-2 break-words text-sm text-muted-foreground">{{ options.description }}</p>
       <div class="mt-4 space-y-2">
-        <Label for="step-up-password">Your password</Label>
+        <Label for="step-up-password">{{ m.agents.yourPassword }}</Label>
         <Input id="step-up-password" v-model="password" type="password" autocomplete="current-password" />
       </div>
       <div class="mt-6 flex flex-wrap justify-end gap-2">
-        <Button variant="outline" @click="finish(null)">Cancel</Button>
+        <Button variant="outline" @click="finish(null)">{{ m.common.cancel }}</Button>
         <Button type="submit" :disabled="!password">{{ options.action }}</Button>
       </div>
     </form>

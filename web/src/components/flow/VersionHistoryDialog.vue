@@ -124,7 +124,7 @@ async function rollback() {
           <li v-for="v in list.versions" :key="v.version" class="space-y-1 rounded-md border p-3 text-sm" :class="!v.adminApproved && 'border-amber-500/40'">
             <div class="flex flex-wrap items-center gap-2">
               <span class="font-semibold">{{ m.flowTools.versions.version(v.version) }}</span>
-              <Badge v-for="tag in versionTags(v, list)" :key="tag" :variant="tag === 'Not approved by you' ? 'destructive' : tag === 'Current' ? 'default' : 'secondary'">{{ tag }}</Badge>
+              <Badge v-for="tag in versionTags(v, list)" :key="tag.kind" :variant="tag.kind === 'notApproved' ? 'destructive' : tag.kind === 'current' ? 'default' : 'secondary'">{{ tag.label }}</Badge>
             </div>
             <p class="text-muted-foreground">
               <span class="break-words"><AgentText :text="versionActor(v)" /></span> · <span :title="formatDateTime(v.createdAt)">{{ formatDateTime(v.createdAt) }}</span>

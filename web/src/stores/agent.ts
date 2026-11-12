@@ -8,6 +8,7 @@ import { computed, ref } from 'vue'
 import { apiClient, useApi } from '@/composables/useApi'
 import { createVisibilityPoller, type Poller, type PollerOptions } from '@/lib/poller'
 import { shortSecretsSummary, type SecretList } from '@/lib/secrets'
+import { msg } from '@/i18n'
 import {
   auditParams,
   buildCreateTokenRequest,
@@ -150,7 +151,7 @@ export const useAgentStore = defineStore('agent', () => {
       tools.value = data.data?.tools ?? []
     } catch (e) {
       tools.value = []
-      if (status(e) !== 404) toolsError.value = apiErrorMessage(e, 'Could not load the published tools.')
+      if (status(e) !== 404) toolsError.value = apiErrorMessage(e, msg().agents.toolsLoadFailed)
     }
   }
 

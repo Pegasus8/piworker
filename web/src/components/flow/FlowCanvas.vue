@@ -233,12 +233,12 @@ onUnmounted(() => {
         class="hidden sm:block overflow-hidden rounded-lg border"
       />
     </VueFlow>
-    <div v-if="!flowsStore.loading && flowsStore.nodes.length === 0" class="pointer-events-none absolute inset-0 flex items-center justify-center p-6">
+    <div v-if="!flowsStore.loading && flowsStore.nodes.length === 0" class="pointer-events-none absolute inset-0 flex items-center justify-center p-6 pb-32 pl-16 sm:pb-6">
       <div class="max-w-sm rounded-xl border border-dashed bg-card/80 p-6 text-center shadow-sm">
         <MousePointerClick class="mx-auto mb-3 h-8 w-8 text-primary" aria-hidden="true" />
         <p class="font-medium">{{ m.editor.emptyTitle }}</p>
         <p class="mt-1 text-sm text-muted-foreground">{{ m.editor.emptyBody }}</p>
-        <p class="mt-3 text-xs text-muted-foreground">{{ m.editor.emptyShortcuts }}</p>
+        <p class="mt-3 hidden text-xs text-muted-foreground sm:block">{{ m.editor.emptyShortcuts }}</p>
       </div>
     </div>
   </div>

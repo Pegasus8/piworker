@@ -7,6 +7,7 @@
 // can replace them with longer random values.
 import type { Component } from 'vue'
 import { AlertTriangle } from 'lucide-vue-next'
+import { msg } from '@/i18n'
 
 /** A stored secret: its name and whether its value is short. */
 export interface SecretItem {
@@ -55,8 +56,8 @@ export interface ShortSecretNotice {
 export function shortSecretNotice(shortBelow = DEFAULT_SHORT_BELOW): ShortSecretNotice {
   return {
     icon: AlertTriangle,
-    label: 'Short value',
-    text: `An agent could confirm a guess of it (see Agents). Use ${shortBelow} random characters or more.`
+    label: msg().settings.shortLabel,
+    text: msg().settings.shortText(shortBelow)
   }
 }
 
@@ -68,20 +69,14 @@ export interface ShortSecretsSummary {
 
 /** The Agents page's count of short secrets. */
 export function shortSecretsSummary(list: SecretList | null): ShortSecretsSummary {
-  if (!list) return { short: null, text: 'Could not check the secrets for short values.' }
+  const t = msg().settings
+  if (!list) return { short: null, text: t.summaryUnknown }
   const total = list.secrets.length
-  if (!total) return { short: 0, text: 'No secrets are stored.' }
+  if (!total) return { short: 0, text: t.summaryNone }
   const short = list.secrets.filter(s => s.short).length
   // Length is no proof of randomness: say so even when nothing is short.
   if (!short) {
-    return {
-      short,
-      text: `No secret is shorter than ${list.shortBelow} characters. Use random values: a long word or date can still be guessed.`
-    }
+    return { short, text: t.summaryNoShort(list.shortBelow) }
   }
-  const one = short === 1
-  return {
-    short,
-    text: `${short} of ${total} secrets ${one ? 'is' : 'are'} short (fewer than ${list.shortBelow} characters): an agent could confirm a guess of ${one ? 'it' : 'them'}.`
-  }
+  return { short, text: t.summaryShort(short, total, list.shortBelow) }
 }

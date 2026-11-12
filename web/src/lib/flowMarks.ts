@@ -5,6 +5,7 @@
 // rollback to the version the admin last approved. Token names are agent-side
 // text: the labels escape hidden characters (visibleText).
 import { formatDateTime, visibleText } from '@/lib/agentAccess'
+import { msg } from '@/i18n'
 import type { DeploymentMark, VersionEntry, VersionList } from '@/types'
 
 export interface FlowMarker {
@@ -25,24 +26,24 @@ export interface MarkedFlow {
 
 /** The agent markers of a flow, in display order. */
 export function flowMarkers(f: MarkedFlow): FlowMarker[] {
+  const t = msg().drafts.marks
   const out: FlowMarker[] = []
   const d = f.deployment
   if (d && d.actorKind === 'agent') {
     const name = visibleText(d.tokenName ?? '')
-    const who = name ? `agent ${name}` : 'an agent'
     const when = formatDateTime(d.deployedAt)
-    const moved = f.version && d.version && f.version !== d.version ? ` The flow is now at version ${f.version}.` : ''
+    const moved = f.version && d.version && f.version !== d.version ? f.version : undefined
     out.push({
       kind: 'deployed_by_agent',
-      label: `${f.running ? 'Deployed' : 'Last deployed'} by ${who}`,
-      title: `Version ${d.version} was deployed by ${name ? `the agent token “${name}”` : 'an agent token'}${when ? ` on ${when}` : ''}.${moved}`
+      label: t.deployedBy(f.running, name),
+      title: t.deployedTitle(d.version, name, when, moved)
     })
   }
   if (f.agentChanged) {
     out.push({
       kind: 'changed_by_agent',
-      label: 'Changed by agent',
-      title: 'The current version was saved by an agent and not approved by you. Open the version history to roll back to the version you last approved.'
+      label: t.changedByAgent,
+      title: t.changedTitle
     })
   }
   return out
@@ -50,19 +51,28 @@ export function flowMarkers(f: MarkedFlow): FlowMarker[] {
 
 /** Who saved a version. */
 export function versionActor(e: Pick<VersionEntry, 'actorKind' | 'tokenName' | 'tokenId'>): string {
-  if (e.actorKind !== 'agent') return 'You (editor)'
+  const t = msg().drafts.marks
+  if (e.actorKind !== 'agent') return t.you
   const name = visibleText(e.tokenName || e.tokenId || '')
-  return name ? `Agent ${name}` : 'An agent'
+  return name ? t.agent(name) : t.anAgent
+}
+
+export interface VersionTag {
+  /** Stable, for styling: never compare the label. */
+  kind: 'current' | 'deployed' | 'notApproved' | 'lastApproved' | 'fromDraft'
+  label: string
 }
 
 /** What a version is now: current, deployed, approved or not, from a draft. */
-export function versionTags(e: VersionEntry, list: Pick<VersionList, 'current' | 'lastAdminApproved'>): string[] {
-  const tags: string[] = []
-  if (e.version === list.current) tags.push('Current')
-  if (e.deployed) tags.push('Deployed')
-  if (!e.adminApproved) tags.push('Not approved by you')
-  else if (e.version === list.lastAdminApproved) tags.push('Last approved by you')
-  if (e.draftId) tags.push('From a draft')
+export function versionTags(e: VersionEntry, list: Pick<VersionList, 'current' | 'lastAdminApproved'>): VersionTag[] {
+  const t = msg().drafts.marks
+  const tags: VersionTag[] = []
+  const add = (kind: VersionTag['kind']) => tags.push({ kind, label: t[kind] })
+  if (e.version === list.current) add('current')
+  if (e.deployed) add('deployed')
+  if (!e.adminApproved) add('notApproved')
+  else if (e.version === list.lastAdminApproved) add('lastApproved')
+  if (e.draftId) add('fromDraft')
   return tags
 }
 
@@ -77,16 +87,13 @@ export interface RollbackTarget {
 /** Whether a rollback is possible and which version it restores. */
 export function rollbackTarget(list: Pick<VersionList, 'current' | 'lastAdminApproved'>): RollbackTarget {
   const v = list.lastAdminApproved
-  if (!v) return { possible: false, version: 0, reason: 'There is no version you approved to roll back to (no version you approved is kept).' }
-  if (v >= list.current) return { possible: false, version: v, reason: 'The current version is the one you last approved: there is nothing to roll back.' }
+  if (!v) return { possible: false, version: 0, reason: msg().drafts.marks.noRollback }
+  if (v >= list.current) return { possible: false, version: v, reason: msg().drafts.marks.nothingToRollBack }
   return { possible: true, version: v, reason: '' }
 }
 
 /** The rollback confirmation: which version comes back and what happens to a running flow. */
 export function rollbackConfirmText(list: Pick<VersionList, 'current' | 'lastAdminApproved'>, flowName: string, running: boolean): string {
   const name = visibleText(flowName)
-  const restore = `“${name}” goes back to version ${list.lastAdminApproved}, the version you last approved: it is saved again as a new version, after version ${list.current}. Later versions stay in the history.`
-  return running
-    ? `${restore} The flow is running, so it is redeployed with that version.`
-    : `${restore} The flow is not running; nothing is deployed.`
+  return msg().drafts.marks.rollbackConfirm(name, list.lastAdminApproved, list.current, running)
 }

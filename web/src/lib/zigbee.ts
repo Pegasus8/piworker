@@ -1,6 +1,7 @@
 // Broker connections (ADR-0026) and Zigbee2MQTT discovery as the editor
 // shows them: the connections dialog, the Zigbee page and the suggestions of
 // the node config form. Pure helpers; the requests live in stores/zigbee.ts.
+import { msg } from '@/i18n'
 
 /** Where a node setting finds its suggestions (ConfigProperty.Options). The value stays free text. */
 export type SuggestSource = 'connections' | 'zigbee-devices' | 'zigbee-properties' | 'zigbee-settable'
@@ -152,13 +153,14 @@ export function connectionRequest(form: ConnectionForm): ConnectionRequest {
 
 /** What is wrong with the form before it is sent ('' when nothing); the server checks again. */
 export function connectionFormError(form: ConnectionForm): string {
+  const t = msg().zigbee.form
   const name = form.name.trim()
-  if (!name) return 'Enter a connection name.'
-  if (name.length > 64) return 'Use at most 64 characters for the name.'
-  if (!NAME.test(name)) return 'Use only letters, digits, “_” or “-” in the name.'
+  if (!name) return t.nameRequired
+  if (name.length > 64) return t.nameTooLong
+  if (!NAME.test(name)) return t.nameChars
   const broker = form.broker.trim()
-  if (!broker) return 'Enter the broker address.'
-  if (!BROKER.test(broker)) return 'Enter the broker as tcp://host:1883 (or mqtt://, ssl://, mqtts://, ws://, wss://).'
+  if (!broker) return t.brokerRequired
+  if (!BROKER.test(broker)) return t.brokerFormat
   return ''
 }
 
@@ -204,7 +206,7 @@ export function featureHint(feature: ZigbeeFeature): string {
   if (typeof feature.min === 'number' && typeof feature.max === 'number') parts.push(`${feature.min}–${feature.max}`)
   if (feature.values?.length) parts.push(feature.values.join(', '))
   else if (feature.type === 'binary' && feature.valueOn !== undefined && feature.valueOff !== undefined) parts.push(`${String(feature.valueOn)} / ${String(feature.valueOff)}`)
-  if ((feature.access & ACCESS_SETTABLE) === 0) parts.push('read-only')
+  if ((feature.access & ACCESS_SETTABLE) === 0) parts.push(msg().zigbee.readOnly)
   return parts.join(', ')
 }
 
@@ -223,7 +225,7 @@ export function fieldHint(source: SuggestSource, ctx: SuggestionContext): string
   const feature = typeof property === 'string' ? device.features.find(f => f.property === property) : undefined
   if (!feature) return ''
   const now = device.state?.[feature.property]
-  return [featureHint(feature), now === undefined ? '' : `now ${formatValue(now, feature.unit)}`].filter(Boolean).join(' · ')
+  return [featureHint(feature), now === undefined ? '' : msg().zigbee.now(formatValue(now, feature.unit))].filter(Boolean).join(' · ')
 }
 
 // --- The Zigbee page ----------------------------------------------------------
@@ -242,7 +244,7 @@ export function keyValues(device: ZigbeeDevice): KeyValue[] {
   const state = device.state ?? {}
   return KEY_PROPERTIES.filter(p => state[p] !== undefined && state[p] !== null).map(p => ({
     property: p,
-    label: p.charAt(0).toUpperCase() + p.slice(1),
+    label: msg().zigbee.keyLabels[p] ?? p.charAt(0).toUpperCase() + p.slice(1),
     text: formatValue(state[p], device.features.find(f => f.property === p)?.unit)
   }))
 }
@@ -265,9 +267,10 @@ export function relativeTime(iso: string | undefined, nowMs: number): string {
   const at = Date.parse(iso)
   if (Number.isNaN(at)) return ''
   const s = Math.floor((nowMs - at) / 1000)
-  if (s < 5) return 'just now'
-  if (s < 60) return `${s} s ago`
-  if (s < 3600) return `${Math.floor(s / 60)} min ago`
-  if (s < 86400) return `${Math.floor(s / 3600)} h ago`
-  return `${Math.floor(s / 86400)} d ago`
+  const t = msg().zigbee
+  if (s < 5) return t.justNow
+  if (s < 60) return t.secondsAgo(s)
+  if (s < 3600) return t.minutesAgo(Math.floor(s / 60))
+  if (s < 86400) return t.hoursAgo(Math.floor(s / 3600))
+  return t.daysAgo(Math.floor(s / 86400))
 }
