@@ -10,6 +10,8 @@ import { useFlowsStore } from '@/stores/flows'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
 import { TriggerNode, ProcessNode, OutputNode } from './nodes'
 import type { FlowNode, NodeCategory } from '@/types'
+import { MousePointerClick } from 'lucide-vue-next'
+import { messages as m } from '@/i18n'
 
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
@@ -21,7 +23,7 @@ const nodeTypesStore = useNodeTypesStore()
 
 const flowContainer = ref<HTMLDivElement | null>(null)
 
-const { onConnect, onNodeClick, onPaneClick, onEdgesChange, onNodeDragStop, addNodes, project, setNodes, setEdges, fitView } = useVueFlow()
+const { onConnect, onNodeClick, onPaneClick, onEdgesChange, onNodesChange, onNodeDragStop, addNodes, project, setNodes, setEdges, fitView } = useVueFlow()
 
 // Custom node types
 const nodeTypes: NodeTypesObject = {
@@ -60,6 +62,15 @@ onEdgesChange((changes) => {
   for (const change of changes) {
     if (change.type === 'remove') {
       flowsStore.removeEdge(change.id)
+    }
+  }
+})
+
+// Nodes deleted with the keyboard (Backspace/Delete) leave the store too.
+onNodesChange((changes) => {
+  for (const change of changes) {
+    if (change.type === 'remove' && flowsStore.nodes.some(n => n.id === change.id)) {
+      flowsStore.removeNode(change.id)
     }
   }
 })
@@ -106,20 +117,27 @@ function onDrop(event: DragEvent) {
   if (!nodeTypeId || !flowContainer.value) return
 
   const bounds = flowContainer.value.getBoundingClientRect()
-  insertNode(nodeTypeId, project({ x: event.clientX - bounds.left, y: event.clientY - bounds.top }))
+  const node = buildNode(nodeTypeId, project({ x: event.clientX - bounds.left, y: event.clientY - bounds.top }))
+  if (!node) return
+  flowsStore.addNode(node)
+  addNodes([node])
+  flowsStore.selectNode(node.id)
 }
 
+// Added from the palette: the node follows the selected one and is
+// connected to it when both have a port for it, then becomes the selection,
+// so tapping several nodes builds a chain.
 async function addNodeType(nodeTypeId: string) {
-  const bounds = flowContainer.value?.getBoundingClientRect()
-  if (!bounds) return
-  const id = insertNode(nodeTypeId, { x: (flowsStore.nodes.length % 3) * 260, y: Math.floor(flowsStore.nodes.length / 3) * 180 })
-  if (id) {
-    flowsStore.selectNode(id)
-    await nextTick()
-    fitView({ padding: 0.3, maxZoom: 1 })
-  }
+  const node = buildNode(nodeTypeId, { x: 0, y: 0 })
+  if (!node) return
+  flowsStore.addNodeAfter(node, flowsStore.selectedNodeId)
+  addNodes([node])
+  flowsStore.selectNode(node.id)
+  // The settings panel opens beside the canvas: fit once it has its width.
+  await nextTick()
+  requestAnimationFrame(() => requestAnimationFrame(() => fitView({ padding: 0.3, maxZoom: 1 })))
 }
-function insertNode(nodeTypeId: string, position: { x: number; y: number }) {
+function buildNode(nodeTypeId: string, position: { x: number; y: number }): FlowNode | undefined {
   const nodeType = nodeTypesStore.getById(nodeTypeId)
   if (!nodeType) return
   // Build default config from schema
@@ -144,10 +162,7 @@ function insertNode(nodeTypeId: string, position: { x: number; y: number }) {
       config
     }
   }
-
-  flowsStore.addNode(newNode)
-  addNodes([newNode])
-  return id
+  return newNode
 }
 defineExpose({ addNodeType })
 
@@ -191,7 +206,7 @@ onUnmounted(() => {
 <template>
   <div
     ref="flowContainer"
-    class="h-full w-full"
+    class="relative h-full w-full"
     @dragover="onDragOver"
     @drop="onDrop"
   >
@@ -213,16 +228,29 @@ onUnmounted(() => {
       <MiniMap
         :node-color="minimapNodeColor"
         :node-stroke-color="minimapNodeColor"
+        mask-color="hsl(var(--background) / 0.6)"
         position="bottom-right"
-        class="hidden sm:block bg-card border rounded-lg"
+        class="hidden sm:block overflow-hidden rounded-lg border"
       />
     </VueFlow>
+    <div v-if="!flowsStore.loading && flowsStore.nodes.length === 0" class="pointer-events-none absolute inset-0 flex items-center justify-center p-6 pb-32 pl-16 sm:pb-6">
+      <div class="max-w-sm rounded-xl border border-dashed bg-card/80 p-6 text-center shadow-sm">
+        <MousePointerClick class="mx-auto mb-3 h-8 w-8 text-primary" aria-hidden="true" />
+        <p class="font-medium">{{ m.editor.emptyTitle }}</p>
+        <p class="mt-1 text-sm text-muted-foreground">{{ m.editor.emptyBody }}</p>
+        <p class="mt-3 hidden text-xs text-muted-foreground sm:block">{{ m.editor.emptyShortcuts }}</p>
+      </div>
+    </div>
   </div>
 </template>
 
 <style>
 .vue-flow__minimap {
   background-color: hsl(var(--card));
+  border-color: hsl(var(--border));
+}
+.vue-flow__minimap svg {
+  display: block;
 }
 
 .vue-flow__controls {

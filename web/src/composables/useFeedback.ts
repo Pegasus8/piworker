@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { msg } from '@/i18n'
 export type Feedback = { kind: 'success' | 'error' | 'pending'; text: string }
 
 // failure: the error text, or a function of the error (for example the
@@ -9,7 +10,7 @@ export function useFeedback() {
   async function run(action: () => Promise<unknown>, success: string, failure: string | ((e: unknown) => string)) {
     if (pending.value) return false
     pending.value = true
-    feedback.value = { kind: 'pending', text: 'Working…' }
+    feedback.value = { kind: 'pending', text: msg().common.working }
     try {
       await action()
       feedback.value = { kind: 'success', text: success }

@@ -1,5 +1,6 @@
 import type { ConfigField } from '@/types'
 import { suggestSource } from '@/lib/zigbee'
+import { msg } from '@/i18n'
 
 // A name/value pair of an object-typed setting such as HTTP headers.
 export interface ObjectRow { key: string; value: string }
@@ -38,9 +39,9 @@ export function parseJsonObject(text: string): ParsedJsonObject {
   try {
     parsed = JSON.parse(text)
   } catch (e) {
-    return { error: `Invalid JSON: ${e instanceof Error ? e.message : String(e)}` }
+    return { error: msg().flowTools.json.invalid(e instanceof Error ? e.message : String(e)) }
   }
-  if (!isPlainObject(parsed)) return { error: 'Enter a JSON object, e.g. {"type": "object"}' }
+  if (!isPlainObject(parsed)) return { error: msg().flowTools.json.notObject }
   return { value: parsed }
 }
 
@@ -94,6 +95,8 @@ export function configFieldsFromSchema(schema: any): ConfigField[] {
       required: required.includes(key),
       default: p.default,
       placeholder: p.description || '',
+      unit: typeof p.unit === 'string' && p.unit ? p.unit : undefined,
+      sensitive: p.sensitive === true || undefined,
       options: hasEnum ? p.enum.map((v: string) => ({ label: v, value: v })) : undefined,
       // A suggestion source of a free-text setting (ConfigProperty.Options).
       suggest: type === 'text' ? suggestSource(p.options) : undefined

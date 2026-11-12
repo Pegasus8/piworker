@@ -1,3 +1,5 @@
+import { msg } from '@/i18n'
+
 // Only advertise syntax implemented by the corresponding node field.
 export type ReferenceMode = 'expression' | 'template' | 'secret' | 'name' | undefined
 const credentials: Record<string, string[]> = {
@@ -21,8 +23,9 @@ export function referenceMode(nodeType: string, field: string): ReferenceMode {
 export interface Reference { label: string; value: string; group: string }
 export function referenceOptions(mode: ReferenceMode, names: string[], secrets: string[], flowNames: string[] = [], scope = 'global'): Reference[] {
  if (!mode) return []
- if (mode === 'secret') return secrets.map(name => ({ label:name, value:`{{secret.${name}}}`, group:'Secret name' }))
- if (mode === 'name') return (scope === 'flow' ? flowNames : names).map(name => ({ label:name, value:name, group:scope === 'flow' ? 'Flow variable' : 'Global variable' }))
+ const t = msg().flowTools.references
+ if (mode === 'secret') return secrets.map(name => ({ label:name, value:`{{secret.${name}}}`, group:t.secretName }))
+ if (mode === 'name') return (scope === 'flow' ? flowNames : names).map(name => ({ label:name, value:name, group:scope === 'flow' ? t.flowVariable : t.globalVariable }))
  const options = (keys: string[], prefix: string, group: string) => keys.filter(name => mode !== 'template' || /^[A-Za-z0-9_.-]+$/.test(name)).map(name => ({ label:name, value:mode === 'expression' ? `${prefix}[${JSON.stringify(name)}]` : `{{${prefix}.${name}}}`, group }))
- return [...options(names,'vars','Global variable'), ...options(flowNames,'flowVars','Flow variable'), ...['payload','topic','meta','id','timestamp'].filter(name => mode !== 'template' || name !== 'meta').map(name => ({label:name,value:mode === 'template' ? `{{${name}}}` : name,group:'Message'}))]
+ return [...options(names,'vars',t.globalVariable), ...options(flowNames,'flowVars',t.flowVariable), ...['payload','topic','meta','id','timestamp'].filter(name => mode !== 'template' || name !== 'meta').map(name => ({label:name,value:mode === 'template' ? `{{${name}}}` : name,group:t.message}))]
 }

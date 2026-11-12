@@ -1,5 +1,6 @@
-// Importable example flows for Zigbee home automation (docs/design/zigbee.md,
-// phase 3). Each template builds the flow JSON POST /api/flows/import
+import { msg } from '@/i18n'
+// Importable example flows: a few that need no hardware, and Zigbee home
+// automations (docs/design/zigbee.md, phase 3). Each template builds the flow JSON POST /api/flows/import
 // accepts (the shape the flow export writes): nodes with their type,
 // category, position, settings and ports, and connections between ports.
 // test/examples.test.ts checks every template against the Go nodes.
@@ -41,8 +42,11 @@ export interface ExampleFlow {
 
 export interface ExampleTemplate {
   id: string
-  title: string
-  description: string
+  /** In the interface language, read when shown or built. */
+  readonly title: string
+  readonly description: string
+  /** Needs a broker connection to Zigbee2MQTT. */
+  zigbee: boolean
   /** What the dialog asks for besides the connection. */
   needs: Exclude<ExampleParam, 'connection'>[]
   build(p: Required<Pick<ExampleParams, 'connection'>> & ExampleParams): Pick<ExampleFlow, 'nodes' | 'connections'>
@@ -60,6 +64,9 @@ export const EXAMPLE_PORTS: Record<string, { inputs: ExamplePort[]; outputs: Exa
   'trigger-zigbee': { inputs: [], outputs: [port('output', 'State', false), port('availability', 'Availability', false)] },
   'trigger-sun': { inputs: [], outputs: output },
   'trigger-cron': { inputs: [], outputs: output },
+  'trigger-interval': { inputs: [], outputs: output },
+  'trigger-sysmetric': { inputs: [], outputs: output },
+  'trigger-webhook': { inputs: [], outputs: output },
   'process-filter': { inputs: input, outputs: output },
   'process-timer': { inputs: input, outputs: [port('output', 'Elapsed', false)] },
   'action-zigbee': { inputs: input, outputs: output },
@@ -88,12 +95,57 @@ function link(sourceNode: string, targetNode: string, sourcePort = 'output', tar
 
 // A device name inside an expression: a quoted, escaped string literal.
 const literal = (name: string) => JSON.stringify(name)
+const text = () => msg().examples
 
 export const EXAMPLES: ExampleTemplate[] = [
+  // No hardware needed: they work on any PiWorker, right away.
+  {
+    id: 'heartbeat',
+    get title() { return text().items.heartbeat.title },
+    get description() { return text().items.heartbeat.description },
+    zigbee: false,
+    needs: [],
+    build: () => ({
+      nodes: [
+        node('every_minute', 'trigger-interval', 0, 0, { interval: 60000 }),
+        node('log', 'action-log', 1, 0, { level: 'info', message: text().items.heartbeat.log })
+      ],
+      connections: [link('every_minute', 'log')]
+    })
+  },
+  {
+    id: 'hot-pi',
+    get title() { return text().items.hotPi.title },
+    get description() { return text().items.hotPi.description },
+    zigbee: false,
+    needs: [],
+    build: () => ({
+      nodes: [
+        node('temperature', 'trigger-sysmetric', 0, 0, { metric: 'temperature', comparison: 'above', threshold: 70, interval: 30 }),
+        node('log', 'action-log', 1, 0, { level: 'warn', message: text().items.hotPi.log })
+      ],
+      connections: [link('temperature', 'log')]
+    })
+  },
+  {
+    id: 'webhook-log',
+    get title() { return text().items.webhook.title },
+    get description() { return text().items.webhook.description },
+    zigbee: false,
+    needs: [],
+    build: () => ({
+      nodes: [
+        node('webhook', 'trigger-webhook', 0, 0, { path: 'hello' }),
+        node('log', 'action-log', 1, 0, { level: 'info', message: text().items.webhook.log })
+      ],
+      connections: [link('webhook', 'log')]
+    })
+  },
   {
     id: 'humidity-dehumidifier',
-    title: 'Humidity controls a dehumidifier plug',
-    description: 'Turns the plug on when the humidity reaches 65 % and off again at 55 %.',
+    get title() { return text().items.humidity.title },
+    get description() { return text().items.humidity.description },
+    zigbee: true,
     needs: ['sensor', 'plug'],
     build: ({ connection, sensor = '', plug = '' }) => ({
       nodes: [
@@ -108,36 +160,39 @@ export const EXAMPLES: ExampleTemplate[] = [
   },
   {
     id: 'appliance-finished',
-    title: 'Appliance finished (power drops)',
-    description: 'Logs when the power through a plug drops from over 50 W to under 5 W, such as a washing machine finishing.',
+    get title() { return text().items.appliance.title },
+    get description() { return text().items.appliance.description },
+    zigbee: true,
     needs: ['plug'],
     build: ({ connection, plug = '' }) => ({
       nodes: [
         node('power', 'trigger-zigbee', 0, 0, { connection, device: plug, property: 'power', minChange: 5 }),
         node('finished', 'process-filter', 1, 0, { condition: 'payload.previous != nil && payload.previous > 50 && payload.value < 5' }),
-        node('log', 'action-log', 2, 0, { level: 'info', message: `${plug} finished` })
+        node('log', 'action-log', 2, 0, { level: 'info', message: text().items.appliance.log(plug) })
       ],
       connections: [link('power', 'finished'), link('finished', 'log')]
     })
   },
   {
     id: 'device-offline',
-    title: 'Device went offline',
-    description: 'Logs a warning when a device stops answering (Zigbee2MQTT availability must be on).',
+    get title() { return text().items.offline.title },
+    get description() { return text().items.offline.description },
+    zigbee: true,
     needs: ['sensor'],
     build: ({ connection, sensor = '' }) => ({
       nodes: [
         node('device', 'trigger-zigbee', 0, 0, { connection, device: sensor }),
         node('offline', 'process-filter', 1, 0, { condition: 'payload.online == false' }),
-        node('log', 'action-log', 2, 0, { level: 'warn', message: `${sensor} is offline` })
+        node('log', 'action-log', 2, 0, { level: 'warn', message: text().items.offline.log(sensor) })
       ],
       connections: [link('device', 'offline', 'availability'), link('offline', 'log')]
     })
   },
   {
     id: 'porch-sunset',
-    title: 'Porch light at sunset',
-    description: 'Turns the plug on 15 minutes before sunset and off at sunrise.',
+    get title() { return text().items.porch.title },
+    get description() { return text().items.porch.description },
+    zigbee: true,
     needs: ['plug', 'location'],
     build: ({ connection, plug = '', latitude = DEFAULT_LOCATION.latitude, longitude = DEFAULT_LOCATION.longitude }) => ({
       nodes: [
@@ -151,8 +206,9 @@ export const EXAMPLES: ExampleTemplate[] = [
   },
   {
     id: 'auto-off',
-    title: 'Turn off after 30 minutes',
-    description: 'Whenever the plug is turned on, turns it off again 30 minutes later.',
+    get title() { return text().items.autoOff.title },
+    get description() { return text().items.autoOff.description },
+    zigbee: true,
     needs: ['plug'],
     build: ({ connection, plug = '' }) => ({
       nodes: [
@@ -166,14 +222,15 @@ export const EXAMPLES: ExampleTemplate[] = [
   },
   {
     id: 'low-battery',
-    title: 'Daily low-battery check',
-    description: 'Every day at 09:00, logs a warning when the sensor last reported a battery under 20 %.',
+    get title() { return text().items.battery.title },
+    get description() { return text().items.battery.description },
+    zigbee: true,
     needs: ['sensor'],
     build: ({ sensor = '' }) => ({
       nodes: [
         node('daily', 'trigger-cron', 0, 0, { expression: '0 9 * * *' }),
         node('low', 'process-filter', 1, 0, { condition: `(zigbee(${literal(sensor)})?.battery ?? 100) < 20` }),
-        node('log', 'action-log', 2, 0, { level: 'warn', message: `Battery low on ${sensor}` })
+        node('log', 'action-log', 2, 0, { level: 'warn', message: text().items.battery.log(sensor) })
       ],
       connections: [link('daily', 'low'), link('low', 'log')]
     })
@@ -186,7 +243,7 @@ const validLongitude = (v: unknown) => typeof v === 'number' && Number.isFinite(
 /** What the example still needs before it can be created (every Zigbee example needs a connection). */
 export function missingParams(template: ExampleTemplate, params: ExampleParams): ExampleParam[] {
   const missing: ExampleParam[] = []
-  if (!params.connection?.trim()) missing.push('connection')
+  if (template.zigbee && !params.connection?.trim()) missing.push('connection')
   for (const need of template.needs) {
     if (need === 'location') {
       if (!validLatitude(params.latitude) || !validLongitude(params.longitude)) missing.push('location')
@@ -199,7 +256,7 @@ export function missingParams(template: ExampleTemplate, params: ExampleParams):
 export function buildExampleFlow(template: ExampleTemplate, params: ExampleParams): ExampleFlow {
   const { nodes, connections } = template.build({
     ...params,
-    connection: params.connection.trim(),
+    connection: (params.connection ?? '').trim(),
     sensor: params.sensor?.trim(),
     plug: params.plug?.trim()
   })

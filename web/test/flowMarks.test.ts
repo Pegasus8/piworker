@@ -52,10 +52,13 @@ test('versions say who saved them and what they are now', () => {
   expect(versionActor(entry(2, { actorKind: 'agent', tokenId: 'tok9' }))).toBe('Agent tok9')
   expect(versionActor(entry(2, { actorKind: 'agent' }))).toBe('An agent')
   const l = list()
-  expect(versionTags(l.versions[0], l)).toEqual(['Current', 'Deployed', 'Not approved by you', 'From a draft'])
-  expect(versionTags(l.versions[1], l)).toEqual(['Not approved by you'])
-  expect(versionTags(l.versions[2], l)).toEqual(['Last approved by you', 'From a draft'])
-  expect(versionTags(entry(5), list({ lastAdminApproved: 5 }))).toEqual(['Current', 'Last approved by you'])
+  const labels = (e: VersionEntry, li: Pick<VersionList, 'current' | 'lastAdminApproved'>) => versionTags(e, li).map(t => t.label)
+  expect(labels(l.versions[0], l)).toEqual(['Current', 'Deployed', 'Not approved by you', 'From a draft'])
+  expect(versionTags(l.versions[0], l).map(t => t.kind)).toEqual(['current', 'deployed', 'notApproved', 'fromDraft'])
+  expect(labels(l.versions[1], l)).toEqual(['Not approved by you'])
+  expect(labels(l.versions[2], l)).toEqual(['Last approved by you', 'From a draft'])
+  expect(versionTags(l.versions[2], l).map(t => t.kind)).toEqual(['lastApproved', 'fromDraft'])
+  expect(labels(entry(5), list({ lastAdminApproved: 5 }))).toEqual(['Current', 'Last approved by you'])
 })
 
 test('rolling back restores the version you last approved, when the current one is not it', () => {

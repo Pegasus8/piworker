@@ -10,6 +10,7 @@ import {
   ShieldAlert, ShieldCheck, ShieldQuestion, Shuffle, ToggleRight, TrendingUp, XCircle
 } from 'lucide-vue-next'
 import { jsonText, visibleText } from '@/lib/agentAccess'
+import { msg } from '@/i18n'
 
 export type Risk = 'safe' | 'external' | 'privileged'
 export type DraftStatus = 'pending' | 'approved' | 'rejected' | 'void'
@@ -150,7 +151,6 @@ export interface ApplyResult {
 export const HIDDEN_VALUE = '<hidden>'
 
 const has = (o: object, key: string) => Object.prototype.hasOwnProperty.call(o, key)
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 
 // --- Icons -----------------------------------------------------------------
 
@@ -174,77 +174,46 @@ export interface AlertKindInfo {
   description: string
 }
 
-/** Every alert kind flow.Diff raises (stable; the low agent_deploy level matches on them). */
-export const ALERT_KINDS: Readonly<Record<string, AlertKindInfo>> = {
-  risk_raised: {
-    icon: 'TrendingUp', label: 'Risk raised',
-    description: 'The flow as a whole can do more than before: its risk level is higher.'
-  },
-  privileged_node_added: {
-    icon: 'ShieldAlert', label: 'Privileged node',
-    description: 'A node that can run commands, write files, query databases or reach the hardware now runs.'
-  },
-  destination_changed: {
-    icon: 'Send', label: 'Destination changed',
-    description: 'Where a node sends data or connects changed: a URL, host, broker, topic, recipient, chat or file path.'
-  },
-  dynamic_destination: {
-    icon: 'Shuffle', label: 'Dynamic destination',
-    description: 'A destination is built from message data or variables, so where data goes can change while the flow runs.'
-  },
-  new_host: {
-    icon: 'Globe', label: 'New host',
-    description: 'The flow contacts a host that the compared version never contacts.'
-  },
-  secret_added: {
-    icon: 'KeyRound', label: 'New secret used',
-    description: 'The flow uses a secret that the compared version never uses.'
-  },
-  secret_moved: {
-    icon: 'ArrowRightLeft', label: 'Secret used elsewhere',
-    description: 'A secret is used by a node or setting that did not use it before, so it may be sent somewhere new.'
-  },
-  risk_switch_on: {
-    icon: 'ToggleRight', label: 'Risk switch turned on',
-    description: 'An opt-in that widens what a node may do (such as private network access or dash arguments) is on.'
-  },
-  sensitive_literal: {
-    icon: 'Lock', label: 'Credential typed in',
-    description: 'A credential setting holds a typed-in value instead of a {{secret.NAME}} reference.'
-  },
-  credentialed_request_changed: {
-    icon: 'Fingerprint', label: 'Credential used differently',
-    description: 'A node that uses a credential now sends a different request or gets new input, so the credential you approved is used for something else.'
-  },
-  rate_changed: {
-    icon: 'Gauge', label: 'Rate changed',
-    description: 'On a flow that reaches other services, how often a trigger fires or how many messages a limiter lets through changed.'
-  },
-  global_variable_write: {
-    icon: 'DatabaseZap', label: 'Global variable written',
-    description: 'What the flow writes to a global variable may have changed. Other flows read global variables for their URLs, commands and conditions.'
-  },
-  global_variable_read: {
-    icon: 'Eye', label: 'Global variable read by a tool',
-    description: 'A tool whose path changed reads global variables: what it reads goes back to the agent that calls it.'
-  },
-  tool_path_changed: {
-    icon: 'Route', label: 'Tool changed',
-    description: 'What a published tool runs changed: an agent calling it, under its grant and confirmation setting, would run something you did not approve.'
-  },
-  data_read_changed: {
-    icon: 'ScanEye', label: 'Protected data read',
-    description: 'A new or changed node reads variables, the settings earlier nodes pass along, or what a credential returned: it could hand them back to an agent through the flow\'s runs.'
-  }
+const ALERT_ICONS: Readonly<Record<string, string>> = {
+  risk_raised: 'TrendingUp',
+  privileged_node_added: 'ShieldAlert',
+  destination_changed: 'Send',
+  dynamic_destination: 'Shuffle',
+  new_host: 'Globe',
+  secret_added: 'KeyRound',
+  secret_moved: 'ArrowRightLeft',
+  risk_switch_on: 'ToggleRight',
+  sensitive_literal: 'Lock',
+  credentialed_request_changed: 'Fingerprint',
+  rate_changed: 'Gauge',
+  global_variable_write: 'DatabaseZap',
+  global_variable_read: 'Eye',
+  tool_path_changed: 'Route',
+  data_read_changed: 'ScanEye'
 }
+
+const alertText = (kind: string) =>
+  (msg().drafts.alertKinds as Record<string, { label: string; description: string }>)[kind]
+
+/**
+ * Every alert kind flow.Diff raises (stable; the low agent_deploy level
+ * matches on them). Labels and descriptions follow the interface language.
+ */
+export const ALERT_KINDS: Readonly<Record<string, AlertKindInfo>> = Object.fromEntries(
+  Object.entries(ALERT_ICONS).map(([kind, icon]) => [kind, {
+    icon,
+    get label() { return alertText(kind).label },
+    get description() { return alertText(kind).description }
+  }])
+)
 
 /** How an alert kind is shown; an unknown kind keeps its name, as text. */
 export function alertKind(kind: string): AlertKindInfo {
   if (has(ALERT_KINDS, kind)) return ALERT_KINDS[kind]
   return {
     icon: 'AlertTriangle',
-    label: visibleText(kind) || 'Alert',
-    description: 'An alert this editor does not know yet: read its message.'
+    label: visibleText(kind) || msg().drafts.unknownAlert,
+    description: msg().drafts.unknownAlertDescription
   }
 }
 
@@ -322,15 +291,15 @@ export function proposedSettings(flow: unknown): Map<string, Record<string, unkn
 /** Node label for a node ID: "<type name> (<id>)" when its type is known, else "Node <id>". */
 function nodeLabel(nodeId: string, names: ReadonlyMap<string, string>): string {
   const name = names.get(nodeId)
-  return name ? `${name} (${nodeId})` : `Node ${nodeId}`
+  return name ? `${name} (${nodeId})` : msg().drafts.nodeLabel(nodeId)
 }
 
 /** Where an alert is: its node and setting, or the whole flow. */
 export function alertLocation(alert: DraftAlert, names: ReadonlyMap<string, string>): string {
-  if (!alert.nodeId) return 'Whole flow'
+  if (!alert.nodeId) return msg().drafts.wholeFlow
   const node = nodeLabel(alert.nodeId, names)
   const { label, setting } = fieldLabel(alert.path ?? '')
-  return alert.path && setting ? `${node} · setting ${label}` : node
+  return alert.path && setting ? msg().drafts.onSetting(node, label) : node
 }
 
 /** Alerts of each node, in the server's order (flow-level ones are left out). */
@@ -354,15 +323,17 @@ export interface RiskInfo {
   rank: number
 }
 
-const RISK_INFO: Record<string, RiskInfo> = {
-  safe: { label: 'Safe', icon: 'ShieldCheck', variant: 'outline', rank: 0 },
-  external: { label: 'External', icon: 'Shield', variant: 'secondary', rank: 1 },
-  privileged: { label: 'Privileged', icon: 'ShieldAlert', variant: 'destructive', rank: 2 }
+const RISK_INFO: Record<string, Omit<RiskInfo, 'label'>> = {
+  safe: { icon: 'ShieldCheck', variant: 'outline', rank: 0 },
+  external: { icon: 'Shield', variant: 'secondary', rank: 1 },
+  privileged: { icon: 'ShieldAlert', variant: 'destructive', rank: 2 }
 }
 
 /** How a risk level is shown (an unknown value reads as the highest). */
 export function riskInfo(risk: string): RiskInfo {
-  return has(RISK_INFO, risk) ? RISK_INFO[risk] : { label: 'Unknown risk', icon: 'ShieldQuestion', variant: 'destructive', rank: 3 }
+  const t = msg().drafts.risk
+  if (has(RISK_INFO, risk)) return { label: t[risk as 'safe' | 'external' | 'privileged'], ...RISK_INFO[risk] }
+  return { label: t.unknown, icon: 'ShieldQuestion', variant: 'destructive', rank: 3 }
 }
 
 export interface RiskChange {
@@ -374,9 +345,10 @@ export interface RiskChange {
 export function riskChange(before: string, after: string): RiskChange {
   const b = riskInfo(before)
   const a = riskInfo(after)
-  if (a.rank > b.rank) return { direction: 'raised', text: `Risk raised from ${b.label} to ${a.label}` }
-  if (a.rank < b.rank) return { direction: 'lowered', text: `Risk lowered from ${b.label} to ${a.label}` }
-  return { direction: 'same', text: `Risk unchanged: ${a.label}` }
+  const t = msg().drafts.risk
+  if (a.rank > b.rank) return { direction: 'raised', text: t.raised(b.label, a.label) }
+  if (a.rank < b.rank) return { direction: 'lowered', text: t.lowered(b.label, a.label) }
+  return { direction: 'same', text: t.same(a.label) }
 }
 
 // --- Diff ------------------------------------------------------------------
@@ -387,40 +359,38 @@ export interface NodeGroup {
   nodes: NodeDiff[]
 }
 
-const GROUPS: { change: Change; label: string }[] = [
-  { change: 'added', label: 'Added nodes' },
-  { change: 'removed', label: 'Removed nodes' },
-  { change: 'changed', label: 'Changed nodes' }
-]
+const GROUPS: Change[] = ['added', 'removed', 'changed']
 
 /** The node diff by kind of change (non-empty groups only), each in the server's order. */
 export function groupNodes(diff: DiffReport): NodeGroup[] {
   const nodes = diff.nodes ?? []
+  const labels = msg().drafts.groups
   return GROUPS
-    .map(g => ({ ...g, nodes: nodes.filter(n => n.change === g.change) }))
+    .map(change => ({ change, label: labels[change], nodes: nodes.filter(n => n.change === change) }))
     .filter(g => g.nodes.length > 0)
 }
 
 /** "2 nodes added, 1 node changed, 1 connection added", or "No node or connection changes". */
 export function diffSummary(diff: DiffReport): string {
+  const t = msg().drafts
   const nodes = diff.nodes ?? []
   const parts: string[] = []
   for (const change of ['added', 'removed', 'changed'] as const) {
     const n = nodes.filter(d => d.change === change).length
-    if (n) parts.push(`${plural(n, 'node')} ${change}`)
+    if (n) parts.push(t.nodesChanged(n, change))
   }
   const added = diff.connections?.added?.length ?? 0
   const removed = diff.connections?.removed?.length ?? 0
-  if (added) parts.push(`${plural(added, 'connection')} added`)
-  if (removed) parts.push(`${plural(removed, 'connection')} removed`)
-  return parts.length ? parts.join(', ') : 'No node or connection changes'
+  if (added) parts.push(t.connectionsAdded(added))
+  if (removed) parts.push(t.connectionsRemoved(removed))
+  return parts.length ? parts.join(', ') : t.noChanges
 }
 
 /** A field path as a label: "config.url" → setting "url". */
 export function fieldLabel(path: string): { label: string; setting: boolean } {
   if (path.startsWith('config.')) return { label: path.slice('config.'.length), setting: true }
-  if (path === 'enabled') return { label: 'Enabled', setting: false }
-  if (path === 'type') return { label: 'Node type', setting: false }
+  if (path === 'enabled') return { label: msg().drafts.fieldEnabled, setting: false }
+  if (path === 'type') return { label: msg().drafts.fieldType, setting: false }
   return { label: path, setting: false }
 }
 
@@ -444,7 +414,7 @@ export interface FieldRow {
 
 function fieldValue(v: unknown, present: boolean, sensitive: boolean): FieldValue | null {
   if (!present) return null
-  if (sensitive && v === HIDDEN_VALUE) return { text: 'hidden', hidden: true }
+  if (sensitive && v === HIDDEN_VALUE) return { text: msg().drafts.hidden, hidden: true }
   return { text: valueText(v), hidden: false }
 }
 
@@ -489,8 +459,9 @@ export interface TextChangeRow extends TextChange {
 /** The flow's name and description the draft changes, for the changes section. */
 export function textChanges(d: Pick<DraftDetail, 'nameChange' | 'descriptionChange'>): TextChangeRow[] {
   const rows: TextChangeRow[] = []
-  if (d.nameChange) rows.push({ field: 'name', label: 'Name', before: d.nameChange.before, after: d.nameChange.after })
-  if (d.descriptionChange) rows.push({ field: 'description', label: 'Description', ...d.descriptionChange })
+  const t = msg().drafts
+  if (d.nameChange) rows.push({ field: 'name', label: t.fieldName, before: d.nameChange.before, after: d.nameChange.after })
+  if (d.descriptionChange) rows.push({ field: 'description', label: t.fieldDescription, ...d.descriptionChange })
   return rows
 }
 
@@ -508,13 +479,15 @@ export function issueCounts(issues: readonly FlowIssue[] | null | undefined): Is
 /** "1 error, 2 warnings", or "No issues". */
 export function issueCountsLabel(c: IssueCounts): string {
   const parts: string[] = []
-  if (c.error) parts.push(plural(c.error, 'error'))
-  if (c.warning) parts.push(plural(c.warning, 'warning'))
-  return parts.length ? parts.join(', ') : 'No issues'
+  const t = msg().drafts
+  if (c.error) parts.push(t.errors(c.error))
+  if (c.warning) parts.push(t.warnings(c.warning))
+  return parts.length ? parts.join(', ') : t.noIssues
 }
 
 export function severityInfo(severity: string): { icon: string; label: string } {
-  return severity === 'error' ? { icon: 'XCircle', label: 'Error' } : { icon: 'AlertTriangle', label: 'Warning' }
+  const t = msg().drafts
+  return severity === 'error' ? { icon: 'XCircle', label: t.severityError } : { icon: 'AlertTriangle', label: t.severityWarning }
 }
 
 /**
@@ -528,12 +501,12 @@ export const ENVIRONMENT_ISSUE_CODES: readonly string[] = ['undefined_secret']
 /** The draft's flow, for titles: an existing flow's name, or the proposed name of a new one. */
 export function draftTitle(d: Pick<DraftSummary, 'flowId' | 'flowName' | 'isNew'>): string {
   const name = visibleText(d.flowName)
-  if (d.isNew) return `New flow “${name}”`
-  return name || `Flow ${visibleText(d.flowId)}`
+  if (d.isNew) return msg().drafts.newFlowTitle(name)
+  return name || msg().drafts.flowTitle(visibleText(d.flowId))
 }
 
 /** Where the flow is now, for a draft of an existing flow (currentVersion 0: deleted). */
-const flowNow = (current: number) => current ? `the flow is now at version ${current}` : 'the flow was deleted'
+const flowNow = (current: number) => current ? msg().drafts.flowNowAt(current) : msg().drafts.flowDeleted
 
 /**
  * Which version a draft changes and what became of it. The server marks
@@ -544,14 +517,15 @@ const flowNow = (current: number) => current ? `the flow is now at version ${cur
 export function draftVersionText(
   d: Pick<DraftSummary, 'isNew' | 'baseVersion' | 'currentVersion' | 'stale' | 'status' | 'appliedVersion'>
 ): string {
+  const t = msg().drafts
   if (d.status === 'pending') {
-    if (d.isNew) return 'Creates a new flow'
-    if (d.stale) return `Written for version ${d.baseVersion}; ${flowNow(d.currentVersion)}`
-    return `Changes version ${d.baseVersion} (the current one)`
+    if (d.isNew) return t.createsNewFlow
+    if (d.stale) return `${t.writtenFor(d.baseVersion)}; ${flowNow(d.currentVersion)}`
+    return t.changesCurrent(d.baseVersion)
   }
-  const parts = [d.isNew ? 'Written as a new flow' : `Written for version ${d.baseVersion}`]
+  const parts = [d.isNew ? t.writtenAsNew : t.writtenFor(d.baseVersion)]
   const applied = d.status === 'approved' && d.appliedVersion ? d.appliedVersion : 0
-  if (applied) parts.push(`saved as version ${applied}`)
+  if (applied) parts.push(t.savedAsVersion(applied))
   // The version the text names last; a new flow that was never created has none to compare.
   const named = applied || (d.isNew ? 0 : d.baseVersion)
   const neverCreated = d.isNew && !d.currentVersion
@@ -568,8 +542,6 @@ export interface DiffBasis {
   emptyAlerts: string
 }
 
-const NO_ALERTS = 'No alerts: no destination, secret, credential or risk changes.'
-
 /**
  * What a draft's diff is compared with. The server recomputes it on read
  * against the current version (an empty flow for a new one, or a deleted
@@ -577,41 +549,38 @@ const NO_ALERTS = 'No alerts: no destination, secret, credential or risk changes
  * and an approved draft's changes are already part of the version it became.
  */
 export function diffBasis(d: DraftDetail): DiffBasis {
+  const t = msg().drafts
   const empty = d.isNew || !d.currentVersion
   if (empty) {
     return {
-      heading: 'Changes compared with an empty flow',
-      note: d.isNew
-        ? 'Compared with an empty flow: this draft creates a new flow.'
-        : 'Compared with an empty flow: the flow this draft was written for no longer exists.',
-      emptyAlerts: NO_ALERTS
+      heading: t.emptyHeading,
+      note: d.isNew ? t.emptyNoteNew : t.emptyNoteDeleted,
+      emptyAlerts: t.noAlerts
     }
   }
   const current = d.currentVersion
-  const notBase = current !== d.baseVersion ? `, not version ${d.baseVersion} the draft was written for` : ''
+  const notBase = current !== d.baseVersion ? t.notBase(d.baseVersion) : ''
   if (d.status === 'pending') {
     return {
-      heading: `Changes compared with version ${current} (current)`,
-      note: `Compared with the current version, ${current}${notBase}.`,
-      emptyAlerts: NO_ALERTS
+      heading: t.pendingHeading(current),
+      note: t.pendingNote(current, notBase),
+      emptyAlerts: t.noAlerts
     }
   }
-  const heading = `Changes compared with version ${current} (current, recomputed now)`
+  const heading = t.decidedHeading(current)
   if (d.status === 'approved') {
-    const saved = d.appliedVersion ? `This draft was saved as version ${d.appliedVersion}` : 'This draft was approved'
-    const part = d.appliedVersion === current ? 'so its changes are already part of it and show here as none' : 'so its changes are already part of the flow'
+    const saved = d.appliedVersion ? t.savedAs(d.appliedVersion) : t.wasApproved
+    const part = d.appliedVersion === current ? t.partOfIt : t.partOfFlow
     return {
       heading,
-      note: `Recomputed now against the current version, ${current}${notBase}. ${saved}, ${part}: what shows here is only what differs from the current version.`,
-      emptyAlerts: d.appliedVersion === current
-        ? `No alerts against version ${current}: this draft's changes are already part of it.`
-        : `No alerts against the current version, ${current}.`
+      note: t.approvedNote(current, notBase, saved, part),
+      emptyAlerts: d.appliedVersion === current ? t.noAlertsApplied(current) : t.noAlertsCurrent(current)
     }
   }
   return {
     heading,
-    note: `Recomputed now against the current version, ${current}${notBase}. Nothing from this draft was saved.`,
-    emptyAlerts: `No alerts against the current version, ${current}.`
+    note: t.otherNote(current, notBase),
+    emptyAlerts: t.noAlertsCurrent(current)
   }
 }
 
@@ -626,42 +595,28 @@ export interface DraftState {
 export function draftState(
   d: Pick<DraftSummary, 'status' | 'stale' | 'baseVersion' | 'currentVersion' | 'appliedVersion' | 'appliedBy' | 'tokenName'>
 ): DraftState {
+  const t = msg().drafts.state
   switch (d.status) {
     case 'pending':
       if (d.stale) {
-        return {
-          label: 'Out of date', tone: 'blocked',
-          explanation: `The agent wrote this draft for version ${d.baseVersion}, but the flow is now at version ${d.currentVersion}. ` +
-            'It cannot be approved: ask the agent to redo it on the current version, or reject it.'
-        }
+        return { label: t.outOfDate, tone: 'blocked', explanation: t.outOfDateExplanation(d.baseVersion, d.currentVersion) }
       }
-      return { label: 'Waiting for review', tone: 'pending', explanation: 'Nothing changes until you approve it.' }
+      return { label: t.waiting, tone: 'pending', explanation: t.waitingExplanation }
     case 'approved':
       if (d.appliedBy === 'agent') {
-        const as = d.appliedVersion ? ` as version ${d.appliedVersion}` : ''
-        return {
-          label: 'Deployed by agent', tone: 'done',
-          explanation: `Agent ${visibleText(d.tokenName)} deployed this draft itself${as} (the agent deploy level allows it); you did not review it. ` +
-            'The version history can roll it back to the version you last approved.'
-        }
+        return { label: t.deployedByAgent, tone: 'done', explanation: t.deployedByAgentExplanation(visibleText(d.tokenName), d.appliedVersion) }
       }
-      return {
-        label: 'Approved', tone: 'done',
-        explanation: d.appliedVersion ? `You approved this draft; it was saved as version ${d.appliedVersion}.` : 'You approved this draft.'
-      }
+      return { label: t.approved, tone: 'done', explanation: t.approvedExplanation(d.appliedVersion) }
     case 'rejected':
-      return { label: 'Rejected', tone: 'done', explanation: 'You rejected this draft. The agent sees the reason.' }
+      return { label: t.rejected, tone: 'done', explanation: t.rejectedExplanation }
     case 'void':
-      return {
-        label: 'Void', tone: 'done',
-        explanation: 'This draft was closed without a decision (its token was revoked or its flow deleted). Nothing was saved.'
-      }
+      return { label: t.void, tone: 'done', explanation: t.voidExplanation }
     default:
-      return { label: visibleText(String(d.status)), tone: 'done', explanation: 'This draft can no longer be approved.' }
+      return { label: visibleText(String(d.status)), tone: 'done', explanation: t.unknownExplanation }
   }
 }
 
-const STATUS_WORDS: Record<string, string> = { approved: 'approved', rejected: 'rejected', void: 'void' }
+const STATUS_WORDS = ['approved', 'rejected', 'void']
 
 /**
  * Why approving would be refused, or '' when it would not (the server
@@ -669,30 +624,17 @@ const STATUS_WORDS: Record<string, string> = { approved: 'approved', rejected: '
  * flow is always redeployed.
  */
 export function approvalBlock(d: DraftDetail, deploy: boolean): string {
+  const t = msg().drafts
   if (d.status !== 'pending') {
-    if (d.status === 'approved' && d.appliedBy === 'agent') {
-      return 'This draft was already deployed by its agent; there is nothing to approve.'
-    }
-    const word = STATUS_WORDS[d.status] ?? 'decided'
-    return word === 'void'
-      ? 'This draft is void: it was closed without a decision, so there is nothing to approve.'
-      : `This draft was already ${word}; there is nothing to approve.`
+    if (d.status === 'approved' && d.appliedBy === 'agent') return t.blockDeployedByAgent
+    const word = STATUS_WORDS.includes(d.status) ? d.status : 'decided'
+    return word === 'void' ? t.blockVoid : t.blockDecided(t.statusWords[word as 'approved' | 'rejected' | 'decided'])
   }
-  if (d.stale) {
-    return `This draft is out of date: the flow is now at version ${d.currentVersion}. Ask the agent to redo it, or reject it.`
-  }
+  if (d.stale) return t.blockStale(d.currentVersion)
   const errors = (d.issues ?? []).filter(i => i.severity === 'error')
   const blocking = errors.filter(i => !ENVIRONMENT_ISSUE_CODES.includes(i.code))
-  if (blocking.length) {
-    return `The draft has ${plural(blocking.length, 'error')} (listed under Issues), so it cannot be saved. Ask the agent to fix them, or reject it.`
-  }
-  if (errors.length && (deploy || d.running)) {
-    const why = d.running ? 'The flow is running, so approving redeploys it, but' : 'Deploying needs'
-    const tail = d.running
-      ? 'it uses secrets that are not defined (listed under Issues). Define them in Secrets first.'
-      : 'secrets that are not defined (listed under Issues). Define them in Secrets first, or approve without deploying.'
-    return `${why} ${tail}`
-  }
+  if (blocking.length) return t.blockErrors(blocking.length)
+  if (errors.length && (deploy || d.running)) return d.running ? t.blockSecretsRunning : t.blockSecretsDeploy
   return ''
 }
 
@@ -703,7 +645,7 @@ function diffDigest(diff: DiffReport): { risk: string; alerts: string } {
   const counts = new Map<string, number>()
   for (const a of alerts) counts.set(a.kind, (counts.get(a.kind) ?? 0) + 1)
   const kinds = [...counts].map(([kind, n]) => n > 1 ? `${alertKind(kind).label} (${n})` : alertKind(kind).label)
-  return { risk, alerts: counts.size ? `${plural(alerts.length, 'alert')}: ${kinds.join(', ')}` : 'no alerts' }
+  return { risk, alerts: counts.size ? msg().drafts.alertsList(alerts.length, kinds.join(', ')) : msg().drafts.noAlertsLower }
 }
 
 /**
@@ -713,37 +655,32 @@ function diffDigest(diff: DiffReport): { risk: string; alerts: string } {
  * makes the result the new baseline, so it approves those changes too.
  */
 export function approveConfirmText(d: DraftDetail, deploy: boolean): string {
+  const t = msg().drafts
   const now = diffDigest(d.diff)
   let compared: string
   if (d.diffApproved) {
     const since = diffDigest(d.diffApproved)
-    compared = `Compared with the current version, ${d.currentVersion}: ${now.risk}; ${now.alerts}. ` +
-      `Compared with version ${d.lastApprovedVersion}, the one you last approved: ${since.risk}; ${since.alerts}. ` +
-      'Approving also approves these earlier agent changes.'
+    compared = t.comparedBoth(d.currentVersion, now.risk, now.alerts, d.lastApprovedVersion, since.risk, since.alerts)
   } else {
     const alerts = now.alerts.charAt(0).toUpperCase() + now.alerts.slice(1)
     compared = `${now.risk}. ${alerts}.`
   }
   const name = visibleText(d.flowName) || visibleText(d.flowId)
-  const saved = d.isNew
-    ? `“${name}” is created as a new flow from this draft by “${visibleText(d.tokenName || d.tokenId)}”.`
-    : `“${name}” is saved as a new version from this draft by “${visibleText(d.tokenName || d.tokenId)}”.`
+  const token = visibleText(d.tokenName || d.tokenId)
+  const saved = d.isNew ? t.createdFrom(name, token) : t.savedFrom(name, token)
   // A rename can disguise a flow: say it here too (a new flow's name is in "saved").
   const renamed = !d.isNew && d.nameChange
-    ? ` It renames the flow from “${visibleText(d.nameChange.before)}” to “${visibleText(d.nameChange.after)}”.`
+    ? t.renames(visibleText(d.nameChange.before), visibleText(d.nameChange.after))
     : ''
-  const described = !d.isNew && d.descriptionChange ? ' It changes the flow\'s description.' : ''
-  const runs = d.running
-    ? 'The flow is running, so it is redeployed with this version.'
-    : deploy ? 'It is deployed right away.' : 'It is not deployed.'
+  const described = !d.isNew && d.descriptionChange ? t.describes : ''
+  const runs = d.running ? t.runsRedeploy : deploy ? t.runsDeploy : t.runsNot
   return `${compared} ${saved}${renamed}${described} ${runs}`
 }
 
 /** What an approval or rollback did, for OperationFeedback. */
 export function applyOutcome(r: ApplyResult, action: string): { kind: 'success' | 'error'; text: string } {
-  if (r.deployError) {
-    return { kind: 'error', text: `${action}: saved as version ${r.version}, but it could not be deployed: ${visibleText(r.deployError.message)}` }
-  }
-  if (r.deployed) return { kind: 'success', text: `${action}: saved as version ${r.version} and deployed.` }
-  return { kind: 'success', text: `${action}: saved as version ${r.version}. It is not running.` }
+  const t = msg().drafts
+  if (r.deployError) return { kind: 'error', text: t.outcomeDeployError(action, r.version, visibleText(r.deployError.message)) }
+  if (r.deployed) return { kind: 'success', text: t.outcomeDeployed(action, r.version) }
+  return { kind: 'success', text: t.outcomeSaved(action, r.version) }
 }

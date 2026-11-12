@@ -5,6 +5,7 @@ import { useFlowsStore } from '@/stores/flows'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
 import { Button, Dialog, Select, Label } from '@/components/ui'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import { messages as m } from '@/i18n'
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 const store = useFlowsStore()
@@ -36,28 +37,28 @@ function connect() {
 }
 function name(id: string) { return store.nodes.find(n => n.id === id)?.data.label || id }
 async function remove(id: string) {
-  if (await confirmation.value?.ask('Remove connection?', 'The nodes will remain. Save the flow to persist this change.', 'Remove connection')) store.removeEdge(id)
+  if (await confirmation.value?.ask(m.value.flowTools.connections.confirmTitle, m.value.flowTools.connections.confirmText, m.value.flowTools.connections.confirmAction)) store.removeEdge(id)
 }
 </script>
 <template>
-  <Dialog :open="props.open" title="Connections" @update:open="emit('update:open', $event)">
-    <h2 class="text-lg font-semibold">Connections</h2>
-    <p class="mt-2 text-sm text-muted-foreground">Choose where messages start and where they go. Changes are saved with the flow.</p>
+  <Dialog :open="props.open" :title="m.flowTools.connections.title" @update:open="emit('update:open', $event)">
+    <h2 class="text-lg font-semibold">{{ m.flowTools.connections.title }}</h2>
+    <p class="mt-2 text-sm text-muted-foreground">{{ m.flowTools.connections.intro }}</p>
     <div class="my-4 space-y-3">
-      <div><Label for="connection-source">From node</Label><Select id="connection-source" v-model="source" :options="sources" placeholder="Choose a source" /></div>
-      <div><Label for="source-port">From port</Label><Select id="source-port" v-model="sourcePort" :options="sourcePorts" placeholder="Choose an output" /></div>
-      <div><Label for="connection-target">To node</Label><Select id="connection-target" v-model="target" :options="targets" placeholder="Choose a destination" /></div>
-      <div><Label for="target-port">To port</Label><Select id="target-port" v-model="targetPort" :options="targetPorts" placeholder="Choose an input" /></div>
-      <Button :disabled="!canConnect" @click="connect">Connect nodes</Button>
+      <div><Label for="connection-source">{{ m.flowTools.connections.fromNode }}</Label><Select id="connection-source" v-model="source" :options="sources" :placeholder="m.flowTools.connections.chooseSource" /></div>
+      <div><Label for="source-port">{{ m.flowTools.connections.fromPort }}</Label><Select id="source-port" v-model="sourcePort" :options="sourcePorts" :placeholder="m.flowTools.connections.chooseOutput" /></div>
+      <div><Label for="connection-target">{{ m.flowTools.connections.toNode }}</Label><Select id="connection-target" v-model="target" :options="targets" :placeholder="m.flowTools.connections.chooseDestination" /></div>
+      <div><Label for="target-port">{{ m.flowTools.connections.toPort }}</Label><Select id="target-port" v-model="targetPort" :options="targetPorts" :placeholder="m.flowTools.connections.chooseInput" /></div>
+      <Button :disabled="!canConnect" @click="connect">{{ m.flowTools.connections.connect }}</Button>
     </div>
-    <p v-if="!store.edges.length" class="text-sm text-muted-foreground">No connections yet.</p>
+    <p v-if="!store.edges.length" class="text-sm text-muted-foreground">{{ m.flowTools.connections.none }}</p>
     <ul class="max-h-60 overflow-auto divide-y">
       <li v-for="edge in store.edges" :key="edge.id" class="flex items-center justify-between gap-2 py-2 text-sm">
-        <span>{{ name(edge.source) }} → {{ name(edge.target) }}<small class="block text-muted-foreground">{{ edge.sourceHandle }} → {{ edge.targetHandle }}</small><small v-if="store.invalidConnections.some(e => e.id === edge.id)" class="block text-destructive">Choose valid ports: remove this connection and reconnect it.</small></span>
-        <Button variant="ghost" size="sm" :aria-label="`Remove ${name(edge.source)} to ${name(edge.target)}`" @click="remove(edge.id)">Remove</Button>
+        <span>{{ name(edge.source) }} → {{ name(edge.target) }}<small class="block text-muted-foreground">{{ edge.sourceHandle }} → {{ edge.targetHandle }}</small><small v-if="store.invalidConnections.some(e => e.id === edge.id)" class="block text-destructive">{{ m.flowTools.connections.invalid }}</small></span>
+        <Button variant="ghost" size="sm" :aria-label="m.flowTools.connections.removeLabel(name(edge.source), name(edge.target))" @click="remove(edge.id)">{{ m.flowTools.connections.remove }}</Button>
       </li>
     </ul>
-    <div class="mt-4 flex justify-end"><Button variant="outline" @click="emit('update:open', false)">Done</Button></div>
+    <div class="mt-4 flex justify-end"><Button variant="outline" @click="emit('update:open', false)">{{ m.common.done }}</Button></div>
     <ConfirmDialog ref="confirmation" />
   </Dialog>
 </template>

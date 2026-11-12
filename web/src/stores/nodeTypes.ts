@@ -4,6 +4,7 @@ import type { NodeTypeConfig, NodeCategory } from '@/types'
 import { useApi } from '@/composables/useApi'
 import { configFieldsFromSchema } from '@/lib/configValues'
 import { lucideIconName } from '@/lib/nodeIcons'
+import { msg } from '@/i18n'
 
 // Map backend categories to frontend categories
 const categoryMap: Record<string, NodeCategory> = {
@@ -49,7 +50,7 @@ export const useNodeTypesStore = defineStore('nodeTypes', () => {
 
         initialized.value = true
       } catch (e) {
-        error.value = e instanceof Error ? e.message : 'Failed to fetch node types'
+        error.value = e instanceof Error ? e.message : msg().flowTools.errors.nodeTypes
         console.error('Failed to fetch node types:', e)
       } finally {
         loading.value = false

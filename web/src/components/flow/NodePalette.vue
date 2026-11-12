@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { Search, ChevronDown, ChevronRight } from 'lucide-vue-next'
 import { nodeIcon } from '@/lib/nodeIcons'
 import type { NodeCategory } from '@/types'
+import { messages as m } from '@/i18n'
 
 const emit = defineEmits<{ add: [nodeType: string] }>()
 const nodeTypesStore = useNodeTypesStore()
@@ -16,11 +17,18 @@ const getIcon = nodeIcon
 
 const expandedCategories = ref<Set<NodeCategory>>(new Set(['trigger', 'process', 'action']))
 
-const categories: { key: NodeCategory; label: string; color: string }[] = [
-  { key: 'trigger', label: 'Triggers', color: 'bg-amber-500' },
-  { key: 'process', label: 'Processing', color: 'bg-blue-500' },
-  { key: 'action', label: 'Actions', color: 'bg-purple-500' }
-]
+const categories = computed((): { key: NodeCategory; label: string; hint: string; color: string }[] => [
+  { key: 'trigger', label: m.value.editor.categories.trigger, hint: m.value.editor.categoryHints.trigger, color: 'bg-amber-500' },
+  { key: 'process', label: m.value.editor.categories.process, hint: m.value.editor.categoryHints.process, color: 'bg-blue-500' },
+  { key: 'action', label: m.value.editor.categories.action, hint: m.value.editor.categoryHints.action, color: 'bg-purple-500' }
+])
+// While searching, only the categories with matches are listed.
+const visibleCategories = computed(() => searchQuery.value ? categories.value.filter(c => getNodesByCategory(c.key).length) : categories.value)
+// Adding clears the search so the next node can be found from the start.
+function add(id: string) {
+  emit('add', id)
+  searchQuery.value = ''
+}
 
 const filteredNodeTypes = computed(() => {
   const query = searchQuery.value.toLowerCase()
@@ -57,27 +65,29 @@ function onDragStart(event: DragEvent, nodeTypeId: string) {
   <div class="flex h-full flex-col border-r bg-card">
     <!-- Header -->
     <div class="border-b p-4">
-      <h2 class="mb-3 text-lg font-semibold">Nodes</h2>
+      <h2 class="mb-3 text-lg font-semibold">{{ m.editor.nodes }}</h2>
       <div class="relative">
         <Search class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           v-model="searchQuery"
-          aria-label="Search nodes" placeholder="Search nodes..."
+          :aria-label="m.editor.searchNodes" :placeholder="m.editor.searchNodesPlaceholder"
           class="pl-9"
         />
       </div>
     </div>
 
-    <p class="px-4 py-2 text-xs text-muted-foreground">Tap to add, or drag onto the canvas.</p>
-    <p v-if="nodeTypesStore.loading" role="status" class="p-4 text-sm">Loading nodes…</p>
-    <div v-else-if="nodeTypesStore.error" role="alert" class="p-4 text-sm text-destructive">Could not load nodes. <button class="underline" @click="nodeTypesStore.fetchNodeTypes()">Retry</button></div>
-    <p v-else-if="!filteredNodeTypes.length" class="p-4 text-sm text-muted-foreground">No matching nodes. Try another search.</p>
+    <p class="px-4 py-2 text-xs text-muted-foreground">{{ m.editor.paletteHint }}</p>
+    <p v-if="nodeTypesStore.loading" role="status" class="p-4 text-sm">{{ m.editor.loadingNodes }}</p>
+    <div v-else-if="nodeTypesStore.error" role="alert" class="p-4 text-sm text-destructive">{{ m.editor.nodesError }} <button class="underline" @click="nodeTypesStore.fetchNodeTypes()">{{ m.common.retry }}</button></div>
+    <p v-else-if="!filteredNodeTypes.length" class="p-4 text-sm text-muted-foreground">{{ m.editor.noMatchingNodes }}</p>
     <!-- Node List -->
     <ScrollArea class="flex-1 p-2">
-      <div v-for="category in categories" :key="category.key" class="mb-2">
+      <div v-for="category in visibleCategories" :key="category.key" class="mb-2">
         <!-- Category Header -->
         <button
           class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm font-medium hover:bg-accent"
+          :title="category.hint"
+          :aria-expanded="expandedCategories.has(category.key)"
           @click="toggleCategory(category.key)"
         >
           <component
@@ -106,8 +116,9 @@ function onDragStart(event: DragEvent, nodeTypeId: string) {
           >
             <button
               type="button"
-              :aria-label="`Add ${nodeType.name}`"
-              @click="emit('add', nodeType.id)"
+              :aria-label="m.editor.addNode(nodeType.name)"
+              :title="nodeType.description"
+              @click="add(nodeType.id)"
               v-for="nodeType in getNodesByCategory(category.key)"
               :key="nodeType.id"
               draggable="true"
@@ -128,7 +139,7 @@ function onDragStart(event: DragEvent, nodeTypeId: string) {
               </div>
               <div class="flex-1 min-w-0">
                 <div class="text-sm font-medium truncate">{{ nodeType.name }}</div>
-                <div class="text-xs text-muted-foreground truncate">
+                <div class="line-clamp-2 text-xs text-muted-foreground">
                   {{ nodeType.description }}
                 </div>
               </div>

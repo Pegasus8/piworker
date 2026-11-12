@@ -239,6 +239,25 @@ and version history/rollback are `components/agent/FlowMarks.vue` and
 `components/flow/VersionHistoryDialog.vue` over `stores/flows.ts`.
 Background polling goes through `lib/poller.ts` (pauses while the tab is
 hidden).
+Every page but the editor and sign-in sits in the navigation shell
+(`components/AppSidebar.vue`: section links, the global Variables/Secrets/
+Broker connections dialogs through `stores/shell.ts`, the language selector;
+a drawer on small screens). Page-level results are toasts:
+`<OperationFeedback floating>` teleports into `#toast-region` (`App.vue`);
+inside dialogs it stays inline. In the editor a node's settings are a side
+panel that applies changes as they are typed; canvas changes go through the
+`flows` store, which records an undo step before each one (`record()`,
+grouped per node for typing) and `addNodeAfter` places and connects a node
+after the selected one (`lib/autoConnect.ts`).
+
+**Interface text is translated (English and Spanish, ADR-0027).** No UI string
+is written inline: catalogs live in `web/src/i18n/<locale>/<area>.ts`, `en` is
+the source and `es` is typed `typeof en`, so a missing translation fails
+`vue-tsc`. Components read `messages` (`{{ m.flows.title }}`), plain modules
+call `msg()` when they build the string (never at import time); messages with
+values are functions. Dates and numbers use the `format*` helpers of
+`@/i18n`. Add every new string to both languages in the same change. Text the
+server sends (node types, their docs and schemas, API errors) stays English.
 
 ## Adding a new node (most common extension)
 1. Create `internal/node/builtin/<name>.go`. Implement `node.Node` (+ `TriggerNode`

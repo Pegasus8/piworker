@@ -18,10 +18,20 @@ function goSources(): Map<string, string> {
 
 const params: ExampleParams = { connection: 'home', sensor: 'bedroom "climate"', plug: 'washer_plug', ...DEFAULT_LOCATION }
 
-test('there are six examples with distinct ids and titles', () => {
-  expect(EXAMPLES.length).toBe(6)
-  expect(new Set(EXAMPLES.map(e => e.id)).size).toBe(6)
-  expect(new Set(EXAMPLES.map(e => e.title)).size).toBe(6)
+test('there are nine examples with distinct ids and titles', () => {
+  expect(EXAMPLES.length).toBe(9)
+  expect(new Set(EXAMPLES.map(e => e.id)).size).toBe(9)
+  expect(new Set(EXAMPLES.map(e => e.title)).size).toBe(9)
+})
+
+test('some examples need no hardware and no broker connection', () => {
+  const free = EXAMPLES.filter(e => !e.zigbee)
+  expect(free.length).toBeGreaterThanOrEqual(3)
+  for (const e of free) {
+    expect(missingParams(e, { connection: '' })).toEqual([])
+    const flow = buildExampleFlow(e, { connection: '' })
+    expect(flow.nodes.some(n => n.type.includes('zigbee'))).toBe(false)
+  }
 })
 
 for (const example of EXAMPLES) {

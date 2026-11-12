@@ -24,6 +24,7 @@ import type { Feedback } from '@/composables/useFeedback'
 import { DraftActionError, useDraftsStore } from '@/stores/drafts'
 import { useAgentStore, apiErrorMessage } from '@/stores/agent'
 import { useAuthStore } from '@/stores/auth'
+import { messages as m } from '@/i18n'
 import { countHidden, formatDateTime, formatRelative, jsonText, visibleText } from '@/lib/agentAccess'
 import {
   applyOutcome, approvalBlock, approveConfirmText, diffBasis, draftIcon, draftState, draftVersionText, fieldPaths,
@@ -93,7 +94,7 @@ async function load(opts: { background?: boolean } = {}) {
     if (opts.background) return
     const status = (e as { response?: { status?: number } })?.response?.status
     if (status === 404) notFound.value = true
-    else loadError.value = apiErrorMessage(e, 'Could not load the draft.')
+    else loadError.value = apiErrorMessage(e, m.value.drafts.review.loadFailed)
   } finally {
     if (!opts.background) loading.value = false
   }
@@ -139,25 +140,26 @@ async function approve() {
   const draft = d.value
   if (!draft || pending.value || block.value) return
   const deploy = willDeploy.value
-  const hidden = noteHidden.value ? ` The agent's note contains ${noteHidden.value} hidden character(s), shown highlighted as \\u escapes.` : ''
+  const t = m.value.drafts.review
+  const hidden = noteHidden.value ? t.noteHiddenWarning(noteHidden.value) : ''
   const ok = await confirmation.value?.ask(
-    'Approve this draft?',
+    t.approveTitle,
     approveConfirmText(draft, deploy) + hidden,
-    deploy ? 'Approve and deploy' : 'Approve and save')
+    deploy ? t.confirmDeploy : t.confirmSave)
   if (!ok) return
   pending.value = true
   refusedIssues.value = []
-  feedback.value = { kind: 'pending', text: deploy ? 'Saving and deploying…' : 'Saving…' }
+  feedback.value = { kind: 'pending', text: deploy ? t.savingDeploying : t.saving }
   try {
     const result = await drafts.approve(draft.id, deploy)
     applied.value = result
-    feedback.value = applyOutcome(result, 'Approved')
+    feedback.value = applyOutcome(result, t.approvedAction)
   } catch (e) {
     if (e instanceof DraftActionError) {
       refusedIssues.value = e.flowIssues
-      feedback.value = { kind: 'error', text: `Not approved: ${visibleText(e.message)}` }
+      feedback.value = { kind: 'error', text: t.notApproved(visibleText(e.message)) }
     } else {
-      feedback.value = { kind: 'error', text: 'Could not approve the draft. Try again.' }
+      feedback.value = { kind: 'error', text: m.value.drafts.approveFailed }
     }
   } finally {
     pending.value = false
@@ -169,18 +171,19 @@ async function reject() {
   const draft = d.value
   if (!draft || pending.value || !isPending.value) return
   const why = reason.value.trim()
+  const t = m.value.drafts.review
   const ok = await confirmation.value?.ask(
-    'Reject this draft?',
-    `Nothing is saved. The agent “${visibleText(draft.tokenName || draft.tokenId)}” is told the draft was rejected${why ? ', with your reason' : ''}.`,
-    'Reject draft')
+    t.rejectTitle,
+    t.rejectText(visibleText(draft.tokenName || draft.tokenId), !!why),
+    t.rejectConfirm)
   if (!ok) return
   pending.value = true
-  feedback.value = { kind: 'pending', text: 'Rejecting…' }
+  feedback.value = { kind: 'pending', text: t.rejecting }
   try {
     await drafts.reject(draft.id, why)
-    feedback.value = { kind: 'success', text: 'Draft rejected. The agent sees it the next time it checks the draft.' }
+    feedback.value = { kind: 'success', text: t.rejected }
   } catch (e) {
-    feedback.value = { kind: 'error', text: `Not rejected: ${visibleText(e instanceof Error ? e.message : 'try again')}` }
+    feedback.value = { kind: 'error', text: t.notRejected(visibleText(e instanceof Error ? e.message : t.tryAgain)) }
   } finally {
     pending.value = false
   }
@@ -195,23 +198,23 @@ async function reject() {
 
       <template v-if="auth.authEnabled">
         <RouterLink to="/agents/drafts" class="inline-flex items-center gap-1 text-sm text-muted-foreground underline-offset-4 hover:underline">
-          <ArrowLeft class="h-4 w-4" aria-hidden="true" />All drafts
+          <ArrowLeft class="h-4 w-4" aria-hidden="true" />{{ m.drafts.review.allDrafts }}
         </RouterLink>
 
         <div id="draft-outcome" ref="outcome" tabindex="-1" class="space-y-2 focus:outline-none">
           <OperationFeedback :message="feedback" @dismiss="feedback = null" />
           <p v-if="applied" class="text-sm">
-            <RouterLink :to="`/editor/${encodeURIComponent(applied.flowId)}`" class="font-medium text-primary underline underline-offset-2">Open the flow in the editor</RouterLink>
+            <RouterLink :to="`/editor/${encodeURIComponent(applied.flowId)}`" class="font-medium text-primary underline underline-offset-2">{{ m.drafts.review.openInEditor }}</RouterLink>
           </p>
         </div>
 
-        <p v-if="loading && !d" role="status" class="text-sm text-muted-foreground">Loading the draft…</p>
+        <p v-if="loading && !d" role="status" class="text-sm text-muted-foreground">{{ m.drafts.review.loading }}</p>
         <p v-else-if="notFound" role="alert" class="rounded-md bg-muted p-6 text-center text-sm">
-          This draft does not exist. Decided drafts are kept for 30 days.
+          {{ m.drafts.review.notFound }}
         </p>
         <div v-else-if="loadError && !d" role="alert" class="space-y-2 text-sm text-destructive">
           <p>{{ loadError }}</p>
-          <Button variant="outline" size="sm" @click="load()"><RefreshCw class="mr-2 h-4 w-4" aria-hidden="true" />Retry</Button>
+          <Button variant="outline" size="sm" @click="load()"><RefreshCw class="mr-2 h-4 w-4" aria-hidden="true" />{{ m.drafts.review.retry }}</Button>
         </div>
 
         <template v-if="d && state">
@@ -219,16 +222,16 @@ async function reject() {
           <section aria-labelledby="draft-heading" class="space-y-3 rounded-lg border bg-card p-4 shadow-sm">
             <div class="flex flex-wrap items-center gap-2">
               <h2 id="draft-heading" ref="heading" tabindex="-1" class="min-w-0 break-words text-lg font-semibold focus:outline-none">
-                <template v-if="d.isNew">Draft of a new flow: </template><template v-else>Draft for </template><AgentText :text="d.flowName || d.flowId" />
+                <template v-if="d.isNew">{{ m.drafts.review.headingNew }}</template><template v-else>{{ m.drafts.review.headingFor }}</template><AgentText :text="d.flowName || d.flowId" />
               </h2>
               <Badge :variant="state.tone === 'pending' ? 'default' : state.tone === 'blocked' ? 'destructive' : 'secondary'">{{ state.label }}</Badge>
             </div>
             <dl class="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-              <div><dt class="text-xs text-muted-foreground">Written by the agent token</dt><dd class="break-words"><AgentText :text="d.tokenName || d.tokenId" /></dd></div>
-              <div><dt class="text-xs text-muted-foreground">Written</dt><dd :title="formatDateTime(d.createdAt)">{{ formatRelative(d.createdAt, now) }}</dd></div>
-              <div><dt class="text-xs text-muted-foreground">Version</dt><dd>{{ draftVersionText(d) }}</dd></div>
-              <div v-if="!d.isNew"><dt class="text-xs text-muted-foreground">Flow</dt><dd>{{ d.running ? 'Running' : 'Not running' }}</dd></div>
-              <div v-if="d.decidedAt"><dt class="text-xs text-muted-foreground">Decided</dt><dd :title="formatDateTime(d.decidedAt)">{{ formatRelative(d.decidedAt, now) }}</dd></div>
+              <div><dt class="text-xs text-muted-foreground">{{ m.drafts.review.writtenBy }}</dt><dd class="break-words"><AgentText :text="d.tokenName || d.tokenId" /></dd></div>
+              <div><dt class="text-xs text-muted-foreground">{{ m.drafts.review.written }}</dt><dd :title="formatDateTime(d.createdAt)">{{ formatRelative(d.createdAt, now) }}</dd></div>
+              <div><dt class="text-xs text-muted-foreground">{{ m.drafts.review.version }}</dt><dd>{{ draftVersionText(d) }}</dd></div>
+              <div v-if="!d.isNew"><dt class="text-xs text-muted-foreground">{{ m.drafts.review.flow }}</dt><dd>{{ d.running ? m.drafts.review.running : m.drafts.review.notRunning }}</dd></div>
+              <div v-if="d.decidedAt"><dt class="text-xs text-muted-foreground">{{ m.drafts.review.decided }}</dt><dd :title="formatDateTime(d.decidedAt)">{{ formatRelative(d.decidedAt, now) }}</dd></div>
             </dl>
             <div
               v-if="state.tone !== 'pending'"
@@ -239,19 +242,19 @@ async function reject() {
               <component :is="state.tone === 'blocked' ? AlertTriangle : d.status === 'approved' ? (d.appliedBy === 'agent' ? Bot : CheckCircle2) : Info" class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               <div class="min-w-0 space-y-1">
                 <p>{{ state.explanation }}</p>
-                <p v-if="d.reason" class="whitespace-pre-wrap break-words">Reason: <AgentText :text="d.reason" /></p>
+                <p v-if="d.reason" class="whitespace-pre-wrap break-words">{{ m.drafts.review.reason }}<AgentText :text="d.reason" /></p>
                 <p v-if="d.status === 'approved' && d.flowId">
-                  <RouterLink :to="`/editor/${encodeURIComponent(d.flowId)}`" class="font-medium text-primary underline underline-offset-2">Open the flow</RouterLink>
+                  <RouterLink :to="`/editor/${encodeURIComponent(d.flowId)}`" class="font-medium text-primary underline underline-offset-2">{{ m.drafts.review.openFlow }}</RouterLink>
                 </p>
               </div>
             </div>
-            <a v-if="isPending" href="#draft-decision" class="inline-block text-sm text-primary underline underline-offset-2">Go to the decision</a>
+            <a v-if="isPending" href="#draft-decision" class="inline-block text-sm text-primary underline underline-offset-2">{{ m.drafts.review.goToDecision }}</a>
           </section>
 
           <!-- The agent's note. -->
           <section v-if="d.note" aria-labelledby="note-heading" class="space-y-1">
-            <h3 id="note-heading" class="text-sm font-semibold">Note written by the agent</h3>
-            <p class="text-xs text-muted-foreground">Shown as text, exactly as the agent sent it{{ noteHidden ? `; ${noteHidden} hidden character(s) are highlighted as \\u escapes` : '' }}.</p>
+            <h3 id="note-heading" class="text-sm font-semibold">{{ m.drafts.review.noteHeading }}</h3>
+            <p class="text-xs text-muted-foreground">{{ m.drafts.review.noteShown(noteHidden) }}</p>
             <p class="whitespace-pre-wrap break-words rounded-md border p-3 text-sm"><AgentText :text="d.note" /></p>
           </section>
 
@@ -262,11 +265,11 @@ async function reject() {
 
           <!-- Risk before → after. -->
           <section v-if="risk" aria-labelledby="risk-heading" class="space-y-2">
-            <h3 id="risk-heading" class="text-sm font-semibold">Risk</h3>
+            <h3 id="risk-heading" class="text-sm font-semibold">{{ m.drafts.review.risk }}</h3>
             <div class="flex flex-wrap items-center gap-2 text-sm">
-              <RiskBadge :risk="String(d.diff.riskBefore)" prefix="Before" />
+              <RiskBadge :risk="String(d.diff.riskBefore)" :prefix="m.drafts.review.riskBefore" />
               <ArrowRight class="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-              <RiskBadge :risk="String(d.diff.riskAfter)" prefix="After" />
+              <RiskBadge :risk="String(d.diff.riskAfter)" :prefix="m.drafts.review.riskAfter" />
               <span :class="risk.direction === 'raised' && 'font-semibold text-destructive'">{{ risk.text }}.</span>
             </div>
           </section>
@@ -275,7 +278,7 @@ async function reject() {
           <section v-if="basis" aria-labelledby="alerts-heading" :aria-describedby="isPending ? undefined : 'draft-basis'" class="space-y-2">
             <h3 id="alerts-heading" class="flex items-center gap-2 text-sm font-semibold">
               <component :is="draftIcon('AlertTriangle')" class="h-4 w-4 text-amber-700 dark:text-amber-400" aria-hidden="true" />
-              Alerts ({{ d.diff.alerts?.length ?? 0 }})
+              {{ m.drafts.review.alerts(d.diff.alerts?.length ?? 0) }}
             </h3>
             <p v-if="isPending" class="text-xs text-muted-foreground">{{ basis.note }}</p>
             <DraftAlerts :alerts="d.diff.alerts" :names="names" :fields="fieldsNow" :proposed="proposed" :empty-text="basis.emptyAlerts" />
@@ -283,7 +286,7 @@ async function reject() {
 
           <!-- Lint issues now, and those of a refused approval. -->
           <section aria-labelledby="issues-heading" class="space-y-2">
-            <h3 id="issues-heading" class="text-sm font-semibold">Issues: {{ issueCountsLabel(counts) }}</h3>
+            <h3 id="issues-heading" class="text-sm font-semibold">{{ m.drafts.review.issues(issueCountsLabel(counts)) }}</h3>
             <ul v-if="extraIssues.length || issues.length" class="space-y-1 text-sm">
               <li v-for="(i, n) in [...extraIssues, ...issues]" :key="`${n}-${i.path}-${i.code}`" class="flex items-start gap-2 rounded-md border p-2"
                 :class="i.severity === 'error' ? 'border-destructive/40' : 'border-amber-500/40'">
@@ -294,69 +297,66 @@ async function reject() {
                 </div>
               </li>
             </ul>
-            <p v-else class="text-sm text-muted-foreground">The draft passes the same checks deploy runs.</p>
+            <p v-else class="text-sm text-muted-foreground">{{ m.drafts.review.noIssues }}</p>
           </section>
 
           <!-- The changes. -->
           <section v-if="basis" aria-labelledby="changes-heading" :aria-describedby="isPending ? undefined : 'draft-basis'" class="space-y-2">
             <h3 id="changes-heading" class="text-sm font-semibold">{{ basis.heading }}</h3>
-            <p class="text-xs text-muted-foreground">Credentials are never shown; settings marked Destination say where the flow sends data or connects.</p>
+            <p class="text-xs text-muted-foreground">{{ m.drafts.review.changesHelp }}</p>
             <div v-if="textRows.length" class="overflow-x-auto rounded-md border p-3">
               <table class="w-full min-w-[18rem] table-fixed text-left text-sm">
-                <caption class="mb-1 text-left text-sm font-semibold">Name and description</caption>
+                <caption class="mb-1 text-left text-sm font-semibold">{{ m.drafts.review.nameAndDescription }}</caption>
                 <thead class="text-xs text-muted-foreground">
-                  <tr><th scope="col" class="w-1/4 py-1 pr-2 font-medium">Field</th><th scope="col" class="py-1 pr-2 font-medium">Before</th><th scope="col" class="py-1 font-medium">After</th></tr>
+                  <tr><th scope="col" class="w-1/4 py-1 pr-2 font-medium">{{ m.drafts.review.field }}</th><th scope="col" class="py-1 pr-2 font-medium">{{ m.drafts.review.before }}</th><th scope="col" class="py-1 font-medium">{{ m.drafts.review.after }}</th></tr>
                 </thead>
                 <tbody>
                   <tr v-for="r in textRows" :key="r.field" class="border-t align-top">
                     <th scope="row" class="py-1.5 pr-2 font-normal">{{ r.label }}</th>
                     <td v-for="(v, side) in [r.before, r.after]" :key="side" class="py-1.5 pr-2">
-                      <span v-if="!v" class="text-muted-foreground">(empty)</span>
+                      <span v-if="!v" class="text-muted-foreground">{{ m.drafts.review.empty }}</span>
                       <span v-else class="whitespace-pre-wrap break-words"><AgentText :text="v" /></span>
                     </td>
                   </tr>
                 </tbody>
               </table>
             </div>
-            <DraftDiff :diff="d.diff" :names="names" label="Changes" />
+            <DraftDiff :diff="d.diff" :names="names" :label="m.drafts.review.changesLabel" />
           </section>
 
           <section v-if="d.diffApproved" aria-labelledby="approved-heading" class="space-y-3 rounded-lg border border-amber-500/40 p-4">
-            <h3 id="approved-heading" class="text-sm font-semibold">Compared with the version you last approved (version {{ d.lastApprovedVersion }})</h3>
+            <h3 id="approved-heading" class="text-sm font-semibold">{{ m.drafts.review.approvedHeading(d.lastApprovedVersion) }}</h3>
             <p class="text-sm text-muted-foreground">
-              The current version was saved by an agent, not approved by you. These are the changes since the version you
-              approved: what an agent changed before this draft is included.
+              {{ m.drafts.review.approvedHelp }}
             </p>
             <div class="flex flex-wrap items-center gap-2 text-sm">
-              <RiskBadge :risk="String(d.diffApproved.riskBefore)" prefix="Approved" />
+              <RiskBadge :risk="String(d.diffApproved.riskBefore)" :prefix="m.drafts.review.approvedPrefix" />
               <ArrowRight class="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-              <RiskBadge :risk="String(d.diffApproved.riskAfter)" prefix="With this draft" />
+              <RiskBadge :risk="String(d.diffApproved.riskAfter)" :prefix="m.drafts.review.withDraftPrefix" />
             </div>
             <DraftAlerts
               :alerts="d.diffApproved.alerts" :names="names" :fields="fieldsApproved" :proposed="proposed"
-              empty-text="No alerts compared with the version you approved."
+              :empty-text="m.drafts.review.noAlertsApproved"
             />
-            <DraftDiff :diff="d.diffApproved" :names="names" label="Since the version you approved" />
+            <DraftDiff :diff="d.diffApproved" :names="names" :label="m.drafts.review.sinceApproved" />
           </section>
 
           <details class="rounded-md border p-3 text-sm" @toggle="showFlow = ($event.target as HTMLDetailsElement).open">
-            <summary class="cursor-pointer font-medium">Proposed flow (JSON as the agent wrote it; credentials hidden)</summary>
+            <summary class="cursor-pointer font-medium">{{ m.drafts.review.proposedFlow }}</summary>
             <pre v-if="showFlow" dir="ltr" class="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs [unicode-bidi:bidi-override]"><AgentText :text="flowJson" /></pre>
           </details>
 
           <!-- The decision. -->
           <section v-if="isPending" id="draft-decision" aria-labelledby="decision-heading" class="space-y-4 rounded-lg border bg-card p-4 shadow-sm">
-            <h3 id="decision-heading" class="font-semibold">Decision</h3>
+            <h3 id="decision-heading" class="font-semibold">{{ m.drafts.review.decision }}</h3>
             <div class="space-y-3">
               <div class="flex items-start gap-3">
                 <input id="draft-deploy" v-model="deployNow" type="checkbox" class="mt-1 h-4 w-4 accent-primary"
                   :disabled="pending || d.running || !!d.stale" aria-describedby="draft-deploy-help" />
                 <div>
-                  <label for="draft-deploy" class="text-sm font-medium">Deploy now</label>
+                  <label for="draft-deploy" class="text-sm font-medium">{{ m.drafts.review.deployNow }}</label>
                   <p id="draft-deploy-help" class="text-xs text-muted-foreground">
-                    {{ d.running
-                      ? 'The flow is running, so approving always redeploys it with the new version.'
-                      : 'Start the flow with the new version right after saving it. Otherwise it is saved and stays stopped.' }}
+                    {{ d.running ? m.drafts.review.deployRunning : m.drafts.review.deployHelp }}
                   </p>
                 </div>
               </div>
@@ -364,14 +364,14 @@ async function reject() {
                 <AlertTriangle class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />{{ block }}
               </p>
               <Button :disabled="pending || !!block" :aria-describedby="block ? 'approve-block' : undefined" @click="approve">
-                {{ willDeploy ? 'Approve and deploy…' : 'Approve and save…' }}
+                {{ willDeploy ? m.drafts.review.approveDeploy : m.drafts.review.approveSave }}
               </Button>
             </div>
             <div class="space-y-2 border-t pt-4">
-              <Label for="draft-reason">Reason for rejecting (optional, shown to the agent)</Label>
-              <Textarea id="draft-reason" v-model="reason" :rows="2" :disabled="pending" class="font-sans" placeholder="What the agent should change" />
-              <p class="text-xs" :class="reason.length > MAX_REASON ? 'text-destructive' : 'text-muted-foreground'">{{ reason.length }} / {{ MAX_REASON }} characters</p>
-              <Button variant="outline" :disabled="pending || reason.length > MAX_REASON" @click="reject">Reject…</Button>
+              <Label for="draft-reason">{{ m.drafts.review.reasonLabel }}</Label>
+              <Textarea id="draft-reason" v-model="reason" :rows="2" :disabled="pending" class="font-sans" :placeholder="m.drafts.review.reasonPlaceholder" />
+              <p class="text-xs" :class="reason.length > MAX_REASON ? 'text-destructive' : 'text-muted-foreground'">{{ m.drafts.review.characters(reason.length, MAX_REASON) }}</p>
+              <Button variant="outline" :disabled="pending || reason.length > MAX_REASON" @click="reject">{{ m.drafts.review.reject }}</Button>
             </div>
           </section>
         </template>

@@ -7,6 +7,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { apiClient } from '@/composables/useApi'
+import { msg } from '@/i18n'
 import { BACKGROUND_HEADERS, apiErrorMessage, useAgentStore } from '@/stores/agent'
 import type { ApplyResult, DraftDetail, DraftFilter, DraftSummary, FlowIssue } from '@/lib/drafts'
 
@@ -145,7 +146,7 @@ export const useDraftsStore = defineStore('drafts', () => {
       const { data } = await apiClient.post(`/agent/drafts/${path(id)}/approve`, { deploy })
       result = data.data as ApplyResult
     } catch (e) {
-      const err = actionError(e, 'Could not approve the draft. Try again.')
+      const err = actionError(e, msg().drafts.approveFailed)
       if (err.status === 409 || err.status === 404) await reload(id)
       throw err
     }
@@ -159,7 +160,7 @@ export const useDraftsStore = defineStore('drafts', () => {
     try {
       await apiClient.post(`/agent/drafts/${path(id)}/reject`, trimmed ? { reason: trimmed } : {})
     } catch (e) {
-      const err = actionError(e, 'Could not reject the draft. Try again.')
+      const err = actionError(e, msg().drafts.rejectFailed)
       if (err.status === 409 || err.status === 404) await reload(id)
       throw err
     }

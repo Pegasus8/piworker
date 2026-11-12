@@ -2,15 +2,16 @@
 import { ref, onBeforeUnmount } from 'vue'
 import Dialog from './Dialog.vue'
 import Button from './Button.vue'
+import { msg } from '@/i18n'
 const open = ref(false)
-const options = ref({ title: '', description: '', action: '', cancel: 'Cancel' })
+const options = ref({ title: '', description: '', action: '', cancel: msg().common.cancel })
 let resolve: ((answer: boolean) => void) | undefined
 function finish(answer = false) {
   open.value = false
   resolve?.(answer)
   resolve = undefined
 }
-function ask(title: string, description: string, action: string, cancel = 'Cancel'): Promise<boolean> {
+function ask(title: string, description: string, action: string, cancel = msg().common.cancel): Promise<boolean> {
   finish(false)
   options.value = { title, description, action, cancel }
   open.value = true

@@ -2,7 +2,9 @@
 // /api/agent/* payloads and the pure rules the editor applies before calling
 // them. Everything an agent or a token supplies is shown as plain text; these
 // helpers only ever produce strings for text nodes, never HTML.
+import { watch } from 'vue'
 import { caFileName } from '@/lib/trust'
+import { locale, msg } from '@/i18n'
 
 export type AgentScope = 'call' | 'read' | 'author' | 'deploy'
 export type AgentDeployLevel = 'off' | 'low' | 'all'
@@ -150,30 +152,26 @@ export interface ScopeOption {
  * settings fail closed.
  */
 export function scopeOptions(settings: AgentSettings | null): ScopeOption[] {
-  const authorReason = settings?.authorEnabled
-    ? ''
-    : 'Turned off on this server: set author_enabled = true in the [mcp] section of piworker.toml and restart.'
-  const deployReason = settings && settings.agentDeploy !== 'off'
-    ? ''
-    : 'Agent deploy is off. Choose a level under Agent deploy first.'
+  const t = msg().agents.access
+  const authorReason = settings?.authorEnabled ? '' : t.authorOff
+  const deployReason = settings && settings.agentDeploy !== 'off' ? '' : t.deployOff
   return [
-    { scope: 'call', label: 'Call tools', description: 'Run the published tools this token is granted.', available: true, reason: '' },
-    { scope: 'read', label: 'Read', description: 'See flows, runs and system status (secrets and variables stay hidden).', available: true, reason: '' },
-    { scope: 'author', label: 'Author drafts', description: 'Draft flows; you review and approve each one here.', available: !authorReason, reason: authorReason },
-    { scope: 'deploy', label: 'Deploy', description: 'Deploy, start and stop flows within the Agent deploy level.', available: !deployReason, reason: deployReason }
+    { scope: 'call', ...t.scopes.call, available: true, reason: '' },
+    { scope: 'read', ...t.scopes.read, available: true, reason: '' },
+    { scope: 'author', ...t.scopes.author, available: !authorReason, reason: authorReason },
+    { scope: 'deploy', ...t.scopes.deploy, available: !deployReason, reason: deployReason }
   ]
 }
 
 export interface ExpiryOption { days: number; label: string; default?: boolean }
 
-/** Token lifetimes offered by the editor (the server accepts 1–365 days). */
-export const EXPIRY_OPTIONS: ExpiryOption[] = [
-  { days: 7, label: '7 days' },
-  { days: 30, label: '30 days' },
-  { days: 90, label: '90 days', default: true },
-  { days: 180, label: '180 days' },
-  { days: 365, label: '1 year' }
-]
+/** Token lifetimes offered by the editor (the server accepts 1–365 days); labels in the interface language. */
+const expiry = (days: number, isDefault = false): ExpiryOption => ({
+  days,
+  get label() { return days === 365 ? msg().agents.access.expiry.year : msg().agents.access.expiry.days(days) },
+  ...(isDefault ? { default: true } : {})
+})
+export const EXPIRY_OPTIONS: ExpiryOption[] = [expiry(7), expiry(30), expiry(90, true), expiry(180), expiry(365)]
 
 export interface DeployLevelOption {
   value: AgentDeployLevel
@@ -192,35 +190,37 @@ export interface DeployLevelOption {
  * What agents read (the read views, tool results) hides known secret values
  * by comparison, so an agent whose own text comes back to it can confirm a
  * guess, at every agent deploy level (ADR-0021, docs/design/mcp.md §6).
+ * Like the other texts below, it follows the interface language (a live
+ * binding kept current with the locale; components read the catalog).
  */
-export const GUESSING_AT_EVERY_LEVEL = 'What agents read hides known secret values, so an agent can confirm a guess of a value wherever its own text comes back hidden, whatever the level: with the call scope, from a granted tool that repeats its arguments (many guesses per call); with the read scope, from an error a run records of what it sent (a tool call, a webhook or an MQTT message); with the author and read scopes, from a draft you approve. Only short or predictable values can be guessed this way. Credentials typed into a setting are hidden the same way but never checked: store them as secrets, where short ones are marked. Run errors also hide the settings agents cannot see the same way, so keep guessable passwords and paths out of them.'
+export let GUESSING_AT_EVERY_LEVEL = ''
 
 /**
  * What letting agents deploy adds: an agent saves its guesses in a flow
  * version with no approval per round (ADR-0021). The errors of runs of a
  * version no admin approved are withheld from agents (ADR-0022).
  */
-const GUESSING_RESIDUAL = 'An agent whose token also has the author and read scopes can guess without your approval: it saves a guess of a secret\'s value in a flow it deploys and reads the flow back.'
+const guessingResidual = () => msg().agents.access.guessingResidual
 
-/** Agent deploy levels with the risk the admin accepts (docs/design/mcp.md §10). */
+/** Agent deploy levels with the risk the admin accepts (docs/design/mcp.md §10); texts in the interface language. */
 export const DEPLOY_LEVELS: DeployLevelOption[] = [
   {
     value: 'off',
-    label: 'Off (recommended)',
-    risk: 'Agents can only draft flows. You review and deploy every change yourself.'
+    get label() { return msg().agents.access.levels.off.label },
+    get risk() { return msg().agents.access.levels.off.risk }
   },
   {
     value: 'low',
-    label: 'Low-risk flows',
-    risk: 'Agents with the deploy scope may deploy, start and stop flows, and deploy their own drafts, when the resulting flow is at most external risk (HTTP, MQTT, e-mail, Telegram, notifications) and, compared with the version you last approved, does not raise the flow\'s risk, adds no privileged node, changes no recipient or destination, reaches no new host, adds or moves no secret reference, turns on no risk switch, uses no credential for a different request, changes no setting of how often it runs, changes nothing a global variable receives or a tool reads from one, changes nothing a published tool runs, and adds or changes no node that reads variables or what a credential returned.',
-    residual: GUESSING_RESIDUAL,
-    allows: 'Within those limits agents may still change, without your review, what approved flows send to the destinations you approved: an MQTT command (a lock\'s {"state":"LOCK"} turned into {"state":"UNLOCK"}, whether or not the broker needs a password), the text of a message, an HTTP body sent with no credential to a device\'s API. They may also change the conditions and processing of approved flows, and stop them. Keep device commands that matter in agent tools that need your confirmation (what a tool runs cannot change at this level, and each call waits for you) or in HTTP requests that use a credential, or keep the level off. The nodes of a flow an agent deploys also run on data it cannot read, and which of its nodes run or fail, which the agent sees, can reveal bits of that data.'
+    get label() { return msg().agents.access.levels.low.label },
+    get risk() { return msg().agents.access.levels.low.risk },
+    get residual() { return guessingResidual() },
+    get allows() { return msg().agents.access.levels.low.allows }
   },
   {
     value: 'all',
-    label: 'All flows',
-    risk: 'Agents with the deploy scope may deploy, start and stop any flow, including privileged ones that run commands, write files, query databases or switch GPIO and I2C devices. A leaked token or a misled agent could take over this device.',
-    residual: GUESSING_RESIDUAL
+    get label() { return msg().agents.access.levels.all.label },
+    get risk() { return msg().agents.access.levels.all.risk },
+    get residual() { return guessingResidual() }
   }
 ]
 
@@ -236,7 +236,7 @@ export function lowersDeployLevel(from: AgentDeployLevel, to: AgentDeployLevel):
  * Shown when the admin lowers the level: it stops new agent deploys but
  * undoes none, so after an incident the admin knows where to look.
  */
-export const LOWERING_KEEPS_DEPLOYED = 'Lowering the level undoes nothing agents already did: flows they deployed keep running, privileged ones included. Look for “Deployed by agent” and “Changed by agent” on the flows, then stop them or use History → Roll back to return to the version you last approved. Agents → Audit lists every agent deploy and stop.'
+export let LOWERING_KEEPS_DEPLOYED = ''
 
 export interface CreateTokenForm {
   name: string
@@ -331,10 +331,18 @@ export const DESKTOP_CONFIG_PATHS = {
   macos: '~/Library/Application Support/Claude/claude_desktop_config.json',
   windows: '%APPDATA%\\Claude\\claude_desktop_config.json'
 } as const
-export const DESKTOP_COMMAND_NOTE =
-  'Claude Desktop does not start servers through your shell, so your PATH does not apply: "command" must be the full path of piworker-mcp. Change it if you installed the bridge elsewhere.'
-export const DESKTOP_PLAIN_HTTP_NOTE =
-  'TLS is off, so the bridge connects over plain HTTP, which piworker-mcp accepts only to this machine (127.0.0.1 or [::1]): Claude Desktop must run on the PiWorker device itself. For other computers, turn HTTPS on (mode = "auto" in the [tls] section of piworker.toml, then restart) and create the set-up again: it then uses the https address and --ca-fingerprint.'
+export let DESKTOP_COMMAND_NOTE = ''
+export let DESKTOP_PLAIN_HTTP_NOTE = ''
+
+// The texts above are live bindings: kept in the interface language, set
+// synchronously so a read right after a language change sees it.
+watch(locale, () => {
+  const t = msg().agents.access
+  GUESSING_AT_EVERY_LEVEL = t.guessingAtEveryLevel
+  LOWERING_KEEPS_DEPLOYED = t.loweringKeepsDeployed
+  DESKTOP_COMMAND_NOTE = t.desktopCommandNote
+  DESKTOP_PLAIN_HTTP_NOTE = t.desktopPlainHttpNote
+}, { immediate: true, flush: 'sync' })
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
@@ -452,40 +460,23 @@ export interface MCPStatus {
  * TLS settings that cannot be read make no claim about HTTPS.
  */
 export function mcpStatus(settings: AgentSettings | null, tls: SnippetTLS | null): MCPStatus {
+  const t = msg().agents.access.mcp
   if (!settings || typeof settings.mcpEnabled !== 'boolean') {
-    return { state: 'unknown', label: 'MCP status unknown', detail: 'The server\'s agent settings could not be read.', localOnly: false, notice: true }
+    return { state: 'unknown', label: t.unknownLabel, detail: t.unknownDetail, localOnly: false, notice: true }
   }
   if (!settings.mcpEnabled) {
-    return {
-      state: 'off',
-      label: 'MCP is off',
-      detail: 'Agents cannot connect yet. To turn it on, set enabled = true in the [mcp] section of piworker.toml (or the environment variable PIWORKER_MCP_ENABLED=true) and restart PiWorker.',
-      localOnly: false,
-      notice: true
-    }
+    return { state: 'off', label: t.offLabel, detail: t.offDetail, localOnly: false, notice: true }
   }
   if (!tls) {
-    return {
-      state: 'on',
-      label: 'MCP is on',
-      detail: 'The TLS settings could not be read, so this page cannot tell whether HTTPS is on. With TLS off, only clients on this device can connect, unless lan_access = true is set in the [mcp] section of piworker.toml.',
-      localOnly: false,
-      notice: true
-    }
+    return { state: 'on', label: t.onLabel, detail: t.tlsUnknownDetail, localOnly: false, notice: true }
   }
   if (tls.mode === 'off' && !settings.lanAccess) {
-    return {
-      state: 'on',
-      label: 'MCP is on (this device only)',
-      detail: 'TLS is off, so only clients on this device can connect. To allow other devices, set lan_access = true in the [mcp] section of piworker.toml (or PIWORKER_MCP_LAN_ACCESS=true) and restart; their tokens then travel unencrypted, so prefer turning TLS back on.',
-      localOnly: true,
-      notice: true
-    }
+    return { state: 'on', label: t.localLabel, detail: t.localDetail, localOnly: true, notice: true }
   }
   if (tls.mode === 'off') {
-    return { state: 'on', label: 'MCP is on', detail: 'TLS is off and lan_access is on: devices on your network connect over unencrypted HTTP.', localOnly: false, notice: false }
+    return { state: 'on', label: t.onLabel, detail: t.lanDetail, localOnly: false, notice: false }
   }
-  return { state: 'on', label: 'MCP is on', detail: 'Agents connect over HTTPS and send their token as a Bearer header.', localOnly: false, notice: false }
+  return { state: 'on', label: t.onLabel, detail: t.httpsDetail, localOnly: false, notice: false }
 }
 
 export interface GrantStatus {
@@ -501,17 +492,18 @@ export interface GrantStatus {
 export function grantStatus(grant: TokenGrant, tool: AgentTool | undefined): GrantStatus {
   const current = tool?.fingerprint ?? grant.fingerprint
   const changed = !!tool && tool.fingerprint !== grant.fingerprint
+  const t = msg().agents.access.grant
   if (grant.suspended) {
-    let reason = 'Suspended. Re-confirm to let the token call this tool again.'
-    if (changed) reason = 'Suspended after a redeploy changed the tool (higher risk or wider input). Review it and re-confirm to resume.'
-    else if (!tool) reason = 'Suspended. The tool is not published right now (its flow is stopped or the node was removed).'
+    let reason = t.suspended
+    if (changed) reason = t.suspendedChanged
+    else if (!tool) reason = t.suspendedMissing
     return { state: 'suspended', reason, needsConfirm: true, confirmFingerprint: current }
   }
   if (!tool) {
-    return { state: 'missing', reason: 'The tool is not published right now (its flow is stopped or the node was removed).', needsConfirm: false, confirmFingerprint: current }
+    return { state: 'missing', reason: t.missing, needsConfirm: false, confirmFingerprint: current }
   }
   if (changed) {
-    return { state: 'changed', reason: 'The tool changed since you granted it. Re-confirm to accept the new version.', needsConfirm: true, confirmFingerprint: current }
+    return { state: 'changed', reason: t.changed, needsConfirm: true, confirmFingerprint: current }
   }
   return { state: 'active', reason: '', needsConfirm: false, confirmFingerprint: current }
 }
@@ -532,10 +524,11 @@ const RISKS: readonly string[] = ['safe', 'external', 'privileged']
  */
 export function approvalRisk(approval: Pick<AgentApproval, 'toolRisk'>): ApprovalRisk {
   const recorded = approval.toolRisk
+  const t = msg().agents.access.risk
   if (recorded && RISKS.includes(recorded)) {
-    return { risk: recorded, label: recorded, reason: 'Risk of the tool when the agent asked.' }
+    return { risk: recorded, label: t[recorded], reason: t.recorded }
   }
-  return { risk: 'unknown', label: 'risk unknown', reason: 'Risk unknown: the request recorded an unexpected value.' }
+  return { risk: 'unknown', label: t.unknownLabel, reason: t.unknownReason }
 }
 
 /**
@@ -547,7 +540,7 @@ export function approvalRisk(approval: Pick<AgentApproval, 'toolRisk'>): Approva
 export function approvalToolChange(approval: Pick<AgentApproval, 'status' | 'toolName' | 'toolFingerprint'>, tool: AgentTool | undefined): string {
   if (approval.status !== 'pending' || !tool) return ''
   if (tool.toolName !== approval.toolName || tool.fingerprint !== approval.toolFingerprint) {
-    return 'The tool changed since the request (it was redeployed with another name, risk, input or confirmation), so approving it runs nothing. The agent can ask again.'
+    return msg().agents.access.toolChanged
   }
   return ''
 }
@@ -619,31 +612,29 @@ export function formatJSONText(value: unknown): string {
 
 const RELATIVE_LIMIT_MS = 45 * 86_400_000
 
-/** "in 12 min", "3 h ago", "just now"… for an ISO time relative to now; "on <date>" beyond 45 days. */
+/** "in 12 min", "3 h ago", "just now"… for an ISO time relative to now; "on <date>" beyond 45 days (in the interface language). */
 export function formatRelative(iso: string | undefined, now: Date = new Date()): string {
   if (!iso) return ''
   const t = new Date(iso).getTime()
   if (Number.isNaN(t)) return ''
+  const r = msg().agents.access.relative
   const diff = t - now.getTime()
   const abs = Math.abs(diff)
   const future = diff > 0
-  if (abs >= RELATIVE_LIMIT_MS) return `on ${new Date(t).toLocaleDateString()}`
-  if (abs < 60_000) return future ? 'in a few seconds' : 'just now'
+  if (abs >= RELATIVE_LIMIT_MS) return r.on(new Date(t).toLocaleDateString(locale.value))
+  if (abs < 60_000) return future ? r.soon : r.justNow
   let text: string
-  if (abs < 3_600_000) text = `${Math.round(abs / 60_000)} min`
-  else if (abs < 86_400_000) text = `${Math.round(abs / 3_600_000)} h`
-  else {
-    const days = Math.round(abs / 86_400_000)
-    text = `${days} day${days === 1 ? '' : 's'}`
-  }
-  return future ? `in ${text}` : `${text} ago`
+  if (abs < 3_600_000) text = r.minutes(Math.round(abs / 60_000))
+  else if (abs < 86_400_000) text = r.hours(Math.round(abs / 3_600_000))
+  else text = r.days(Math.round(abs / 86_400_000))
+  return future ? r.future(text) : r.past(text)
 }
 
-/** A local date and time for tables. */
+/** A local date and time for tables, in the interface language. */
 export function formatDateTime(iso: string | undefined): string {
   if (!iso) return ''
   const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString()
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(locale.value)
 }
 
 function rfc3339(local: string | undefined): string | undefined {

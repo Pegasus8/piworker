@@ -45,7 +45,7 @@ test('the HTTP warning and the sign-in page lead to the trust page, usable signe
 test('signed-in users see the CA fingerprint, certificate names and per-OS guides', async ({ page }) => {
   await mockServer(page, { auth: false, tls: { mode: 'auto', caFingerprint: fingerprint, sans: ['localhost', 'raspberrypi.local', '192.168.1.10'], notAfter: '2027-12-10T00:00:00Z', caCertUrl: '/piworker-ca.crt' } })
   await page.goto('/')
-  await page.getByRole('button', { name: 'HTTPS' }).click()
+  await page.getByRole('link', { name: 'HTTPS and this device' }).click()
   await expect(page).toHaveURL(/\/trust$/)
   const fp = page.getByLabel('CA fingerprint')
   await expect(fp).toContainText(bytes.slice(0, 8).join(':'))

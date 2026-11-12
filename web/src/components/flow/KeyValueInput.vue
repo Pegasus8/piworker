@@ -4,6 +4,7 @@
 import { computed, ref, watch } from 'vue'
 import { Button, Input } from '@/components/ui'
 import { Plus, X } from 'lucide-vue-next'
+import { messages as m } from '@/i18n'
 import { isPlainObject, objectFromRows, objectRows, type ObjectRow } from '@/lib/configValues'
 
 const props = defineProps<{ id: string; label: string; modelValue: unknown }>()
@@ -34,21 +35,21 @@ function remove(index: number) {
 <template>
   <div :id="id" role="group" :aria-label="label" class="space-y-2">
     <div v-if="unreadable" role="alert" class="rounded-md border border-destructive/50 p-2 text-xs text-destructive">
-      The saved value is text, not name/value pairs, so it is ignored and deploying fails:
+      {{ m.flowTools.keyValue.unreadable }}
       <code class="block break-all">{{ String(modelValue) }}</code>
-      Add each entry below, or
-      <button type="button" class="underline" @click="emit('update:modelValue', undefined)">remove the saved value</button>.
+      {{ m.flowTools.keyValue.addBelow }}
+      <button type="button" class="underline" @click="emit('update:modelValue', undefined)">{{ m.flowTools.keyValue.removeSaved }}</button>.
     </div>
     <div v-for="(row, index) in rows" :key="index" class="flex items-center gap-2">
-      <Input :model-value="row.key" placeholder="Name" :aria-label="`${label} name ${index + 1}`" class="w-2/5" @update:model-value="v => setRow(index, 'key', v)" />
-      <Input :model-value="row.value" placeholder="Value" :aria-label="`${label} value ${index + 1}`" class="flex-1" @update:model-value="v => setRow(index, 'value', v)" />
-      <Button variant="ghost" size="icon" class="flex-shrink-0" :aria-label="`Remove ${label} entry ${index + 1}`" @click="remove(index)">
+      <Input :model-value="row.key" :placeholder="m.flowTools.keyValue.name" :aria-label="m.flowTools.keyValue.nameLabel(label, index + 1)" class="w-2/5" @update:model-value="v => setRow(index, 'key', v)" />
+      <Input :model-value="row.value" :placeholder="m.flowTools.keyValue.value" :aria-label="m.flowTools.keyValue.valueLabel(label, index + 1)" class="flex-1" @update:model-value="v => setRow(index, 'value', v)" />
+      <Button variant="ghost" size="icon" class="flex-shrink-0" :aria-label="m.flowTools.keyValue.removeLabel(label, index + 1)" @click="remove(index)">
         <X class="h-4 w-4" />
       </Button>
     </div>
     <Button variant="outline" size="sm" @click="add">
       <Plus class="mr-2 h-4 w-4" />
-      Add entry
+      {{ m.flowTools.keyValue.add }}
     </Button>
   </div>
 </template>

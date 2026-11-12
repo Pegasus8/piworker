@@ -23,6 +23,10 @@ export interface ConfigField {
   default?: any
   options?: { label: string; value: string }[]
   placeholder?: string
+  /** The unit a number is stored in (milliseconds, seconds, bytes…). */
+  unit?: string
+  /** A credential: never shown outside its field. */
+  sensitive?: boolean
   /** Where a free-text setting finds suggestions (the value stays free text). */
   suggest?: SuggestSource
 }

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useApi } from '@/composables/useApi'
 import { Button, Card, Input, Label } from '@/components/ui'
+import { messages as m } from '@/i18n'
 const router = useRouter()
 const auth = useAuthStore()
 const api = useApi()
@@ -27,35 +28,34 @@ async function save() {
   await router.replace('/login?changed=1')
  } catch (e: any) {
   if (e.response?.status === 401) { auth.clearAuth(); await router.replace('/login') }
-  else error.value = e.response?.data?.error || 'Could not change password. Please try again.'
+  else error.value = e.response?.data?.error || m.value.auth.account.changeFailed
  } finally { busy.value = false }
 }
 </script>
 <template>
  <main class="lab-page min-h-full bg-background p-6">
   <div class="mx-auto max-w-md space-y-6">
-   <Button variant="ghost" @click="router.push('/')">Back to flows</Button>
-   <div><h1 class="text-2xl font-bold">Account</h1><p class="text-muted-foreground">{{ auth.user?.username }}</p></div>
+   <div><h1 class="text-2xl font-bold">{{ m.auth.account.title }}</h1><p class="text-muted-foreground">{{ auth.user?.username }}</p></div>
    <Card class="p-6">
-    <h2 class="text-lg font-semibold mb-2">Change password</h2>
-    <p class="text-sm text-muted-foreground mb-5">All devices will be signed out, including this one.</p>
+    <h2 class="text-lg font-semibold mb-2">{{ m.auth.account.changePassword }}</h2>
+    <p class="text-sm text-muted-foreground mb-5">{{ m.auth.account.signOutAll }}</p>
     <form class="space-y-4" @submit.prevent="save">
      <p v-if="error" role="alert" class="text-sm text-destructive">{{ error }}</p>
-     <div class="space-y-2"><Label for="current">Current password</Label><Input id="current" v-model="current" type="password" autocomplete="current-password" :disabled="busy" /></div>
-     <div class="space-y-2"><Label for="new">New password</Label><Input id="new" v-model="password" type="password" autocomplete="new-password" :disabled="busy" /></div>
-     <p class="text-xs text-muted-foreground">Use at least 8 characters (maximum 72 bytes).</p>
-     <div class="space-y-2"><Label for="confirm">Confirm password</Label><Input id="confirm" v-model="confirm" type="password" autocomplete="new-password" :disabled="busy" /></div>
+     <div class="space-y-2"><Label for="current">{{ m.auth.account.current }}</Label><Input id="current" v-model="current" type="password" autocomplete="current-password" :disabled="busy" /></div>
+     <div class="space-y-2"><Label for="new">{{ m.auth.account.newPassword }}</Label><Input id="new" v-model="password" type="password" autocomplete="new-password" :disabled="busy" /></div>
+     <p class="text-xs text-muted-foreground">{{ m.auth.passwordRule }}</p>
+     <div class="space-y-2"><Label for="confirm">{{ m.auth.confirmPassword }}</Label><Input id="confirm" v-model="confirm" type="password" autocomplete="new-password" :disabled="busy" /></div>
      <div class="space-y-1">
-      <label class="flex items-center gap-2 text-sm font-medium"><input id="keep-agent-tokens" v-model="keepAgentTokens" type="checkbox" class="h-4 w-4 accent-primary" :disabled="busy" />Keep agent tokens</label>
-      <p class="text-xs text-muted-foreground">Otherwise every agent token is revoked; leave this off if your password or a token may have leaked.</p>
+      <label class="flex items-center gap-2 text-sm font-medium"><input id="keep-agent-tokens" v-model="keepAgentTokens" type="checkbox" class="h-4 w-4 accent-primary" :disabled="busy" />{{ m.auth.account.keepTokens }}</label>
+      <p class="text-xs text-muted-foreground">{{ m.auth.account.keepTokensHint }}</p>
      </div>
-     <Button type="submit" class="w-full" :disabled="busy || !valid">{{ busy ? 'Saving…' : 'Change password' }}</Button>
+     <Button type="submit" class="w-full" :disabled="busy || !valid">{{ busy ? m.auth.account.saving : m.auth.account.changePassword }}</Button>
     </form>
    </Card>
    <Card class="p-6">
-    <h2 class="text-lg font-semibold mb-2">HTTPS and this device</h2>
-    <p class="text-sm text-muted-foreground mb-4">Download PiWorker's certificate authority, check its fingerprint and trust it on your computers and phones.</p>
-    <Button variant="outline" @click="router.push('/trust')">Trust this device</Button>
+    <h2 class="text-lg font-semibold mb-2">{{ m.auth.account.httpsTitle }}</h2>
+    <p class="text-sm text-muted-foreground mb-4">{{ m.auth.account.httpsText }}</p>
+    <Button variant="outline" @click="router.push('/trust')">{{ m.auth.trustDevice }}</Button>
    </Card>
   </div>
  </main>

@@ -7,6 +7,8 @@ import { cn } from '@/lib/utils'
 import { useObservabilityStore } from '@/stores/observability'
 import type { NodeCategory } from '@/types'
 import { nodeIcon } from '@/lib/nodeIcons'
+import { nodeSummary } from '@/lib/nodeSummary'
+import { messages as m } from '@/i18n'
 
 interface Props {
   id: string
@@ -50,6 +52,9 @@ const colors = computed(() => categoryColors[props.data.category])
 const types = useNodeTypesStore()
 const inputs = computed(() => ports(types.getById(props.data.nodeType)?.inputs))
 const outputs = computed(() => ports(types.getById(props.data.nodeType)?.outputs))
+// What the node is set to do, instead of its type id; empty required
+// settings are flagged so they are found before deploying.
+const summary = computed(() => nodeSummary(props.data.config || {}, types.getById(props.data.nodeType)?.configSchema ?? []))
 
 // Live execution state, streamed from the backend via the observability store.
 const obs = useObservabilityStore()
@@ -122,17 +127,16 @@ const durationLabel = computed(() => {
     </div>
 
     <!-- Body -->
-    <div class="px-3 py-2">
-      <div class="text-xs text-muted-foreground">
-        {{ data.nodeType }}
-      </div>
+    <div v-if="summary.text || summary.missing.length" class="max-w-[220px] px-3 py-2">
+      <div v-if="summary.missing.length" class="text-xs text-amber-600 dark:text-amber-400">{{ m.editor.missingSettings(summary.missing) }}</div>
+      <div v-else class="truncate text-xs text-muted-foreground" :title="summary.text">{{ summary.text }}</div>
     </div>
 
-    <div v-if="outputs.length > 1" class="px-3 pb-2 text-right text-xs text-muted-foreground">Outputs: {{ outputs.map(p => p.name).join(' · ') }}</div>
+    <div v-if="outputs.length > 1" class="px-3 pb-2 text-right text-xs text-muted-foreground">{{ m.editor.outputs(outputs.map(p => p.name)) }}</div>
     <!-- Input Handle -->
     <Handle
       v-for="(port, index) in inputs"
-      :key="`in-${port.id}`" :id="port.id" :title="`Input: ${port.name}`"
+      :key="`in-${port.id}`" :id="port.id" :title="m.editor.inputPort(port.name)"
       :style="{ top: `${(index + 1) * 100 / (inputs.length + 1)}%` }"
       type="target"
       :position="Position.Left"
@@ -145,7 +149,7 @@ const durationLabel = computed(() => {
     <!-- Output Handle -->
     <Handle
       v-for="(port, index) in outputs"
-      :key="`out-${port.id}`" :id="port.id" :title="`Output: ${port.name}`"
+      :key="`out-${port.id}`" :id="port.id" :title="m.editor.outputPort(port.name)"
       :style="{ top: `${(index + 1) * 100 / (outputs.length + 1)}%` }"
       type="source"
       :position="Position.Right"

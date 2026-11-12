@@ -5,6 +5,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { apiClient } from '@/composables/useApi'
 import { BACKGROUND_HEADERS } from '@/stores/agent'
+import { msg } from '@/i18n'
 import {
   connectionList,
   connectionRequest,
@@ -50,7 +51,7 @@ export const useZigbeeStore = defineStore('zigbee', () => {
   async function testConnection(form: ConnectionForm): Promise<ConnectionTestResult> {
     const { data } = await apiClient.post(`/connections/${path(form.name.trim())}/test`, connectionRequest(form))
     const result = data.data ?? {}
-    return result.ok === true ? { ok: true } : { ok: false, error: typeof result.error === 'string' && result.error ? result.error : 'The broker did not answer.' }
+    return result.ok === true ? { ok: true } : { ok: false, error: typeof result.error === 'string' && result.error ? result.error : msg().zigbee.noAnswer }
   }
 
   // A background read (the page's poll) does not extend the session (ADR-0017).

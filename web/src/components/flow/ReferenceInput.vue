@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
 import type { Reference, ReferenceMode } from '@/lib/references'
+import { messages as m } from '@/i18n'
 // list: the id of a <datalist> of suggestions (single-line fields; the value stays free text).
 // describedby: the id of a hint under the field.
 const props = defineProps<{ id: string; modelValue: string; mode: ReferenceMode; options: Reference[]; multiline?: boolean; placeholder?: string; required?: boolean; list?: string; describedby?: string }>()
@@ -55,9 +56,9 @@ function keydown(event: KeyboardEvent) {
  <div>
   <component :is="multiline ? 'textarea' : 'input'" :id="id" ref="field" :value="modelValue" :placeholder="placeholder" :aria-required="required" :list="multiline ? undefined : list" :aria-describedby="describedby" :rows="5" spellcheck="false" autocomplete="off" :aria-autocomplete="mode ? 'list' : undefined" :aria-controls="visible ? `${id}-references` : undefined" :aria-activedescendant="visible && selected >= 0 ? `${id}-reference-${selected}` : undefined" class="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" :class="multiline ? 'min-h-24 font-mono' : 'h-10'" @input="input" @keydown="keydown" @click="caret = field?.selectionStart || 0" @blur="open = false" />
   <template v-if="mode">
-   <button type="button" class="mt-1 text-xs text-primary hover:underline" :aria-label="`Insert reference in ${id}`" @mousedown.prevent @click="show">Insert reference · Ctrl+Space</button>
-   <p class="mt-1 text-xs text-muted-foreground">{{ mode === 'secret' ? 'Secret names only. Stop and redeploy after changing a credential.' : mode === 'name' ? 'Name in the selected scope. You can also enter a new name.' : 'Global variables, flow variables and message fields. Use ↑ ↓ and Enter to insert; Esc to dismiss.' }}</p>
-   <ul v-if="visible" :id="`${id}-references`" role="listbox" aria-label="References" class="mt-2 max-h-44 overflow-auto rounded-lg border bg-card shadow-lg">
+   <button type="button" class="mt-1 text-xs text-primary hover:underline" :aria-label="m.flowTools.references.insertLabel(id)" @mousedown.prevent @click="show">{{ m.flowTools.references.insert }}</button>
+   <p class="mt-1 text-xs text-muted-foreground">{{ mode === 'secret' ? m.flowTools.references.secretHint : mode === 'name' ? m.flowTools.references.nameHint : m.flowTools.references.expressionHint }}</p>
+   <ul v-if="visible" :id="`${id}-references`" role="listbox" :aria-label="m.flowTools.references.list" class="mt-2 max-h-44 overflow-auto rounded-lg border bg-card shadow-lg">
     <li v-for="(option,index) in matches" :id="`${id}-reference-${index}`" :key="option.value" role="option" :aria-label="option.label" :aria-selected="selected === index" class="cursor-pointer px-3 py-2 text-sm hover:bg-muted" :class="selected === index ? 'bg-primary/10' : ''" @mousedown.prevent @click="choose(option)"><span class="font-medium">{{ option.label }}</span><span class="ml-2 text-xs text-muted-foreground">{{ option.group }}</span><code class="block break-all text-xs text-muted-foreground">{{ option.value }}</code></li>
    </ul>
   </template>
