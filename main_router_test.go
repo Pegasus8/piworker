@@ -28,12 +28,14 @@ type testApp struct {
 
 func newTestApp(t *testing.T, auth bool) testApp {
 	t.Helper()
-	store, err := storage.NewSQLiteStore(filepath.Join(t.TempDir(), "app.db"))
+	dbPath := filepath.Join(t.TempDir(), "app.db")
+	store, err := storage.NewSQLiteStore(dbPath)
 	require.NoError(t, err)
 	t.Cleanup(func() { store.Close() })
 	manager := flow.NewRuntimeManager(node.DefaultRegistry, zerolog.Nop())
 	t.Cleanup(manager.StopAll)
 	cfg := config.Default()
+	cfg.DBPath = dbPath
 	cfg.Auth = auth
 	cfg.AllowedHosts = []string{"piworker.local"} // the Host the tests use
 	var users *storage.SQLiteUserStore

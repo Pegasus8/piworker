@@ -21,6 +21,7 @@ const es: typeof en = {
   brokersHint: 'Brokers MQTT para los nodos MQTT y Zigbee',
   backup: 'Exportar y restaurar',
   backupHint: 'Variables, conexiones y secretos en un archivo',
+  backups: 'Copias de seguridad',
   https: 'HTTPS y este dispositivo',
   account: 'Cuenta',
   logout: 'Cerrar sesión',

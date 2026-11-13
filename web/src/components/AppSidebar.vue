@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { Workflow, Radio, Bot, Braces, KeyRound, Cable, ArchiveRestore, ShieldCheck, UserRound, LogOut, Menu, X } from 'lucide-vue-next'
+import { Workflow, Radio, Bot, Braces, KeyRound, Cable, ArchiveRestore, DatabaseBackup, ShieldCheck, UserRound, LogOut, Menu, X } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import { useAgentStore } from '@/stores/agent'
 import { useShellStore } from '@/stores/shell'
+import { BACKUPS_POLL_MS, useBackupsStore } from '@/stores/backups'
+import { createVisibilityPoller, type Poller } from '@/lib/poller'
 import { messages as m } from '@/i18n'
 import LanguageSelect from '@/components/LanguageSelect.vue'
 import VariablesDialog from '@/components/VariablesDialog.vue'
@@ -20,6 +22,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const agent = useAgentStore()
 const shell = useShellStore()
+const backups = useBackupsStore()
 
 const agentWaiting = computed(() => agent.pendingCount + agent.pendingDrafts)
 const agentsLabel = computed(() => m.value.nav.agentsWaiting(agent.pendingCount, agent.pendingDrafts))
@@ -37,11 +40,22 @@ const settings = computed(() => [
   { label: m.value.nav.backup, hint: m.value.nav.backupHint, icon: ArchiveRestore, open: () => { shell.showBackup = true } }
 ])
 const pages = computed(() => [
+  { to: '/backups', label: m.value.nav.backups, icon: DatabaseBackup, active: route.path === '/backups', alert: backups.alert ? m.value.backups.navAlert : '' },
   { to: '/trust', label: m.value.nav.https, icon: ShieldCheck, active: route.path === '/trust' },
   ...(auth.authEnabled ? [{ to: '/account', label: m.value.nav.account, icon: UserRound, active: route.path === '/account' }] : [])
 ])
 
 watch(() => route.fullPath, () => { shell.drawerOpen = false })
+
+// The backup status marks the Backups link when it needs attention (a
+// failure, a stale backup). A background read: it never extends the
+// session (ADR-0017).
+let backupPoller: Poller | null = null
+onMounted(() => {
+  backupPoller = createVisibilityPoller(() => backups.fetchOverview({ background: true }).catch(() => {}), { intervalMs: BACKUPS_POLL_MS })
+  backupPoller.start()
+})
+onUnmounted(() => backupPoller?.stop())
 
 const logoutError = ref('')
 async function logout() {
@@ -94,8 +108,10 @@ const item = 'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-m
             </button>
           </li>
           <li v-for="p in pages" :key="p.to">
-            <RouterLink :to="p.to" :class="[item, p.active ? 'bg-primary/10 text-primary' : 'text-foreground']" :aria-current="p.active ? 'page' : undefined">
+            <RouterLink :to="p.to" :class="[item, p.active ? 'bg-primary/10 text-primary' : 'text-foreground']" :aria-current="p.active ? 'page' : undefined"
+              :aria-label="'alert' in p && p.alert ? `${p.label}: ${p.alert}` : undefined">
               <component :is="p.icon" class="h-4 w-4 shrink-0" aria-hidden="true" />{{ p.label }}
+              <span v-if="'alert' in p && p.alert" class="ml-auto h-2 w-2 rounded-full bg-amber-500" :title="p.alert" aria-hidden="true" />
             </RouterLink>
           </li>
         </ul>

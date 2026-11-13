@@ -20,6 +20,7 @@ export default {
   brokersHint: 'MQTT brokers for MQTT and Zigbee nodes',
   backup: 'Export and restore',
   backupHint: 'Variables, connections and secrets in one file',
+  backups: 'Backups',
   https: 'HTTPS and this device',
   account: 'Account',
   logout: 'Sign out',
