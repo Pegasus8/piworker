@@ -70,6 +70,14 @@ export default {
   noMatchingNodes: 'No matching nodes. Try another search.',
   addNode: (name: string) => `Add ${name}`,
   categories: { trigger: 'Triggers', process: 'Processing', action: 'Actions' },
+  // A node type's risk (GET /api/node-types risk), as agents see it.
+  riskHints: {
+    safe: 'Safe: only computes, reads local state or logs.',
+    external: 'External: sends data to, or receives it from, other services (HTTP, MQTT, e-mail…).',
+    privileged: 'Privileged: acts on this device itself (commands, files, GPIO, databases…).',
+    unknown: 'Unknown risk: treat it as privileged.'
+  },
+  riskRaised: 'A setting such as a URL taken from the message, or an opt-in that widens access, can make this node privileged.',
   categoryHints: {
     trigger: 'Start the flow: on a schedule, a message, a sensor…',
     process: 'Change, filter or route the messages',

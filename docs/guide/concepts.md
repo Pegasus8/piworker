@@ -38,6 +38,21 @@ worth knowing:
 The [node reference](nodes.md) lists every node, and the **?** button in a
 node's settings opens its documentation with examples.
 
+Every node type also has a **risk** level, shown in the editor:
+
+| Risk | Meaning | Examples |
+|------|---------|----------|
+| **Safe** | Only computes, reads local state or logs. | Template, Transform, Debug |
+| **External** | Sends data to, or receives it from, other services. | HTTP Request, MQTT Publish, Email, Notify |
+| **Privileged** | Acts on the device itself. | Execute Command, Write File, Database, GPIO Write |
+
+The node list marks External and Privileged nodes, and a node's settings
+panel shows its level with what it means. A few settings can raise a node to
+Privileged, for example an HTTP Request whose address is taken from the
+message, or an option that allows private network addresses; the panel says
+so when the node has such a setting. The same levels decide what
+[AI agents](agents.md) may deploy on their own.
+
 ## Messages
 
 What travels along a connection is a **message**. It has these parts:

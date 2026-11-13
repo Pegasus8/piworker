@@ -43,6 +43,8 @@ export const useNodeTypesStore = defineStore('nodeTypes', () => {
           documentation: node.documentation || '',
           category: categoryMap[node.category] || node.category,
           icon: lucideIconName(node.icon ?? ''),
+          risk: typeof node.risk === 'string' ? node.risk : undefined,
+          escalates: canEscalate(node.config),
           inputs: node.inputs || [],
           outputs: node.outputs || [],
           configSchema: buildConfigSchema(node)
@@ -59,6 +61,14 @@ export const useNodeTypesStore = defineStore('nodeTypes', () => {
     })()
 
     return inFlight
+  }
+
+  // Whether a setting can raise the node's risk to privileged: the server
+  // escalates on a destination built from a template and on a riskSwitch.
+  function canEscalate(schema: any): boolean {
+    const props = schema?.properties
+    if (!props || typeof props !== 'object') return false
+    return Object.values(props).some((p: any) => p?.riskSwitch === true || p?.destination === true)
   }
 
   // Build a node's config form from the backend-provided JSON schema. Every node

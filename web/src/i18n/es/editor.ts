@@ -70,6 +70,13 @@ const es: typeof en = {
   noMatchingNodes: 'Ningún nodo coincide. Prueba otra búsqueda.',
   addNode: (name: string) => `Añadir ${name}`,
   categories: { trigger: 'Disparadores', process: 'Procesamiento', action: 'Acciones' },
+  riskHints: {
+    safe: 'Seguro: solo calcula, lee estado local o registra.',
+    external: 'Externo: envía datos a otros servicios o los recibe de ellos (HTTP, MQTT, correo…).',
+    privileged: 'Privilegiado: actúa sobre este mismo dispositivo (comandos, archivos, GPIO, bases de datos…).',
+    unknown: 'Riesgo desconocido: trátalo como privilegiado.'
+  },
+  riskRaised: 'Un ajuste como una URL tomada del mensaje, o una opción que amplía el acceso, puede volver privilegiado este nodo.',
   categoryHints: {
     trigger: 'Inician el flujo: con un horario, un mensaje, un sensor…',
     process: 'Cambian, filtran o encaminan los mensajes',

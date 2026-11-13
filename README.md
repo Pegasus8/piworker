@@ -475,9 +475,11 @@ Each node type also declares a **risk**: `privileged` for nodes that act on
 the host (Execute Command, Write File, Database, GPIO Write, I2C Read),
 `external` for nodes that send data elsewhere (HTTP Request, MQTT Publish,
 Zigbee Set, Zigbee Get, Email, Telegram, Notify) and `safe` for the rest. The
-risk is listed in the node reference and reported to agents by
-`pw_list_node_types`;
-`/api/node-types` does not include it. Schema properties may be marked
+risk is listed in the node reference, reported to agents by
+`pw_list_node_types`, returned by `/api/node-types` (`risk`) and shown in
+the editor: the node list marks external and privileged types, and the
+settings panel shows the level with its meaning (and, when a setting such as
+a templated URL or a RiskSwitch can raise it, says so). Schema properties may be marked
 `sensitive` (credentials, never echoed) and `agentVisible` (harmless values
 that agents may read); numeric properties state their `unit`.
 
@@ -1298,7 +1300,7 @@ accounts.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/node-types` | List available node types (`category` filters by `input`, `processing` or `output`) |
+| GET | `/api/node-types` | List available node types (`category` filters by `input`, `processing` or `output`); each carries its `risk` (`safe`, `external`, `privileged`) |
 | GET | `/api/node-types/{type}` | One node type with its documentation and configuration schema |
 | POST | `/api/nodes/{type}/test` | Run one processing node once on a sample message (the editor's payload playground); nothing is deployed |
 

@@ -177,6 +177,11 @@ type NodeTypeResponse struct {
 	Outputs       []PortResponse     `json:"outputs"`
 	Config        *node.ConfigSchema `json:"config,omitempty"`
 	Icon          string             `json:"icon,omitempty"`
+	// Risk is what the type can affect outside the flow (node.Risk: safe,
+	// external, privileged), as agents and the node reference see it; the
+	// editor shows it in the palette and the settings panel. A node's own
+	// settings can raise its instance's risk (flow.Risk), never lower it.
+	Risk string `json:"risk"`
 }
 
 // PortResponse represents a port in API responses.
@@ -228,6 +233,7 @@ func toNodeTypeResponse(info node.NodeTypeInfo) NodeTypeResponse {
 		Outputs:       outputs,
 		Config:        info.Config,
 		Icon:          info.Icon,
+		Risk:          string(info.Risk),
 	}
 }
 

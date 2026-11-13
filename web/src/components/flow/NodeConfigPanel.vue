@@ -14,6 +14,8 @@ import JsonInput from './JsonInput.vue'
 import { integerFromInput, setConfigValue } from '@/lib/configValues'
 import { referenceMode, referenceOptions } from '@/lib/references'
 import { useApi } from '@/composables/useApi'
+import RiskBadge from '@/components/agent/RiskBadge.vue'
+import { nodeRisk } from '@/lib/nodeRisk'
 import NodeDocumentation from './NodeDocumentation.vue'
 import NodePlayground from './NodePlayground.vue'
 import TestTool from './TestTool.vue'
@@ -153,6 +155,7 @@ function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape' && !event.defaultPrevented && !(event.target as HTMLElement | null)?.closest('dialog')) close()
 }
 const icon = computed(() => nodeIcon(selectedNode.value?.data.icon || ''))
+const risk = computed(() => nodeRisk(nodeTypeConfig.value?.risk))
 const duration = (field: ConfigField) => (field.type === 'number' || field.type === 'integer') && isDurationUnit(field.unit)
 </script>
 
@@ -168,6 +171,12 @@ const duration = (field: ConfigField) => (field.type === 'number' || field.type 
           <NodeDocumentation v-if="nodeTypeConfig.documentation" :title="nodeTypeConfig.name" :documentation="nodeTypeConfig.documentation" />
         </div>
         <p class="text-sm text-muted-foreground">{{ nodeTypeConfig.description }}</p>
+        <!-- The type's risk, as agents see it, with what it means. -->
+        <p class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          <RiskBadge :risk="nodeTypeConfig.risk ?? ''" />
+          <span>{{ risk.hint }}</span>
+          <span v-if="risk.rank < 2 && nodeTypeConfig.escalates">{{ m.editor.riskRaised }}</span>
+        </p>
       </div>
       <Button variant="ghost" size="icon" class="shrink-0" :aria-label="m.editor.closeSettings" :title="m.editor.closeSettings" @click="close">
         <X class="h-4 w-4" />
