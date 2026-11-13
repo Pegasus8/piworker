@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { deployWarningText, deployWarningsSummary, issueLocation, quotedSecret } from '@/lib/deployWarnings'
+import { deployWarningText, deployWarningsSummary, issueLocation } from '@/lib/deployWarnings'
 import { setLocale } from '@/i18n'
 
 const unresolved = {
   path: '/nodes/mail/config/password', code: 'unresolved_secret', severity: 'warning' as const,
   message: 'config.password references secret "smtp_pass", which is not defined: the node gets an empty value, or fails, where it uses it',
+  secret: 'smtp_pass',
 }
 
 describe('deploy warnings', () => {
@@ -14,9 +15,12 @@ describe('deploy warnings', () => {
     expect(issueLocation('/connections/c1')).toBeNull()
   })
 
-  test('reads the quoted secret name', () => {
-    expect(quotedSecret(unresolved.message)).toBe('smtp_pass')
-    expect(quotedSecret('no name here')).toBe('')
+  test('takes the secret name from its field, never from the message', () => {
+    setLocale('en')
+    const reworded = { ...unresolved, message: 'some other wording entirely' }
+    expect(deployWarningText(reworded, id => id)).toContain('“smtp_pass”')
+    const { secret: _omit, ...withoutField } = unresolved
+    expect(deployWarningText(withoutField, id => id)).toBe('mail: ' + unresolved.message)
   })
 
   test('describes an unresolved secret in the interface language', () => {

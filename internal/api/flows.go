@@ -87,9 +87,10 @@ type FlowStatusResponse struct {
 	// Warnings, on a deploy (POST /deploy, or a toggle that deploys), are
 	// what the flow deployed with but the admin should know: the warning
 	// issues the deploy found (FlowRuntime.Warnings, Lint's), such as an undefined secret an
-	// optional credential references (unresolved_secret). Always a list:
+	// optional credential references (unresolved_secret, with the secret's
+	// name in its secret field). Always a list:
 	// empty when there are none and on a stop.
-	Warnings []flow.Issue `json:"warnings"`
+	Warnings []flow.DeployWarning `json:"warnings"`
 }
 
 // FlowDetailResponse is GET /api/flows/{id}: the flow with its marks.
@@ -536,7 +537,7 @@ func (h *FlowsHandler) changeRunning(w http.ResponseWriter, r *http.Request, wan
 		ref.write(w)
 		return
 	}
-	resp := FlowStatusResponse{Flow: f, Running: wantRunning, Warnings: []flow.Issue{}}
+	resp := FlowStatusResponse{Flow: f, Running: wantRunning, Warnings: []flow.DeployWarning{}}
 	if wantRunning {
 		resp.Warnings = h.deployWarnings(f)
 	}
@@ -545,10 +546,10 @@ func (h *FlowsHandler) changeRunning(w http.ResponseWriter, r *http.Request, wan
 
 // deployWarnings returns, and logs, the warnings the running flow f
 // deployed with (FlowRuntime.Warnings). Never nil.
-func (h *FlowsHandler) deployWarnings(f *flow.Flow) []flow.Issue {
+func (h *FlowsHandler) deployWarnings(f *flow.Flow) []flow.DeployWarning {
 	rt, ok := h.manager.GetRuntime(f.ID)
 	if !ok {
-		return []flow.Issue{}
+		return []flow.DeployWarning{}
 	}
 	warnings := rt.Warnings()
 	for _, is := range warnings {

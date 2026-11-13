@@ -111,6 +111,9 @@ type finding struct {
 	code string
 	sev  IssueSeverity
 	msg  string // the message, without path
+	// secret is the secret a secret finding names (undefined_secret,
+	// unresolved_secret), for the deploy warnings' Secret field.
+	secret string
 	// err is what deploy returns when this is the first error of its stage
 	// (nil for the stages that aggregate their messages).
 	err error
@@ -317,7 +320,9 @@ func secretFindings(f *Flow, instances map[int]node.Node, store *secrets.Store, 
 				if sev == IssueError {
 					err = NewValidationError("node %s (%s): %s", n.ID, n.Type, msg)
 				}
-				out = append(out, nodeFinding(i, prop, code, sev, msg, err))
+				fd := nodeFinding(i, prop, code, sev, msg, err)
+				fd.secret = name
+				out = append(out, fd)
 			}
 		}
 	}

@@ -10,7 +10,7 @@ import { Button, Card, Input, Switch, Badge, Dialog, Menu } from '@/components/u
 import type { MenuAction } from '@/components/ui/Menu.vue'
 import { deployWarningsSummary } from '@/lib/deployWarnings'
 import { downloadJson } from '@/lib/download'
-import type { FlowIssue } from '@/lib/drafts'
+import type { DeployWarning } from '@/lib/deployWarnings'
 import ExamplesDialog from '@/components/ExamplesDialog.vue'
 import FlowMarks from '@/components/agent/FlowMarks.vue'
 import AgentText from '@/components/agent/AgentText.vue'
@@ -97,7 +97,7 @@ const failingCount = computed(() => flowsStore.flows.filter(f => f.state === 'fa
 
 async function toggleFlow(id: string, enabled: boolean) {
   let conflict: FlowVersionConflictError | null = null
-  let warnings: FlowIssue[] = []
+  let warnings: DeployWarning[] = []
   const done = await run(async () => {
     try {
       warnings = await flowsStore.toggleFlow(id, enabled)

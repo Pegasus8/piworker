@@ -45,7 +45,10 @@ func TestLintWarnsAboutUnresolvedOptionalSecrets(t *testing.T) {
 	require.NoError(t, m.Deploy(empty, f), "a warning does not stop the deploy")
 	rt, ok := m.GetRuntime(f.ID)
 	require.True(t, ok)
-	assert.Equal(t, issues, rt.Warnings(), "the deploy's warnings are Lint's")
+	warnings := rt.Warnings()
+	require.Len(t, warnings, 1)
+	assert.Equal(t, issues[0], warnings[0].Issue, "the deploy's warnings are Lint's")
+	assert.Equal(t, "pw_lint_smtp", warnings[0].Secret, "the secret is a field, not only words in the message")
 	require.NoError(t, m.Undeploy(f.ID))
 
 	store := secrets.NewStore()

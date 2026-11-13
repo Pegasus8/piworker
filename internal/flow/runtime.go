@@ -119,7 +119,7 @@ type FlowRuntime struct {
 	nodes map[string]node.Node
 
 	// warnings are the deploy's warnings (deployWarnings), set before Start.
-	warnings []Issue
+	warnings []DeployWarning
 
 	// Trigger nodes that need to be started
 	triggers map[string]node.TriggerNode

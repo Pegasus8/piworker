@@ -58,7 +58,7 @@ func TestDeployAnswersItsWarnings(t *testing.T) {
 	type deployed struct {
 		Data struct {
 			Running  bool         `json:"running"`
-			Warnings []flow.Issue `json:"warnings"`
+			Warnings []flow.DeployWarning `json:"warnings"`
 		} `json:"data"`
 	}
 	rr := performRequest(server, http.MethodPost, "/api/flows/"+f.ID+"/deploy", nil)
@@ -70,6 +70,8 @@ func TestDeployAnswersItsWarnings(t *testing.T) {
 	assert.Equal(t, flow.IssueUnresolvedSecret, got.Data.Warnings[0].Code)
 	assert.Equal(t, "/nodes/sink/config/password", got.Data.Warnings[0].Path)
 	assert.Contains(t, got.Data.Warnings[0].Message, `"pw_api_missing"`)
+	assert.Equal(t, "pw_api_missing", got.Data.Warnings[0].Secret)
+	assert.Contains(t, rr.Body.String(), `"secret":"pw_api_missing"`)
 
 	require.Equal(t, http.StatusOK, performRequest(server, http.MethodPost, "/api/flows/"+f.ID+"/stop", nil).Code)
 	require.NoError(t, secrets.DefaultStore.Set("pw_api_missing", "defined-now-value"))

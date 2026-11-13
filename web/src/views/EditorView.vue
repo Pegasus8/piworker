@@ -21,7 +21,7 @@ import { messages as m } from '@/i18n'
 
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import { deployWarningsSummary } from '@/lib/deployWarnings'
-import type { FlowIssue } from '@/lib/drafts'
+import type { DeployWarning } from '@/lib/deployWarnings'
 import OperationFeedback from '@/components/ui/OperationFeedback.vue'
 import ManualRunDialog from '@/components/flow/ManualRunDialog.vue'
 import ConnectionsDialog from '@/components/flow/ConnectionsDialog.vue'
@@ -131,7 +131,7 @@ async function handleDeploy() {
   } else {
     if ((!flowsStore.currentFlow?.id || flowsStore.isDirty) && !await handleSave()) return
     let conflict: FlowVersionConflictError | null = null
-    let warnings: FlowIssue[] = []
+    let warnings: DeployWarning[] = []
     const deployed = await run(async () => {
       try {
         warnings = await flowsStore.deployFlow()

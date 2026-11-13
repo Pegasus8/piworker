@@ -75,20 +75,34 @@ func (r *FlowRuntime) instancesByIndex() map[int]node.Node {
 	return instances
 }
 
+// DeployWarning is a warning a deploy went ahead with: the Issue as Lint
+// renders it and, for an undefined secret (IssueUnresolvedSecret), the
+// secret's name, so the editor need not read it out of the message. Only the
+// editor's deploy response carries it: an agent sees Issues, whose messages
+// are withheld where they name what it cannot read (ADR-0021).
+type DeployWarning struct {
+	Issue
+	Secret string `json:"secret,omitempty"`
+}
+
 // deployWarnings are the warnings a deploy goes ahead with, as Lint renders
 // them: the tool risk warnings (toolIssues, validateDeployable's) and the
 // undefined secrets of optional settings (IssueUnresolvedSecret), checked
 // against the store of ctx with the instances the deploy already built.
 // Never nil.
-func deployWarnings(ctx context.Context, rt *FlowRuntime, reg *node.Registry, toolIssues []Issue) []Issue {
-	out := []Issue{}
+func deployWarnings(ctx context.Context, rt *FlowRuntime, reg *node.Registry, toolIssues []Issue) []DeployWarning {
+	out := []DeployWarning{}
 	for _, is := range toolIssues {
 		if is.Severity == IssueWarning {
-			out = append(out, is)
+			out = append(out, DeployWarning{Issue: is})
 		}
 	}
-	fds := unresolvedSecretFindings(rt.flow, rt.instancesByIndex(), secrets.FromContext(ctx))
-	return append(out, lintIssues(rt.flow, reg, fds)...)
+	for _, fd := range unresolvedSecretFindings(rt.flow, rt.instancesByIndex(), secrets.FromContext(ctx)) {
+		for _, is := range lintIssues(rt.flow, reg, []finding{fd}) {
+			out = append(out, DeployWarning{Issue: is, Secret: fd.secret})
+		}
+	}
+	return out
 }
 
 // ConnectionsUsed returns the broker connections (ADR-0026) the runtime's
@@ -108,6 +122,6 @@ func (r *FlowRuntime) ConnectionsUsed() []string {
 }
 
 // Warnings returns the warnings the runtime deployed with (deployWarnings).
-func (r *FlowRuntime) Warnings() []Issue {
-	return append([]Issue{}, r.warnings...)
+func (r *FlowRuntime) Warnings() []DeployWarning {
+	return append([]DeployWarning{}, r.warnings...)
 }

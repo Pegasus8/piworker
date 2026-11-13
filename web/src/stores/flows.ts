@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Flow, FlowNode, FlowEdge, FlowListItem, NodeCategory, VersionList } from '@/types'
-import type { ApplyResult, FlowIssue } from '@/lib/drafts'
+import type { ApplyResult } from '@/lib/drafts'
+import type { DeployWarning } from '@/lib/deployWarnings'
 import { useApi, type DeployOutcome } from '@/composables/useApi'
 import { ports, validConnection } from '@/lib/ports'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
@@ -319,7 +320,7 @@ export const useFlowsStore = defineStore('flows', () => {
   }
 
   // Returns the warnings the flow deployed with (none when it was stopped).
-  async function toggleFlow(id: string, enabled: boolean): Promise<FlowIssue[]> {
+  async function toggleFlow(id: string, enabled: boolean): Promise<DeployWarning[]> {
     loading.value = true
     error.value = null
     try {
@@ -348,7 +349,7 @@ export const useFlowsStore = defineStore('flows', () => {
   }
 
   // Returns the warnings the flow deployed with (lib/deployWarnings.ts).
-  async function deployFlow(id?: string): Promise<FlowIssue[]> {
+  async function deployFlow(id?: string): Promise<DeployWarning[]> {
     const flowId = id || currentFlow.value?.id
     if (!flowId) return []
 

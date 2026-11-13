@@ -58,7 +58,10 @@ Option B.
   `PATCH /api/flows/{id}/toggle` answer `data.warnings`: the warnings the
   deploy itself found with the instances it built (the tool risk warnings
   and `unresolved_secret`, rendered as Lint renders them;
-  `FlowRuntime.Warnings`), always a list (empty on a stop). Every deploy
+  `FlowRuntime.Warnings`), always a list (empty on a stop). Each is a
+  `flow.DeployWarning`: the issue plus, for `unresolved_secret`, a `secret`
+  field with the name, so the editor never parses the English message.
+  Only this admin response has the field; agents get plain issues. Every deploy
   path records them, with no second Lint. The editor shows them as a
   warning toast that stays until dismissed; startup logs them for the
   flows it restores.

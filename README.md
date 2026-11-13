@@ -1310,7 +1310,7 @@ accounts.
 | GET | `/api/flows/{id}` | Get a flow by ID |
 | PUT | `/api/flows/{id}` | Update a flow; with the loaded `version`, `409` (`currentVersion`) when another was saved since |
 | DELETE | `/api/flows/{id}` | Delete a flow |
-| POST | `/api/flows/{id}/deploy` | Deploy (start) a flow; optional `{"version": N}`, checked like a save. Answers `{"flow", "running", "warnings"}`: `warnings` lists what it deployed with but you should know, such as `unresolved_secret` (Lint's warning issues; empty when none) |
+| POST | `/api/flows/{id}/deploy` | Deploy (start) a flow; optional `{"version": N}`, checked like a save. Answers `{"flow", "running", "warnings"}`: `warnings` lists what it deployed with but you should know, such as `unresolved_secret`, whose `secret` field names the undefined secret (Lint's warning issues; empty when none) |
 | POST | `/api/flows/{id}/stop` | Stop a running flow |
 | PATCH | `/api/flows/{id}/toggle` | Turn a flow on or off: `{"enabled": bool, "version": N}`; turning it on with a stale `version` is `409` (`currentVersion`) and deploys nothing; turning it on answers `warnings` as deploy does |
 | GET | `/api/flows/{id}/versions` | Version history (`limit`), newest first |

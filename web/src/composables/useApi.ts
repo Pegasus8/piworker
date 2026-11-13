@@ -1,12 +1,13 @@
 import axios from 'axios'
 import type { CallResult, Flow, FlowListItem, FlowEvent, FlowRun, NodeEventRecord, NodeTestResult, TLSInfo, VersionList } from '@/types'
-import type { ApplyResult, FlowIssue } from '@/lib/drafts'
+import type { ApplyResult } from '@/lib/drafts'
 import { secretList, type SecretList } from '@/lib/secrets'
 import { importResult, type ImportResult } from '@/lib/storesBackup'
+import type { DeployWarning } from '@/lib/deployWarnings'
 
 /** A deploy's result: whether the flow runs and the warnings it deployed with. */
-export interface DeployOutcome { running: boolean; warnings: FlowIssue[] }
-function deployOutcome(d: { running: boolean; warnings?: FlowIssue[] }): DeployOutcome {
+export interface DeployOutcome { running: boolean; warnings: DeployWarning[] }
+function deployOutcome(d: { running: boolean; warnings?: DeployWarning[] }): DeployOutcome {
   return { running: d.running, warnings: d.warnings ?? [] }
 }
 
