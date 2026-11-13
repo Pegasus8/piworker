@@ -70,10 +70,20 @@ field states) and deploy again. Other common causes:
 
 | Message mentions | Fix |
 |------------------|-----|
-| a secret that does not exist | Create it under **Secrets**, with exactly that name. |
+| a secret that does not exist | Create it under **Secrets**, with exactly that name. The Secrets dialog lists names that are used but not defined. |
 | a tool name already in use (409) | Another running flow has an Agent Tool with the same name. Rename one. |
 | a webhook path already in use | Two running flows cannot share a webhook path. |
 | a connection or port | Open **Connections** and reconnect the nodes it names. |
+
+### Deployed, but with a warning
+
+A yellow message after **Deploy** lists what the flow deployed with but you
+should know. The usual one says a setting uses a secret that is not defined:
+an Email or MQTT username or password, or an HTTP Request URL or header. The
+flow runs, but that node gets an empty value there (it signs in without the
+password, or not at all) or the HTTP request fails. Define the secret under
+**Secrets** with exactly that name, or correct the reference; the warning is
+gone on the next deploy.
 
 ### I cannot save my changes
 

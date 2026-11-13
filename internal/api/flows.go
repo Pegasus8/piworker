@@ -84,6 +84,12 @@ type ListFlowsResponse struct {
 type FlowStatusResponse struct {
 	Flow    *flow.Flow `json:"flow"`
 	Running bool       `json:"running"`
+	// Warnings, on a deploy (POST /deploy, or a toggle that deploys), are
+	// what the flow deployed with but the admin should know: the warning
+	// issues of Lint (flow.DeployWarnings), such as an undefined secret an
+	// optional credential references (unresolved_secret). Always a list:
+	// empty when there are none and on a stop.
+	Warnings []flow.Issue `json:"warnings"`
 }
 
 // FlowDetailResponse is GET /api/flows/{id}: the flow with its marks.
@@ -530,7 +536,23 @@ func (h *FlowsHandler) changeRunning(w http.ResponseWriter, r *http.Request, wan
 		ref.write(w)
 		return
 	}
-	writeSuccess(w, http.StatusOK, FlowStatusResponse{Flow: f, Running: wantRunning}, "")
+	resp := FlowStatusResponse{Flow: f, Running: wantRunning, Warnings: []flow.Issue{}}
+	if wantRunning {
+		resp.Warnings = h.deployWarnings(r.Context(), f)
+	}
+	writeSuccess(w, http.StatusOK, resp, "")
+}
+
+// deployWarnings returns, and logs, the warnings f deployed with
+// (flow.DeployWarnings, with the secrets of ctx: the process-wide store).
+// Never nil, so the response always carries the list.
+func (h *FlowsHandler) deployWarnings(ctx context.Context, f *flow.Flow) []flow.Issue {
+	warnings := flow.DeployWarnings(ctx, f, h.registry)
+	for _, is := range warnings {
+		h.logger.Warn().Str("flowID", f.ID).Str("code", is.Code).Str("path", is.Path).Str("problem", is.Message).
+			Msg("Flow deployed with a warning")
+	}
+	return warnings
 }
 
 // InjectRequest is the request body for injecting a message into a manual trigger.

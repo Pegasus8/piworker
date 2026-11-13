@@ -1041,7 +1041,9 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   `no_trigger`, `duplicate_connection_id`, `connection_unknown_node`,
   `connection_unknown_port`, `self_loop`, `cycle`, `unknown_type`,
   `config_type`, `invalid_config`, `trigger_not_connected`,
-  `undefined_secret`, `invalid_position`, and the tool
+  `undefined_secret`, `unresolved_secret` (warning: an optional setting's
+  secret is undefined, ADR-0028), `undefined_connection`,
+  `invalid_position`, and the tool
   rules' `dynamic_destination_credentials`, `tool_global_variable`,
   `tool_stateful_aggregate`, `tool_stateful_join`,
   `tool_delay_exceeds_timeout` (warning), `tool_strict_arguments`,

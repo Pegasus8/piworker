@@ -961,7 +961,17 @@ Database or MQTT connection that is already open. A flow whose Telegram bot
 token, Notify URL or Database DSN names a secret that does not exist is refused
 at deploy (and such a node fails if the secret is deleted later); in the
 optional Email and MQTT credentials a missing secret resolves to an empty
-string.
+string. That case, and a missing secret in an HTTP Request URL or header, is
+not refused but reported: the deploy answers it as a warning
+(`unresolved_secret`), which the editor shows until you dismiss it, and the
+startup log repeats it for the flows it restores (ADR-0028).
+
+The Secrets dialog says where each secret is used: every flow node setting
+(and whether that flow is deployed or that node disabled) and every broker
+connection credential that references it. Deleting a used secret asks first
+and says how many places use it. Names referenced somewhere that no secret
+has are listed under **Referenced but not defined**, each with a button that
+prefills the name for you to define it.
 
 Two places have further rules:
 
@@ -1255,9 +1265,9 @@ accounts.
 | GET | `/api/flows/{id}` | Get a flow by ID |
 | PUT | `/api/flows/{id}` | Update a flow; with the loaded `version`, `409` (`currentVersion`) when another was saved since |
 | DELETE | `/api/flows/{id}` | Delete a flow |
-| POST | `/api/flows/{id}/deploy` | Deploy (start) a flow; optional `{"version": N}`, checked like a save |
+| POST | `/api/flows/{id}/deploy` | Deploy (start) a flow; optional `{"version": N}`, checked like a save. Answers `{"flow", "running", "warnings"}`: `warnings` lists what it deployed with but you should know, such as `unresolved_secret` (Lint's warning issues; empty when none) |
 | POST | `/api/flows/{id}/stop` | Stop a running flow |
-| PATCH | `/api/flows/{id}/toggle` | Turn a flow on or off: `{"enabled": bool, "version": N}`; turning it on with a stale `version` is `409` (`currentVersion`) and deploys nothing |
+| PATCH | `/api/flows/{id}/toggle` | Turn a flow on or off: `{"enabled": bool, "version": N}`; turning it on with a stale `version` is `409` (`currentVersion`) and deploys nothing; turning it on answers `warnings` as deploy does |
 | GET | `/api/flows/{id}/versions` | Version history (`limit`), newest first |
 | POST | `/api/flows/{id}/rollback` | Restore the version last approved as a new version (`409` when there is none to restore) |
 | POST | `/api/flows/{id}/duplicate` | Create a stopped copy of a flow |
@@ -1281,7 +1291,7 @@ accounts.
 | PUT, DELETE | `/api/variables/{name}` | Set (`{"value": …}`) or delete a global variable |
 | GET | `/api/flows/{id}/variables` | List the variables of one flow |
 | PUT, DELETE | `/api/flows/{id}/variables/{name}` | Set or delete a flow variable |
-| GET | `/api/secrets` | `{"secrets": [{"name", "short"}], "shortBelow": 16}`: names only, never values or lengths; `short` marks a value under `shortBelow` characters, which an agent could confirm a guess of |
+| GET | `/api/secrets` | `{"secrets": [{"name", "short", "uses"}], "undefined": [{"name", "uses"}], "shortBelow": 16}`: names only, never values or lengths; `short` marks a value under `shortBelow` characters, which an agent could confirm a guess of. `uses` lists where each secret is referenced (`flowId`, `flowName`, `flowRunning`, `nodeId`, `nodeType`, `nodeDisabled`, `setting`, or `connection` and `setting`); `undefined` lists the referenced names no secret has |
 | PUT, DELETE | `/api/secrets/{name}` | Set (`{"value": "…"}`) or delete a secret |
 
 ### Node Types

@@ -486,7 +486,7 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 	eventsHandler.RegisterRoutes(router)
 
 	// Secrets management (names listable, values write-only).
-	secretsHandler := api.NewSecretsHandler(secrets.DefaultStore, log.Logger)
+	secretsHandler := api.NewSecretsHandler(secrets.DefaultStore, log.Logger).WithUsage(store, brokers.DefaultStore)
 	secretsHandler.RegisterRoutes(router)
 	api.NewVariablesHandler(vars.DefaultStore).RegisterRoutes(router)
 	// Broker connections (passwords write-only).
@@ -734,6 +734,13 @@ func restoreRunningFlows(store *storage.SQLiteStore, manager *flow.RuntimeManage
 				Str("flowName", f.Name).
 				Msg("Flow restored successfully")
 			restored++
+			// What an editor deploy would answer as warnings (an undefined
+			// secret an optional credential references, ...): logged, as
+			// nobody sees a response at startup.
+			for _, is := range flow.DeployWarnings(ctx, f, node.DefaultRegistry) {
+				log.Warn().Str("flowID", f.ID).Str("flowName", f.Name).Str("code", is.Code).Str("path", is.Path).
+					Str("problem", is.Message).Msg("Restored flow has a warning")
+			}
 			if err := markRestored(store, f); err != nil {
 				log.Error().Err(err).Str("flowID", f.ID).Msg("Failed to record who deployed the restored version")
 			}

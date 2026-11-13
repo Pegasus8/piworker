@@ -2,6 +2,8 @@ import { expect, test } from 'bun:test'
 import { AlertTriangle } from 'lucide-vue-next'
 import {
   DEFAULT_SHORT_BELOW,
+  secretUseText,
+  secretUsesSummary,
   isShortValue,
   secretList,
   shortSecretNotice,
@@ -22,21 +24,22 @@ test('the listing keeps names and short marks only', () => {
   })
   expect(list).toEqual({
     secrets: [
-      { name: 'pin', short: true },
-      { name: 'api_key', short: false },
-      { name: 'token', short: false }
+      { name: 'pin', short: true, uses: [] },
+      { name: 'api_key', short: false, uses: [] },
+      { name: 'token', short: false, uses: [] }
     ],
+    undefined: [],
     shortBelow: 16
   })
 })
 
 test('a listing without secrets or threshold reads as empty, with the default threshold', () => {
   expect(DEFAULT_SHORT_BELOW).toBe(16)
-  expect(secretList(null)).toEqual({ secrets: [], shortBelow: 16 })
-  expect(secretList({ secrets: null, shortBelow: 'x' })).toEqual({ secrets: [], shortBelow: 16 })
+  expect(secretList(null)).toEqual({ secrets: [], undefined: [], shortBelow: 16 })
+  expect(secretList({ secrets: null, shortBelow: 'x' })).toEqual({ secrets: [], undefined: [], shortBelow: 16 })
   expect(secretList({ secrets: [], shortBelow: 20 }).shortBelow).toBe(20)
   // Only a strict true marks a value short.
-  expect(secretList({ secrets: [{ name: 'a', short: 'yes' }] }).secrets).toEqual([{ name: 'a', short: false }])
+  expect(secretList({ secrets: [{ name: 'a', short: 'yes' }] }).secrets).toEqual([{ name: 'a', short: false, uses: [] }])
 })
 
 test('a typed value is short below the threshold, counting characters, not bytes', () => {
@@ -78,4 +81,30 @@ test('the Agents page summary counts the short secrets', () => {
   expect(shortSecretsSummary({ secrets: [item('a', true), item('b', true), item('c', false)], shortBelow: 16 })).toEqual({
     short: 2, text: '2 of 3 secrets are short (fewer than 16 characters): an agent could confirm a guess of them.'
   })
+})
+
+test('the listing keeps where each secret is used and the undefined references', () => {
+  const list = secretList({
+    secrets: [{ name: 'smtp', short: false, uses: [
+      { connection: 'home', setting: 'password', extra: 'dropped' },
+      { flowId: 'f1', flowName: 'Mailer', flowRunning: true, nodeId: 'mail', nodeType: 'action-email', setting: 'password' },
+      { flowId: 'f2', nodeId: 'n', setting: 42 }
+    ] }],
+    undefined: [{ name: 'ghost', uses: [{ flowId: 'f1', flowName: 'Mailer', nodeId: 'mail', nodeDisabled: true, setting: 'username' }] }, { name: 7 }],
+    shortBelow: 16
+  })
+  expect(list.secrets[0].uses).toEqual([
+    { connection: 'home', setting: 'password' },
+    { flowId: 'f1', flowName: 'Mailer', flowRunning: true, nodeId: 'mail', nodeType: 'action-email', setting: 'password' }
+  ])
+  expect(list.undefined).toEqual([{ name: 'ghost', uses: [{ flowId: 'f1', flowName: 'Mailer', nodeId: 'mail', nodeDisabled: true, setting: 'username' }] }])
+})
+
+test('uses read as lines and a summary', () => {
+  const running = { flowId: 'f1', flowName: 'Mailer', flowRunning: true, nodeId: 'mail', nodeType: 'action-email', setting: 'password' }
+  expect(secretUseText(running)).toBe('Flow “Mailer” · node mail (action-email) · password · deployed')
+  expect(secretUseText({ ...running, nodeDisabled: true })).toBe('Flow “Mailer” · node mail (action-email) · password · node disabled')
+  expect(secretUseText({ connection: 'home', setting: 'username' })).toBe('Broker connection “home” · username')
+  expect(secretUsesSummary([])).toBe('Not used by any flow or connection.')
+  expect(secretUsesSummary([running, { flowId: 'f2', nodeId: 'x', setting: 'url' }])).toBe('Used in 2 places, 1 in use now.')
 })

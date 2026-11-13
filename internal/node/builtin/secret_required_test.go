@@ -34,3 +34,37 @@ func TestStrictSecretFieldsAreRequired(t *testing.T) {
 		assert.Equal(t, c.want, req.RequiredSecrets(), c.typ)
 	}
 }
+
+// TestOptionalSecretFieldsAreReferenced: the settings that resolve their
+// secrets when the node runs but do not refuse a deploy without them (an
+// MQTT or SMTP username and password, an HTTP request's URL and headers)
+// report the names they reference, so Lint and deploy can warn
+// (unresolved_secret) instead of letting an undefined one become an empty
+// value or a failed run unnoticed. Nothing is resolved here.
+func TestOptionalSecretFieldsAreReferenced(t *testing.T) {
+	cases := []struct {
+		typ  string
+		cfg  map[string]any
+		want map[string][]string
+	}{
+		{"action-email", map[string]any{"host": "smtp.example.com", "from": "a@example.com", "to": "b@example.com",
+			"username": "{{secret.smtp_user}}", "password": "{{secret.smtp_pass}}"},
+			map[string][]string{"username": {"smtp_user"}, "password": {"smtp_pass"}}},
+		{"action-mqtt", map[string]any{"broker": "tcp://localhost:1883", "topic": "t", "password": "{{ secret.mq }}"},
+			map[string][]string{"password": {"mq"}}},
+		{"trigger-mqtt", map[string]any{"broker": "tcp://localhost:1883", "topic": "t", "username": "{{secret.mq_user}}"},
+			map[string][]string{"username": {"mq_user"}}},
+		{"action-http", map[string]any{"url": "https://api.example.com/?key={{secret.api_key}}",
+			"headers": map[string]any{"Authorization": "Bearer {{secret.api_token}}", "X-Plain": "x"}},
+			map[string][]string{"url": {"api_key"}, "headers": {"api_token"}}},
+		{"action-email", map[string]any{"host": "smtp.example.com", "from": "a@example.com", "to": "b@example.com",
+			"password": "literal"}, map[string][]string{}},
+	}
+	for _, c := range cases {
+		n, err := node.DefaultRegistry.Create(c.typ, c.cfg)
+		require.NoError(t, err, c.typ)
+		ref, ok := n.(node.SecretReferencer)
+		require.True(t, ok, "%s declares the secrets it resolves", c.typ)
+		assert.Equal(t, c.want, ref.SecretReferences(), c.typ)
+	}
+}

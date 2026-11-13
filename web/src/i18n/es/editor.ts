@@ -20,6 +20,8 @@ const es: typeof en = {
   saved: 'Flujo guardado.',
   saveFailed: 'No se pudo guardar el flujo. Tus cambios siguen aquí. Inténtalo de nuevo.',
   deployed: 'Flujo desplegado.',
+  deployedWithWarnings: (n: number) => `Flujo desplegado con ${plural(n, 'aviso', 'avisos')}:`,
+  unresolvedSecret: (node: string, setting: string, secret: string) => `${node}: «${setting}» usa el secreto «${secret}», que no está definido, así que el nodo recibe ahí un valor vacío (una petición HTTP falla). Defínelo en Secretos.`,
   deployFailed: 'No se pudo desplegar el flujo. Revisa su configuración e inténtalo de nuevo.',
   stopped: 'Flujo detenido.',
   stopFailed: 'No se pudo detener el flujo. Inténtalo de nuevo.',

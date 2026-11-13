@@ -8,6 +8,8 @@ import { visibleText } from '@/lib/agentAccess'
 import { summarizeRuns, type RunSummary } from '@/lib/flowActivity'
 import { Button, Card, Input, Switch, Badge, Dialog, Menu } from '@/components/ui'
 import type { MenuAction } from '@/components/ui/Menu.vue'
+import { deployWarningsSummary } from '@/lib/deployWarnings'
+import type { FlowIssue } from '@/lib/drafts'
 import ExamplesDialog from '@/components/ExamplesDialog.vue'
 import FlowMarks from '@/components/agent/FlowMarks.vue'
 import AgentText from '@/components/agent/AgentText.vue'
@@ -101,14 +103,17 @@ const failingCount = computed(() => flowsStore.flows.filter(f => f.state === 'fa
 
 async function toggleFlow(id: string, enabled: boolean) {
   let conflict: FlowVersionConflictError | null = null
-  await run(async () => {
+  let warnings: FlowIssue[] = []
+  const done = await run(async () => {
     try {
-      await flowsStore.toggleFlow(id, enabled)
+      warnings = await flowsStore.toggleFlow(id, enabled)
     } catch (e) {
       if (e instanceof FlowVersionConflictError) conflict = e
       throw e
     }
   }, enabled ? m.value.editor.deployed : m.value.editor.stopped, m.value.flows.toggleFailed)
+  // The list has no node names: the warnings name the nodes by ID.
+  if (done && warnings.length) feedback.value = { kind: 'warning', text: deployWarningsSummary(warnings, nodeId => nodeId) }
   flowsStore.error = null
   if (conflict) await offerReview(id, conflict)
 }

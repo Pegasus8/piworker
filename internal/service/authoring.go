@@ -237,7 +237,9 @@ func (a *Authoring) Validate(ctx context.Context, actor Actor, req ValidateReque
 // proposalIssues are Lint's issues of a proposal (with the service's secret
 // store) and its authoring issues, in Lint's order. An unknown_secret
 // warning where Lint reports the same setting's undefined_secret is left
-// out.
+// out (the error is enough); where Lint warns about the same setting's
+// unresolved_secret, Lint's warning is left out instead: unknown_secret
+// names what the agent wrote, which a setting it cannot read would hide.
 func (a *Authoring) proposalIssues(ctx context.Context, p *proposal) []flow.Issue {
 	lint := a.lint(ctx, p.next)
 	undefined := map[string]bool{}
@@ -246,14 +248,25 @@ func (a *Authoring) proposalIssues(ctx context.Context, p *proposal) []flow.Issu
 			undefined[is.Path] = true
 		}
 	}
+	unknown := map[string]bool{}
 	extra := make([]flow.Issue, 0, len(p.issues))
 	for _, is := range p.issues {
-		if is.Code == IssueUnknownSecret && undefined[is.Path] {
-			continue
+		if is.Code == IssueUnknownSecret {
+			if undefined[is.Path] {
+				continue
+			}
+			unknown[is.Path] = true
 		}
 		extra = append(extra, is)
 	}
-	return mergeIssues(p.next, lint, extra)
+	kept := make([]flow.Issue, 0, len(lint))
+	for _, is := range lint {
+		if is.Code == flow.IssueUnresolvedSecret && unknown[is.Path] {
+			continue
+		}
+		kept = append(kept, is)
+	}
+	return mergeIssues(p.next, kept, extra)
 }
 
 // redactedRefusal bounds the flow issues of a refusal for agents: an ops

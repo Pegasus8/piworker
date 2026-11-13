@@ -1,7 +1,10 @@
 import axios from 'axios'
 import type { CallResult, Flow, FlowListItem, FlowEvent, FlowRun, NodeEventRecord, NodeTestResult, TLSInfo, VersionList } from '@/types'
-import type { ApplyResult } from '@/lib/drafts'
+import type { ApplyResult, FlowIssue } from '@/lib/drafts'
 import { secretList, type SecretList } from '@/lib/secrets'
+
+/** A deploy's result: whether the flow runs and the warnings it deployed with. */
+export interface DeployOutcome { running: boolean; warnings: FlowIssue[] }
 
 const api = axios.create({
   baseURL: '/api',
@@ -80,9 +83,11 @@ export function useApi() {
   // version: when turning the flow on, the version the caller shows; the
   // server answers 409 with data.currentVersion when another one was saved
   // since (an approved draft, an agent's version, a rollback).
-  async function toggleFlow(id: string, enabled: boolean, version?: number): Promise<boolean> {
+  // Deploying (and toggling on) answers the warnings the flow deployed with
+  // (lib/deployWarnings.ts); stopping answers none.
+  async function toggleFlow(id: string, enabled: boolean, version?: number): Promise<DeployOutcome> {
     const { data } = await api.patch(`/flows/${id}/toggle`, enabled && version ? { enabled, version } : { enabled })
-    return data.data.running
+    return { running: data.data.running, warnings: data.data.warnings ?? [] }
   }
 
   // Version history and rollback to the version the admin last approved.
@@ -149,9 +154,9 @@ export function useApi() {
   // full getFlow round-trip just to read one boolean.
   // version: the definition version the caller shows; the server answers
   // 409 with data.currentVersion when another one was saved since.
-  async function deployFlow(id: string, version?: number): Promise<boolean> {
+  async function deployFlow(id: string, version?: number): Promise<DeployOutcome> {
     const { data } = await api.post(`/flows/${id}/deploy`, version ? { version } : undefined)
-    return data.data.running
+    return { running: data.data.running, warnings: data.data.warnings ?? [] }
   }
 
   async function stopFlow(id: string): Promise<boolean> {

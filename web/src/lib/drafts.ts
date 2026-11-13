@@ -491,10 +491,11 @@ export function severityInfo(severity: string): { icon: string; label: string } 
 }
 
 /**
- * Lint's code that depends on the secret store rather than the definition
- * (flow.EnvironmentIssue): it blocks a deploy, not saving a draft.
+ * Lint's codes that depend on the secrets and broker connections defined
+ * rather than on the definition (flow.EnvironmentIssue): the errors block a
+ * deploy, not saving a draft; unresolved_secret is only a warning.
  */
-export const ENVIRONMENT_ISSUE_CODES: readonly string[] = ['undefined_secret']
+export const ENVIRONMENT_ISSUE_CODES: readonly string[] = ['undefined_secret', 'unresolved_secret', 'undefined_connection']
 
 // --- Drafts ----------------------------------------------------------------
 

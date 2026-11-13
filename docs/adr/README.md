@@ -69,3 +69,4 @@ node recipe, UI changes and documentation do **not** need an ADR.
 | [0025](0025-shared-mqtt-connections.md) | MQTT nodes share their broker connections | Accepted |
 | [0026](0026-named-broker-connections.md) | Named broker connections for the Zigbee nodes | Accepted |
 | [0027](0027-typed-interface-translations.md) | Typed interface translations without an i18n library | Accepted |
+| [0028](0028-warn-about-undefined-optional-secrets-and-list-secret-uses.md) | Warn about undefined secrets in optional settings and list where secrets are used | Accepted |

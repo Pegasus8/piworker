@@ -231,3 +231,29 @@ func FromContext(ctx context.Context) *Store {
 	}
 	return DefaultStore
 }
+
+// SecretReference is a {{secret.NAME}} reference in a connection's
+// credentials.
+type SecretReference struct {
+	Name    string
+	Setting string // "username" or "password"
+}
+
+// secretRefRe matches a {{secret.NAME}} reference and captures NAME.
+var secretRefRe = regexp.MustCompile(`\{\{\s*secret\.([^}\s]+)\s*\}\}`)
+
+// SecretReferences returns the secrets c's username and password reference,
+// username first, each (setting, name) once in order of appearance.
+func SecretReferences(c Connection) []SecretReference {
+	var out []SecretReference
+	for _, field := range []struct{ setting, value string }{{"username", c.Username}, {"password", c.Password}} {
+		seen := map[string]bool{}
+		for _, m := range secretRefRe.FindAllStringSubmatch(field.value, -1) {
+			if !seen[m[1]] {
+				seen[m[1]] = true
+				out = append(out, SecretReference{Name: m[1], Setting: field.setting})
+			}
+		}
+	}
+	return out
+}

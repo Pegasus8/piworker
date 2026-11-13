@@ -68,6 +68,14 @@ const (
 	// (node.ConnectionRequirer, ADR-0026) the store does not define. Like
 	// IssueUndefinedSecret it depends on the environment.
 	IssueUndefinedConnection = "undefined_connection"
+	// IssueUnresolvedSecret (warning): a setting that resolves secrets but
+	// works without them (node.SecretReferencer: an MQTT or SMTP username
+	// or password, an HTTP request's URL or headers) references a secret
+	// the store does not define. The flow deploys; when the node runs the
+	// reference becomes an empty value (an optional credential) or fails
+	// the request (HTTP). Like IssueUndefinedSecret it depends on the
+	// environment, and the message names the secret, never a value.
+	IssueUnresolvedSecret = "unresolved_secret"
 )
 
 // EnvironmentIssue reports whether an issue depends on the environment the
@@ -76,7 +84,7 @@ const (
 // is empty by design) or the storing of a draft (the admin may define the
 // secret before approving it).
 func EnvironmentIssue(i Issue) bool {
-	return i.Code == IssueUndefinedSecret || i.Code == IssueUndefinedConnection
+	return i.Code == IssueUndefinedSecret || i.Code == IssueUnresolvedSecret || i.Code == IssueUndefinedConnection
 }
 
 // BlockingIssues returns the error issues of issues that are not
@@ -249,6 +257,34 @@ func closeInstances(instances map[int]node.Node) {
 // appearance (deploy's order); the err is the *ValidationError deploy
 // returns. Only names are reported, never values.
 func requiredSecretFindings(f *Flow, instances map[int]node.Node, store *secrets.Store) []finding {
+	return secretFindings(f, instances, store, func(in node.Node) map[string][]string {
+		if req, ok := in.(node.SecretRequirer); ok {
+			return req.RequiredSecrets()
+		}
+		return nil
+	}, IssueUndefinedSecret, IssueError, "")
+}
+
+// unresolvedSecretFindings reports, as warnings, every secret a setting
+// that resolves secrets without requiring them (node.SecretReferencer)
+// references and store does not define, in requiredSecretFindings' order.
+// A deploy goes ahead; the node gets an empty value (an optional
+// credential) or fails when it runs (an HTTP request). Only names are
+// reported, never values.
+func unresolvedSecretFindings(f *Flow, instances map[int]node.Node, store *secrets.Store) []finding {
+	return secretFindings(f, instances, store, func(in node.Node) map[string][]string {
+		if ref, ok := in.(node.SecretReferencer); ok {
+			return ref.SecretReferences()
+		}
+		return nil
+	}, IssueUnresolvedSecret, IssueWarning, ": the node gets an empty value, or fails, where it uses it")
+}
+
+// secretFindings reports every secret that refs (by property) of the
+// instances (by node index) reference and store does not define, as code
+// with sev, in node ID order, then property, then order of appearance. The
+// message names the property and the secret and ends with suffix.
+func secretFindings(f *Flow, instances map[int]node.Node, store *secrets.Store, refs func(node.Node) map[string][]string, code string, sev IssueSeverity, suffix string) []finding {
 	idx := make([]int, 0, len(instances))
 	for i := range instances {
 		idx = append(idx, i)
@@ -261,25 +297,27 @@ func requiredSecretFindings(f *Flow, instances map[int]node.Node, store *secrets
 	})
 	var out []finding
 	for _, i := range idx {
-		req, ok := instances[i].(node.SecretRequirer)
-		if !ok {
+		byProp := refs(instances[i])
+		if len(byProp) == 0 {
 			continue
 		}
-		required := req.RequiredSecrets()
-		props := make([]string, 0, len(required))
-		for prop := range required {
+		props := make([]string, 0, len(byProp))
+		for prop := range byProp {
 			props = append(props, prop)
 		}
 		sort.Strings(props)
 		n := &f.Nodes[i]
 		for _, prop := range props {
-			for _, name := range required[prop] {
+			for _, name := range byProp[prop] {
 				if _, defined := store.Get(name); defined {
 					continue
 				}
-				msg := fmt.Sprintf("config.%s references secret %q, which is not defined", prop, name)
-				err := NewValidationError("node %s (%s): %s", n.ID, n.Type, msg)
-				out = append(out, nodeFinding(i, prop, IssueUndefinedSecret, IssueError, msg, err))
+				msg := fmt.Sprintf("config.%s references secret %q, which is not defined%s", prop, name, suffix)
+				var err error
+				if sev == IssueError {
+					err = NewValidationError("node %s (%s): %s", n.ID, n.Type, msg)
+				}
+				out = append(out, nodeFinding(i, prop, code, sev, msg, err))
 			}
 		}
 	}
@@ -727,10 +765,27 @@ func LintContext(ctx context.Context, f *Flow, reg *node.Registry) []Issue {
 	// Secrets the strict settings cannot work without and the broker
 	// connections nodes name (deploy's last checks).
 	all = append(all, requiredSecretFindings(f, instances, secrets.FromContext(ctx))...)
+	all = append(all, unresolvedSecretFindings(f, instances, secrets.FromContext(ctx))...)
 	all = append(all, requiredConnectionFindings(f, instances, brokers.FromContext(ctx))...)
 
 	all = append(all, positionFindings(f)...)
 	return lintIssues(f, reg, all)
+}
+
+// DeployWarnings returns the warning issues of LintContext for f: what a
+// deploy goes ahead with but the admin should know, such as a secret an
+// optional credential references that is not defined
+// (IssueUnresolvedSecret) or a tool risk warning. The editor's deploy
+// response carries them and startup logs them for the flows it restores.
+// Never nil.
+func DeployWarnings(ctx context.Context, f *Flow, reg *node.Registry) []Issue {
+	out := []Issue{}
+	for _, is := range LintContext(ctx, f, reg) {
+		if is.Severity == IssueWarning {
+			out = append(out, is)
+		}
+	}
+	return out
 }
 
 // positionFindings reports the nodes whose position ValidPosition refuses.

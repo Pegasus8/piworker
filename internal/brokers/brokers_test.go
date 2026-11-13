@@ -140,3 +140,11 @@ func TestFromContext(t *testing.T) {
 	_, ok := isolated.Get("home")
 	assert.False(t, ok, "a nil store is an empty one, never the real one")
 }
+
+// A connection's credentials report the secrets they reference, so the
+// Secrets dialog can say a secret is used by a connection.
+func TestConnectionSecretReferences(t *testing.T) {
+	c := Connection{Username: "{{secret.u}}", Password: "{{ secret.p }}-{{secret.p}}"}
+	assert.Equal(t, []SecretReference{{Name: "u", Setting: "username"}, {Name: "p", Setting: "password"}}, SecretReferences(c))
+	assert.Empty(t, SecretReferences(Connection{Username: "plain"}))
+}

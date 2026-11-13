@@ -1,6 +1,8 @@
 import { ref } from 'vue'
 import { msg } from '@/i18n'
-export type Feedback = { kind: 'success' | 'error' | 'pending'; text: string }
+// warning: the action succeeded, with something the user should know (it
+// stays until dismissed, like an error).
+export type Feedback = { kind: 'success' | 'warning' | 'error' | 'pending'; text: string }
 
 // failure: the error text, or a function of the error (for example the
 // server's message with a fallback).

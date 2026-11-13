@@ -184,6 +184,18 @@ headers (`Authorization: Bearer {{secret.api_token}}`) or URL query
 
 - Rotating a secret needs no redeploy; the new value is used the next time
   the node runs.
+- If a setting names a secret that does not exist, a required credential
+  (Telegram bot token, Notify URL, Database connection string, Webhook token)
+  stops the deploy. An optional one (Email and MQTT username or password) and
+  an HTTP Request URL or header still deploy, but the editor shows a
+  **warning** after deploying: the node would get an empty value there, or
+  the request would fail. Define the secret and the warning goes away on the
+  next deploy.
+- The **Secrets** dialog shows where each secret is used (flow, node,
+  setting, or broker connection, and whether it is deployed). Check it before
+  deleting or renaming a secret; deleting one that is used asks first. Names
+  that are used but not defined appear under **Referenced but not defined**,
+  with a button to define each one.
 - Exporting a flow exports the name, never the value.
 - Message data cannot read secrets: they are only resolved where you wrote
   them in the settings.

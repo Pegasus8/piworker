@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Flow, FlowNode, FlowEdge, FlowListItem, NodeCategory, VersionList } from '@/types'
-import type { ApplyResult } from '@/lib/drafts'
-import { useApi } from '@/composables/useApi'
+import type { ApplyResult, FlowIssue } from '@/lib/drafts'
+import { useApi, type DeployOutcome } from '@/composables/useApi'
 import { ports, validConnection } from '@/lib/ports'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
 import { autoEdge, nextPosition } from '@/lib/autoConnect'
@@ -318,7 +318,8 @@ export const useFlowsStore = defineStore('flows', () => {
     }
   }
 
-  async function toggleFlow(id: string, enabled: boolean) {
+  // Returns the warnings the flow deployed with (none when it was stopped).
+  async function toggleFlow(id: string, enabled: boolean): Promise<FlowIssue[]> {
     loading.value = true
     error.value = null
     try {
@@ -326,17 +327,18 @@ export const useFlowsStore = defineStore('flows', () => {
       // refuses (409) to deploy another one saved since (an approved draft,
       // an agent's version) instead of running what nobody saw.
       const item = flows.value.find(f => f.id === id)
-      let running: boolean
+      let outcome: DeployOutcome
       try {
-        running = await api.toggleFlow(id, enabled, enabled ? item?.version : undefined)
+        outcome = await api.toggleFlow(id, enabled, enabled ? item?.version : undefined)
       } catch (e) {
         throw versionConflict(e) ?? e
       }
-      applyRunningState(id, running)
+      applyRunningState(id, outcome.running)
       // Turning on deploys only a flow that was not running, and the list
       // may be older than an agent's deploy: read who deployed it instead
       // of guessing from the list.
       if (enabled) await refreshFlowState(id)
+      return outcome.warnings
     } catch (e) {
       error.value = e instanceof Error ? e.message : msg().flowTools.errors.toggleFlow
       throw e
@@ -345,9 +347,10 @@ export const useFlowsStore = defineStore('flows', () => {
     }
   }
 
-  async function deployFlow(id?: string) {
+  // Returns the warnings the flow deployed with (lib/deployWarnings.ts).
+  async function deployFlow(id?: string): Promise<FlowIssue[]> {
     const flowId = id || currentFlow.value?.id
-    if (!flowId) return
+    if (!flowId) return []
 
     isDeploying.value = true
     error.value = null
@@ -356,14 +359,15 @@ export const useFlowsStore = defineStore('flows', () => {
       // refuses (409) to deploy another one saved since (an approved agent
       // draft, another tab) instead of running what nobody saw here.
       const version = currentFlow.value?.id === flowId ? currentFlow.value.version : undefined
-      let running: boolean
+      let outcome: DeployOutcome
       try {
-        running = await api.deployFlow(flowId, version)
+        outcome = await api.deployFlow(flowId, version)
       } catch (e) {
         throw versionConflict(e) ?? e
       }
-      if (running) markEditorDeployment(flowId, version ?? flows.value.find(f => f.id === flowId)?.version)
-      applyRunningState(flowId, running)
+      if (outcome.running) markEditorDeployment(flowId, version ?? flows.value.find(f => f.id === flowId)?.version)
+      applyRunningState(flowId, outcome.running)
+      return outcome.warnings
     } catch (e) {
       error.value = e instanceof Error ? e.message : msg().flowTools.errors.deployFlow
       throw e

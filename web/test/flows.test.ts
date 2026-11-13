@@ -8,13 +8,13 @@ const apiMock: {
   getFlow: (id: string) => Promise<unknown>
   getFlows: () => Promise<any[]>
   updateFlow: (id: string, flow: any) => Promise<any>
-  deployFlow: (id: string, version?: number) => Promise<boolean>
-  toggleFlow: (id: string, enabled: boolean, version?: number) => Promise<boolean>
+  deployFlow: (id: string, version?: number) => Promise<{ running: boolean; warnings: any[] }>
+  toggleFlow: (id: string, enabled: boolean, version?: number) => Promise<{ running: boolean; warnings: any[] }>
   getFlowVersions: (id: string, limit?: number) => Promise<any>
   rollbackFlow: (id: string) => Promise<any>
 } = {
-  getFlow: async () => ({}), getFlows: async () => [], updateFlow: async (_id, flow) => flow, deployFlow: async () => true,
-  toggleFlow: async (_id, enabled) => enabled, getFlowVersions: async () => ({ current: 1, lastAdminApproved: 1, versions: [] }),
+  getFlow: async () => ({}), getFlows: async () => [], updateFlow: async (_id, flow) => flow, deployFlow: async () => ({ running: true, warnings: [] }),
+  toggleFlow: async (_id, enabled) => ({ running: enabled, warnings: [] }), getFlowVersions: async () => ({ current: 1, lastAdminApproved: 1, versions: [] }),
   rollbackFlow: async () => ({ flowId: 'a', version: 2, deployed: false })
 }
 // bun keeps a mocked module's export names for the whole run, so every
@@ -171,7 +171,7 @@ test('deploying the open flow sends the version the editor shows', async () => {
   const store = useFlowsStore()
   apiMock.getFlow = async () => ({ ...backendFlow('a'), version: 3 })
   const calls: Array<[string, number | undefined]> = []
-  apiMock.deployFlow = async (id, version) => { calls.push([id, version]); return true }
+  apiMock.deployFlow = async (id, version) => { calls.push([id, version]); return { running: true, warnings: [] } }
   await store.fetchFlow('a')
 
   await store.deployFlow()
@@ -212,7 +212,7 @@ test('turning a flow on from the list sends the version the list shows, then rea
   const store = useFlowsStore()
   apiMock.getFlows = async () => [listItem('a')]
   const calls: Array<[string, boolean, number | undefined]> = []
-  apiMock.toggleFlow = async (id, enabled, version) => { calls.push([id, enabled, version]); return enabled }
+  apiMock.toggleFlow = async (id, enabled, version) => { calls.push([id, enabled, version]); return { running: enabled, warnings: [] } }
   const reads: string[] = []
   apiMock.getFlow = async (id) => { reads.push(id); return { ...backendFlow(id), state: 'running', running: true, version: 3, deployment: editorMark, agentChanged: true } }
   await store.fetchFlows()
@@ -237,7 +237,7 @@ test('turning on a flow an agent deployed since the list loaded keeps the agent 
   // The list loaded before the agent deployed: it shows the flow stopped.
   apiMock.getFlows = async () => [listItem('a', { deployment: null })]
   // The server's non-strict toggle only keeps the running intent: no new deployment.
-  apiMock.toggleFlow = async () => true
+  apiMock.toggleFlow = async () => ({ running: true, warnings: [] })
   apiMock.getFlow = async (id) => ({ ...backendFlow(id), state: 'running', running: true, version: 3, deployment: agentMark })
   await store.fetchFlows()
 
@@ -425,4 +425,16 @@ test('undo deselects a node it removes, and loading a flow forgets the history',
   apiMock.getFlow = async () => backendFlow('f')
   await store.fetchFlow('f')
   expect(store.canUndo).toBe(false)
+})
+
+// A deploy answers the warnings the flow deployed with, for the editor to
+// show (an undefined secret an optional credential uses).
+test('deploying returns the warnings the server answered', async () => {
+  setActivePinia(createPinia())
+  const store = useFlowsStore()
+  const warning = { path: '/nodes/n/config/password', code: 'unresolved_secret', severity: 'warning', message: 'm' }
+  apiMock.deployFlow = async () => ({ running: true, warnings: [warning] })
+  apiMock.toggleFlow = async () => ({ running: true, warnings: [warning] })
+  expect(await store.deployFlow('x')).toEqual([warning])
+  expect(await store.toggleFlow('x', true)).toEqual([warning])
 })

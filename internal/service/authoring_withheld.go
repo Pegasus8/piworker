@@ -211,7 +211,7 @@ func (a *Authoring) withheldIssueMessage(f *flow.Flow, id, prop string, withheld
 					}
 				}
 			}
-		case flow.IssueUndefinedSecret:
+		case flow.IssueUndefinedSecret, flow.IssueUnresolvedSecret:
 			var names []string
 			for _, name := range referencedSecrets(n.Config[prop]) {
 				if _, ok := a.secrets.Get(name); !ok {
@@ -225,6 +225,9 @@ func (a *Authoring) withheldIssueMessage(f *flow.Flow, id, prop string, withheld
 	}
 	if code == flow.IssueUndefinedSecret {
 		return "a setting of this node you cannot read references a secret that is not defined: the admin must define it"
+	}
+	if code == flow.IssueUnresolvedSecret {
+		return "a setting of this node you cannot read references a secret that is not defined: the node gets an empty value, or fails, where it uses it"
 	}
 	return fmt.Sprintf("this node's settings are not valid (%s); the details are not shown: they may quote settings of the node you cannot read", code)
 }

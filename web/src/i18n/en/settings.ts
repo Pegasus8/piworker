@@ -32,6 +32,19 @@ export default {
     valueLabel: 'Secret value',
     valuePlaceholder: 'secret value',
     add: 'Add secret',
+    // Where each secret is used (GET /api/secrets uses/undefined).
+    unused: 'Not used by any flow or connection.',
+    usedIn: (n: number, running: number) => `Used in ${n} ${n === 1 ? 'place' : 'places'}` + (running ? `, ${running} in use now` : '') + '.',
+    showUses: (name: string) => `Show where ${name} is used`,
+    useFlow: (flow: string) => `Flow “${flow}”`,
+    useNode: (id: string, type: string) => type ? `node ${id} (${type})` : `node ${id}`,
+    useConnection: (name: string, setting: string) => `Broker connection “${name}” · ${setting}`,
+    useRunning: 'deployed',
+    useDisabled: 'node disabled',
+    deleteUsedText: (name: string, n: number) => `“${name}” is used in ${n} ${n === 1 ? 'place' : 'places'} (listed under it). There, a required credential stops the flow from deploying and fails the node if it runs; an optional one becomes empty. This cannot be undone.`,
+    undefinedTitle: 'Referenced but not defined',
+    undefinedHint: 'These names are used in settings but no secret has them: define each one, or correct the reference.',
+    define: (name: string) => `Define ${name}`,
   },
   // VariablesDialog.vue
   variables: {

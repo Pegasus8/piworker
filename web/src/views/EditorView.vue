@@ -20,6 +20,8 @@ import {
 import { messages as m } from '@/i18n'
 
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import { deployWarningsSummary } from '@/lib/deployWarnings'
+import type { FlowIssue } from '@/lib/drafts'
 import OperationFeedback from '@/components/ui/OperationFeedback.vue'
 import ManualRunDialog from '@/components/flow/ManualRunDialog.vue'
 import ConnectionsDialog from '@/components/flow/ConnectionsDialog.vue'
@@ -129,16 +131,25 @@ async function handleDeploy() {
   } else {
     if ((!flowsStore.currentFlow?.id || flowsStore.isDirty) && !await handleSave()) return
     let conflict: FlowVersionConflictError | null = null
-    await run(async () => {
+    let warnings: FlowIssue[] = []
+    const deployed = await run(async () => {
       try {
-        await flowsStore.deployFlow()
+        warnings = await flowsStore.deployFlow()
       } catch (e) {
         if (e instanceof FlowVersionConflictError) conflict = e
         throw e
       }
     }, m.value.editor.deployed, m.value.editor.deployFailed)
+    // Deployed, with something to know (an undefined secret an optional
+    // credential uses): the warning stays until dismissed.
+    if (deployed && warnings.length) feedback.value = { kind: 'warning', text: deployWarningsSummary(warnings, nodeName) }
     if (conflict) await offerReload(conflict, 'deployed')
   }
+}
+// A node's name in messages: its type's name and its ID.
+function nodeName(id: string) {
+  const n = flowsStore.nodes.find(node => node.id === id)
+  return n ? `${n.data.label} (${id})` : id
 }
 function handleBack() { router.push('/') }
 onBeforeRouteLeave(async to => {

@@ -1,6 +1,10 @@
 package builtin
 
-import "github.com/Pegasus8/piworker/internal/node"
+import (
+	"sort"
+
+	"github.com/Pegasus8/piworker/internal/node"
+)
 
 // The settings below cannot work without the secrets they reference: deploy
 // refuses a flow while one is not defined (node.SecretRequirer). They are
@@ -48,4 +52,66 @@ func secretNames(s string) []string {
 		}
 	}
 	return names
+}
+
+// The settings below resolve the secrets they reference when the node runs
+// but work, or fail only when they run, without them: Lint and deploy warn
+// about an undefined one (node.SecretReferencer) instead of refusing.
+var (
+	_ node.SecretReferencer = (*EmailAction)(nil)
+	_ node.SecretReferencer = (*MqttAction)(nil)
+	_ node.SecretReferencer = (*MqttTrigger)(nil)
+	_ node.SecretReferencer = (*HTTPAction)(nil)
+)
+
+// SecretReferences: the SMTP username's and password's secrets.
+func (a *EmailAction) SecretReferences() map[string][]string {
+	return referencedSecrets(map[string]string{"username": a.username, "password": a.password})
+}
+
+// SecretReferences: the broker username's and password's secrets.
+func (a *MqttAction) SecretReferences() map[string][]string {
+	return referencedSecrets(map[string]string{"username": a.username, "password": a.password})
+}
+
+// SecretReferences: the broker username's and password's secrets.
+func (t *MqttTrigger) SecretReferences() map[string][]string {
+	return referencedSecrets(map[string]string{"username": t.username, "password": t.password})
+}
+
+// SecretReferences: the secrets of the URL and of the header values (in
+// header name order), which fail the request when undefined.
+func (a *HTTPAction) SecretReferences() map[string][]string {
+	out := referencedSecrets(map[string]string{"url": a.url})
+	keys := make([]string, 0, len(a.headers))
+	for k := range a.headers {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var names []string
+	seen := map[string]bool{}
+	for _, k := range keys {
+		for _, name := range secretNames(a.headers[k]) {
+			if !seen[name] {
+				seen[name] = true
+				names = append(names, name)
+			}
+		}
+	}
+	if len(names) > 0 {
+		out["headers"] = names
+	}
+	return out
+}
+
+// referencedSecrets maps each property of values to the secret names its
+// value references, leaving out the properties that reference none.
+func referencedSecrets(values map[string]string) map[string][]string {
+	out := map[string][]string{}
+	for prop, v := range values {
+		if names := secretNames(v); len(names) > 0 {
+			out[prop] = names
+		}
+	}
+	return out
 }
