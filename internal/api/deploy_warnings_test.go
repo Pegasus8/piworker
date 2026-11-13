@@ -57,7 +57,7 @@ func TestDeployAnswersItsWarnings(t *testing.T) {
 
 	type deployed struct {
 		Data struct {
-			Running  bool         `json:"running"`
+			Running  bool                 `json:"running"`
 			Warnings []flow.DeployWarning `json:"warnings"`
 		} `json:"data"`
 	}
