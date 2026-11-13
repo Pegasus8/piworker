@@ -998,7 +998,17 @@ Secrets are only resolved where they are written in a node's configuration,
 never inside message data, so a payload cannot extract them. General templates
 and expressions cannot read the secret store.
 
-Secrets are stored in SQLite without application-level encryption at rest. They
+Secrets are stored in SQLite without application-level encryption at rest
+(a deliberate decision, [ADR-0030](docs/adr/0030-no-application-encryption-of-secrets-at-rest.md);
+the threat review is in [docs/design/secrets-at-rest.md](docs/design/secrets-at-rest.md)).
+On a Raspberry Pi any key would have to sit on the same SD card for
+PiWorker to restart unattended, so it would not stop someone holding the
+card or a copy of the data directory. What protects them instead: PiWorker
+creates its database private (mode 0600) and removes other users' access
+from an existing one at startup, logging it; secrets leave the device in a
+file only through an export you encrypt with a passphrase; and on a device
+that might be stolen, use full-disk encryption and keep backups as you would
+keep passwords. They
 are excluded from flow exports when referenced by name; literal credentials
 entered directly in a node configuration remain part of that configuration.
 Variables are ordinary data, visible in their manager and usable in payloads and

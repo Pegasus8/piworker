@@ -55,8 +55,13 @@ type SQLiteStore struct {
 }
 
 // NewSQLiteStore creates a new SQLite store with the given database path.
-// Use ":memory:" for an in-memory database.
+// Use ":memory:" for an in-memory database. A new database file is created
+// with mode 0600 and an existing one loses other users' access
+// (protectDBFiles).
 func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
+	// Accounts and secrets are stored in plaintext: keep the file private
+	// whatever the umask (ADR-0030).
+	protectDBFiles(dbPath)
 	db, err := openDB(dbPath)
 	if err != nil {
 		return nil, err

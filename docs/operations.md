@@ -99,6 +99,16 @@ Keep an off-device copy for disk failure recovery, stored as securely; if a copy
 may have been exposed, regenerate the CA (see HTTPS in the README) and trust the
 new one on each device.
 
+PiWorker does not encrypt secrets inside its database
+([ADR-0030](adr/0030-no-application-encryption-of-secrets-at-rest.md)): it
+keeps the file private instead. A new database is created with mode 0600,
+and at startup an existing database (and its `-wal`, `-shm` and `-journal`
+files) loses any access for other users; the log says
+`Database file was readable by other users; removed their access` when that
+happens. Group access is left as the installation set it. If the device
+could be stolen, encrypt its disk (LUKS on Raspberry Pi OS or a PC): that is
+the layer that protects the database, `tls/ca.key` and the backups together.
+
 For a manual backup, stop the service first, copy the whole data directory and
 configuration while preserving ownership/permissions, then start it again.
 Do not copy only `piworker.db` while the service writes to it: SQLite may also

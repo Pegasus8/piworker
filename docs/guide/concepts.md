@@ -215,8 +215,11 @@ headers (`Authorization: Bearer {{secret.api_token}}`) or URL query
 - Exporting a flow exports the name, never the value.
 - Message data cannot read secrets: they are only resolved where you wrote
   them in the settings.
-- Secrets are stored in PiWorker's database without extra encryption, so
-  protect the device and its backups.
+- Secrets are stored in PiWorker's database without extra encryption (on a
+  Pi the key would have to sit on the same card). PiWorker keeps the
+  database file private to its own user; protect the device and its backups
+  (full-disk encryption if it could be stolen). The reasons are in
+  [the review](../design/secrets-at-rest.md).
 
 More detail, including the exact HTTP Request rules, is in the
 [README](../../README.md#user-variables-and-secrets).
