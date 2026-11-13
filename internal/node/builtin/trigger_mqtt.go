@@ -20,10 +20,8 @@ import (
 type MqttTrigger struct {
 	*node.BaseNode
 
-	broker   string
-	clientID string // own client id; "" shares a pooled connection (ADR-0025)
-	username string
-	password string
+	target   mqttTarget // named connection or own broker (ADR-0029)
+	clientID string     // own client id; "" shares a pooled connection (ADR-0025)
 	topic    string
 	qos      byte
 
@@ -39,9 +37,9 @@ type MqttTrigger struct {
 func NewMqttTrigger(config map[string]interface{}) (node.Node, error) {
 	base := node.NewBaseNode(config)
 
-	broker := base.GetConfigString("broker", "")
-	if broker == "" {
-		return nil, fmt.Errorf("broker is required (e.g. tcp://host:1883)")
+	target, err := parseMqttTarget(base)
+	if err != nil {
+		return nil, err
 	}
 	topic := base.GetConfigString("topic", "")
 	if topic == "" {
@@ -54,10 +52,8 @@ func NewMqttTrigger(config map[string]interface{}) (node.Node, error) {
 
 	return &MqttTrigger{
 		BaseNode: base,
-		broker:   broker,
+		target:   target,
 		clientID: ownMqttClientID(base.GetConfigString("clientId", ""), "piworker-sub"),
-		username: base.GetConfigString("username", ""), // {{secret.NAME}} resolved by Start
-		password: base.GetConfigString("password", ""),
 		topic:    topic,
 		qos:      qos,
 
@@ -112,14 +108,20 @@ func (t *MqttTrigger) Start(ctx context.Context, out chan<- *types.Message) erro
 		}
 	}
 
-	ep := mqttEndpointFor(ctx, t.broker, t.username, t.password, t.clientID)
+	// A named connection is resolved now: an undefined one is a
+	// configuration error (deploy refuses it first: undefined_connection).
+	ep, err := t.target.endpoint(ctx, t.clientID)
+	if err != nil {
+		return err
+	}
 	sub, fresh := mqttpool.Subscribe(ep, t.topic, t.qos, handler, t.connectRetryInterval)
 	// Wait only briefly for a new connection: the runtime starts triggers
 	// synchronously, and an unreachable broker is not a configuration error.
-	// Only invalid config (checked in the constructor) makes Start fail.
+	// Only invalid config (checked in the constructor) or an undefined
+	// connection (above) makes Start fail (ADR-0006).
 	if fresh {
 		if err := sub.Conn().WaitUp(ctx, t.initialConnectWait); err != nil {
-			log.Warn().Str("broker", t.broker).Msg("mqtt broker not reachable yet; retrying in background")
+			log.Warn().Str("broker", t.target.String()).Msg("mqtt broker not reachable yet; retrying in background")
 		}
 	}
 
@@ -149,9 +151,6 @@ func (t *MqttTrigger) Ports() (inputs []types.Port, outputs []types.Port) {
 
 // Validate checks the configuration.
 func (t *MqttTrigger) Validate() error {
-	if t.broker == "" {
-		return fmt.Errorf("broker is required")
-	}
 	if t.topic == "" {
 		return fmt.Errorf("topic is required")
 	}
@@ -161,15 +160,12 @@ func (t *MqttTrigger) Validate() error {
 func mqttTriggerConfigSchema() node.ConfigSchema {
 	minQoS, maxQoS := float64(0), float64(2)
 	return node.ConfigSchema{
-		Properties: map[string]node.ConfigProperty{
-			"broker":   {Type: "string", Title: "Broker", Description: "Broker URL, e.g. tcp://host:1883", Destination: true},
+		Properties: mergeProps(mqttTargetSchema(), map[string]node.ConfigProperty{
 			"topic":    {Type: "string", Title: "Topic", Description: "Topic filter to subscribe to (supports +/# wildcards)", Destination: true},
 			"qos":      {Type: "number", Title: "QoS", Description: "0, 1 or 2", Default: 0, Minimum: &minQoS, Maximum: &maxQoS, AgentVisible: true},
 			"clientId": {Type: "string", Title: "Client ID", Description: "Own MQTT client id; leave empty to share a connection with the other MQTT nodes on this broker", Default: ""},
-			"username": {Type: "string", Title: "Username", Description: "Optional ({{secret.NAME}} supported)"},
-			"password": {Type: "string", Title: "Password", Description: "Optional; use {{secret.NAME}}", Sensitive: true},
-		},
-		Required: []string{"broker", "topic"},
+		}),
+		Required: []string{"topic"},
 	}
 }
 
@@ -188,18 +184,23 @@ func MqttTriggerInfo() node.NodeTypeInfo {
 		Documentation: `## MQTT Subscribe
 
 Subscribes to an MQTT topic filter and emits a message per publication. JSON
-payloads are parsed; others pass through as strings. Credentials support
-` + "`{{secret.NAME}}`" + `.
+payloads are parsed; others pass through as strings.
+
+Choose a **connection** defined under Connections (its broker URL and
+credentials are used), or set a **broker** URL with optional credentials of
+the node's own, which support ` + "`{{secret.NAME}}`" + `. When a connection
+changes, the running flows that use it restart with the new settings.
 
 ## Configuration
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| broker | string | - | Broker URL (tcp://host:1883) |
+| connection | string | - | Broker connection (instead of broker) |
+| broker | string | - | Broker URL (tcp://host:1883), when no connection |
 | topic | string | - | Topic filter (+/# wildcards) |
 | qos | number | 0 | 0, 1 or 2 |
 | clientId | string | (shared) | Own client id; empty shares a connection |
-| username/password | string | - | Optional credentials |
+| username/password | string | - | Optional credentials, with broker only |
 
 ## Connection
 

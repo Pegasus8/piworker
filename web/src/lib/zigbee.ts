@@ -274,3 +274,43 @@ export function relativeTime(iso: string | undefined, nowMs: number): string {
   if (s < 86400) return t.hoursAgo(Math.floor(s / 3600))
   return t.daysAgo(Math.floor(s / 86400))
 }
+
+/** A flow a response names. */
+export interface FlowRef { id: string; name: string }
+
+/**
+ * What storing a connection did to the running flows that use it
+ * (PUT /api/connections/{name}, ADR-0029): restarted with the new
+ * settings, or stopped and failed to start again (with the reason).
+ */
+export interface ConnectionRestarts {
+  restarted: FlowRef[]
+  failed: (FlowRef & { error: string })[]
+}
+
+function flowRef(raw: unknown): FlowRef | null {
+  const r = (raw ?? {}) as { id?: unknown; name?: unknown }
+  return typeof r.id === 'string' ? { id: r.id, name: typeof r.name === 'string' ? r.name : r.id } : null
+}
+
+/** Reads PUT's data member; anything missing reads as nothing restarted. */
+export function connectionRestarts(data: unknown): ConnectionRestarts {
+  const d = (data ?? {}) as { restarted?: unknown; failed?: unknown }
+  const restarted = (Array.isArray(d.restarted) ? d.restarted : []).map(flowRef).filter((f): f is FlowRef => f !== null)
+  const failed: ConnectionRestarts['failed'] = []
+  for (const raw of Array.isArray(d.failed) ? d.failed : []) {
+    const ref = flowRef(raw)
+    const error = (raw as { error?: unknown } | null)?.error
+    if (ref) failed.push({ ...ref, error: typeof error === 'string' ? error : '' })
+  }
+  return { restarted, failed }
+}
+
+/** The feedback after saving a connection: what happened to the flows using it. */
+export function connectionSavedText(name: string, r: ConnectionRestarts): { kind: 'success' | 'warning'; text: string } {
+  const t = msg().zigbee.dialog
+  const parts = [t.saved(name)]
+  if (r.restarted.length) parts.push(t.restarted(r.restarted.map(f => f.name)))
+  if (r.failed.length) parts.push(t.restartFailed(r.failed.map(f => `${f.name}: ${f.error}`)))
+  return { kind: r.failed.length ? 'warning' : 'success', text: parts.join(' ') }
+}

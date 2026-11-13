@@ -10,6 +10,7 @@ flow yet, do [Getting started](getting-started.md) first.
 - [Seeing what happened](#seeing-what-happened)
 - [Variables](#variables)
 - [Secrets](#secrets)
+- [Broker connections](#broker-connections)
 - [Versions and history](#versions-and-history)
 
 ## Flows, nodes and connections
@@ -219,6 +220,27 @@ headers (`Authorization: Bearer {{secret.api_token}}`) or URL query
 
 More detail, including the exact HTTP Request rules, is in the
 [README](../../README.md#user-variables-and-secrets).
+
+## Broker connections
+
+MQTT and Zigbee nodes reach an MQTT broker. Instead of typing the broker's
+address and password into every node, define it once under **Broker
+connections** (in the navigation, under Settings) and choose it in the
+node's **Connection** setting:
+
+- **MQTT Subscribe** and **MQTT Publish** take either a **Connection** or a
+  **Broker** address with their own username and password, not both.
+  Zigbee nodes always use a connection.
+- Saving a change to a connection **restarts the running flows that use
+  it**, so the new address or password applies at once. The message after
+  saving lists them, and any that could not start again (they show as
+  failed; open them to see why).
+- A connection that a running flow uses cannot be deleted; stop those flows
+  first. A stopped flow that names a missing connection is refused when you
+  deploy it.
+- A connection's username and password may be `{{secret.NAME}}`
+  references; the [Secrets](#secrets) dialog lists the connections that use
+  each secret.
 
 ## Versions and history
 

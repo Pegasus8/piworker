@@ -45,6 +45,12 @@ In the navigation, under Settings, open **Broker connections** and add one:
 **Test connection** tries it without saving. The password is never shown
 again; leave it empty when editing to keep it.
 
+Saving a change to a connection restarts the running flows that use it, so
+they connect with the new settings at once; the message after saving names
+them. A connection that a running flow uses cannot be deleted: stop those
+flows first. The same connections serve the **MQTT Subscribe** and **MQTT
+Publish** nodes (see [Broker connections](concepts.md#broker-connections)).
+
 ## 3. Pair your devices
 
 Open the **Zigbee devices** page, choose **Allow joining** (four minutes), and put the

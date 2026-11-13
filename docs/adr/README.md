@@ -67,6 +67,7 @@ node recipe, UI changes and documentation do **not** need an ADR.
 | [0023](0023-runs-record-the-version-they-ran.md) | Runs record the version they ran | Accepted |
 | [0024](0024-node-type-list-without-filters-omits-documentation.md) | The node-type list without filters omits documentation | Accepted |
 | [0025](0025-shared-mqtt-connections.md) | MQTT nodes share their broker connections | Accepted |
-| [0026](0026-named-broker-connections.md) | Named broker connections for the Zigbee nodes | Accepted |
+| [0026](0026-named-broker-connections.md) | Named broker connections for the Zigbee nodes | Accepted (change and deletion rules superseded by ADR-0029) |
 | [0027](0027-typed-interface-translations.md) | Typed interface translations without an i18n library | Accepted |
 | [0028](0028-warn-about-undefined-optional-secrets-and-list-secret-uses.md) | Warn about undefined secrets in optional settings and list where secrets are used | Accepted |
+| [0029](0029-mqtt-nodes-take-named-connections-and-changes-restart-flows.md) | MQTT nodes take named connections; a changed connection restarts the flows that use it | Accepted |

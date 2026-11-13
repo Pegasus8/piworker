@@ -69,14 +69,15 @@ func (a *EmailAction) SecretReferences() map[string][]string {
 	return referencedSecrets(map[string]string{"username": a.username, "password": a.password})
 }
 
-// SecretReferences: the broker username's and password's secrets.
+// SecretReferences: the own broker username's and password's secrets (a
+// named connection's credentials are the connection's).
 func (a *MqttAction) SecretReferences() map[string][]string {
-	return referencedSecrets(map[string]string{"username": a.username, "password": a.password})
+	return a.target.secretReferences()
 }
 
-// SecretReferences: the broker username's and password's secrets.
+// SecretReferences: the own broker username's and password's secrets.
 func (t *MqttTrigger) SecretReferences() map[string][]string {
-	return referencedSecrets(map[string]string{"username": t.username, "password": t.password})
+	return t.target.secretReferences()
 }
 
 // SecretReferences: the secrets of the URL and of the header values (in
@@ -115,3 +116,16 @@ func referencedSecrets(values map[string]string) map[string][]string {
 	}
 	return out
 }
+
+// The MQTT nodes may name a broker connection (ADR-0029): deploy refuses an
+// undefined one (node.ConnectionRequirer, Lint's undefined_connection).
+var (
+	_ node.ConnectionRequirer = (*MqttAction)(nil)
+	_ node.ConnectionRequirer = (*MqttTrigger)(nil)
+)
+
+// RequiredConnections: the named connection, if any.
+func (a *MqttAction) RequiredConnections() map[string]string { return a.target.requiredConnections() }
+
+// RequiredConnections: the named connection, if any.
+func (t *MqttTrigger) RequiredConnections() map[string]string { return t.target.requiredConnections() }

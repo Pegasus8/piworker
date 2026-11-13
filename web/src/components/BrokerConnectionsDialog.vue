@@ -8,7 +8,7 @@ import { useFeedback } from '@/composables/useFeedback'
 import { useZigbeeStore, type ConnectionTestResult } from '@/stores/zigbee'
 import { apiErrorMessage } from '@/stores/agent'
 import { messages as m } from '@/i18n'
-import { DEFAULT_BASE_TOPIC, connectionFormError, type BrokerConnection, type ConnectionForm } from '@/lib/zigbee'
+import { DEFAULT_BASE_TOPIC, connectionFormError, connectionSavedText, type BrokerConnection, type ConnectionForm, type ConnectionRestarts } from '@/lib/zigbee'
 
 const props = defineProps<{ open: boolean }>()
 // changed: a connection was saved or deleted.
@@ -76,8 +76,11 @@ async function save() {
   attempted.value = true
   if (formError.value) return
   const name = form.value.name.trim()
-  const ok = await run(() => store.saveConnection(form.value), m.value.zigbee.dialog.saved(name), e => apiErrorMessage(e, m.value.zigbee.dialog.saveFailed))
+  let restarts: ConnectionRestarts = { restarted: [], failed: [] }
+  const ok = await run(async () => { restarts = await store.saveConnection(form.value) }, m.value.zigbee.dialog.saved(name), e => apiErrorMessage(e, m.value.zigbee.dialog.saveFailed))
   if (ok) {
+    // Running flows that use the connection restart with it (ADR-0029).
+    feedback.value = connectionSavedText(name, restarts)
     emit('changed')
     reset()
   }

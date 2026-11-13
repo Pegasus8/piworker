@@ -490,7 +490,7 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 	secretsHandler.RegisterRoutes(router)
 	api.NewVariablesHandler(vars.DefaultStore).RegisterRoutes(router)
 	// Broker connections (passwords write-only).
-	api.NewConnectionsHandler(brokers.DefaultStore, brokers.Tester{}, log.Logger).RegisterRoutes(router)
+	api.NewConnectionsHandler(brokers.DefaultStore, brokers.Tester{}, log.Logger).WithFlows(flowsHandler).RegisterRoutes(router)
 	networks := zigbee.Default
 	if networks == nil { // not started (tests): no network to show
 		networks = zigbee.NewManager(brokers.DefaultStore)

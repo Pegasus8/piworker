@@ -24,7 +24,7 @@ func TestMqttActionParsesConfig(t *testing.T) {
 		"broker": "tcp://localhost:1883", "topic": "sensors/temp",
 		"qos": 1, "retained": true, "payload": "{{payload}}",
 	})
-	assert.Equal(t, "tcp://localhost:1883", a.broker)
+	assert.Equal(t, "tcp://localhost:1883", a.target.broker)
 	assert.Equal(t, "sensors/temp", a.topic)
 	assert.Equal(t, byte(1), a.qos)
 	assert.True(t, a.retained)

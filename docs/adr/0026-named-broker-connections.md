@@ -1,6 +1,6 @@
 # ADR-0026: Named broker connections for the Zigbee nodes
 
-**Status:** Accepted
+**Status:** Accepted (the rules on changing and deleting a connection superseded by [ADR-0029](0029-mqtt-nodes-take-named-connections-and-changes-restart-flows.md))
 **Date:** 2026-11-11
 **Deciders:** maintainer
 **Design:** [docs/design/zigbee.md](../design/zigbee.md)

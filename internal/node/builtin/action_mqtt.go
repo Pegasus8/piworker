@@ -44,10 +44,8 @@ func mqttEndpointFor(ctx context.Context, broker, username, password, clientID s
 type MqttAction struct {
 	*node.BaseNode
 
-	broker   string
-	clientID string // own client id; "" shares a pooled connection
-	username string
-	password string
+	target   mqttTarget // named connection or own broker (ADR-0029)
+	clientID string     // own client id; "" shares a pooled connection
 	topic    string
 	payload  string
 	qos      byte
@@ -61,9 +59,9 @@ type MqttAction struct {
 func NewMqttAction(config map[string]interface{}) (node.Node, error) {
 	base := node.NewBaseNode(config)
 
-	broker := base.GetConfigString("broker", "")
-	if broker == "" {
-		return nil, fmt.Errorf("broker is required (e.g. tcp://host:1883)")
+	target, err := parseMqttTarget(base)
+	if err != nil {
+		return nil, err
 	}
 	topic := base.GetConfigString("topic", "")
 	if topic == "" {
@@ -77,10 +75,8 @@ func NewMqttAction(config map[string]interface{}) (node.Node, error) {
 
 	return &MqttAction{
 		BaseNode: base,
-		broker:   broker,
+		target:   target,
 		clientID: ownMqttClientID(base.GetConfigString("clientId", ""), "piworker-pub"),
-		username: base.GetConfigString("username", ""), // {{secret.NAME}} resolved on connect
-		password: base.GetConfigString("password", ""),
 		topic:    topic,
 		payload:  base.GetConfigString("payload", "{{payload}}"),
 		qos:      qos,
@@ -109,7 +105,12 @@ func waitMqttToken(ctx context.Context, tok mqtt.Token, timeout time.Duration) e
 func (a *MqttAction) ensureClient(ctx context.Context) (mqtt.Client, error) {
 	a.mu.Lock()
 	if a.conn == nil {
-		a.conn, _ = mqttpool.Acquire(mqttEndpointFor(ctx, a.broker, a.username, a.password, a.clientID), mqttConnectRetryInterval)
+		ep, err := a.target.endpoint(ctx, a.clientID)
+		if err != nil {
+			a.mu.Unlock()
+			return nil, err
+		}
+		a.conn, _ = mqttpool.Acquire(ep, mqttConnectRetryInterval)
 	}
 	conn := a.conn
 	a.mu.Unlock()
@@ -123,6 +124,9 @@ func (a *MqttAction) ensureClient(ctx context.Context) (mqtt.Client, error) {
 func (a *MqttAction) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
 	client, err := a.ensureClient(ctx)
 	if err != nil {
+		if a.target.connection != "" && a.conn == nil {
+			return nil, err // an undefined connection: retrying does not help
+		}
 		return nil, node.Transient(fmt.Errorf("mqtt connect failed: %w", err))
 	}
 
@@ -163,9 +167,6 @@ func (a *MqttAction) Ports() (inputs []types.Port, outputs []types.Port) {
 
 // Validate checks the configuration.
 func (a *MqttAction) Validate() error {
-	if a.broker == "" {
-		return fmt.Errorf("broker is required")
-	}
 	if a.topic == "" {
 		return fmt.Errorf("topic is required")
 	}
@@ -175,17 +176,14 @@ func (a *MqttAction) Validate() error {
 func mqttActionConfigSchema() node.ConfigSchema {
 	minQoS, maxQoS := float64(0), float64(2)
 	return node.ConfigSchema{
-		Properties: map[string]node.ConfigProperty{
-			"broker":   {Type: "string", Title: "Broker", Description: "Broker URL, e.g. tcp://host:1883", Destination: true},
+		Properties: mergeProps(mqttTargetSchema(), map[string]node.ConfigProperty{
 			"topic":    {Type: "string", Title: "Topic", Description: "Topic to publish to (supports {{templates}})", Destination: true},
 			"payload":  {Type: "string", Title: "Payload", Description: "Message payload (supports {{templates}})", Default: "{{payload}}"},
 			"qos":      {Type: "number", Title: "QoS", Description: "0, 1 or 2", Default: 0, Minimum: &minQoS, Maximum: &maxQoS, AgentVisible: true},
 			"retained": {Type: "boolean", Title: "Retained", Description: "Set the retained flag", Default: false, AgentVisible: true},
 			"clientId": {Type: "string", Title: "Client ID", Description: "Own MQTT client id; leave empty to share a connection with the other MQTT nodes on this broker", Default: ""},
-			"username": {Type: "string", Title: "Username", Description: "Optional ({{secret.NAME}} supported)"},
-			"password": {Type: "string", Title: "Password", Description: "Optional; use {{secret.NAME}}", Sensitive: true},
-		},
-		Required: []string{"broker", "topic"},
+		}),
+		Required: []string{"topic"},
 	}
 }
 
@@ -203,22 +201,27 @@ func MqttActionInfo() node.NodeTypeInfo {
 		Description: "Publish a message to an MQTT topic",
 		Documentation: `## MQTT Publish
 
-Publishes the rendered payload to an MQTT topic. Credentials support
-` + "`{{secret.NAME}}`" + `. The connection is established lazily and shared with the other
-MQTT nodes on the broker that use the same credentials and no client id of
-their own.
+Publishes the rendered payload to an MQTT topic. The connection is
+established lazily and shared with the other MQTT nodes on the broker that
+use the same credentials and no client id of their own.
+
+Choose a **connection** defined under Connections (its broker URL and
+credentials are used), or set a **broker** URL with optional credentials of
+the node's own, which support ` + "`{{secret.NAME}}`" + `. When a connection
+changes, the running flows that use it restart with the new settings.
 
 ## Configuration
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| broker | string | - | Broker URL (tcp://host:1883) |
+| connection | string | - | Broker connection (instead of broker) |
+| broker | string | - | Broker URL (tcp://host:1883), when no connection |
 | topic | string | - | Topic (templated) |
 | payload | string | {{payload}} | Payload (templated) |
 | qos | number | 0 | 0, 1 or 2 |
 | retained | boolean | false | Retained flag |
 | clientId | string | (shared) | Own client id; empty shares a connection |
-| username/password | string | - | Optional credentials |
+| username/password | string | - | Optional credentials, with broker only |
 `,
 		Category: types.NodeCategoryOutput,
 		Risk:     node.RiskExternal,

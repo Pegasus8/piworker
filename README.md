@@ -1004,6 +1004,24 @@ entered directly in a node configuration remain part of that configuration.
 Variables are ordinary data, visible in their manager and usable in payloads and
 Debug; use the separate secret store for credentials.
 
+### Broker connections
+
+**Broker connections** (in the navigation, under Settings) name an MQTT
+broker once: its URL (`tcp`, `mqtt`, `ssl`, `tls`, `mqtts`, `ws`, `wss`; no
+credentials in it), an optional username and password (both may be
+`{{secret.NAME}}` references; the password is write-only) and a
+Zigbee2MQTT base topic. Zigbee nodes always use one; **MQTT Subscribe** and
+**MQTT Publish** take either a `connection` or their own `broker` (with
+their own optional credentials), never both (ADR-0026, ADR-0029).
+
+Saving a connection restarts every running flow whose enabled nodes use it,
+so they reconnect with the new settings; the answer lists the flows
+restarted and any that could not start again (they are marked failed).
+Deleting a connection that a running flow uses is refused (409) and names
+the flows; a stopped flow that names a missing connection is refused at
+deploy (`undefined_connection`). **Test connection** tries settings without
+storing them.
+
 ### Environment Variables
 
 ```bash
@@ -1295,6 +1313,17 @@ accounts.
 | PUT, DELETE | `/api/flows/{id}/variables/{name}` | Set or delete a flow variable |
 | GET | `/api/secrets` | `{"secrets": [{"name", "short", "uses"}], "undefined": [{"name", "uses"}], "shortBelow": 16}`: names only, never values or lengths; `short` marks a value under `shortBelow` characters, which an agent could confirm a guess of. `uses` lists where each secret is referenced (`flowId`, `flowName`, `flowRunning`, `nodeId`, `nodeType`, `nodeDisabled`, `setting`, or `connection` and `setting`); `undefined` lists the referenced names no secret has |
 | PUT, DELETE | `/api/secrets/{name}` | Set (`{"value": "…"}`) or delete a secret |
+
+### Broker connections and Zigbee
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/connections` | `{"connections": [{"name", "broker", "username", "hasPassword", "baseTopic"}]}`, never the password |
+| PUT | `/api/connections/{name}` | Create or replace (`{"broker", "username", "password", "baseTopic"}`; no `password` keeps the stored one, `""` clears it). Restarts the running flows that use it: `{"restarted": [{"id", "name"}], "failed": [{"id", "name", "error"}]}` |
+| DELETE | `/api/connections/{name}` | Delete; `409` with `data.flows` while a running flow uses it |
+| POST | `/api/connections/{name}/test` | Connect with the settings sent (the stored password when none is sent), store nothing: `{"ok", "error"}` |
+| GET | `/api/zigbee`, `/api/zigbee/{name}` | Zigbee2MQTT networks: bridge state, devices and their last state |
+| POST | `/api/zigbee/{name}/permit-join` | Allow devices to join for a while |
 
 ### Node Types
 

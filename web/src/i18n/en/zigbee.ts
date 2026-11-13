@@ -57,13 +57,15 @@ export default {
   // BrokerConnectionsDialog.vue
   dialog: {
     title: 'Broker connections',
-    intro: 'Zigbee nodes reach Zigbee2MQTT through an MQTT broker named here. Passwords are write-only.',
+    intro: 'Zigbee and MQTT nodes reach an MQTT broker through a connection named here. Saving a change restarts the running flows that use it. Passwords are write-only.',
     loadFailed: 'Could not load the connections. Check your connection and try again.',
     saved: (name: string) => `Connection “${name}” saved.`,
+    restarted: (flows: string[]) => `Restarted with the new settings: ${flows.map(f => `“${f}”`).join(', ')}.`,
+    restartFailed: (flows: string[]) => `Stopped and could not start again (now failed): ${flows.join('; ')}.`,
     saveFailed: 'Could not save the connection. Try again.',
     testFailed: 'Could not test the connection.',
     deleteTitle: 'Delete connection?',
-    deleteText: (name: string) => `Delete “${name}”? Flows whose Zigbee nodes use it will not deploy until you define it again. This cannot be undone.`,
+    deleteText: (name: string) => `Delete “${name}”? It cannot be deleted while a running flow uses it: stop those flows first. Stopped flows whose Zigbee or MQTT nodes use it will not deploy until you define it again. This cannot be undone.`,
     deleteConfirm: 'Delete connection',
     deleted: 'Connection deleted.',
     deleteFailed: 'Could not delete the connection. Try again.',

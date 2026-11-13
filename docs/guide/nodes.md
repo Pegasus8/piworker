@@ -132,12 +132,13 @@ Trigger when a message arrives on an MQTT topic.
 
 | Setting | Key | Type | Default | Description |
 |---------|-----|------|---------|-------------|
-| Broker (required) | `broker` | string | – | Broker URL, e.g. tcp://host:1883 |
+| Broker | `broker` | string | – | Broker URL, e.g. tcp://host:1883, when no connection is chosen |
 | Client ID | `clientId` | string | – | Own MQTT client id; leave empty to share a connection with the other MQTT nodes on this broker |
-| Password | `password` | string | – | Optional; use {{secret.NAME}} |
+| Connection | `connection` | string | – | Broker connection defined under Connections (its URL and credentials are used); leave empty to set a broker below |
+| Password | `password` | string | – | Optional, with a broker URL only; use {{secret.NAME}} |
 | QoS | `qos` | number | `0` | 0, 1 or 2 |
 | Topic (required) | `topic` | string | – | Topic filter to subscribe to (supports +/# wildcards) |
-| Username | `username` | string | – | Optional ({{secret.NAME}} supported) |
+| Username | `username` | string | – | Optional, with a broker URL only ({{secret.NAME}} supported) |
 
 <a id="trigger-manual"></a>
 
@@ -678,14 +679,15 @@ Publish a message to an MQTT topic.
 
 | Setting | Key | Type | Default | Description |
 |---------|-----|------|---------|-------------|
-| Broker (required) | `broker` | string | – | Broker URL, e.g. tcp://host:1883 |
+| Broker | `broker` | string | – | Broker URL, e.g. tcp://host:1883, when no connection is chosen |
 | Client ID | `clientId` | string | – | Own MQTT client id; leave empty to share a connection with the other MQTT nodes on this broker |
-| Password | `password` | string | – | Optional; use {{secret.NAME}} |
+| Connection | `connection` | string | – | Broker connection defined under Connections (its URL and credentials are used); leave empty to set a broker below |
+| Password | `password` | string | – | Optional, with a broker URL only; use {{secret.NAME}} |
 | Payload | `payload` | string | `{{payload}}` | Message payload (supports {{templates}}) |
 | QoS | `qos` | number | `0` | 0, 1 or 2 |
 | Retained | `retained` | boolean | `false` | Set the retained flag |
 | Topic (required) | `topic` | string | – | Topic to publish to (supports {{templates}}) |
-| Username | `username` | string | – | Optional ({{secret.NAME}} supported) |
+| Username | `username` | string | – | Optional, with a broker URL only ({{secret.NAME}} supported) |
 
 <a id="action-notify"></a>
 

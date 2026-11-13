@@ -9,6 +9,8 @@ import { msg } from '@/i18n'
 import {
   connectionList,
   connectionRequest,
+  connectionRestarts,
+  type ConnectionRestarts,
   networkList,
   type BrokerConnection,
   type ConnectionForm,
@@ -37,9 +39,14 @@ export const useZigbeeStore = defineStore('zigbee', () => {
   }
 
   /** Creates or replaces a connection; an empty password keeps the stored one. */
-  async function saveConnection(form: ConnectionForm) {
-    await apiClient.put(`/connections/${path(form.name.trim())}`, connectionRequest(form))
+  /**
+   * Stores a connection. The server restarts the running flows that use it
+   * (ADR-0029) and answers which ones did and which could not start again.
+   */
+  async function saveConnection(form: ConnectionForm): Promise<ConnectionRestarts> {
+    const { data } = await apiClient.put(`/connections/${path(form.name.trim())}`, connectionRequest(form))
     await fetchConnections()
+    return connectionRestarts(data?.data)
   }
 
   async function deleteConnection(name: string) {

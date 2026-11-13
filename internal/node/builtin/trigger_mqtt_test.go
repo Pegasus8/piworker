@@ -23,7 +23,7 @@ func TestMqttTriggerParsesConfig(t *testing.T) {
 	tr := newMqttTrigger(t, map[string]interface{}{
 		"broker": "tcp://localhost:1883", "topic": "sensors/#", "qos": 2,
 	})
-	assert.Equal(t, "tcp://localhost:1883", tr.broker)
+	assert.Equal(t, "tcp://localhost:1883", tr.target.broker)
 	assert.Equal(t, "sensors/#", tr.topic)
 	assert.Equal(t, byte(2), tr.qos)
 }

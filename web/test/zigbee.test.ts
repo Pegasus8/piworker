@@ -1,8 +1,11 @@
 import { expect, test } from 'bun:test'
+import { setLocale } from '../src/i18n'
 import {
   connectionFormError,
   connectionList,
   connectionRequest,
+  connectionRestarts,
+  connectionSavedText,
   deviceHint,
   devicesFor,
   featureHint,
@@ -165,4 +168,16 @@ test('relativeTime reads like a clock', () => {
 test('the type of a network is exported for views', () => {
   const n: ZigbeeNetwork = networkList(raw)[0]
   expect(n.bridge.info.coordinator).toBe('zStack3x0')
+})
+
+test('storing a connection reads which running flows restarted', () => {
+  expect(connectionRestarts(null)).toEqual({ restarted: [], failed: [] })
+  const r = connectionRestarts({ restarted: [{ id: 'a', name: 'Lights' }, { name: 'no id' }], failed: [{ id: 'b', name: 'Heating', error: 'boom' }, { id: 'c' }] })
+  expect(r).toEqual({ restarted: [{ id: 'a', name: 'Lights' }], failed: [{ id: 'b', name: 'Heating', error: 'boom' }, { id: 'c', name: 'c', error: '' }] })
+  setLocale('en')
+  expect(connectionSavedText('home', { restarted: [], failed: [] })).toEqual({ kind: 'success', text: 'Connection “home” saved.' })
+  const saved = connectionSavedText('home', r)
+  expect(saved.kind).toBe('warning')
+  expect(saved.text).toContain('Restarted with the new settings: “Lights”.')
+  expect(saved.text).toContain('Heating: boom')
 })

@@ -3,7 +3,10 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/brokers"
@@ -22,6 +25,32 @@ type ConnectionsHandler struct {
 	store  *brokers.Store
 	tester ConnectionTester
 	logger zerolog.Logger
+	flows  ConnectionUsers // nil: no flows are restarted or checked
+}
+
+// ConnectionUsers is the editor's lifecycle as the connections see it
+// (FlowsHandler, ADR-0029).
+type ConnectionUsers interface {
+	// RestartFlowsUsing restarts the running flows that use the connection.
+	RestartFlowsUsing(ctx context.Context, name string) ([]FlowRef, []FlowRestartFailure)
+	// UnlessRunningFlowsUse runs fn unless a running flow uses the
+	// connection (then it returns them and ErrConnectionInUse).
+	UnlessRunningFlowsUse(name string, fn func() error) ([]FlowRef, error)
+}
+
+// WithFlows makes a change restart the running flows that use the
+// connection and refuses deleting one a running flow uses.
+func (h *ConnectionsHandler) WithFlows(flows ConnectionUsers) *ConnectionsHandler {
+	h.flows = flows
+	return h
+}
+
+// ConnectionStoredResponse is PUT's answer: the running flows that use the
+// connection and were restarted with its new settings, and those that could
+// not start again (now failed). Both are lists, empty when none.
+type ConnectionStoredResponse struct {
+	Restarted []FlowRef            `json:"restarted"`
+	Failed    []FlowRestartFailure `json:"failed"`
 }
 
 // NewConnectionsHandler creates a ConnectionsHandler.
@@ -93,7 +122,8 @@ func (h *ConnectionsHandler) connection(w http.ResponseWriter, r *http.Request) 
 	return c, true
 }
 
-// Put creates or replaces a connection.
+// Put creates or replaces a connection, then restarts the running flows
+// that use it so they run with the new settings (ADR-0029).
 func (h *ConnectionsHandler) Put(w http.ResponseWriter, r *http.Request) {
 	c, ok := h.connection(w, r)
 	if !ok {
@@ -104,17 +134,42 @@ func (h *ConnectionsHandler) Put(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to store the connection")
 		return
 	}
-	writeSuccess(w, http.StatusOK, nil, "Connection stored")
+	resp := ConnectionStoredResponse{Restarted: []FlowRef{}, Failed: []FlowRestartFailure{}}
+	if h.flows != nil {
+		resp.Restarted, resp.Failed = h.flows.RestartFlowsUsing(r.Context(), c.Name)
+	}
+	writeSuccess(w, http.StatusOK, resp, "Connection stored")
 }
 
-// Delete removes a connection.
+// Delete removes a connection, unless a running flow uses it (409, with
+// the flows in data.flows): stopping it would be the next deploy's refusal
+// arriving unannounced (ADR-0029). Stopped flows that name it are refused at
+// their next deploy (undefined_connection).
 func (h *ConnectionsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	if _, ok := h.store.Get(name); !ok {
 		writeError(w, http.StatusNotFound, "Connection not found")
 		return
 	}
-	if err := h.store.Delete(name); err != nil {
+	del := func() error { return h.store.Delete(name) }
+	var err error
+	if h.flows != nil {
+		var users []FlowRef
+		users, err = h.flows.UnlessRunningFlowsUse(name, del)
+		if errors.Is(err, ErrConnectionInUse) {
+			names := make([]string, 0, len(users))
+			for _, f := range users {
+				names = append(names, fmt.Sprintf("%q", f.Name))
+			}
+			writeErrorData(w, http.StatusConflict,
+				"The connection is used by running flows: "+strings.Join(names, ", ")+". Stop them, or change their nodes to another connection, first.",
+				map[string]any{"flows": users})
+			return
+		}
+	} else {
+		err = del()
+	}
+	if err != nil {
 		h.logger.Error().Err(err).Str("name", name).Msg("Failed to delete broker connection")
 		writeError(w, http.StatusInternalServerError, "Failed to delete the connection")
 		return
