@@ -33,6 +33,12 @@ class LifecycleTest(unittest.TestCase):
         self.mock("uname", 'if [ "$1" = -s ]; then echo Linux; else echo "${ARCH:-aarch64}"; fi')
         for command in ("chown", "useradd"):
             self.mock(command, 'exit 0')
+        # runuser runs the binary as the service user: record the call, and
+        # let a test make the restore fail.
+        self.mock("runuser", '''
+echo "$*" >> "$FIXTURE/runuser"
+[ ! -f "$FIXTURE/fail-restore" ]
+''')
         self.mock("sleep", 'exit 0')
         self.mock("systemctl", '''
 echo "$*" >> "$FIXTURE/services"
@@ -217,6 +223,89 @@ esac
         backups = list(self.path("/var/backups/piworker").glob("*/data/piworker.db"))
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_text(), "flows and accounts")
+
+    def test_update_keeps_only_the_newest_backups(self):
+        self.install()
+        backups = self.path("/var/backups/piworker")
+        backups.mkdir(parents=True, exist_ok=True)
+        for stamp in ("20250101-000000.aaaaaa", "20250201-000000.bbbbbb", "20250301-000000.cccccc"):
+            (backups / stamp / "data").mkdir(parents=True)
+        (backups / "my-own-copy").mkdir()
+        self.bundle("new")
+        self.run_ctl("update", "v2.1.0")
+        names = sorted(p.name for p in backups.iterdir())
+        self.assertEqual(len([n for n in names if n[0].isdigit()]), 3)
+        self.assertNotIn("20250101-000000.aaaaaa", names)
+        self.assertIn("20250201-000000.bbbbbb", names)
+        self.assertIn("my-own-copy", names, "only the manager's own backups are removed")
+
+        self.env["PIWORKER_KEEP_BACKUPS"] = "1"
+        self.bundle("newer")
+        self.run_ctl("update", "v2.2.0")
+        self.assertEqual(len([p for p in backups.iterdir() if p.name[0].isdigit()]), 1)
+
+        self.env["PIWORKER_KEEP_BACKUPS"] = "0"
+        self.run_ctl("update", "v2.2.0", ok=False)
+
+    def test_failed_update_keeps_every_backup(self):
+        self.install()
+        backups = self.path("/var/backups/piworker")
+        for stamp in ("20250101-000000.aaaaaa", "20250201-000000.bbbbbb", "20250301-000000.cccccc"):
+            (backups / stamp / "data").mkdir(parents=True)
+        self.bundle("new")
+        (self.root / "fail-health").touch()
+        self.run_ctl("update", "v2.1.0", ok=False)
+        self.assertEqual(len(list(backups.iterdir())), 4)
+
+    def backup_file(self, config=None):
+        archive = self.root / "piworker-backup-20261113T031700Z.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            entries = [("manifest.json", "{}"), ("piworker.db", "snapshot")]
+            if config is not None:
+                entries.append(("config/piworker.toml", config))
+            for name, content in entries:
+                data = content.encode()
+                info = tarfile.TarInfo(name)
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+        return archive
+
+    def test_restore_stages_as_service_user_restores_config_and_restarts(self):
+        self.install()
+        archive = self.backup_file(config='addr = ":8443"\n# from the backup\n')
+        before = (self.root / "services").read_text().splitlines()
+        result = self.run_ctl("restore", str(archive))
+        call = (self.root / "runuser").read_text().splitlines()[-1]
+        self.assertIn("-u piworker --", call)
+        self.assertIn("-db " + str(self.db), call)
+        self.assertIn("-restore " + str(self.path("/var/lib/piworker/.restore-input.tar.gz")), call)
+        self.assertFalse(self.path("/var/lib/piworker/.restore-input.tar.gz").exists())
+        self.assertIn("# from the backup", self.config.read_text())
+        self.assertEqual(self.config.stat().st_mode & 0o777, 0o640)
+        saved = self.path("/etc/piworker/piworker.toml.before-restore")
+        self.assertIn("custom configuration", saved.read_text())
+        self.assertIn("restart piworker.service", (self.root / "services").read_text().splitlines()[len(before):])
+        self.assertIn("restored", result.stdout)
+
+    def test_restore_without_config_keeps_the_current_one(self):
+        self.install()
+        self.run_ctl("restore", str(self.backup_file()))
+        self.assertIn("custom configuration", self.config.read_text())
+        self.assertFalse(self.path("/etc/piworker/piworker.toml.before-restore").exists())
+
+    def test_invalid_backup_changes_nothing(self):
+        self.install()
+        before = (self.root / "services").read_text()
+        (self.root / "fail-restore").touch()
+        self.run_ctl("restore", str(self.backup_file(config="# other\n")), ok=False)
+        self.assertIn("custom configuration", self.config.read_text())
+        self.assertEqual((self.root / "services").read_text(), before)
+
+    def test_restore_needs_a_managed_install_and_a_file(self):
+        self.run_ctl("restore", str(self.backup_file()), ok=False)
+        self.install()
+        self.run_ctl("restore", ok=False)
+        self.run_ctl("restore", str(self.root / "missing.tar.gz"), ok=False)
 
     def test_bad_checksum_does_not_stop_or_replace_existing_service(self):
         self.install()
