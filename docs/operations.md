@@ -86,13 +86,42 @@ created on first start in `/var/lib/piworker/tls/` (`ca.crt`, `ca.key`,
   HTTP server errors are warnings, at most 30 per minute; the number of lines
   left out is logged when the next minute starts.
 
+## Daily backups and restore
+
+PiWorker backs itself up every day into `/var/lib/piworker/backups/` (see
+[Backups in the README](../README.md#backups)): the database without run
+history, the local CA and the configuration, in one archive per day, with
+the newest of the last 7 days, 4 weeks and 6 months kept. Point them at a
+USB drive on the **Backups** page so that they survive the SD card; the
+directory must be writable by the `piworker` user (for example
+`sudo install -d -o piworker -g piworker -m 700 /media/usb/piworker-backups`
+on a drive mounted at boot).
+
+To restore one from a shell, for example on a new card after a fresh
+`piworkerctl install`:
+
+```bash
+sudo piworkerctl restore /media/usb/piworker-backups/piworker-backup-20261113T031700Z.tar.gz
+```
+
+The backup is validated as the `piworker` user before anything changes;
+then its configuration file replaces `/etc/piworker/piworker.toml` (the old
+one is kept as `piworker.toml.before-restore`), and the service restarts and
+applies it. Accounts, flows, secrets and the CA are those of the backup, so
+devices that trusted the old installation's CA trust the restored one;
+everyone signs in again. Flows that were running start again and act at
+once: isolate external devices first if you restore onto other hardware.
+The replaced database and certificates stay in
+`/var/lib/piworker/restore-previous/` until the next restore.
+
 ## Backups and recovery after a failed update
 
 Every managed update makes a private directory under `/var/backups/piworker/`
 and prints its path. It contains `piworker` (the old binary), `data/` (the entire
 stopped data directory) and `config/` (including the old installed-version marker).
-Backups are retained automatically; review disk usage and remove only backups
-you no longer need. Protect them like credentials because the database contains
+After a successful update only the newest 3 of these directories are kept
+(`PIWORKER_KEEP_BACKUPS=N` keeps N); other files in that directory are never
+removed. A failed update removes none. Protect them like credentials because the database contains
 accounts and secrets, and `data/tls/ca.key` is the private key of the local CA
 that your devices trust: whoever holds it can impersonate any website to them.
 Keep an off-device copy for disk failure recovery, stored as securely; if a copy

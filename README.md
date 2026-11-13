@@ -91,12 +91,14 @@ with `make test-installer`; running the installer still requires published asset
 | Configuration | `/etc/piworker/piworker.toml` |
 | Accounts, flows, secrets and variables | `/var/lib/piworker/piworker.db` |
 | Local CA and server certificate | `/var/lib/piworker/tls/` |
-| Update backups (private, include the CA key; retained until you remove them) | `/var/backups/piworker/` |
+| Daily backups (private, include the CA key; see [Backups](#backups)) | `/var/lib/piworker/backups/` |
+| Update backups (private, include the CA key; the newest 3 are kept) | `/var/backups/piworker/` |
 | Logs / status | `sudo journalctl -u piworker` / `systemctl status piworker` |
 | Restart after changing configuration | `sudo systemctl restart piworker` |
 
 Updates download and validate before stopping the service. They back up its
-entire data directory and configuration, replace the executable, and check the
+entire data directory and configuration (keeping the newest 3 such copies;
+`PIWORKER_KEEP_BACKUPS` changes it), replace the executable, and check the
 health endpoint (over HTTPS, verified against the local CA). A failed update restores the previous binary and data;
 updates briefly interrupt running flows. Backups cannot undo actions already
 sent to external devices or services. Ensure there is enough disk space for a
@@ -866,6 +868,7 @@ Flags:
   -session-secure        Mark session cookies Secure behind an HTTPS proxy (default false)
   -setup-code           Generate a new setup code and exit (only before setup)
   -recover-account name Generate a password recovery code and exit
+  -restore file         Validate a backup and stage it for the next start, then exit
   -cors-origins string  Comma-separated allowed CORS origins
   -allowed-hosts string Comma-separated extra Host names (see "Host names")
   -admin-user string    Bootstrap admin username (or env PIWORKER_ADMIN_USER)
@@ -1027,6 +1030,50 @@ available while authentication is disabled. Importing shows what the file
 holds, keeps existing values unless you choose to replace them, matches flow
 variables by flow ID or a unique flow name, restarts the running flows that
 use a connection it changed, and reports what it could not restore.
+
+### Backups
+
+PiWorker backs itself up every day (ADR-0032): flows and their versions,
+accounts, agent tokens, secrets, variables, broker connections, settings,
+the local CA (`tls/`) and the configuration file, in one
+`piworker-backup-<UTC time>.tar.gz`. Run history, node events, the agent
+audit and sign-in sessions are left out. The database is copied with
+`VACUUM INTO` while PiWorker runs.
+
+- **When:** daily at 03:17 local time by default, plus up to 30 minutes; a
+  backup missed while the device was off runs a few minutes after the next
+  start. When nothing changed since the last backup, the new one is skipped.
+  **Back up now** makes one at any time.
+- **Where:** `backups/` next to the database (`/var/lib/piworker/backups` for
+  a `piworkerctl` installation, the data volume in Docker). Choose another
+  directory on the **Backups** page, ideally a USB drive or another disk: a
+  copy on the same SD card does not survive the card. PiWorker does not
+  mount anything; the directory must exist or be creatable by its user.
+  Changing it asks for your account password.
+- **How many:** the newest backup of each of the last 7 days, 4 weeks and 6
+  months (configurable); older ones are deleted. Only files named like
+  PiWorker's backups are ever deleted.
+- **Status:** the **Backups** page shows the last and next backup; the
+  navigation marks it when the last backup failed or the newest is more than
+  two days old.
+
+Backups are not encrypted: they are as private as the database (files 0600 in
+a 0700 directory) and contain every secret and the CA key. Protect copies
+you move elsewhere like credentials.
+
+**Restoring** brings back everything the backup holds, as it was: flows that
+were running start again, and every session ends. PiWorker first backs up the
+current state, then restarts to apply it (exit status 75; systemd and the
+Docker Compose files start it again). The replaced database and certificates
+stay in `restore-previous/` next to the database until the next restore.
+
+- In the editor: **Restore** on a backup, with your account password.
+- From a shell, for example when PiWorker no longer starts:
+  `sudo piworkerctl restore FILE` on a `piworkerctl` installation (it also
+  restores the configuration file, keeping the old one as
+  `piworker.toml.before-restore`), or `piworker -restore FILE` with your own
+  `-config`/`-db` followed by a start.
+- A backup made by a newer PiWorker is refused: update first.
 
 ### Broker connections
 
@@ -1340,6 +1387,16 @@ accounts.
 | PUT, DELETE | `/api/secrets/{name}` | Set (`{"value": "…"}`) or delete a secret |
 | POST | `/api/stores/export` | Download the variables, connections and secret names as a `piworker-stores` file. `{"passphrase", "password"}` adds the secret values and connection passwords sealed with the passphrase (12+ characters); it needs the account password and authentication enabled |
 | POST | `/api/stores/import` | Restore such a file: `{"bundle", "passphrase", "overwrite"}`; answers counts per kind (`added`, `replaced`, `skipped`), what was not restored and the flows restarted. A wrong passphrase or another file is `400` and writes nothing |
+
+### Backups
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/backups` | Settings, directory and default directory, last outcome (`status`), `nextRun`, the backups newest first (`name`, `size`, `manifest`) and `restorePending` |
+| POST | `/api/backups` | Back up now (`201`) |
+| PUT | `/api/backups/settings` | `{"enabled", "time": "HH:MM", "dir", "retention": {"daily", "weekly", "monthly"}}`; changing `dir` needs `"password"` (the account password) |
+| DELETE | `/api/backups/{name}` | Delete a backup |
+| POST | `/api/backups/{name}/restore` | `{"password"}`: back up the current state, stage the backup and restart (`202`); applied before the database is opened again |
 
 ### Broker connections and Zigbee
 

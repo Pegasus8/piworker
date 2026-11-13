@@ -17,6 +17,13 @@ version. The version number and release date have not been selected.
 - `piworkerctl install`, `update` and `uninstall` for Linux/systemd. Updates verify
   checksums and back up data; uninstall retains accounts, flows and configuration.
 - `piworker -version` reports the build version without starting the server.
+- Daily backups (ADR-0032): the database without run history, the local CA
+  and the configuration in one archive, with a daily/weekly/monthly
+  retention, a configurable directory (a USB drive) and a **Backups** page;
+  unchanged days are skipped and a missed backup runs after the next start.
+  Restoring brings the whole state back from the editor,
+  `sudo piworkerctl restore FILE` or `piworker -restore FILE`, after backing
+  up the current one. `piworkerctl update` keeps only its newest 3 backups.
 - A [user guide](docs/guide/README.md): getting started, concepts, recipes, AI
   agents and troubleshooting, plus a node reference generated from the nodes'
   own schemas.

@@ -88,9 +88,9 @@ installations alike):
 
 ## Action items
 
-1. [ ] Snapshot, archive, local destination, schedule, retention, Backups page.
-2. [ ] Staged restore: editor, `-restore`, `piworkerctl restore`.
+1. [x] Snapshot, archive, local destination, schedule, retention, Backups page.
+2. [x] Staged restore: editor, `-restore`, `piworkerctl restore`.
 3. [ ] Restore from the first-run setup page.
 4. [ ] S3-compatible destination with age encryption.
-5. [ ] Retention for `piworkerctl update` copies.
-6. [ ] README, operations guide and user guide.
+5. [x] Retention for `piworkerctl update` copies.
+6. [x] README, operations guide and user guide (local backups; to extend with phases 2–3).
