@@ -427,9 +427,12 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 		Audit:    services.audit,
 	})
 
+	// Kept for the step-up of sensitive editor actions (exporting secret
+	// values); nil while authentication is disabled.
+	var authHandler *api.AuthHandler
 	if users != nil {
 		// With native HTTPS the session cookie is always Secure.
-		authHandler := api.NewAuthHandler(users, cfg.SessionSecure, cfg.CORSOrigins, api.WithSecureCookies(cfg.TLSEnabled()))
+		authHandler = api.NewAuthHandler(users, cfg.SessionSecure, cfg.CORSOrigins, api.WithSecureCookies(cfg.TLSEnabled()))
 		authHandler.RegisterRoutes(router)
 		router.Use(api.AuthMiddleware(authHandler))
 		log.Info().Msg("Session authentication enabled")
@@ -491,6 +494,12 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 	api.NewVariablesHandler(vars.DefaultStore).RegisterRoutes(router)
 	// Broker connections (passwords write-only).
 	api.NewConnectionsHandler(brokers.DefaultStore, brokers.Tester{}, log.Logger).WithFlows(flowsHandler).RegisterRoutes(router)
+	// Export and restore of variables, connections and secrets (ADR-0031).
+	api.NewStoresBackupHandler(api.StoresBackupOptions{
+		Flows: store, Globals: vars.DefaultStore, FlowVariables: vars.DefaultFlows,
+		Secrets: secrets.DefaultStore, Connections: brokers.DefaultStore,
+		Auth: authHandler, Restarter: flowsHandler, Logger: log.Logger,
+	}).RegisterRoutes(router)
 	networks := zigbee.Default
 	if networks == nil { // not started (tests): no network to show
 		networks = zigbee.NewManager(brokers.DefaultStore)

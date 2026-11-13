@@ -212,7 +212,9 @@ headers (`Authorization: Bearer {{secret.api_token}}`) or URL query
   deleting or renaming a secret; deleting one that is used asks first. Names
   that are used but not defined appear under **Referenced but not defined**,
   with a button to define each one.
-- Exporting a flow exports the name, never the value.
+- Exporting a flow exports the name, never the value. To move secrets to
+  another installation use [Export and restore](#copying-flows-around),
+  which encrypts them with a passphrase.
 - Message data cannot read secrets: they are only resolved where you wrote
   them in the settings.
 - Secrets are stored in PiWorker's database without extra encryption (on a
@@ -258,5 +260,25 @@ History matters most when [AI agents](agents.md) may change your flows:
 ## Copying flows around
 
 On a flow card, the **⋯** menu can **duplicate** a flow or **export** it as a file, and
-**Import** in the flow list loads such a file. Variables and secret values are
-not part of an export: create them again on the other installation.
+**Import** in the flow list loads such a file. Variables, broker connections
+and secret values are not part of a flow export; they travel in their own
+file:
+
+**Export and restore** (in the navigation, under Settings) writes one file
+with the global variables, each flow's variables, the broker connections and
+the names of the secrets.
+
+- To include the secret values and the connections' passwords, tick the
+  option, choose a **passphrase** of at least 12 characters and confirm your
+  account password. They are encrypted with that passphrase: without it
+  nobody can read them, PiWorker included. Keep the passphrase apart from the
+  file, and the file like a password.
+- To restore, choose the file: the dialog shows what it holds before
+  anything changes. Enter the passphrase to restore the secrets and
+  connections (leave it empty to restore only the variables). Values that
+  already exist are kept unless you tick **Replace values that already exist
+  here**.
+- Flow variables follow their flow by ID, or by its name on another
+  installation, so import the flows first. The result lists anything it
+  could not place, secrets it could not restore, and the running flows it
+  restarted because a connection they use changed.

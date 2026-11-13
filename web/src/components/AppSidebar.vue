@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { Workflow, Radio, Bot, Braces, KeyRound, Cable, ShieldCheck, UserRound, LogOut, Menu, X } from 'lucide-vue-next'
+import { Workflow, Radio, Bot, Braces, KeyRound, Cable, ArchiveRestore, ShieldCheck, UserRound, LogOut, Menu, X } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import { useAgentStore } from '@/stores/agent'
 import { useShellStore } from '@/stores/shell'
@@ -10,6 +10,7 @@ import LanguageSelect from '@/components/LanguageSelect.vue'
 import VariablesDialog from '@/components/VariablesDialog.vue'
 import SecretsDialog from '@/components/SecretsDialog.vue'
 import BrokerConnectionsDialog from '@/components/BrokerConnectionsDialog.vue'
+import StoresBackupDialog from '@/components/StoresBackupDialog.vue'
 
 // The navigation of every page but the editor and sign-in: sections are
 // links (open in a new tab, show where you are); global settings open as
@@ -32,7 +33,8 @@ const sections = computed(() => [
 const settings = computed(() => [
   { label: m.value.nav.variables, hint: m.value.nav.variablesHint, icon: Braces, open: () => { shell.showVariables = true } },
   { label: m.value.nav.secrets, hint: m.value.nav.secretsHint, icon: KeyRound, open: () => { shell.showSecrets = true } },
-  { label: m.value.nav.brokers, hint: m.value.nav.brokersHint, icon: Cable, open: () => { shell.showBrokers = true } }
+  { label: m.value.nav.brokers, hint: m.value.nav.brokersHint, icon: Cable, open: () => { shell.showBrokers = true } },
+  { label: m.value.nav.backup, hint: m.value.nav.backupHint, icon: ArchiveRestore, open: () => { shell.showBackup = true } }
 ])
 const pages = computed(() => [
   { to: '/trust', label: m.value.nav.https, icon: ShieldCheck, active: route.path === '/trust' },
@@ -114,4 +116,5 @@ const item = 'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-m
   <VariablesDialog v-model:open="shell.showVariables" />
   <SecretsDialog v-model:open="shell.showSecrets" @changed="shell.secretsChanged++" />
   <BrokerConnectionsDialog v-model:open="shell.showBrokers" @changed="shell.brokersChanged++" />
+  <StoresBackupDialog v-model:open="shell.showBackup" @changed="shell.secretsChanged++; shell.brokersChanged++" />
 </template>

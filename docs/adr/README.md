@@ -72,3 +72,4 @@ node recipe, UI changes and documentation do **not** need an ADR.
 | [0028](0028-warn-about-undefined-optional-secrets-and-list-secret-uses.md) | Warn about undefined secrets in optional settings and list where secrets are used | Accepted |
 | [0029](0029-mqtt-nodes-take-named-connections-and-changes-restart-flows.md) | MQTT nodes take named connections; a changed connection restarts the flows that use it | Accepted |
 | [0030](0030-no-application-encryption-of-secrets-at-rest.md) | No application encryption of secrets at rest; private database files and encrypted exports | Accepted |
+| [0031](0031-export-and-restore-of-variables-connections-and-secrets.md) | Export and restore of variables, connections and secrets | Accepted |

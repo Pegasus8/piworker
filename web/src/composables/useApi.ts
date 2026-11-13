@@ -2,6 +2,7 @@ import axios from 'axios'
 import type { CallResult, Flow, FlowListItem, FlowEvent, FlowRun, NodeEventRecord, NodeTestResult, TLSInfo, VersionList } from '@/types'
 import type { ApplyResult, FlowIssue } from '@/lib/drafts'
 import { secretList, type SecretList } from '@/lib/secrets'
+import { importResult, type ImportResult } from '@/lib/storesBackup'
 
 /** A deploy's result: whether the flow runs and the warnings it deployed with. */
 export interface DeployOutcome { running: boolean; warnings: FlowIssue[] }
@@ -110,6 +111,19 @@ export function useApi() {
   async function exportFlow(id: string): Promise<Flow> {
     const { data } = await api.get(`/flows/${id}/export`)
     return data.data
+  }
+
+  // Export and restore of variables, connections and secrets (ADR-0031). The
+  // export answers the file itself; with a passphrase it needs the account
+  // password (step-up) and seals secret values in it.
+  async function exportStores(passphrase = '', password = ''): Promise<unknown> {
+    const { data } = await api.post('/stores/export', passphrase ? { passphrase, password } : {})
+    return data
+  }
+
+  async function importStores(bundle: unknown, passphrase: string, overwrite: boolean): Promise<ImportResult> {
+    const { data } = await api.post('/stores/import', { bundle, passphrase, overwrite })
+    return importResult(data.data)
   }
 
   async function importFlow(flow: unknown): Promise<Flow> {
@@ -317,6 +331,8 @@ export function useApi() {
     duplicateFlow,
     exportFlow,
     importFlow,
+    exportStores,
+    importStores,
     // Secrets
     getVariables, setVariable, deleteVariable,
     getSecrets,

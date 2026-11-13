@@ -882,6 +882,7 @@ func Risk(f *Flow, reg *node.Registry) node.Risk {
 // property of its schema turned on (allowPrivate, allowDashArgs, …) makes it
 // privileged. An unregistered type, or one declaring no valid risk, is
 // privileged.
+// RiskCanRise must name every type and property this function escalates on.
 func instanceRisk(n *Node, reg *node.Registry) node.Risk {
 	if reg == nil {
 		return node.RiskPrivileged
@@ -909,6 +910,31 @@ func instanceRisk(n *Node, reg *node.Registry) node.Risk {
 		}
 	}
 	return info.Risk
+}
+
+// RiskCanRise reports whether a setting can raise an instance of the type
+// info describes above the type's risk, by instanceRisk's rules: a
+// RiskSwitch property, or a destination that instanceRisk escalates when it
+// is built from the message (the URL of HTTP Request and Notify, the broker
+// of MQTT Publish). A privileged type cannot rise. The editor says so in a
+// node's settings (GET /api/node-types riskCanRise); keep it in step with
+// instanceRisk.
+func RiskCanRise(info node.NodeTypeInfo) bool {
+	if info.Risk == node.RiskPrivileged || !info.Risk.Valid() {
+		return false
+	}
+	switch info.Type {
+	case "action-http", "action-notify", "action-mqtt":
+		return true
+	}
+	if info.Config != nil {
+		for _, p := range info.Config.Properties {
+			if p.RiskSwitch {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // maxRisk returns the higher of two risks (undeclared counts as privileged).

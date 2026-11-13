@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/gorilla/mux"
@@ -182,6 +183,9 @@ type NodeTypeResponse struct {
 	// editor shows it in the palette and the settings panel. A node's own
 	// settings can raise its instance's risk (flow.Risk), never lower it.
 	Risk string `json:"risk"`
+	// RiskCanRise: a setting can raise an instance above Risk
+	// (flow.RiskCanRise), so the editor can say so where it is true.
+	RiskCanRise bool `json:"riskCanRise"`
 }
 
 // PortResponse represents a port in API responses.
@@ -234,6 +238,7 @@ func toNodeTypeResponse(info node.NodeTypeInfo) NodeTypeResponse {
 		Config:        info.Config,
 		Icon:          info.Icon,
 		Risk:          string(info.Risk),
+		RiskCanRise:   flow.RiskCanRise(info),
 	}
 }
 

@@ -110,10 +110,16 @@ candidate, publication and repository housekeeping. In order:
 
 **Known limits to state, not to fix, for this release**
 
-Secrets are not encrypted at rest; variables and secrets have no export or
-restore; an undefined secret in an optional credential resolves to an empty
-string; one administrator per installation; the editor does not show a node's
-risk; the interface is English only. See [TODO](../TODO.md).
+Secrets are not encrypted inside the database (decided in ADR-0030: the
+database file is kept private and full-disk encryption is recommended); one
+administrator per installation. Server texts (node documentation, API
+errors) stay in English while the interface is English and Spanish. See
+[TODO](../TODO.md).
+
+Since the review: variables, connections and secrets can be exported and
+restored (secret values encrypted, ADR-0031); an undefined secret in an
+optional credential is a deploy warning (ADR-0028); the editor shows each
+node's risk; MQTT nodes take named connections (ADR-0029).
 
 See the [local validation report](release-validation.md) for completed checks,
 environment limits and generated packages, and the

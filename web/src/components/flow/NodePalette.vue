@@ -140,13 +140,11 @@ function onDragStart(event: DragEvent, nodeTypeId: string) {
                 <component :is="getIcon(nodeType.icon)" class="h-4 w-4 text-white" />
               </div>
               <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-1">
-                  <span class="text-sm font-medium truncate">{{ nodeType.name }}</span>
-                  <!-- External and privileged types are marked: icon and words, never color alone. -->
-                  <span v-if="nodeRisk(nodeType.risk).marked" class="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-medium uppercase tracking-wide"
-                    :class="nodeRisk(nodeType.risk).variant === 'destructive' ? 'text-destructive' : 'text-muted-foreground'" :title="nodeRisk(nodeType.risk).hint">
-                    <component :is="draftIcon(nodeRisk(nodeType.risk).icon)" class="h-3 w-3" aria-hidden="true" />{{ nodeRisk(nodeType.risk).label }}
-                  </span>
+                <div class="text-sm font-medium truncate">{{ nodeType.name }}</div>
+                <!-- External and privileged types are marked: icon and words, never color alone. -->
+                <div v-if="nodeRisk(nodeType.risk).marked" class="flex items-center gap-0.5 text-[10px] font-medium uppercase tracking-wide"
+                  :class="nodeRisk(nodeType.risk).variant === 'destructive' ? 'text-destructive' : 'text-muted-foreground'" :title="nodeRisk(nodeType.risk).hint">
+                  <component :is="draftIcon(nodeRisk(nodeType.risk).icon)" class="h-3 w-3" aria-hidden="true" />{{ nodeRisk(nodeType.risk).label }}
                 </div>
                 <div class="line-clamp-2 text-xs text-muted-foreground">
                   {{ nodeType.description }}

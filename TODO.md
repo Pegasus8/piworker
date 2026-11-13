@@ -57,13 +57,22 @@ selector contextual de nombres están implementados. Queda como ampliación:
   que no funcionan sin ellos (token de Telegram, URL de notificación, DSN de
   base de datos: `node.SecretRequirer`, [ADR-0019](docs/adr/0019-lint-markers-and-change-alerts-define-low.md));
   Lint las informa como `undefined_secret`.
-- [ ] En los demás ajustes, un secreto inexistente todavía se resuelve a una
-  cadena vacía sin aviso: rechazarlo o al menos avisar al desplegar.
-- [ ] Mostrar qué flujos usan cada secreto.
-- [ ] Evaluar cifrado de secretos en reposo con gestión y recuperación de claves.
-  Actualmente SQLite guarda los valores sin cifrado propio de la aplicación.
-- [ ] Diseñar exportación/restauración explícita de variables globales, por flujo y secretos;
-  exportar un flujo no incluye los almacenes de la instalación.
+- [x] En los demás ajustes (credenciales opcionales de Email y MQTT, URL y
+  cabeceras de HTTP Request) un secreto inexistente ya no pasa en silencio:
+  Lint avisa con `unresolved_secret`, el despliegue devuelve el aviso y el
+  editor lo muestra ([ADR-0028](docs/adr/0028-warn-about-undefined-optional-secrets-and-list-secret-uses.md)).
+- [x] Mostrar qué flujos usan cada secreto: el diálogo de secretos lista
+  flujo, nodo, ajuste y conexiones de broker que lo usan, avisa antes de
+  borrar uno en uso y muestra los nombres usados pero no definidos (ADR-0028).
+- [x] Evaluar cifrado de secretos en reposo: revisado y decidido no cifrar en
+  la aplicación (en una Pi la clave estaría en la misma tarjeta); la base de
+  datos se crea privada (0600) y pierde el acceso de otros usuarios al
+  arrancar; se recomienda cifrado de disco
+  ([ADR-0030](docs/adr/0030-no-application-encryption-of-secrets-at-rest.md),
+  [revisión](docs/design/secrets-at-rest.md)).
+- [x] Exportación/restauración de variables globales, por flujo, conexiones y
+  secretos, con los valores de secretos cifrados con frase de paso
+  ([ADR-0031](docs/adr/0031-export-and-restore-of-variables-connections-and-secrets.md)).
 
 ## Documentación
 
@@ -73,9 +82,10 @@ selector contextual de nombres están implementados. Queda como ampliación:
   (`TestNodeReferenceDocIsCurrent`).
 - [ ] Reducir el README a una vista general y mover la referencia de
   configuración, HTTPS y agentes a `docs/`.
-- [ ] Mostrar el riesgo de cada nodo en el editor (hoy solo lo ven los agentes
-  y la referencia de nodos).
-- [ ] Flujos de ejemplo importables desde la pantalla vacía del editor.
+- [x] Mostrar el riesgo de cada nodo en el editor: la lista de nodos marca los
+  externos y privilegiados y el panel de ajustes explica el nivel.
+- [x] Flujos de ejemplo importables desde la pantalla vacía (lista de flujos,
+  «Empezar desde un ejemplo»).
 
 - [ ] Validar en hardware real los nodos GPIO Edge, GPIO Write, I2C Read y
   DS18B20 y quitarles la marca de experimentales.
@@ -100,8 +110,9 @@ de temperatura y humedad SONOFF y enchufes SONOFF.
   recetas de batería y flujos de ejemplo.
 - [ ] Validar con hardware real (SONOFF S60ZBTPF y SNZB-02P, coordinador
   USB) en una Raspberry Pi y en un PC x86_64.
-- [ ] Evaluar que los nodos MQTT también acepten una conexión con nombre, y
-  reiniciar los flujos que usan una conexión cuando esta cambia.
+- [x] Los nodos MQTT aceptan una conexión con nombre; guardar una conexión
+  reinicia los flujos en marcha que la usan y no se puede borrar una que use
+  un flujo en marcha ([ADR-0029](docs/adr/0029-mqtt-nodes-take-named-connections-and-changes-restart-flows.md)).
 
 Lo que falta para publicar está en
 [docs/release-checklist.md](docs/release-checklist.md#launch-gap-review-2026-11-11).

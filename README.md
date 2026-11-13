@@ -1014,6 +1014,20 @@ entered directly in a node configuration remain part of that configuration.
 Variables are ordinary data, visible in their manager and usable in payloads and
 Debug; use the separate secret store for credentials.
 
+### Export and restore of variables, connections and secrets
+
+A flow export carries no variables, connection settings or secret values.
+**Export and restore** (in the navigation, under Settings) writes them to one
+JSON file (`piworker-stores`, ADR-0031): the global variables, each flow's
+variables, the broker connections without passwords and the secret names.
+With a passphrase (at least 12 characters) the secret values and the
+connections with their passwords are added, sealed with scrypt and
+AES-256-GCM; that export asks for your account password and is not
+available while authentication is disabled. Importing shows what the file
+holds, keeps existing values unless you choose to replace them, matches flow
+variables by flow ID or a unique flow name, restarts the running flows that
+use a connection it changed, and reports what it could not restore.
+
 ### Broker connections
 
 **Broker connections** (in the navigation, under Settings) name an MQTT
@@ -1323,6 +1337,8 @@ accounts.
 | PUT, DELETE | `/api/flows/{id}/variables/{name}` | Set or delete a flow variable |
 | GET | `/api/secrets` | `{"secrets": [{"name", "short", "uses"}], "undefined": [{"name", "uses"}], "shortBelow": 16}`: names only, never values or lengths; `short` marks a value under `shortBelow` characters, which an agent could confirm a guess of. `uses` lists where each secret is referenced (`flowId`, `flowName`, `flowRunning`, `nodeId`, `nodeType`, `nodeDisabled`, `setting`, or `connection` and `setting`); `undefined` lists the referenced names no secret has |
 | PUT, DELETE | `/api/secrets/{name}` | Set (`{"value": "…"}`) or delete a secret |
+| POST | `/api/stores/export` | Download the variables, connections and secret names as a `piworker-stores` file. `{"passphrase", "password"}` adds the secret values and connection passwords sealed with the passphrase (12+ characters); it needs the account password and authentication enabled |
+| POST | `/api/stores/import` | Restore such a file: `{"bundle", "passphrase", "overwrite"}`; answers counts per kind (`added`, `replaced`, `skipped`), what was not restored and the flows restarted. A wrong passphrase or another file is `400` and writes nothing |
 
 ### Broker connections and Zigbee
 
@@ -1339,7 +1355,7 @@ accounts.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/node-types` | List available node types (`category` filters by `input`, `processing` or `output`); each carries its `risk` (`safe`, `external`, `privileged`) |
+| GET | `/api/node-types` | List available node types (`category` filters by `input`, `processing` or `output`); each carries its `risk` (`safe`, `external`, `privileged`) and `riskCanRise` (a setting can raise an instance to privileged) |
 | GET | `/api/node-types/{type}` | One node type with its documentation and configuration schema |
 | POST | `/api/nodes/{type}/test` | Run one processing node once on a sample message (the editor's payload playground); nothing is deployed |
 

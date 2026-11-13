@@ -20,7 +20,7 @@ export default {
   saveFailed: 'Could not save the flow. Your changes are still here. Try again.',
   deployed: 'Flow deployed.',
   deployedWithWarnings: (n: number) => `Flow deployed with ${plural(n, 'warning', 'warnings')}:`,
-  unresolvedSecret: (node: string, setting: string, secret: string) => `${node}: “${setting}” uses the secret “${secret}”, which is not defined, so the node gets an empty value there (an HTTP request fails). Define it in Secrets.`,
+  unresolvedSecret: (node: string, setting: string, secret: string) => `${node}: “${setting}” uses the secret “${secret}”, which is not defined, so the node gets an empty value there or fails when it uses it. Define it in Secrets.`,
   deployFailed: 'Could not deploy the flow. Check its configuration and try again.',
   stopped: 'Flow stopped.',
   stopFailed: 'Could not stop the flow. Try again.',

@@ -13,9 +13,8 @@ export interface NodeTypeConfig {
   /** What the type can affect outside the flow: safe, external or privileged. */
   risk?: string
   /**
-   * A setting can raise this node to privileged (flow.Risk): its schema has
-   * a destination (a URL or host taken from the message) or an opt-in that
-   * widens access (riskSwitch).
+   * A setting can raise this node to privileged (the server's riskCanRise:
+   * a URL or broker taken from the message, or an opt-in that widens access).
    */
   escalates?: boolean
   inputs?: unknown[]

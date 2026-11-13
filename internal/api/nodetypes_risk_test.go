@@ -51,4 +51,5 @@ func TestNodeTypesCarryTheirRisk(t *testing.T) {
 	rr = get("/api/node-types/mock-shell")
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 	assert.Contains(t, rr.Body.String(), `"risk":"privileged"`)
+	assert.Contains(t, rr.Body.String(), `"riskCanRise":false`, "a privileged type cannot rise")
 }
