@@ -1,7 +1,7 @@
 # Automatic backups, restore and automatic updates
 
 Status: proposed in [ADR-0032](../adr/0032-automatic-backups-and-whole-state-restore.md)
-(backups and restore) and [ADR-0033](../adr/0033-update-checks-signed-releases-and-requested-updates.md)
+(backups and restore) and [ADR-0033](../adr/0033-update-checks-and-requested-updates.md)
 (update checks and automatic updates). Issues #128 and #129.
 
 ## Where we start
@@ -149,15 +149,14 @@ shows "PiWorker vX.Y.Z is available" with a link to its notes; Docker and
 manual installations get the command to run. `[updates] check = false`
 turns it off; nothing else is sent.
 
-### Signed releases
+### Release trust
 
-Each release carries `SHA256SUMS.sig`, an Ed25519 signature of
-`SHA256SUMS` made **offline by the maintainer**; the private key is never
-in CI or the repository, so a compromised GitHub account cannot produce a
-release that installs itself. `piworkerctl` holds the public key and
-verifies with `openssl pkeyutl -verify -rawin` (OpenSSL 3, present on
-Raspberry Pi OS Bookworm). Manual installs and updates of an unsigned
-release warn; unattended updates refuse it.
+Releases are not signed for now: a manual signing step per release was
+judged too much friction. A release is trusted as today, downloaded over
+HTTPS from the repository's releases and checked against its
+`SHA256SUMS`. The automatic policy limits the exposure (opt-in, stable
+only, a waiting period). Signing is revisited when it can be automated
+without a manual step (ADR-0033).
 
 ### Requested updates (managed installations)
 
@@ -167,9 +166,8 @@ The server decides *when*; root only executes:
   (`update-request`, the version it expects) in the data directory.
 - `piworkerctl install` adds `piworker-update.path`, which runs
   `piworkerctl update --requested` as root when the file appears. The
-  manager treats the file as untrusted: it only accepts the latest stable,
-  signed release, never older than the installed one, and removes the
-  request.
+  manager treats the file as untrusted: it only accepts the latest stable
+  release, never older than the installed one, and removes the request.
 - The outcome (`update-result`, written by the manager: installed, rolled
   back, refused, with the reason) is shown in the editor; a rolled-back
   version is skipped by the automatic policy until a newer one appears.
@@ -177,7 +175,7 @@ The server decides *when*; root only executes:
 ### Automatic policy
 
 `off` (only the check) by default; `auto` is opt-in in Settings. With
-`auto`, a release is installed when it is stable, signed, at least 3 days
+`auto`, a release is installed when it is stable, at least 3 days
 old (time to withdraw a bad one), and, while PiWorker is 0.x, only within
 the same minor version (other updates are offered, not installed); in the
 configured nightly window with a random delay.
@@ -196,7 +194,6 @@ changes it.
 2. Restore from the first-run setup page.
 3. S3-compatible destination and age encryption.
 4. Update check and notice.
-5. Signature verification in `piworkerctl`.
-6. Requested and automatic updates.
+5. Requested and automatic updates.
 
-Every phase is test-first; phases 1–3 under ADR-0032, 4–6 under ADR-0033.
+Every phase is test-first; phases 1–3 under ADR-0032, 4–5 under ADR-0033.
