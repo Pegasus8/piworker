@@ -44,6 +44,7 @@ func (h *BackupsHandler) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/backups/settings", h.SaveSettings).Methods(http.MethodPut)
 	r.HandleFunc("/api/backups/{name}", h.Delete).Methods(http.MethodDelete)
 	r.HandleFunc("/api/backups/{name}/restore", h.Restore).Methods(http.MethodPost)
+	h.registerRemoteRoutes(r)
 }
 
 // BackupsOverview is GET /api/backups: the settings, where backups go, the
@@ -56,6 +57,8 @@ type BackupsOverview struct {
 	NextRun        *time.Time      `json:"nextRun"`
 	Backups        []backup.Info   `json:"backups"`
 	RestorePending bool            `json:"restorePending"`
+	// Remote is the S3-compatible destination, without its secrets.
+	Remote backup.RemoteState `json:"remote"`
 }
 
 // Overview answers BackupsOverview.
@@ -81,6 +84,9 @@ func (h *BackupsHandler) Overview(w http.ResponseWriter, r *http.Request) {
 	ov := BackupsOverview{
 		Settings: set, Dir: dir, DefaultDir: svc.DefaultDir(), Status: svc.Status(), Backups: list,
 		RestorePending: svc.RestorePending(),
+	}
+	if ov.Remote, err = svc.RemoteState(); err != nil {
+		h.opts.Logger.Warn().Err(err).Msg("Cannot read the remote backup destination")
 	}
 	if next := svc.NextRun(); !next.IsZero() {
 		ov.NextRun = &next

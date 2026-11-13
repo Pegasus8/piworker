@@ -4,7 +4,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { apiClient } from '@/composables/useApi'
 import { BACKGROUND_HEADERS } from '@/stores/agent'
-import { backupAlert, overviewFrom, settingsRequest, type BackupSettings, type BackupsOverview } from '@/lib/backups'
+import { backupAlert, overviewFrom, remoteRequest, remoteStateFrom, settingsRequest, type BackupEntry, type BackupSettings, type BackupsOverview, type RemoteSettings } from '@/lib/backups'
 
 /** How often the navigation re-reads the backup status. */
 export const BACKUPS_POLL_MS = 5 * 60_000
@@ -64,5 +64,43 @@ export const useBackupsStore = defineStore('backups', () => {
     return false
   }
 
-  return { overview, alert, fetchOverview, backUpNow, saveSettings, remove, restore, waitForRestart }
+  /** Saves the remote destination; empty secrets keep the stored ones. */
+  async function saveRemote(settings: RemoteSettings, extra: { secretKey: string; passphrase: string; password: string }) {
+    const { data } = await apiClient.put('/backups/remote', remoteRequest(settings, extra))
+    await fetchOverview()
+    return remoteStateFrom(data.data)
+  }
+
+  /** Checks the destination; the stored key is used only for the stored endpoint and key ID. */
+  async function testRemote(settings: RemoteSettings, secretKey: string) {
+    await apiClient.post('/backups/remote/test', remoteRequest(settings, { secretKey, passphrase: '', password: '' }))
+  }
+
+  async function listRemote(): Promise<BackupEntry[]> {
+    const { data } = await apiClient.get('/backups/remote/list')
+    return overviewFrom({ backups: data.data }).backups
+  }
+
+  async function restoreRemote(name: string, password: string) {
+    await apiClient.post(`/backups/remote/${path(name)}/restore`, { password })
+  }
+
+  /** The backup encrypted with passphrase, as a file to save. */
+  async function download(name: string, passphrase: string, password: string): Promise<Blob> {
+    const { data } = await apiClient.post(`/backups/${path(name)}/download`, { passphrase, password }, { responseType: 'blob' })
+    return data as Blob
+  }
+
+  /** Restores an uploaded backup file (base64) on this installation. */
+  async function upload(data: string, passphrase: string, password: string) {
+    await apiClient.post('/backups/upload', { data, passphrase, password })
+  }
+
+  /** Restores a backup on the setup page of a fresh installation. */
+  async function setupRestore(data: string, passphrase: string, code: string) {
+    await apiClient.post('/auth/setup/restore', { data, passphrase, code })
+  }
+
+  return { overview, alert, fetchOverview, backUpNow, saveSettings, remove, restore, waitForRestart,
+    saveRemote, testRemote, listRemote, restoreRemote, download, upload, setupRestore }
 })

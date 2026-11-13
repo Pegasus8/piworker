@@ -231,7 +231,33 @@ func NormalizeNewCredentials(username, password string) (string, bool) {
 	return username, username != "" && len(username) <= MaxUsernameLength && validNewPassword(password)
 }
 
-func (h *AuthHandler) Setup(w http.ResponseWriter, r *http.Request)   { h.redeem(w, r, "setup") }
+func (h *AuthHandler) Setup(w http.ResponseWriter, r *http.Request) { h.redeem(w, r, "setup") }
+
+// checkSetupCode verifies the setup code for restoring a backup on the
+// setup page, under the login limiter, without consuming it: a backup that
+// turns out invalid leaves the code usable. consumeSetupCode uses it up.
+func (h *AuthHandler) checkSetupCode(w http.ResponseWriter, r *http.Request, code string) bool {
+	ip := peerIP(r)
+	if !reserve(w, h.login, ip, "") {
+		return false
+	}
+	ok, err := h.store.SetupCodeValid(code, time.Now())
+	if err != nil {
+		writeError(w, 500, "Cannot read the setup code")
+		return false
+	}
+	if !ok {
+		h.login.failure(ip, "")
+		writeError(w, 403, "Invalid or expired code, or setup already completed")
+		return false
+	}
+	return true
+}
+
+func (h *AuthHandler) consumeSetupCode(r *http.Request, code string) error {
+	h.login.success(peerIP(r), "")
+	return h.store.ConsumeSetupCode(code)
+}
 func (h *AuthHandler) Recover(w http.ResponseWriter, r *http.Request) { h.redeem(w, r, "recovery") }
 func (h *AuthHandler) redeem(w http.ResponseWriter, r *http.Request, purpose string) {
 	req, ip, ok := h.readCredentials(w, r)
@@ -371,7 +397,7 @@ func authMiddleware(h *AuthHandler, touch func(*http.Request) bool) mux.Middlewa
 				return
 			}
 			switch r.URL.Path {
-			case "/api/auth/login", "/api/auth/setup", "/api/auth/recover", "/api/auth/status", "/api/health":
+			case "/api/auth/login", "/api/auth/setup", "/api/auth/setup/restore", "/api/auth/recover", "/api/auth/status", "/api/health":
 				next.ServeHTTP(w, r)
 				return
 			}

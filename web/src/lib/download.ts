@@ -8,3 +8,13 @@ export function downloadJson(data: unknown, filename: string) {
   a.click()
   URL.revokeObjectURL(url)
 }
+
+/** Saves a binary file in the browser's downloads. */
+export function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}

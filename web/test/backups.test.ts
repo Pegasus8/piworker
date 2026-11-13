@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { setLocale } from '../src/i18n'
-import { backupAlert, formatSize, overviewFrom, reasonLabel, retentionError, settingsRequest } from '../src/lib/backups'
+import { MAX_UPLOAD_BYTES, backupAlert, backupFileError, formatSize, isEncryptedHead, overviewFrom, reasonLabel, remoteRequest, retentionError, settingsRequest } from '../src/lib/backups'
 
 const raw = {
   settings: { enabled: true, time: '03:17', dir: '', retention: { daily: 7, weekly: 4, monthly: 6 } },
@@ -71,4 +71,31 @@ test('retentionError and settingsRequest', () => {
   const req = settingsRequest({ enabled: true, time: '03:17', dir: '  /mnt/usb/piworker  ', retention: { daily: 7, weekly: 4, monthly: 6 } }, '')
   expect(req).toEqual({ enabled: true, time: '03:17', dir: '/mnt/usb/piworker', retention: { daily: 7, weekly: 4, monthly: 6 } })
   expect(settingsRequest({ enabled: true, time: '03:17', dir: '', retention: { daily: 7, weekly: 4, monthly: 6 } }, 'pw').password).toBe('pw')
+})
+
+test('remote state, remote alert and request', () => {
+  setLocale('en')
+  const now = Date.parse('2026-11-13T12:00:00Z')
+  const remote = { settings: { enabled: true, endpoint: 'https://s3.example.com', region: 'us-east-1', bucket: 'b', prefix: 'pi/', accessKeyId: 'AK', pathStyle: false }, hasSecretKey: true, hasPassphrase: true }
+  const ov = overviewFrom({ ...raw, remote, status: { ...raw.status, remoteLastError: 'Access Denied' } })
+  expect(ov.remote.settings.bucket).toBe('b')
+  expect(ov.remote.hasSecretKey).toBe(true)
+  expect(backupAlert(ov, now)).toEqual({ kind: 'error', text: expect.stringContaining('Access Denied') })
+  // A remote error is not shown while the destination is off.
+  const off = overviewFrom({ ...raw, remote: { ...remote, settings: { ...remote.settings, enabled: false } }, status: { ...raw.status, remoteLastError: 'x' } })
+  expect(backupAlert(off, now)).toBeNull()
+  expect(overviewFrom({}).remote.settings.enabled).toBe(false)
+
+  expect(remoteRequest(ov.remote.settings, { secretKey: '', passphrase: '', password: 'pw' })).toEqual({ ...remote.settings, password: 'pw' })
+  expect(remoteRequest({ ...ov.remote.settings, endpoint: ' https://x ' }, { secretKey: 'k', passphrase: 'p', password: '' })).toMatchObject({ endpoint: 'https://x', secretKey: 'k', passphrase: 'p' })
+})
+
+test('isEncryptedHead and backupFileError', () => {
+  setLocale('en')
+  expect(isEncryptedHead(new TextEncoder().encode('age-encryption.org/v1\n-> scrypt'))).toBe(true)
+  expect(isEncryptedHead(new Uint8Array([0x1f, 0x8b, 8, 0]))).toBe(false)
+  expect(backupFileError(new Uint8Array([0x1f, 0x8b, 8, 0]), 10)).toBe('')
+  expect(backupFileError(new TextEncoder().encode('age-encryption.org/v1\n'), 10)).toBe('')
+  expect(backupFileError(new TextEncoder().encode('{"json": true}'), 10)).not.toBe('')
+  expect(backupFileError(new Uint8Array([0x1f, 0x8b]), MAX_UPLOAD_BYTES + 1)).not.toBe('')
 })

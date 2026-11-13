@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -72,6 +73,10 @@ type Status struct {
 	// LastName and LastContentHash are the newest archive written.
 	LastName        string `json:"lastName,omitempty"`
 	LastContentHash string `json:"lastContentHash,omitempty"`
+	// The remote destination's last outcome.
+	RemoteLastSuccess *time.Time `json:"remoteLastSuccess,omitempty"`
+	RemoteLastError   string     `json:"remoteLastError,omitempty"`
+	RemoteLastName    string     `json:"remoteLastName,omitempty"`
 }
 
 // SettingsStore persists the settings (the storage settings table).
@@ -92,6 +97,9 @@ type ServiceOptions struct {
 	Location     *time.Location
 	Jitter       func() time.Duration
 	StartupDelay time.Duration
+	// RemoteTransport is the HTTP transport to the remote destination
+	// (tests); nil is the default.
+	RemoteTransport http.RoundTripper
 }
 
 // Service makes scheduled and manual backups, keeps the status, applies
@@ -285,6 +293,7 @@ func (s *Service) backUpLocked(ctx context.Context, reason string) (Info, bool, 
 		if err := s.prune(dir, set.Retention); err != nil {
 			s.opts.Logger.Warn().Err(err).Msg("Cannot remove expired backups")
 		}
+		s.syncRemote(ctx, dir, set.Retention, &st)
 	}
 	st.LastSuccess = &now
 	if reason == ReasonScheduled {
