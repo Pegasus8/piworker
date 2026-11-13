@@ -2,8 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
-	"sort"
+	"slices"
 
 	"github.com/Pegasus8/piworker/internal/brokers"
 	"github.com/Pegasus8/piworker/internal/flow"
@@ -54,7 +55,7 @@ func (h *SecretsHandler) RegisterRoutes(r *mux.Router) {
 type SecretItem struct {
 	Name  string      `json:"name"`
 	Short bool        `json:"short"`
-	Uses  []SecretUse `json:"uses"`
+	Uses  []SecretUse `json:"uses,omitempty"` // with ?usage=1; omitted when none
 }
 
 // SecretUse is one place a secret is referenced ({{secret.NAME}}): a node
@@ -85,7 +86,7 @@ type UndefinedSecret struct {
 // a longer value.
 type SecretsListResponse struct {
 	Secrets    []SecretItem      `json:"secrets"`
-	Undefined  []UndefinedSecret `json:"undefined"`
+	Undefined  []UndefinedSecret `json:"undefined,omitempty"` // with ?usage=1; omitted when none
 	ShortBelow int               `json:"shortBelow"`
 }
 
@@ -94,32 +95,33 @@ type SecretsListResponse struct {
 // (ADR-0021), and where each is used (WithUsage), so deleting or renaming
 // one is not a surprise. Uses are listed connections first (by name), then
 // flows (by name, then node order).
-func (h *SecretsHandler) ListSecrets(w http.ResponseWriter, _ *http.Request) {
-	uses, err := h.secretUses()
-	if err != nil {
-		h.logger.Error().Err(err).Msg("Failed to list where secrets are used")
-		writeError(w, http.StatusInternalServerError, "Failed to list where secrets are used")
-		return
-	}
+//
+// Uses are computed only with ?usage=1 (the Secrets dialog): they read every
+// stored flow, and the editor lists the names on every node it selects.
+func (h *SecretsHandler) ListSecrets(w http.ResponseWriter, r *http.Request) {
 	entries := h.store.List()
 	items := make([]SecretItem, 0, len(entries))
-	defined := map[string]bool{}
 	for _, e := range entries {
-		defined[e.Name] = true
-		u := uses[e.Name]
-		if u == nil {
-			u = []SecretUse{}
-		}
-		items = append(items, SecretItem{Name: e.Name, Short: e.Short, Uses: u})
+		items = append(items, SecretItem{Name: e.Name, Short: e.Short})
 	}
-	undefined := []UndefinedSecret{}
-	for name, u := range uses {
-		if !defined[name] {
-			undefined = append(undefined, UndefinedSecret{Name: name, Uses: u})
+	resp := SecretsListResponse{Secrets: items, ShortBelow: secrets.ShortValueRunes}
+	if r.URL.Query().Get("usage") == "1" {
+		uses, err := h.secretUses()
+		if err != nil {
+			h.logger.Error().Err(err).Msg("Failed to list where secrets are used")
+			writeError(w, http.StatusInternalServerError, "Failed to list where secrets are used")
+			return
+		}
+		for i := range resp.Secrets {
+			resp.Secrets[i].Uses = append([]SecretUse{}, uses[resp.Secrets[i].Name]...)
+			delete(uses, resp.Secrets[i].Name)
+		}
+		resp.Undefined = []UndefinedSecret{}
+		for _, name := range slices.Sorted(maps.Keys(uses)) {
+			resp.Undefined = append(resp.Undefined, UndefinedSecret{Name: name, Uses: uses[name]})
 		}
 	}
-	sort.Slice(undefined, func(i, j int) bool { return undefined[i].Name < undefined[j].Name })
-	writeSuccess(w, http.StatusOK, SecretsListResponse{Secrets: items, Undefined: undefined, ShortBelow: secrets.ShortValueRunes}, "")
+	writeSuccess(w, http.StatusOK, resp, "")
 }
 
 // secretUses maps each referenced secret name to where it is referenced.
@@ -137,12 +139,7 @@ func (h *SecretsHandler) secretUses() (map[string][]SecretUse, error) {
 		if err != nil {
 			return nil, err
 		}
-		sort.SliceStable(flows, func(i, j int) bool {
-			if flows[i].Name != flows[j].Name {
-				return flows[i].Name < flows[j].Name
-			}
-			return flows[i].ID < flows[j].ID
-		})
+		slices.SortFunc(flows, compareFlowsByName)
 		for _, f := range flows {
 			for _, ref := range flow.SecretReferences(f) {
 				uses[ref.Name] = append(uses[ref.Name], SecretUse{

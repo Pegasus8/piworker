@@ -1,7 +1,8 @@
 package builtin
 
 import (
-	"sort"
+	"maps"
+	"slices"
 
 	"github.com/Pegasus8/piworker/internal/node"
 )
@@ -17,24 +18,27 @@ var (
 
 // RequiredSecrets: the bot token's secrets.
 func (a *TelegramAction) RequiredSecrets() map[string][]string {
-	return requiredSecrets("botToken", a.botToken)
+	return secretsByProp(map[string]string{"botToken": a.botToken})
 }
 
 // RequiredSecrets: the webhook URL's secrets.
 func (a *NotifyAction) RequiredSecrets() map[string][]string {
-	return requiredSecrets("url", a.url)
+	return secretsByProp(map[string]string{"url": a.url})
 }
 
 // RequiredSecrets: the DSN's secrets.
 func (a *DatabaseAction) RequiredSecrets() map[string][]string {
-	return requiredSecrets("dsn", a.dsn)
+	return secretsByProp(map[string]string{"dsn": a.dsn})
 }
 
-// requiredSecrets maps a property to the secret names its value references.
-func requiredSecrets(prop, value string) map[string][]string {
+// secretsByProp maps each property of values to the secret names its value
+// references, leaving out the properties that reference none.
+func secretsByProp(values map[string]string) map[string][]string {
 	out := map[string][]string{}
-	if names := secretNames(value); len(names) > 0 {
-		out[prop] = names
+	for prop, v := range values {
+		if names := secretNames(v); len(names) > 0 {
+			out[prop] = names
+		}
 	}
 	return out
 }
@@ -66,7 +70,7 @@ var (
 
 // SecretReferences: the SMTP username's and password's secrets.
 func (a *EmailAction) SecretReferences() map[string][]string {
-	return referencedSecrets(map[string]string{"username": a.username, "password": a.password})
+	return secretsByProp(map[string]string{"username": a.username, "password": a.password})
 }
 
 // SecretReferences: the own broker username's and password's secrets (a
@@ -83,36 +87,17 @@ func (t *MqttTrigger) SecretReferences() map[string][]string {
 // SecretReferences: the secrets of the URL and of the header values (in
 // header name order), which fail the request when undefined.
 func (a *HTTPAction) SecretReferences() map[string][]string {
-	out := referencedSecrets(map[string]string{"url": a.url})
-	keys := make([]string, 0, len(a.headers))
-	for k := range a.headers {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	out := secretsByProp(map[string]string{"url": a.url})
 	var names []string
-	seen := map[string]bool{}
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(a.headers)) {
 		for _, name := range secretNames(a.headers[k]) {
-			if !seen[name] {
-				seen[name] = true
+			if !slices.Contains(names, name) {
 				names = append(names, name)
 			}
 		}
 	}
 	if len(names) > 0 {
 		out["headers"] = names
-	}
-	return out
-}
-
-// referencedSecrets maps each property of values to the secret names its
-// value references, leaving out the properties that reference none.
-func referencedSecrets(values map[string]string) map[string][]string {
-	out := map[string][]string{}
-	for prop, v := range values {
-		if names := secretNames(v); len(names) > 0 {
-			out[prop] = names
-		}
 	}
 	return out
 }

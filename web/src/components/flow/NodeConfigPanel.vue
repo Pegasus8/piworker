@@ -175,7 +175,7 @@ const duration = (field: ConfigField) => (field.type === 'number' || field.type 
         <p class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           <RiskBadge :risk="nodeTypeConfig.risk ?? ''" />
           <span>{{ risk.hint }}</span>
-          <span v-if="risk.rank < 2 && nodeTypeConfig.escalates">{{ m.editor.riskRaised }}</span>
+          <span v-if="nodeTypeConfig.riskCanRise">{{ m.editor.riskRaised }}</span>
         </p>
       </div>
       <Button variant="ghost" size="icon" class="shrink-0" :aria-label="m.editor.closeSettings" :title="m.editor.closeSettings" @click="close">

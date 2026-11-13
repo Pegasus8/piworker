@@ -209,3 +209,26 @@ func TestRestoreWithoutPasswordsKeepsTheExistingOnes(t *testing.T) {
 	assert.Equal(t, []string{"lab"}, rep.PasswordsNotRestored)
 	assert.Equal(t, Counts{Added: 1, Replaced: 1}, rep.Connections)
 }
+
+// Importing a connection identical to the one here keeps it (skipped) and
+// does not list it as changed, so no flow restarts for nothing.
+func TestRestoreSkipsIdenticalConnections(t *testing.T) {
+	b, err := Export(fixture(t), passphrase)
+	require.NoError(t, err)
+	dst := fixture(t)
+	rep, err := Restore(b, passphrase, dst, Options{Overwrite: true})
+	require.NoError(t, err)
+	assert.Equal(t, Counts{Skipped: 2}, rep.Connections)
+	assert.Empty(t, rep.ChangedConnections)
+}
+
+// A file asking for more scrypt memory than PiWorker writes is refused
+// before deriving anything.
+func TestOpenRefusesHeavyScryptParameters(t *testing.T) {
+	b, err := Export(fixture(t), passphrase)
+	require.NoError(t, err)
+	heavy := *b.Sealed
+	heavy.N = 1 << 20
+	_, err = heavy.Open(passphrase)
+	assert.ErrorIs(t, err, ErrInvalidBundle)
+}

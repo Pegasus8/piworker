@@ -28,8 +28,9 @@ func unresolvedSecretFlow() *flow.Flow {
 
 // TestLintWarnsAboutUnresolvedOptionalSecrets: an optional credential that
 // references an undefined secret is a warning (it would resolve to an empty
-// value), not an error: the flow still deploys, and DeployWarnings reports
-// the same issue so the editor can show it. Only the name is quoted.
+// value), not an error: the flow still deploys, and the runtime keeps the
+// same issue as a deploy warning so the editor can show it. Only the name is
+// quoted.
 func TestLintWarnsAboutUnresolvedOptionalSecrets(t *testing.T) {
 	f := unresolvedSecretFlow()
 	empty := secrets.WithStore(context.Background(), secrets.NewStore())
@@ -42,14 +43,20 @@ func TestLintWarnsAboutUnresolvedOptionalSecrets(t *testing.T) {
 
 	m := flow.NewRuntimeManager(node.DefaultRegistry, zerolog.Nop())
 	require.NoError(t, m.Deploy(empty, f), "a warning does not stop the deploy")
+	rt, ok := m.GetRuntime(f.ID)
+	require.True(t, ok)
+	assert.Equal(t, issues, rt.Warnings(), "the deploy's warnings are Lint's")
 	require.NoError(t, m.Undeploy(f.ID))
-	assert.Equal(t, issues, flow.DeployWarnings(empty, f, node.DefaultRegistry))
 
 	store := secrets.NewStore()
 	require.NoError(t, store.Set("pw_lint_smtp", "a-long-smtp-password-value"))
 	defined := secrets.WithStore(context.Background(), store)
 	assert.Empty(t, flow.LintContext(defined, f, node.DefaultRegistry))
-	assert.Empty(t, flow.DeployWarnings(defined, f, node.DefaultRegistry))
+	require.NoError(t, m.Deploy(defined, f))
+	rt, _ = m.GetRuntime(f.ID)
+	assert.NotNil(t, rt.Warnings())
+	assert.Empty(t, rt.Warnings())
+	require.NoError(t, m.Undeploy(f.ID))
 }
 
 // TestLintDoesNotWarnAboutDisabledNodesSecrets: a disabled node does not

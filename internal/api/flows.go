@@ -86,7 +86,7 @@ type FlowStatusResponse struct {
 	Running bool       `json:"running"`
 	// Warnings, on a deploy (POST /deploy, or a toggle that deploys), are
 	// what the flow deployed with but the admin should know: the warning
-	// issues of Lint (flow.DeployWarnings), such as an undefined secret an
+	// issues the deploy found (FlowRuntime.Warnings, Lint's), such as an undefined secret an
 	// optional credential references (unresolved_secret). Always a list:
 	// empty when there are none and on a stop.
 	Warnings []flow.Issue `json:"warnings"`
@@ -538,16 +538,19 @@ func (h *FlowsHandler) changeRunning(w http.ResponseWriter, r *http.Request, wan
 	}
 	resp := FlowStatusResponse{Flow: f, Running: wantRunning, Warnings: []flow.Issue{}}
 	if wantRunning {
-		resp.Warnings = h.deployWarnings(r.Context(), f)
+		resp.Warnings = h.deployWarnings(f)
 	}
 	writeSuccess(w, http.StatusOK, resp, "")
 }
 
-// deployWarnings returns, and logs, the warnings f deployed with
-// (flow.DeployWarnings, with the secrets of ctx: the process-wide store).
-// Never nil, so the response always carries the list.
-func (h *FlowsHandler) deployWarnings(ctx context.Context, f *flow.Flow) []flow.Issue {
-	warnings := flow.DeployWarnings(ctx, f, h.registry)
+// deployWarnings returns, and logs, the warnings the running flow f
+// deployed with (FlowRuntime.Warnings). Never nil.
+func (h *FlowsHandler) deployWarnings(f *flow.Flow) []flow.Issue {
+	rt, ok := h.manager.GetRuntime(f.ID)
+	if !ok {
+		return []flow.Issue{}
+	}
+	warnings := rt.Warnings()
 	for _, is := range warnings {
 		h.logger.Warn().Str("flowID", f.ID).Str("code", is.Code).Str("path", is.Path).Str("problem", is.Message).
 			Msg("Flow deployed with a warning")

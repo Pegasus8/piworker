@@ -44,7 +44,7 @@ export const useNodeTypesStore = defineStore('nodeTypes', () => {
           category: categoryMap[node.category] || node.category,
           icon: lucideIconName(node.icon ?? ''),
           risk: typeof node.risk === 'string' ? node.risk : undefined,
-          escalates: node.riskCanRise === true,
+          riskCanRise: node.riskCanRise === true,
           inputs: node.inputs || [],
           outputs: node.outputs || [],
           configSchema: buildConfigSchema(node)

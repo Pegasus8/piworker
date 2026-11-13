@@ -24,3 +24,9 @@ func TestExpand(t *testing.T) {
 	assert.Equal(t, "plain", Expand(ctx, "plain"))
 	assert.Equal(t, "", Expand(WithStore(context.Background(), nil), "{{secret.mqtt}}"), "an isolated store")
 }
+
+// References names the secrets Expand would resolve, in order, each once.
+func TestReferences(t *testing.T) {
+	assert.Equal(t, []string{"b", "a"}, References("{{ secret.b }}-{{secret.a}}{{secret.b}}{{secret}}{{payload.x}}"))
+	assert.Empty(t, References("plain"))
+}

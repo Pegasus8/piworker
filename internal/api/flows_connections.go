@@ -1,8 +1,8 @@
 package api
 
 import (
+	"cmp"
 	"context"
-	"errors"
 	"slices"
 
 	"github.com/Pegasus8/piworker/internal/flow"
@@ -19,6 +19,13 @@ type FlowRef struct {
 	Name string `json:"name"`
 }
 
+func flowRef(f *flow.Flow) FlowRef { return FlowRef{ID: f.ID, Name: f.Name} }
+
+// compareFlowsByName orders flows by name, then ID (a total order).
+func compareFlowsByName(a, b *flow.Flow) int {
+	return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.ID, b.ID))
+}
+
 // FlowRestartFailure is a flow that a restart stopped and could not deploy
 // again (it is now failed), with the reason.
 type FlowRestartFailure struct {
@@ -26,55 +33,43 @@ type FlowRestartFailure struct {
 	Error string `json:"error"`
 }
 
-// runningUsersLocked returns the running flows whose enabled nodes name the
-// connection (flow.ConnectionsUsed), in the order the manager lists them;
-// callers hold lifecycleMu.
-func (h *FlowsHandler) runningUsersLocked(name string) []*flow.Flow {
+// runningUsersLocked returns the definitions of the running flows whose
+// nodes name any of the connections, sorted by name. It asks the running
+// instances (FlowRuntime.ConnectionsUsed): no storage read, no node built,
+// and it is the definition that runs. Callers hold lifecycleMu.
+func (h *FlowsHandler) runningUsersLocked(names []string) []*flow.Flow {
 	var out []*flow.Flow
 	for _, id := range h.manager.ListRunning() {
-		f, err := h.store.GetFlow(id)
-		if err != nil {
-			h.logger.Error().Err(err).Str("flowID", id).Msg("Failed to load a running flow")
+		rt, ok := h.manager.GetRuntime(id)
+		if !ok {
 			continue
 		}
-		if slices.Contains(flow.ConnectionsUsed(f, h.registry), name) {
-			out = append(out, f)
+		if slices.ContainsFunc(rt.ConnectionsUsed(), func(c string) bool { return slices.Contains(names, c) }) {
+			out = append(out, rt.Flow())
 		}
 	}
-	slices.SortStableFunc(out, func(a, b *flow.Flow) int {
-		if a.Name != b.Name {
-			if a.Name < b.Name {
-				return -1
-			}
-			return 1
-		}
-		if a.ID < b.ID {
-			return -1
-		}
-		return 1
-	})
+	slices.SortFunc(out, compareFlowsByName)
 	return out
 }
 
-// RestartFlowsUsing restarts every running flow that uses the broker
-// connection name, so it runs with the connection's current settings: each
-// is stopped and deployed again (the same stored version; the deployment
-// marker is kept). A flow that cannot be deployed again is marked failed
-// and reported. After BeginShutdown nothing is restarted.
-func (h *FlowsHandler) RestartFlowsUsing(ctx context.Context, name string) ([]FlowRef, []FlowRestartFailure) {
+// RestartFlowsUsing restarts, once each, every running flow that uses any
+// of the broker connections names, so it runs with their current
+// settings: each is stopped and deployed again (the definition that ran;
+// the deployment marker is kept). A flow that cannot be deployed again is
+// marked failed and reported. After BeginShutdown nothing is restarted.
+func (h *FlowsHandler) RestartFlowsUsing(ctx context.Context, names []string) ([]FlowRef, []FlowRestartFailure) {
 	h.lifecycleMu.Lock()
 	defer h.lifecycleMu.Unlock()
 	restarted, failed := []FlowRef{}, []FlowRestartFailure{}
-	if h.shuttingDown {
+	if h.shuttingDown || len(names) == 0 {
 		return restarted, failed
 	}
-	for _, f := range h.runningUsersLocked(name) {
-		ref := FlowRef{ID: f.ID, Name: f.Name}
+	for _, f := range h.runningUsersLocked(names) {
 		if err := h.restartLocked(ctx, f); err != nil {
-			failed = append(failed, FlowRestartFailure{FlowRef: ref, Error: err.Error()})
+			failed = append(failed, FlowRestartFailure{FlowRef: flowRef(f), Error: err.Error()})
 			continue
 		}
-		restarted = append(restarted, ref)
+		restarted = append(restarted, flowRef(f))
 	}
 	return restarted, failed
 }
@@ -97,22 +92,19 @@ func (h *FlowsHandler) restartLocked(ctx context.Context, f *flow.Flow) error {
 	return nil
 }
 
-// ErrConnectionInUse refuses deleting a broker connection a running flow
-// uses.
-var ErrConnectionInUse = errors.New("the connection is used by running flows")
-
 // UnlessRunningFlowsUse runs fn (the deletion of the connection name) under
 // the lifecycle lock unless a running flow uses the connection; then it
-// returns those flows and ErrConnectionInUse, and fn does not run.
+// returns those flows and fn does not run.
 func (h *FlowsHandler) UnlessRunningFlowsUse(name string, fn func() error) ([]FlowRef, error) {
 	h.lifecycleMu.Lock()
 	defer h.lifecycleMu.Unlock()
-	if users := h.runningUsersLocked(name); len(users) > 0 {
-		refs := make([]FlowRef, 0, len(users))
-		for _, f := range users {
-			refs = append(refs, FlowRef{ID: f.ID, Name: f.Name})
-		}
-		return refs, ErrConnectionInUse
+	users := h.runningUsersLocked([]string{name})
+	if len(users) == 0 {
+		return nil, fn()
 	}
-	return nil, fn()
+	refs := make([]FlowRef, 0, len(users))
+	for _, f := range users {
+		refs = append(refs, flowRef(f))
+	}
+	return refs, nil
 }

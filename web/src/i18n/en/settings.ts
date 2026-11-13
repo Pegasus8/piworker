@@ -94,7 +94,6 @@ export default {
     countsLine: (label: string, added: number, replaced: number, skipped: number, _feminine: boolean) =>
       `${label}: ${[added ? `${added} added` : '', replaced ? `${replaced} replaced` : '', skipped ? `${skipped} kept` : ''].filter(Boolean).join(', ')}.`,
     restarted: (flows: string[]) => `Restarted with the imported connections: ${flows.map(f => `“${f}”`).join(', ')}.`,
-    restartFailed: (flows: string[]) => `Stopped and could not start again (now failed): ${flows.join('; ')}.`,
     secretsNotRestored: (names: string[]) => `Secret values not imported (no passphrase, or not in the file): ${names.join(', ')}. Define them under Secrets.`,
     passwordsNotRestored: (names: string[]) => `Connections created without their password: ${names.join(', ')}. Set it under Broker connections.`,
     unmatchedFlows: (flows: string[]) => `No flow here matches, so their variables were not imported: ${flows.join(', ')}. Import or rename the flow, then import again.`,

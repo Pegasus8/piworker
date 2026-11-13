@@ -55,18 +55,24 @@ Option B.
   value. It is an environment issue (`flow.EnvironmentIssue`), like
   `undefined_secret`, and never blocks a deploy, a dry-run or a draft.
 - **Deploy response.** `POST /api/flows/{id}/deploy` and
-  `PATCH /api/flows/{id}/toggle` answer `data.warnings`: the warning issues
-  of Lint for the deployed flow (`flow.DeployWarnings`), always a list
-  (empty on a stop). The editor shows them as a warning toast that stays
-  until dismissed; startup logs them for the flows it restores.
+  `PATCH /api/flows/{id}/toggle` answer `data.warnings`: the warnings the
+  deploy itself found with the instances it built (the tool risk warnings
+  and `unresolved_secret`, rendered as Lint renders them;
+  `FlowRuntime.Warnings`), always a list (empty on a stop). Every deploy
+  path records them, with no second Lint. The editor shows them as a
+  warning toast that stays until dismissed; startup logs them for the
+  flows it restores.
 - **Agents.** Where an agent wrote the setting, the authoring
   `unknown_secret` warning (which echoes what the agent wrote, ADR-0021) is
   kept and Lint's `unresolved_secret` of the same setting is left out; for
   a setting the agent cannot read, the message does not name the secret.
 - **Usage.** `flow.SecretReferences(f)` lists every `{{secret.NAME}}` in a
   flow's node settings (node, setting, enabled), and
-  `brokers.SecretReferences(c)` those of a connection's credentials.
-  `GET /api/secrets` answers, for each secret, `uses` (flow ID and name,
+  `brokers.SecretReferences(c)` those of a connection's credentials (both
+  parse references as `secrets.Expand` resolves them, `secrets.References`).
+  `GET /api/secrets?usage=1` (only the Secrets dialog asks: it reads every
+  stored flow; the plain listing, which the editor reads on every node it
+  selects, stays names only) answers, for each secret, `uses` (flow ID and name,
   whether it is deployed, node ID and type, whether the node is disabled,
   setting; or connection and setting) and a new `undefined` list: the
   names referenced somewhere that no secret has, with their uses. Values
@@ -88,6 +94,6 @@ Option B.
 ## Action items
 
 1. [x] `node.SecretReferencer`, the builtin implementations, the Lint
-   collector and `flow.DeployWarnings`.
+   collector and the deploy's warnings (`FlowRuntime.Warnings`).
 2. [x] `data.warnings` on deploy and toggle; the editor's warning toast.
 3. [x] `uses` and `undefined` in `GET /api/secrets`; the Secrets dialog.

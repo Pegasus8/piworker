@@ -6,7 +6,6 @@ import (
 	"github.com/gorilla/mux"
 	"io"
 	"net/http"
-	"regexp"
 )
 
 // VariablesHandler manages the same global store used by Get/Set Variable nodes.
@@ -25,11 +24,9 @@ func (h *VariablesHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, http.StatusOK, map[string]interface{}{"variables": h.store.Snapshot()}, "")
 }
 
-var variableName = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
-
 func (h *VariablesHandler) Set(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
-	if len(name) > 128 || !variableName.MatchString(name) {
+	if !flowvars.ValidName(name) {
 		writeError(w, 400, "Invalid variable name")
 		return
 	}

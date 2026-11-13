@@ -57,11 +57,13 @@ Option B.
   (`undefined_connection`, ADR-0026). `broker` is no longer a required
   schema property; existing flows are unchanged.
 - **Changing a connection.** `PUT /api/connections/{name}` stores it, then
-  restarts every *running* flow whose enabled nodes name it
-  (`flow.ConnectionsUsed`; Zigbee and MQTT alike): each is stopped and
-  deployed again from its stored version under the editor's lifecycle lock,
-  keeping its deployment marker. A flow that cannot start again is stored
-  as failed. The response is `{restarted: [{id, name}], failed: [{id, name,
+  restarts every *running* flow whose nodes name it, as its running
+  instances answer (`FlowRuntime.ConnectionsUsed`; Zigbee and MQTT alike):
+  each is stopped and deployed again with the definition that was running,
+  under the editor's lifecycle lock, keeping its deployment marker. A save
+  that changes nothing restarts nothing; several connections changed at once
+  (an import) restart each flow once. A flow that cannot start again is
+  stored as failed. The response is `{restarted: [{id, name}], failed: [{id, name,
   error}]}`. Stopped flows pick the new settings up at their next deploy.
 - **Deleting a connection.** `DELETE /api/connections/{name}` is refused
   with 409 while a running flow uses it; the error names the flows and

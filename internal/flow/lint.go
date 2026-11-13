@@ -772,22 +772,6 @@ func LintContext(ctx context.Context, f *Flow, reg *node.Registry) []Issue {
 	return lintIssues(f, reg, all)
 }
 
-// DeployWarnings returns the warning issues of LintContext for f: what a
-// deploy goes ahead with but the admin should know, such as a secret an
-// optional credential references that is not defined
-// (IssueUnresolvedSecret) or a tool risk warning. The editor's deploy
-// response carries them and startup logs them for the flows it restores.
-// Never nil.
-func DeployWarnings(ctx context.Context, f *Flow, reg *node.Registry) []Issue {
-	out := []Issue{}
-	for _, is := range LintContext(ctx, f, reg) {
-		if is.Severity == IssueWarning {
-			out = append(out, is)
-		}
-	}
-	return out
-}
-
 // positionFindings reports the nodes whose position ValidPosition refuses.
 // Positions do not affect a run, so only Lint (not deploy) checks them: they
 // bound what a draft can store and the layout has to work with.
@@ -882,7 +866,6 @@ func Risk(f *Flow, reg *node.Registry) node.Risk {
 // property of its schema turned on (allowPrivate, allowDashArgs, …) makes it
 // privileged. An unregistered type, or one declaring no valid risk, is
 // privileged.
-// RiskCanRise must name every type and property this function escalates on.
 func instanceRisk(n *Node, reg *node.Registry) node.Risk {
 	if reg == nil {
 		return node.RiskPrivileged
@@ -899,32 +882,31 @@ func instanceRisk(n *Node, reg *node.Registry) node.Risk {
 			}
 		}
 	}
-	switch n.Type {
-	case "action-http", "action-notify":
-		if dynamicDestination(configString(cfg, "url")) || configBool(cfg, "allowPrivate") {
-			return node.RiskPrivileged
-		}
-	case "action-mqtt":
-		if dynamicDestination(configString(cfg, "broker")) {
-			return node.RiskPrivileged
-		}
+	if prop, ok := dynamicDestinationProp[n.Type]; ok && dynamicDestination(configString(cfg, prop)) {
+		return node.RiskPrivileged
+	}
+	if (n.Type == "action-http" || n.Type == "action-notify") && configBool(cfg, "allowPrivate") {
+		return node.RiskPrivileged
 	}
 	return info.Risk
 }
+
+// dynamicDestinationProp is, by node type, the destination setting that
+// raises an instance to privileged when it is built from the message
+// (instanceRisk); RiskCanRise reads the same table.
+var dynamicDestinationProp = map[string]string{"action-http": "url", "action-notify": "url", "action-mqtt": "broker"}
 
 // RiskCanRise reports whether a setting can raise an instance of the type
 // info describes above the type's risk, by instanceRisk's rules: a
 // RiskSwitch property, or a destination that instanceRisk escalates when it
 // is built from the message (the URL of HTTP Request and Notify, the broker
-// of MQTT Publish). A privileged type cannot rise. The editor says so in a
-// node's settings (GET /api/node-types riskCanRise); keep it in step with
-// instanceRisk.
+// of MQTT Publish, dynamicDestinationProp). A privileged type cannot rise.
+// The editor says so in a node's settings (GET /api/node-types riskCanRise).
 func RiskCanRise(info node.NodeTypeInfo) bool {
 	if info.Risk == node.RiskPrivileged || !info.Risk.Valid() {
 		return false
 	}
-	switch info.Type {
-	case "action-http", "action-notify", "action-mqtt":
+	if _, ok := dynamicDestinationProp[info.Type]; ok {
 		return true
 	}
 	if info.Config != nil {

@@ -118,6 +118,9 @@ type FlowRuntime struct {
 	// Node instances keyed by node ID
 	nodes map[string]node.Node
 
+	// warnings are the deploy's warnings (deployWarnings), set before Start.
+	warnings []Issue
+
 	// Trigger nodes that need to be started
 	triggers map[string]node.TriggerNode
 
@@ -1284,6 +1287,7 @@ func (m *RuntimeManager) deploy(ctx context.Context, f *Flow, extra ...RuntimeOp
 		metrics.RecordFlowDeployment(false)
 		return err
 	}
+	rt.warnings = deployWarnings(ctx, rt, m.registry, issues)
 	m.keepTools(rt, tools, issues)
 
 	// Start the runtime

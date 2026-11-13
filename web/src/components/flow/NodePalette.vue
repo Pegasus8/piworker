@@ -43,6 +43,9 @@ const filteredNodeTypes = computed(() => {
   )
 })
 
+// Each type's risk, once per list (not per render of each row).
+const risks = computed(() => new Map(nodeTypesStore.nodeTypes.map(n => [n.id, nodeRisk(n.risk)])))
+
 const getNodesByCategory = (category: NodeCategory) => {
   return filteredNodeTypes.value.filter(n => n.category === category)
 }
@@ -142,9 +145,9 @@ function onDragStart(event: DragEvent, nodeTypeId: string) {
               <div class="flex-1 min-w-0">
                 <div class="text-sm font-medium truncate">{{ nodeType.name }}</div>
                 <!-- External and privileged types are marked: icon and words, never color alone. -->
-                <div v-if="nodeRisk(nodeType.risk).marked" class="flex items-center gap-0.5 text-[10px] font-medium uppercase tracking-wide"
-                  :class="nodeRisk(nodeType.risk).variant === 'destructive' ? 'text-destructive' : 'text-muted-foreground'" :title="nodeRisk(nodeType.risk).hint">
-                  <component :is="draftIcon(nodeRisk(nodeType.risk).icon)" class="h-3 w-3" aria-hidden="true" />{{ nodeRisk(nodeType.risk).label }}
+                <div v-if="risks.get(nodeType.id)?.marked" class="flex items-center gap-0.5 text-[10px] font-medium uppercase tracking-wide"
+                  :class="risks.get(nodeType.id)?.variant === 'destructive' ? 'text-destructive' : 'text-muted-foreground'" :title="risks.get(nodeType.id)?.hint">
+                  <component :is="draftIcon(risks.get(nodeType.id)!.icon)" class="h-3 w-3" aria-hidden="true" />{{ risks.get(nodeType.id)?.label }}
                 </div>
                 <div class="line-clamp-2 text-xs text-muted-foreground">
                   {{ nodeType.description }}

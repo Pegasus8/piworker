@@ -48,14 +48,15 @@ func parseMqttTarget(base *node.BaseNode) (mqttTarget, error) {
 // endpoint is what the node connects with, its credentials resolved
 // through ctx, in the sandbox of ctx if any (nodes in a sandbox never share
 // a connection with nodes outside it, ADR-0020). A named connection that
-// the context's store does not define is an error.
+// the context's store does not define is brokers.ErrUndefined.
 func (t mqttTarget) endpoint(ctx context.Context, clientID string) (mqttpool.Endpoint, error) {
 	if t.connection == "" {
-		return mqttEndpointFor(ctx, t.broker, t.username, t.password, clientID), nil
+		return mqttpool.Endpoint{Broker: t.broker, Username: expandSecrets(ctx, t.username), Password: expandSecrets(ctx, t.password),
+			ClientID: clientID, Sandbox: node.SandboxFrom(ctx)}, nil
 	}
-	c, ok := brokers.FromContext(ctx).Get(t.connection)
-	if !ok {
-		return mqttpool.Endpoint{}, fmt.Errorf("broker connection %q is not defined", t.connection)
+	c, err := brokers.Lookup(ctx, t.connection)
+	if err != nil {
+		return mqttpool.Endpoint{}, err
 	}
 	ep := c.Endpoint(ctx)
 	ep.ClientID = clientID
@@ -74,7 +75,7 @@ func (t mqttTarget) requiredConnections() map[string]string {
 // secretReferences is node.SecretReferencer's answer: the secrets of the
 // node's own credentials (a connection's are the connection's).
 func (t mqttTarget) secretReferences() map[string][]string {
-	return referencedSecrets(map[string]string{"username": t.username, "password": t.password})
+	return secretsByProp(map[string]string{"username": t.username, "password": t.password})
 }
 
 // String names the target for logs, never its credentials.

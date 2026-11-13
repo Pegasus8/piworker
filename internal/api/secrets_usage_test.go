@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// GET /api/secrets says where each secret is used (flow, node, setting, or
+// GET /api/secrets?usage=1 says where each secret is used (flow, node, setting, or
 // a broker connection's credentials) and lists the references to secrets
 // that are not defined, so the admin sees what deleting or renaming one
 // breaks. Values are never returned.
@@ -45,6 +45,11 @@ func TestListSecretsShowsWhereEachIsUsed(t *testing.T) {
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/secrets", nil))
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	assert.NotContains(t, rr.Body.String(), `"uses"`, "uses only on request: they read every flow")
+
+	rr = httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/secrets?usage=1", nil))
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 	assert.NotContains(t, rr.Body.String(), "a-long-value-of-the-password")
 
 	var resp struct {
@@ -58,7 +63,6 @@ func TestListSecretsShowsWhereEachIsUsed(t *testing.T) {
 		{FlowID: f.ID, FlowName: "Mailer", NodeID: "mail", NodeType: "action-email", Setting: "password"},
 	}, resp.Data.Secrets[0].Uses)
 	assert.Equal(t, "unused", resp.Data.Secrets[1].Name)
-	assert.NotNil(t, resp.Data.Secrets[1].Uses)
 	assert.Empty(t, resp.Data.Secrets[1].Uses)
 	assert.Equal(t, []UndefinedSecret{{Name: "ghost", Uses: []SecretUse{
 		{FlowID: f.ID, FlowName: "Mailer", NodeID: "mail", NodeType: "action-email", Setting: "username"},

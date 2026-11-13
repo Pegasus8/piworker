@@ -6,6 +6,9 @@ import { importResult, type ImportResult } from '@/lib/storesBackup'
 
 /** A deploy's result: whether the flow runs and the warnings it deployed with. */
 export interface DeployOutcome { running: boolean; warnings: FlowIssue[] }
+function deployOutcome(d: { running: boolean; warnings?: FlowIssue[] }): DeployOutcome {
+  return { running: d.running, warnings: d.warnings ?? [] }
+}
 
 const api = axios.create({
   baseURL: '/api',
@@ -88,7 +91,7 @@ export function useApi() {
   // (lib/deployWarnings.ts); stopping answers none.
   async function toggleFlow(id: string, enabled: boolean, version?: number): Promise<DeployOutcome> {
     const { data } = await api.patch(`/flows/${id}/toggle`, enabled && version ? { enabled, version } : { enabled })
-    return { running: data.data.running, warnings: data.data.warnings ?? [] }
+    return deployOutcome(data.data)
   }
 
   // Version history and rollback to the version the admin last approved.
@@ -144,8 +147,10 @@ export function useApi() {
 
   // Secrets (values are write-only; the listing returns names and whether
   // each value is short, never values or lengths).
-  async function getSecrets(): Promise<SecretList> {
-    const { data } = await api.get('/secrets')
+  // usage: also where each secret is used (reads every flow on the server;
+  // only the Secrets dialog asks).
+  async function getSecrets(usage = false): Promise<SecretList> {
+    const { data } = await api.get('/secrets', usage ? { params: { usage: 1 } } : undefined)
     return secretList(data.data)
   }
 
@@ -170,7 +175,7 @@ export function useApi() {
   // 409 with data.currentVersion when another one was saved since.
   async function deployFlow(id: string, version?: number): Promise<DeployOutcome> {
     const { data } = await api.post(`/flows/${id}/deploy`, version ? { version } : undefined)
-    return { running: data.data.running, warnings: data.data.warnings ?? [] }
+    return deployOutcome(data.data)
   }
 
   async function stopFlow(id: string): Promise<boolean> {

@@ -43,6 +43,9 @@ type StoresBackupHandler struct {
 
 // NewStoresBackupHandler creates the handler.
 func NewStoresBackupHandler(opts StoresBackupOptions) *StoresBackupHandler {
+	if opts.Restarter == nil {
+		opts.Restarter = noUsers{}
+	}
 	return &StoresBackupHandler{opts: opts}
 }
 
@@ -141,9 +144,8 @@ type StoresImportRequest struct {
 // StoresImportResponse is what the import did, and the running flows it
 // restarted because a connection they use changed.
 type StoresImportResponse struct {
-	Report    storesbackup.Report  `json:"report"`
-	Restarted []FlowRef            `json:"restarted"`
-	Failed    []FlowRestartFailure `json:"failed"`
+	Report storesbackup.Report `json:"report"`
+	ConnectionStoredResponse
 }
 
 // Import restores a stores file. A wrong passphrase or an invalid file is a
@@ -172,14 +174,9 @@ func (h *StoresBackupHandler) Import(w http.ResponseWriter, r *http.Request) {
 		writeErrorData(w, http.StatusInternalServerError, "The import stopped partway: "+err.Error(), StoresImportResponse{Report: report})
 		return
 	}
-	resp := StoresImportResponse{Report: report, Restarted: []FlowRef{}, Failed: []FlowRestartFailure{}}
-	if h.opts.Restarter != nil {
-		for _, name := range report.ChangedConnections {
-			restarted, failed := h.opts.Restarter.RestartFlowsUsing(r.Context(), name)
-			resp.Restarted = append(resp.Restarted, restarted...)
-			resp.Failed = append(resp.Failed, failed...)
-		}
-	}
+	// One pass: a flow using several changed connections restarts once.
+	resp := StoresImportResponse{Report: report}
+	resp.Restarted, resp.Failed = h.opts.Restarter.RestartFlowsUsing(r.Context(), report.ChangedConnections)
 	h.opts.Logger.Info().Int("secrets", report.Secrets.Added+report.Secrets.Replaced).
 		Int("connections", report.Connections.Added+report.Connections.Replaced).Msg("Stores imported")
 	writeSuccess(w, http.StatusOK, resp, "")

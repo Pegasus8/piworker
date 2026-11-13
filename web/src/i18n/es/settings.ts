@@ -91,7 +91,6 @@ const es: typeof en = {
       return `${label}: ${[added ? word(added, 'añadid') : '', replaced ? word(replaced, 'reemplazad') : '', skipped ? word(skipped, 'conservad') : ''].filter(Boolean).join(', ')}.`
     },
     restarted: (flows: string[]) => `Reiniciados con las conexiones importadas: ${flows.map(f => `«${f}»`).join(', ')}.`,
-    restartFailed: (flows: string[]) => `Detenidos y sin poder volver a arrancar (ahora con error): ${flows.join('; ')}.`,
     secretsNotRestored: (names: string[]) => `Valores de secretos no importados (sin frase de paso, o no estaban en el archivo): ${names.join(', ')}. Defínelos en Secretos.`,
     passwordsNotRestored: (names: string[]) => `Conexiones creadas sin su contraseña: ${names.join(', ')}. Ponla en Conexiones a brokers.`,
     unmatchedFlows: (flows: string[]) => `Ningún flujo de aquí coincide, así que no se importaron sus variables: ${flows.join(', ')}. Importa o renombra el flujo y vuelve a importar.`,

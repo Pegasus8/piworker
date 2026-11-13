@@ -60,6 +60,8 @@ test('the secrets listing reads names and short marks, never values', async () =
   getData = { secrets: [{ name: 'pin', short: true }, { name: 'api_key', short: false, value: 'leak' }], shortBelow: 16 }
   expect(await api.getSecrets()).toEqual({ secrets: [{ name: 'pin', short: true, uses: [] }, { name: 'api_key', short: false, uses: [] }], undefined: [], shortBelow: 16 })
   expect(gets.at(-1)).toEqual({ url: '/secrets', config: undefined })
+  await api.getSecrets(true)
+  expect(gets.at(-1)).toEqual({ url: '/secrets', config: { params: { usage: 1 } } })
   getData = null
   expect(await api.getSecrets()).toEqual({ secrets: [], undefined: [], shortBelow: 16 })
 })

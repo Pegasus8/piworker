@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -25,18 +24,26 @@ type ConnectionsHandler struct {
 	store  *brokers.Store
 	tester ConnectionTester
 	logger zerolog.Logger
-	flows  ConnectionUsers // nil: no flows are restarted or checked
+	flows  ConnectionUsers // noUsers until WithFlows
 }
 
 // ConnectionUsers is the editor's lifecycle as the connections see it
 // (FlowsHandler, ADR-0029).
 type ConnectionUsers interface {
 	// RestartFlowsUsing restarts the running flows that use the connection.
-	RestartFlowsUsing(ctx context.Context, name string) ([]FlowRef, []FlowRestartFailure)
+	RestartFlowsUsing(ctx context.Context, names []string) ([]FlowRef, []FlowRestartFailure)
 	// UnlessRunningFlowsUse runs fn unless a running flow uses the
-	// connection (then it returns them and ErrConnectionInUse).
+	// connection; then it returns those flows and fn does not run.
 	UnlessRunningFlowsUse(name string, fn func() error) ([]FlowRef, error)
 }
+
+// noUsers is ConnectionUsers without flows: nothing restarts, deletes run.
+type noUsers struct{}
+
+func (noUsers) RestartFlowsUsing(context.Context, []string) ([]FlowRef, []FlowRestartFailure) {
+	return []FlowRef{}, []FlowRestartFailure{}
+}
+func (noUsers) UnlessRunningFlowsUse(_ string, fn func() error) ([]FlowRef, error) { return nil, fn() }
 
 // WithFlows makes a change restart the running flows that use the
 // connection and refuses deleting one a running flow uses.
@@ -55,7 +62,7 @@ type ConnectionStoredResponse struct {
 
 // NewConnectionsHandler creates a ConnectionsHandler.
 func NewConnectionsHandler(store *brokers.Store, tester ConnectionTester, logger zerolog.Logger) *ConnectionsHandler {
-	return &ConnectionsHandler{store: store, tester: tester, logger: logger}
+	return &ConnectionsHandler{store: store, tester: tester, logger: logger, flows: noUsers{}}
 }
 
 // RegisterRoutes registers the connection routes.
@@ -129,14 +136,16 @@ func (h *ConnectionsHandler) Put(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	old, existed := h.store.Get(c.Name)
 	if err := h.store.Set(c); err != nil {
 		h.logger.Error().Err(err).Str("name", c.Name).Msg("Failed to store broker connection")
 		writeError(w, http.StatusInternalServerError, "Failed to store the connection")
 		return
 	}
 	resp := ConnectionStoredResponse{Restarted: []FlowRef{}, Failed: []FlowRestartFailure{}}
-	if h.flows != nil {
-		resp.Restarted, resp.Failed = h.flows.RestartFlowsUsing(r.Context(), c.Name)
+	// A save that changed nothing restarts nothing.
+	if !existed || old != c {
+		resp.Restarted, resp.Failed = h.flows.RestartFlowsUsing(r.Context(), []string{c.Name})
 	}
 	writeSuccess(w, http.StatusOK, resp, "Connection stored")
 }
@@ -151,23 +160,16 @@ func (h *ConnectionsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Connection not found")
 		return
 	}
-	del := func() error { return h.store.Delete(name) }
-	var err error
-	if h.flows != nil {
-		var users []FlowRef
-		users, err = h.flows.UnlessRunningFlowsUse(name, del)
-		if errors.Is(err, ErrConnectionInUse) {
-			names := make([]string, 0, len(users))
-			for _, f := range users {
-				names = append(names, fmt.Sprintf("%q", f.Name))
-			}
-			writeErrorData(w, http.StatusConflict,
-				"The connection is used by running flows: "+strings.Join(names, ", ")+". Stop them, or change their nodes to another connection, first.",
-				map[string]any{"flows": users})
-			return
+	users, err := h.flows.UnlessRunningFlowsUse(name, func() error { return h.store.Delete(name) })
+	if len(users) > 0 {
+		names := make([]string, 0, len(users))
+		for _, f := range users {
+			names = append(names, fmt.Sprintf("%q", f.Name))
 		}
-	} else {
-		err = del()
+		writeErrorData(w, http.StatusConflict,
+			"The connection is used by running flows: "+strings.Join(names, ", ")+". Stop them, or change their nodes to another connection, first.",
+			map[string]any{"flows": users})
+		return
 	}
 	if err != nil {
 		h.logger.Error().Err(err).Str("name", name).Msg("Failed to delete broker connection")

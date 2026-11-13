@@ -1,6 +1,9 @@
 package flow
 
-import "sort"
+import (
+	"maps"
+	"slices"
+)
 
 // SecretReference is one {{secret.NAME}} reference written in a node's
 // settings: which secret, where, and whether the node is enabled (a
@@ -25,23 +28,11 @@ func SecretReferences(f *Flow) []SecretReference {
 	}
 	for i := range f.Nodes {
 		n := &f.Nodes[i]
-		props := make([]string, 0, len(n.Config))
-		for prop := range n.Config {
-			props = append(props, prop)
-		}
-		sort.Strings(props)
-		for _, prop := range props {
-			names := map[string]bool{}
-			collectSecretNames(n.Config[prop], names)
-			sorted := make([]string, 0, len(names))
-			for name := range names {
+		for _, prop := range slices.Sorted(maps.Keys(n.Config)) {
+			for _, name := range secretNames(n.Config[prop]) {
 				if name != "" {
-					sorted = append(sorted, name)
+					out = append(out, SecretReference{Name: name, NodeID: n.ID, NodeType: n.Type, Setting: prop, Enabled: n.Enabled})
 				}
-			}
-			sort.Strings(sorted)
-			for _, name := range sorted {
-				out = append(out, SecretReference{Name: name, NodeID: n.ID, NodeType: n.Type, Setting: prop, Enabled: n.Enabled})
 			}
 		}
 	}

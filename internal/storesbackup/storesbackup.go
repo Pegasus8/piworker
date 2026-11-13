@@ -21,7 +21,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
+	"maps"
+	"slices"
 	"sort"
 	"time"
 	"unicode/utf8"
@@ -48,8 +49,8 @@ const MinPassphraseRunes = 12
 // crafted file cannot make the device spend minutes or gigabytes.
 const (
 	scryptN, scryptR, scryptP = 1 << 15, 8, 1
-	maxScryptN, maxScryptR    = 1 << 17, 16
-	maxScryptP                = 4
+	maxScryptN, maxScryptR    = 1 << 16, 8 // 64 MiB at most: a Pi 3 has 1 GiB
+	maxScryptP                = 1
 	keyLen                    = 32
 	saltLen                   = 16
 )
@@ -66,9 +67,6 @@ var (
 	// ErrInvalidBundle: not a stores export, or one with invalid content.
 	ErrInvalidBundle = errors.New("not a valid PiWorker stores export")
 )
-
-// variableName is the variable stores' name rule (the API's).
-var variableName = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 // Bundle is the exported file.
 type Bundle struct {
@@ -166,7 +164,7 @@ func Export(src Sources, passphrase string) (*Bundle, error) {
 			b.FlowVariables = append(b.FlowVariables, FlowVariables{FlowID: f.ID, FlowName: f.Name, Variables: snap})
 		}
 	}
-	var conns []Connection
+	conns := []Connection{}
 	if src.Connections != nil {
 		for _, c := range src.Connections.List() {
 			conns = append(conns, Connection{Name: c.Name, Broker: c.Broker, Username: c.Username, BaseTopic: c.BaseTopic,
@@ -188,9 +186,6 @@ func Export(src Sources, passphrase string) (*Bundle, error) {
 			b.Connections = append(b.Connections, c)
 		}
 		return b, nil
-	}
-	if content.Connections == nil {
-		content.Connections = []Connection{}
 	}
 	sealed, err := seal(content, passphrase)
 	if err != nil {
@@ -336,8 +331,7 @@ func Restore(b *Bundle, passphrase string, dst Sources, opts Options) (Report, e
 	}
 	conns := b.Connections
 	var secretValues map[string]string
-	switch {
-	case b.Sealed != nil && passphrase != "":
+	if b.Sealed != nil && passphrase != "" {
 		content, err := b.Sealed.Open(passphrase)
 		if err != nil {
 			return rep, err
@@ -346,18 +340,13 @@ func Restore(b *Bundle, passphrase string, dst Sources, opts Options) (Report, e
 			return rep, err
 		}
 		secretValues, conns = content.Secrets, content.Connections
-	default:
+	} else {
 		rep.SecretsNotRestored = append(rep.SecretsNotRestored, b.Secrets...)
 		sort.Strings(rep.SecretsNotRestored)
 	}
 
 	// Secrets.
-	names := make([]string, 0, len(secretValues))
-	for name := range secretValues {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	for _, name := range slices.Sorted(maps.Keys(secretValues)) {
 		_, exists := dst.Secrets.Get(name)
 		if exists && !opts.Overwrite {
 			rep.Secrets.Skipped++
@@ -383,6 +372,11 @@ func Restore(b *Bundle, passphrase string, dst Sources, opts Options) (Report, e
 			} else {
 				rep.PasswordsNotRestored = append(rep.PasswordsNotRestored, c.Name)
 			}
+		}
+		conn.Normalize()
+		if exists && conn == old {
+			rep.Connections.Skipped++ // identical: nothing to restart
+			continue
 		}
 		if err := dst.Connections.Set(conn); err != nil {
 			return rep, err
@@ -429,12 +423,7 @@ func count(c *Counts, existed bool) {
 }
 
 func restoreVars(values map[string]any, store *vars.Store, opts Options, c *Counts) error {
-	keys := make([]string, 0, len(values))
-	for k := range values {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(values)) {
 		_, exists := store.Get(k)
 		if exists && !opts.Overwrite {
 			c.Skipped++
@@ -457,13 +446,13 @@ func (b *Bundle) validate() error {
 		return fmt.Errorf("%w: version %d is not supported (this PiWorker reads version %d)", ErrInvalidBundle, b.Version, Version)
 	}
 	for k := range b.Variables {
-		if !variableName.MatchString(k) {
+		if !vars.ValidName(k) {
 			return fmt.Errorf("%w: invalid variable name %q", ErrInvalidBundle, k)
 		}
 	}
 	for _, fv := range b.FlowVariables {
 		for k := range fv.Variables {
-			if !variableName.MatchString(k) {
+			if !vars.ValidName(k) {
 				return fmt.Errorf("%w: invalid variable name %q in flow %q", ErrInvalidBundle, k, fv.FlowName)
 			}
 		}

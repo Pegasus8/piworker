@@ -59,16 +59,15 @@ func TestSecretsListReturnsNamesAndShortMarksOnly(t *testing.T) {
 
 	assert.Equal(t, map[string]any{
 		"shortBelow": float64(16),
-		"undefined":  []any{},
 		"secrets": []any{
-			map[string]any{"name": "accents", "short": true, "uses": []any{}},
-			map[string]any{"name": "emoji_short", "short": true, "uses": []any{}},
-			map[string]any{"name": "fifteen", "short": true, "uses": []any{}},
-			map[string]any{"name": "kanji", "short": false, "uses": []any{}},
-			map[string]any{"name": "pin", "short": true, "uses": []any{}},
-			map[string]any{"name": "sixteen", "short": false, "uses": []any{}},
+			map[string]any{"name": "accents", "short": true},
+			map[string]any{"name": "emoji_short", "short": true},
+			map[string]any{"name": "fifteen", "short": true},
+			map[string]any{"name": "kanji", "short": false},
+			map[string]any{"name": "pin", "short": true},
+			map[string]any{"name": "sixteen", "short": false},
 		},
-	}, data, "names, short marks and uses only: no value, no length")
+	}, data, "names and short marks only: no value, no length")
 	// Values never appear, in any form; nor do the byte or rune lengths of
 	// the short ones (the only numbers in the body are the threshold).
 	for _, v := range values {

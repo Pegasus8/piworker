@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Pegasus8/piworker/internal/brokers"
 	"github.com/Pegasus8/piworker/internal/mqttpool"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
@@ -69,7 +70,7 @@ func (g *ZigbeeGet) ensureSub(ctx context.Context) (*mqttpool.Sub, string, chan 
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.sub == nil {
-		c, err := zigbeeConnection(ctx, g.connection)
+		c, err := brokers.Lookup(ctx, g.connection)
 		if err != nil {
 			return nil, "", nil, err
 		}

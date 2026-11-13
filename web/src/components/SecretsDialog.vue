@@ -41,7 +41,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const list = await api.getSecrets()
+    const list = await api.getSecrets(true)
     items.value = list.secrets
     undefinedItems.value = list.undefined
     shortBelow.value = list.shortBelow

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Pegasus8/piworker/internal/brokers"
 	"github.com/Pegasus8/piworker/internal/mqttpool"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
@@ -118,7 +119,7 @@ func zigbeeTypedValue(s string) interface{} {
 func (a *ZigbeeAction) ensureConn(ctx context.Context) (*mqttpool.Conn, string, error) {
 	a.mu.Lock()
 	if a.conn == nil {
-		c, err := zigbeeConnection(ctx, a.connection)
+		c, err := brokers.Lookup(ctx, a.connection)
 		if err != nil {
 			a.mu.Unlock()
 			return nil, "", err

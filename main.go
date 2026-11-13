@@ -746,7 +746,11 @@ func restoreRunningFlows(store *storage.SQLiteStore, manager *flow.RuntimeManage
 			// What an editor deploy would answer as warnings (an undefined
 			// secret an optional credential references, ...): logged, as
 			// nobody sees a response at startup.
-			for _, is := range flow.DeployWarnings(ctx, f, node.DefaultRegistry) {
+			var warnings []flow.Issue
+			if rt, ok := manager.GetRuntime(f.ID); ok {
+				warnings = rt.Warnings()
+			}
+			for _, is := range warnings {
 				log.Warn().Str("flowID", f.ID).Str("flowName", f.Name).Str("code", is.Code).Str("path", is.Path).
 					Str("problem", is.Message).Msg("Restored flow has a warning")
 			}

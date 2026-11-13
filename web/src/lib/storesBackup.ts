@@ -5,6 +5,7 @@
 // connections with passwords are sealed with a passphrase and are never
 // readable here.
 import { msg } from '@/i18n'
+import { connectionRestarts, type ConnectionRestarts, type FlowRef } from '@/lib/zigbee'
 
 /** The server's minimum passphrase length (storesbackup.MinPassphraseRunes). */
 export const MIN_PASSPHRASE = 12
@@ -45,7 +46,6 @@ export function bundleSummary(raw: unknown): { summary: BundleSummary } | { erro
 }
 
 export interface Counts { added: number; replaced: number; skipped: number }
-export interface FlowRef { id: string; name: string }
 export interface ImportReport {
   variables: Counts
   flowVariables: Counts
@@ -55,10 +55,9 @@ export interface ImportReport {
   secretsNotRestored: string[]
   passwordsNotRestored: string[]
 }
-export interface ImportResult {
+/** The report, and the running flows restarted because a connection they use changed. */
+export interface ImportResult extends ConnectionRestarts {
   report: ImportReport
-  restarted: FlowRef[]
-  failed: (FlowRef & { error: string })[]
 }
 
 const counts = (v: unknown): Counts => {
@@ -66,10 +65,7 @@ const counts = (v: unknown): Counts => {
   const n = (x: unknown) => (typeof x === 'number' && x >= 0 ? x : 0)
   return { added: n(c.added), replaced: n(c.replaced), skipped: n(c.skipped) }
 }
-const refs = (v: unknown): FlowRef[] => (Array.isArray(v) ? v : []).flatMap(r => {
-  const f = (r ?? {}) as Record<string, unknown>
-  return typeof f.id === 'string' ? [{ id: f.id, name: typeof f.name === 'string' ? f.name : f.id }] : []
-})
+const refs = (v: unknown): FlowRef[] => connectionRestarts({ restarted: v }).restarted
 const names = (v: unknown): string[] => (Array.isArray(v) ? v : []).filter((n): n is string => typeof n === 'string')
 
 /** Reads the import's data member. */
@@ -81,12 +77,7 @@ export function importResult(data: unknown): ImportResult {
       variables: counts(r.variables), flowVariables: counts(r.flowVariables), secrets: counts(r.secrets), connections: counts(r.connections),
       unmatchedFlows: refs(r.unmatchedFlows), secretsNotRestored: names(r.secretsNotRestored), passwordsNotRestored: names(r.passwordsNotRestored)
     },
-    restarted: refs(d.restarted),
-    failed: (Array.isArray(d.failed) ? d.failed : []).flatMap(f => {
-      const [ref] = refs([f])
-      const error = ((f ?? {}) as { error?: unknown }).error
-      return ref ? [{ ...ref, error: typeof error === 'string' ? error : '' }] : []
-    })
+    ...connectionRestarts(d)
   }
 }
 
@@ -106,6 +97,6 @@ export function importResultText(r: ImportResult): { kind: 'success' | 'warning'
   if (r.report.secretsNotRestored.length) warnings.push(t.secretsNotRestored(r.report.secretsNotRestored))
   if (r.report.passwordsNotRestored.length) warnings.push(t.passwordsNotRestored(r.report.passwordsNotRestored))
   if (r.report.unmatchedFlows.length) warnings.push(t.unmatchedFlows(r.report.unmatchedFlows.map(f => f.name)))
-  if (r.failed.length) warnings.push(t.restartFailed(r.failed.map(f => `${f.name}: ${f.error}`)))
+  if (r.failed.length) warnings.push(msg().zigbee.dialog.restartFailed(r.failed.map(f => `${f.name}: ${f.error}`)))
   return { kind: warnings.length ? 'warning' : 'success', lines: [...lines, ...warnings] }
 }

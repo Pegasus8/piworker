@@ -1,7 +1,6 @@
 package builtin
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -36,15 +35,6 @@ func zigbeeLiteralDevice(base *node.BaseNode) (string, error) {
 		return "", err
 	}
 	return device, nil
-}
-
-// zigbeeConnection resolves the named connection through ctx.
-func zigbeeConnection(ctx context.Context, name string) (brokers.Connection, error) {
-	c, ok := brokers.FromContext(ctx).Get(name)
-	if !ok {
-		return brokers.Connection{}, fmt.Errorf("broker connection %q is not defined", name)
-	}
-	return c, nil
 }
 
 // zigbeeSchemaConnection and zigbeeSchemaDevice are the settings every

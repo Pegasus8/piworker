@@ -2,11 +2,13 @@ package builtin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/Pegasus8/piworker/internal/brokers"
 	"github.com/Pegasus8/piworker/internal/mqttpool"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
@@ -29,14 +31,6 @@ func ownMqttClientID(configured, prefix string) string {
 		return ""
 	}
 	return configured
-}
-
-// mqttEndpointFor is what a node connects with, its credentials resolved
-// through ctx, in the sandbox of ctx if any: nodes in a sandbox (ADR-0020)
-// never share a connection with nodes outside it.
-func mqttEndpointFor(ctx context.Context, broker, username, password, clientID string) mqttpool.Endpoint {
-	return mqttpool.Endpoint{Broker: broker, Username: expandSecrets(ctx, username), Password: expandSecrets(ctx, password),
-		ClientID: clientID, Sandbox: node.SandboxFrom(ctx)}
 }
 
 // MqttAction publishes a message to an MQTT topic. It takes a shared
@@ -124,8 +118,8 @@ func (a *MqttAction) ensureClient(ctx context.Context) (mqtt.Client, error) {
 func (a *MqttAction) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
 	client, err := a.ensureClient(ctx)
 	if err != nil {
-		if a.target.connection != "" && a.conn == nil {
-			return nil, err // an undefined connection: retrying does not help
+		if errors.Is(err, brokers.ErrUndefined) {
+			return nil, err // retrying does not help
 		}
 		return nil, node.Transient(fmt.Errorf("mqtt connect failed: %w", err))
 	}

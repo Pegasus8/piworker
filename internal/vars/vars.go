@@ -5,6 +5,7 @@ package vars
 
 import (
 	"context"
+	"regexp"
 	"sync"
 )
 
@@ -136,3 +137,12 @@ func FromContext(ctx context.Context) *Store {
 	}
 	return DefaultStore
 }
+
+// MaxNameLength bounds a variable name.
+const MaxNameLength = 128
+
+var nameRe = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+
+// ValidName reports whether name is a legal variable name: 1 to
+// MaxNameLength letters, digits, '_', '.' or '-'.
+func ValidName(name string) bool { return len(name) <= MaxNameLength && nameRe.MatchString(name) }

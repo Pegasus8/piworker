@@ -9,6 +9,7 @@ import { summarizeRuns, type RunSummary } from '@/lib/flowActivity'
 import { Button, Card, Input, Switch, Badge, Dialog, Menu } from '@/components/ui'
 import type { MenuAction } from '@/components/ui/Menu.vue'
 import { deployWarningsSummary } from '@/lib/deployWarnings'
+import { downloadJson } from '@/lib/download'
 import type { FlowIssue } from '@/lib/drafts'
 import ExamplesDialog from '@/components/ExamplesDialog.vue'
 import FlowMarks from '@/components/agent/FlowMarks.vue'
@@ -37,14 +38,7 @@ async function handleDuplicate(id: string) {
 }
 async function handleExport(id: string, name: string) {
   await run(async () => {
-    const flow = await api.exportFlow(id)
-    const blob = new Blob([JSON.stringify(flow, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${name.replace(/[^a-z0-9-_]+/gi, '_') || 'flow'}.json`
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadJson(await api.exportFlow(id), `${name.replace(/[^a-z0-9-_]+/gi, '_') || 'flow'}.json`)
   }, m.value.flows.exported, m.value.flows.exportFailed)
 }
 

@@ -50,7 +50,8 @@ Option B.
   `connections` list is empty. The passphrase has at least 12 characters;
   scrypt N=2^15, r=8, p=1, a random salt and nonce, AES-256-GCM with the
   format as associated data. A file asking for heavier scrypt parameters
-  than PiWorker writes (beyond N=2^17, r=16, p=4) is refused.
+  than about twice what PiWorker writes (beyond N=2^16, r=8, p=1: 64 MiB,
+  for a 1 GiB Pi 3) is refused.
 - **Export:** `POST /api/stores/export {passphrase?, password?}` answers the
   file as an attachment. With a passphrase it requires the account password
   (the existing step-up, 403 when wrong) and is refused while
@@ -61,7 +62,8 @@ Option B.
   passphrase or another kind of file is a 400. Order: secrets, connections,
   global variables, flow variables (matched by ID, else by a flow name only
   one flow has; others are reported). Existing values are kept unless
-  `overwrite`. A connection from a file without passwords keeps the
+  `overwrite`; one identical to the file's is kept and restarts nothing. A
+  connection from a file without passwords keeps the
   password it already has here, or is created without one and reported.
   The connections it adds or replaces restart the running flows that use
   them (ADR-0029). The answer is counts per kind plus what was not restored;

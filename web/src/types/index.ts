@@ -16,7 +16,7 @@ export interface NodeTypeConfig {
    * A setting can raise this node to privileged (the server's riskCanRise:
    * a URL or broker taken from the message, or an opt-in that widens access).
    */
-  escalates?: boolean
+  riskCanRise?: boolean
   inputs?: unknown[]
   outputs?: unknown[]
   configSchema: ConfigField[]

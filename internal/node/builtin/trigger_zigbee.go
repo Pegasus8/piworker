@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Pegasus8/piworker/internal/brokers"
 	"github.com/Pegasus8/piworker/internal/metrics"
 	"github.com/Pegasus8/piworker/internal/mqttpool"
 	"github.com/Pegasus8/piworker/internal/node"
@@ -104,7 +105,7 @@ func (t *ZigbeeTrigger) Start(ctx context.Context, out chan<- *types.Message) er
 	if t.running {
 		return fmt.Errorf("trigger already running")
 	}
-	conn, err := zigbeeConnection(ctx, t.connection)
+	conn, err := brokers.Lookup(ctx, t.connection)
 	if err != nil {
 		return err
 	}

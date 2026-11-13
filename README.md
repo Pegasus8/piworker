@@ -1038,8 +1038,9 @@ Zigbee2MQTT base topic. Zigbee nodes always use one; **MQTT Subscribe** and
 **MQTT Publish** take either a `connection` or their own `broker` (with
 their own optional credentials), never both (ADR-0026, ADR-0029).
 
-Saving a connection restarts every running flow whose enabled nodes use it,
-so they reconnect with the new settings; the answer lists the flows
+Saving a changed connection restarts every running flow whose nodes use it,
+so they reconnect with the new settings (a save that changes nothing
+restarts nothing); the answer lists the flows
 restarted and any that could not start again (they are marked failed).
 Deleting a connection that a running flow uses is refused (409) and names
 the flows; a stopped flow that names a missing connection is refused at
@@ -1335,7 +1336,7 @@ accounts.
 | PUT, DELETE | `/api/variables/{name}` | Set (`{"value": …}`) or delete a global variable |
 | GET | `/api/flows/{id}/variables` | List the variables of one flow |
 | PUT, DELETE | `/api/flows/{id}/variables/{name}` | Set or delete a flow variable |
-| GET | `/api/secrets` | `{"secrets": [{"name", "short", "uses"}], "undefined": [{"name", "uses"}], "shortBelow": 16}`: names only, never values or lengths; `short` marks a value under `shortBelow` characters, which an agent could confirm a guess of. `uses` lists where each secret is referenced (`flowId`, `flowName`, `flowRunning`, `nodeId`, `nodeType`, `nodeDisabled`, `setting`, or `connection` and `setting`); `undefined` lists the referenced names no secret has |
+| GET | `/api/secrets` | `{"secrets": [{"name", "short"}], "shortBelow": 16}`; with `?usage=1` each secret also has `uses` and the answer an `undefined` list (both omitted when empty): names only, never values or lengths; `short` marks a value under `shortBelow` characters, which an agent could confirm a guess of. `uses` lists where each secret is referenced (`flowId`, `flowName`, `flowRunning`, `nodeId`, `nodeType`, `nodeDisabled`, `setting`, or `connection` and `setting`); `undefined` lists the referenced names no secret has |
 | PUT, DELETE | `/api/secrets/{name}` | Set (`{"value": "…"}`) or delete a secret |
 | POST | `/api/stores/export` | Download the variables, connections and secret names as a `piworker-stores` file. `{"passphrase", "password"}` adds the secret values and connection passwords sealed with the passphrase (12+ characters); it needs the account password and authentication enabled |
 | POST | `/api/stores/import` | Restore such a file: `{"bundle", "passphrase", "overwrite"}`; answers counts per kind (`added`, `replaced`, `skipped`), what was not restored and the flows restarted. A wrong passphrase or another file is `400` and writes nothing |

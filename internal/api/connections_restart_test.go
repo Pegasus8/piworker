@@ -115,3 +115,14 @@ func TestDeletingAConnectionARunningFlowUsesIsRefused(t *testing.T) {
 	rr, _ = doJSON(t, r, http.MethodDelete, "/api/connections/pw_test_home", "")
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 }
+
+// Saving a connection with nothing changed restarts nothing.
+func TestSavingAnUnchangedConnectionRestartsNothing(t *testing.T) {
+	server, r, _, started := connectionsEnv(t)
+	user := connFlow(t, server, "user", "pw_test_home")
+	require.Equal(t, http.StatusOK, performRequest(server, http.MethodPost, "/api/flows/"+user.ID+"/deploy", nil).Code)
+	rr, env := doJSON(t, r, http.MethodPut, "/api/connections/pw_test_home", `{"broker":"tcp://10.0.0.1:1883"}`)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	assert.Equal(t, []any{}, env["data"].(map[string]any)["restarted"])
+	assert.Equal(t, []string{"tcp://10.0.0.1:1883"}, *started, "started once, by the deploy")
+}

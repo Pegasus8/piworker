@@ -8,12 +8,15 @@ package brokers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/Pegasus8/piworker/internal/secrets"
 )
 
 // DefaultBaseTopic is Zigbee2MQTT's default base topic.
@@ -239,21 +242,29 @@ type SecretReference struct {
 	Setting string // "username" or "password"
 }
 
-// secretRefRe matches a {{secret.NAME}} reference and captures NAME.
-var secretRefRe = regexp.MustCompile(`\{\{\s*secret\.([^}\s]+)\s*\}\}`)
-
-// SecretReferences returns the secrets c's username and password reference,
-// username first, each (setting, name) once in order of appearance.
+// SecretReferences returns the secrets c's username and password reference
+// (secrets.References: as a node connecting resolves them), username first,
+// each (setting, name) once in order of appearance.
 func SecretReferences(c Connection) []SecretReference {
 	var out []SecretReference
 	for _, field := range []struct{ setting, value string }{{"username", c.Username}, {"password", c.Password}} {
-		seen := map[string]bool{}
-		for _, m := range secretRefRe.FindAllStringSubmatch(field.value, -1) {
-			if !seen[m[1]] {
-				seen[m[1]] = true
-				out = append(out, SecretReference{Name: m[1], Setting: field.setting})
-			}
+		for _, name := range secrets.References(field.value) {
+			out = append(out, SecretReference{Name: name, Setting: field.setting})
 		}
 	}
 	return out
+}
+
+// ErrUndefined: a node names a connection the store of its context does not
+// define (deploy refuses this first: undefined_connection).
+var ErrUndefined = errors.New("broker connection is not defined")
+
+// Lookup resolves the connection name through ctx (FromContext), the way
+// every node that names a connection does.
+func Lookup(ctx context.Context, name string) (Connection, error) {
+	c, ok := FromContext(ctx).Get(name)
+	if !ok {
+		return Connection{}, fmt.Errorf("broker connection %q is not defined: %w", name, ErrUndefined)
+	}
+	return c, nil
 }

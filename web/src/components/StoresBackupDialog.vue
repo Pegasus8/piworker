@@ -11,6 +11,7 @@ import { useApi } from '@/composables/useApi'
 import { useAuthStore } from '@/stores/auth'
 import { apiErrorMessage } from '@/stores/agent'
 import { messages as m, formatDateTime } from '@/i18n'
+import { downloadJson } from '@/lib/download'
 import { MIN_PASSPHRASE, bundleSummary, importResultText, type BundleSummary } from '@/lib/storesBackup'
 
 const props = defineProps<{ open: boolean }>()
@@ -61,13 +62,7 @@ async function doExport() {
   const withSecrets = includeSecrets.value
   const ok = await run(async () => {
     const file = await api.exportStores(withSecrets ? passphrase.value : '', withSecrets ? password.value : '')
-    const blob = new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `piworker-stores-${new Date().toISOString().slice(0, 10)}.json`
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadJson(file, `piworker-stores-${new Date().toISOString().slice(0, 10)}.json`)
   }, withSecrets ? m.value.settings.backup.exportedSecrets : m.value.settings.backup.exported, e => apiErrorMessage(e, m.value.settings.backup.exportFailed))
   // The password is asked again for every export with secrets.
   if (ok) password.value = ''
