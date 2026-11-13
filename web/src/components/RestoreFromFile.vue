@@ -27,6 +27,7 @@ const passphrase = ref('')
 const secret = ref('') // setup code or account password
 const error = ref('')
 const pending = ref(false)
+let before = ''
 
 const needsSecret = computed(() => props.mode === 'setup' || auth.authEnabled)
 const canRestore = computed(() => !!file.value && !fileError.value && !pending.value &&
@@ -48,6 +49,7 @@ async function submit() {
   pending.value = true
   error.value = ''
   try {
+    before = await store.instance()
     const data = await fileToBase64(file.value)
     const phrase = encrypted.value ? passphrase.value : ''
     if (props.mode === 'setup') await store.setupRestore(data, phrase, secret.value.trim())
@@ -58,7 +60,7 @@ async function submit() {
     return
   }
   emit('restarting')
-  emit('restored', await store.waitForRestart())
+  emit('restored', await store.waitForRestart(before))
 }
 </script>
 

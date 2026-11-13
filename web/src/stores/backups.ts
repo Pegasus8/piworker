@@ -43,23 +43,26 @@ export const useBackupsStore = defineStore('backups', () => {
     await apiClient.post(`/backups/${path(name)}/restore`, { password })
   }
 
+  /** The running process's instance, from the health check. */
+  async function instance(): Promise<string> {
+    try {
+      const { data } = await apiClient.get('/health', { headers: BACKGROUND_HEADERS, timeout: 3000 })
+      return typeof data?.instance === 'string' ? data.instance : ''
+    } catch { return '' }
+  }
+
   /**
-   * Resolves true once PiWorker answers its health check again after having
-   * gone away, false after the timeout.
+   * Resolves true once a new PiWorker process (an instance other than
+   * `before`) answers its health check, false after the timeout.
    */
-  async function waitForRestart(opts: { timeoutMs?: number; intervalMs?: number; sleep?: (ms: number) => Promise<void> } = {}) {
+  async function waitForRestart(before: string, opts: { timeoutMs?: number; intervalMs?: number; sleep?: (ms: number) => Promise<void> } = {}) {
     const sleep = opts.sleep ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms)))
     const interval = opts.intervalMs ?? 1500
     const deadline = Date.now() + (opts.timeoutMs ?? RESTART_TIMEOUT_MS)
-    let wentAway = false
     while (Date.now() < deadline) {
       await sleep(interval)
-      try {
-        await apiClient.get('/health', { headers: BACKGROUND_HEADERS, timeout: 3000 })
-        if (wentAway) return true
-      } catch {
-        wentAway = true
-      }
+      const now = await instance()
+      if (now && now !== before) return true
     }
     return false
   }
@@ -101,6 +104,6 @@ export const useBackupsStore = defineStore('backups', () => {
     await apiClient.post('/auth/setup/restore', { data, passphrase, code })
   }
 
-  return { overview, alert, fetchOverview, backUpNow, saveSettings, remove, restore, waitForRestart,
+  return { overview, alert, fetchOverview, backUpNow, saveSettings, remove, restore, instance, waitForRestart,
     saveRemote, testRemote, listRemote, restoreRemote, download, upload, setupRestore }
 })

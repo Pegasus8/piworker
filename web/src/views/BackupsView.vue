@@ -171,8 +171,10 @@ async function doRestore() {
   const b = restoring.value
   if (!b || pending.value) return
   restoreError.value = ''
+  let before = ''
   try {
     pending.value = true
+    before = await store.instance()
     if (restoringRemote.value) await store.restoreRemote(b.name, restorePassword.value)
     else await store.restore(b.name, restorePassword.value)
   } catch (e) {
@@ -182,11 +184,11 @@ async function doRestore() {
     pending.value = false
   }
   restoring.value = null
-  await afterRestore()
-}
-async function afterRestore(waited?: boolean) {
   restarting.value = true
-  const back = waited ?? await store.waitForRestart()
+  await afterRestore(await store.waitForRestart(before))
+}
+async function afterRestore(back: boolean) {
+  restarting.value = true
   if (!back) {
     restartSlow.value = true
     return
