@@ -1,0 +1,323 @@
+package storage
+
+import (
+	"database/sql"
+	"fmt"
+	"time"
+)
+
+// FlowRun is one run of a flow — the wave of node executions that follow a
+// single trigger firing, identified by the runtime's correlation ID.
+type FlowRun struct {
+	ID         string     `json:"id"`
+	FlowID     string     `json:"flowId"`
+	StartedAt  time.Time  `json:"startedAt"`
+	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+	Status     string     `json:"status"` // running|success|error
+	NodeCount  int        `json:"nodeCount"`
+	ErrorCount int        `json:"errorCount"`
+	// Actor is who started the run through a synchronous call ("token:<name>",
+	// "editor", …), taken from the run's "actor" meta; empty otherwise.
+	Actor string `json:"actor,omitempty"`
+	// FlowVersion is the stored version of the definition the run ran, as
+	// the runtime reported it; 0 when unknown (runs recorded before it was
+	// kept).
+	FlowVersion int `json:"flowVersion,omitempty"`
+}
+
+// RunStart is what the history records of a run when it first sees it.
+type RunStart struct {
+	ID          string
+	FlowID      string
+	Actor       string
+	FlowVersion int
+	StartedAt   time.Time
+}
+
+// migrateHistory brings the history tables of databases created by older
+// versions up to date. It is idempotent.
+func migrateHistory(db *sql.DB) error {
+	has, err := historyHasColumn(db, "flow_runs", "actor")
+	if err != nil {
+		return err
+	}
+	if !has {
+		if _, err := db.Exec(`ALTER TABLE flow_runs ADD COLUMN actor TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("failed to add flow_runs.actor: %w", err)
+		}
+	}
+	has, err = historyHasColumn(db, "flow_runs", "flow_version")
+	if err != nil {
+		return err
+	}
+	if !has {
+		if _, err := db.Exec(`ALTER TABLE flow_runs ADD COLUMN flow_version INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("failed to add flow_runs.flow_version: %w", err)
+		}
+	}
+	return nil
+}
+
+// historyHasColumn reports whether table has the named column.
+func historyHasColumn(db *sql.DB, table, column string) (bool, error) {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return false, fmt.Errorf("failed to inspect %s: %w", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return false, fmt.Errorf("failed to inspect %s: %w", table, err)
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+// NodeEventRecord is one persisted node-execution observation belonging to a run.
+type NodeEventRecord struct {
+	ID         int64     `json:"id"`
+	RunID      string    `json:"runId"`
+	FlowID     string    `json:"flowId"`
+	NodeID     string    `json:"nodeId"`
+	NodeType   string    `json:"nodeType"`
+	Phase      string    `json:"phase"` // running|success|error
+	MsgID      string    `json:"msgId,omitempty"`
+	DurationMs float64   `json:"durationMs,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	CreatedAt  time.Time `json:"createdAt"`
+}
+
+// UpsertFlowRun records the start of a run. It is idempotent: repeated calls for
+// the same run ID (one per node event in the run) neither duplicate the row nor
+// move the recorded start time.
+func (s *SQLiteStore) UpsertFlowRun(runID, flowID string, startedAt time.Time) error {
+	return s.UpsertFlowRunWithActor(runID, flowID, "", startedAt)
+}
+
+// UpsertFlowRunWithActor is UpsertFlowRun recording who started the run. A
+// repeated call fills an actor that is still empty but never replaces one.
+func (s *SQLiteStore) UpsertFlowRunWithActor(runID, flowID, actor string, startedAt time.Time) error {
+	return s.StartFlowRun(RunStart{ID: runID, FlowID: flowID, Actor: actor, StartedAt: startedAt})
+}
+
+// StartFlowRun records the start of a run (idempotent): who started it and
+// the version it ran. A repeated call keeps the start time and the version
+// and fills an actor that is still empty, but never replaces one.
+func (s *SQLiteStore) StartFlowRun(r RunStart) error {
+	if s.isClosed() {
+		return ErrDatabaseClosed
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO flow_runs (id, flow_id, started_at, status, actor, flow_version)
+		VALUES (?, ?, ?, 'running', ?, ?)
+		ON CONFLICT(id) DO UPDATE SET actor = excluded.actor
+			WHERE flow_runs.actor = '' AND excluded.actor != ''
+	`, r.ID, r.FlowID, r.StartedAt, r.Actor, r.FlowVersion)
+	if err != nil {
+		return fmt.Errorf("failed to upsert flow run: %w", err)
+	}
+	return nil
+}
+
+// FinishFlowRun marks a run complete, merging into what is already recorded:
+// nodeCount/errorCount are the counts observed since the run was last
+// finished and are ADDED to the stored totals, and the status never moves from
+// error back to success. A run can be finished more than once when events for
+// it arrive after an earlier finalization; merging keeps the totals right.
+func (s *SQLiteStore) FinishFlowRun(runID, status string, finishedAt time.Time, nodeCount, errorCount int) error {
+	if s.isClosed() {
+		return ErrDatabaseClosed
+	}
+	_, err := s.db.Exec(`
+		UPDATE flow_runs
+		SET status = CASE
+				WHEN status = 'error' OR ? = 'error' OR error_count + ? > 0 THEN 'error'
+				ELSE ?
+			END,
+			finished_at = ?,
+			node_count = node_count + ?,
+			error_count = error_count + ?
+		WHERE id = ?
+	`, status, errorCount, status, finishedAt, nodeCount, errorCount, runID)
+	if err != nil {
+		return fmt.Errorf("failed to finish flow run: %w", err)
+	}
+	return nil
+}
+
+// InsertNodeEvents writes a batch of node events in a single transaction. This is
+// the only history write path on the hot side and is called exclusively by the
+// recorder's single writer goroutine, so it never contends with itself under the
+// store's single-connection pool. An empty batch is a no-op.
+func (s *SQLiteStore) InsertNodeEvents(batch []NodeEventRecord) error {
+	if s.isClosed() {
+		return ErrDatabaseClosed
+	}
+	if len(batch) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin node-events tx: %w", err)
+	}
+	stmt, err := tx.Prepare(`
+		INSERT INTO node_events
+			(run_id, flow_id, node_id, node_type, phase, msg_id, duration_ms, error, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("failed to prepare node-events insert: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, e := range batch {
+		if _, err := stmt.Exec(e.RunID, e.FlowID, e.NodeID, e.NodeType, e.Phase, e.MsgID, e.DurationMs, e.Error, e.CreatedAt); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("failed to insert node event: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit node events: %w", err)
+	}
+	return nil
+}
+
+// ListFlowRuns returns a flow's runs, newest first, with limit/offset pagination.
+func (s *SQLiteStore) ListFlowRuns(flowID string, limit, offset int) ([]FlowRun, error) {
+	if s.isClosed() {
+		return nil, ErrDatabaseClosed
+	}
+	rows, err := s.db.Query(`
+		SELECT `+flowRunColumns+`
+		FROM flow_runs
+		WHERE flow_id = ?
+		ORDER BY started_at DESC
+		LIMIT ? OFFSET ?
+	`, flowID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list flow runs: %w", err)
+	}
+	defer rows.Close()
+
+	var runs []FlowRun
+	for rows.Next() {
+		r, err := scanFlowRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan flow run: %w", err)
+		}
+		runs = append(runs, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating flow runs: %w", err)
+	}
+	return runs, nil
+}
+
+// ListNodeEvents returns all node events for a run in execution order.
+func (s *SQLiteStore) ListNodeEvents(runID string) ([]NodeEventRecord, error) {
+	return s.queryNodeEvents(`
+		SELECT id, run_id, flow_id, node_id, node_type, phase, msg_id, duration_ms, error, created_at
+		FROM node_events
+		WHERE run_id = ?
+		ORDER BY id ASC
+	`, runID)
+}
+
+// ListFlowRunEvents returns a run's node events in execution order, but only
+// if the run belongs to flowID — so a run can't be read through another flow.
+func (s *SQLiteStore) ListFlowRunEvents(flowID, runID string) ([]NodeEventRecord, error) {
+	return s.queryNodeEvents(`
+		SELECT id, run_id, flow_id, node_id, node_type, phase, msg_id, duration_ms, error, created_at
+		FROM node_events
+		WHERE run_id = ? AND flow_id = ?
+		ORDER BY id ASC
+	`, runID, flowID)
+}
+
+func (s *SQLiteStore) queryNodeEvents(query string, args ...any) ([]NodeEventRecord, error) {
+	if s.isClosed() {
+		return nil, ErrDatabaseClosed
+	}
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list node events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []NodeEventRecord
+	for rows.Next() {
+		var e NodeEventRecord
+		if err := rows.Scan(&e.ID, &e.RunID, &e.FlowID, &e.NodeID, &e.NodeType, &e.Phase, &e.MsgID, &e.DurationMs, &e.Error, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan node event: %w", err)
+		}
+		events = append(events, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating node events: %w", err)
+	}
+	return events, nil
+}
+
+// PruneHistory deletes runs older than olderThan and, per flow, any runs beyond
+// the maxRunsPerFlow most recent. Orphaned node_events are removed in the same
+// transaction. It returns the number of runs deleted. maxRunsPerFlow <= 0 skips
+// the per-flow cap.
+func (s *SQLiteStore) PruneHistory(olderThan time.Time, maxRunsPerFlow int) (int, error) {
+	if s.isClosed() {
+		return 0, ErrDatabaseClosed
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin prune tx: %w", err)
+	}
+
+	total := 0
+
+	res, err := tx.Exec(`DELETE FROM flow_runs WHERE started_at < ?`, olderThan)
+	if err != nil {
+		_ = tx.Rollback()
+		return 0, fmt.Errorf("failed to prune old runs: %w", err)
+	}
+	if n, err := res.RowsAffected(); err == nil {
+		total += int(n)
+	}
+
+	if maxRunsPerFlow > 0 {
+		res, err = tx.Exec(`
+			DELETE FROM flow_runs
+			WHERE id IN (
+				SELECT id FROM (
+					SELECT id, ROW_NUMBER() OVER (
+						PARTITION BY flow_id ORDER BY started_at DESC
+					) AS rn
+					FROM flow_runs
+				) WHERE rn > ?
+			)
+		`, maxRunsPerFlow)
+		if err != nil {
+			_ = tx.Rollback()
+			return 0, fmt.Errorf("failed to prune runs over cap: %w", err)
+		}
+		if n, err := res.RowsAffected(); err == nil {
+			total += int(n)
+		}
+	}
+
+	// Drop node_events whose run no longer exists.
+	if _, err := tx.Exec(`DELETE FROM node_events WHERE run_id NOT IN (SELECT id FROM flow_runs)`); err != nil {
+		_ = tx.Rollback()
+		return 0, fmt.Errorf("failed to prune orphan node events: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("failed to commit prune: %w", err)
+	}
+	return total, nil
+}

@@ -1,0 +1,18 @@
+import type en from '../en'
+import common from './common'
+import editor from './editor'
+import activity from './activity'
+import nav from './nav'
+import http from './http'
+import flows from './flows'
+import examples from './examples'
+import drafts from './drafts'
+import agents from './agents'
+import trust from './trust'
+import auth from './auth'
+import zigbee from './zigbee'
+import settings from './settings'
+import flowTools from './flowTools'
+import backups from './backups'
+const es: typeof en = { common, editor, activity, nav, http, flows, examples, drafts, agents, trust, auth, zigbee, settings, flowTools, backups }
+export default es

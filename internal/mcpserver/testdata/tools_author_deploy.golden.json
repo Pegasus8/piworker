@@ -1,0 +1,2136 @@
+[
+  {
+    "_meta": {
+      "anthropic/requiresUserInteraction": true
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Deploys a flow as this token: starts it, or restarts it when draftId applies your pending draft of it first (saved as a version the admin did not approve). Without draftId the current version starts (a running flow is a conflict). PiWorker's agent deploy level decides: low allows flows whose risk is at most external and that, compared with the version the admin last approved, do not raise its risk, add no privileged node, change no destination, host, secret reference, risk switch, credentialed request, rate (how often a flow that reaches other services fires), what a global variable receives or what a published tool runs, and add or change no node that reads variables, metadata or what a credential returned; all allows any flow. A refusal says which alert kinds stood in the way. A flow with errors is refused with error.flowIssues, a flow changed meanwhile with conflict. The admin sees every agent deploy and can roll back.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "draftId": {
+          "description": "One of your pending drafts of the flow, from pw_save_draft, to apply first.",
+          "maxLength": 256,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+          "type": "string"
+        },
+        "flowId": {
+          "description": "The flow's id, from pw_list_flows.",
+          "maxLength": 256,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "flowId"
+      ],
+      "type": "object"
+    },
+    "name": "pw_deploy_flow",
+    "outputSchema": {
+      "properties": {
+        "flowId": {
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "safe",
+            "external",
+            "privileged"
+          ],
+          "type": "string"
+        },
+        "running": {
+          "type": "boolean"
+        },
+        "version": {
+          "description": "The version now running (or stopped).",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "flowId",
+        "version",
+        "running",
+        "risk"
+      ],
+      "type": "object"
+    },
+    "title": "Deploy a flow"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Runs a flow once in a sandbox and reports each node's input and outputs: one of flow (inline), draftId (one of your drafts) or flowId (a stored flow). Triggers do not start: payload is injected at triggerNodeId. Nodes that are not safe (HTTP, MQTT, e-mail, chat, commands, files, databases, GPIO…) do not run: they are listed in wouldExecute and emit mocks[nodeId] if given. Secrets are empty and variables isolated, so nothing outside PiWorker is reached or changed. A flow with errors does not run (see issues). At most 50 nodes, 10 s, 200 executions; previews are cut to 2 KiB.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "draftId": {
+          "description": "One of your drafts (from pw_save_draft); the settings it kept of the stored flow are hidden from the run as with flowId.",
+          "maxLength": 256,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+          "type": "string"
+        },
+        "flow": {
+          "additionalProperties": false,
+          "description": "A whole flow: its nodes and connections. id, state, version, createdAt, updatedAt, tools, totalNodes and totalConnections (as the read views and exported flows show them) are ignored: the flow is named by flowId, or is new.",
+          "properties": {
+            "connections": {
+              "description": "The flow's connections (at most 200).",
+              "items": {
+                "additionalProperties": false,
+                "description": "A connection from an output port to an input port.",
+                "properties": {
+                  "id": {
+                    "description": "The connection's id, unique in the flow (letters, digits, '_', '-', '.' or ':'; at most 256).",
+                    "maxLength": 256,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,256}$",
+                    "type": "string"
+                  },
+                  "sourceNode": {
+                    "description": "The source node's id.",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  },
+                  "sourcePort": {
+                    "description": "The source node's output port.",
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                    "type": "string"
+                  },
+                  "targetNode": {
+                    "description": "The target node's id.",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  },
+                  "targetPort": {
+                    "description": "The target node's input port.",
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "sourceNode",
+                  "sourcePort",
+                  "targetNode",
+                  "targetPort"
+                ],
+                "type": "object"
+              },
+              "maxItems": 200,
+              "type": "array"
+            },
+            "createdAt": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "description": {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 256,
+              "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+              "type": "string"
+            },
+            "name": {
+              "description": "The flow's name (at most 256 characters; a draft's at most 100).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "nodes": {
+              "description": "The flow's nodes (at most 50).",
+              "items": {
+                "additionalProperties": false,
+                "description": "A node. name and risk (as the read views show them) are ignored; inputs and outputs default to the type's ports.",
+                "properties": {
+                  "category": {
+                    "enum": [
+                      "input",
+                      "processing",
+                      "output"
+                    ],
+                    "type": "string"
+                  },
+                  "config": {
+                    "description": "The node's settings, as its type's config schema describes them. A flow sent inline has no stored values: \"\u003credacted\u003e\" is refused (dry-run a stored flow by flowId, or your draft by draftId, to keep its hidden settings). A sensitive setting takes only a {{secret.NAME}} reference. Values a view cut (\"…\u003ctruncated\u003e\", \"\u003ctruncated\u003e\") or partly hid (\"\u003credacted\u003e\" inside a value) are refused: they are not the stored values.",
+                    "type": "object"
+                  },
+                  "configOmitted": {
+                    "description": "Must not be true: a view that left this node's settings out cannot be sent back as the node.",
+                    "type": "boolean"
+                  },
+                  "enabled": {
+                    "description": "Whether the node runs (default true).",
+                    "type": "boolean"
+                  },
+                  "id": {
+                    "description": "The node's id, unique in the flow (letters, digits, '_', '-', '.' or ':'; at most 128).",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  },
+                  "inputs": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "dataType": {
+                          "maxLength": 32,
+                          "type": "string"
+                        },
+                        "id": {
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                          "type": "string"
+                        },
+                        "multiple": {
+                          "type": "boolean"
+                        },
+                        "name": {
+                          "maxLength": 256,
+                          "type": "string"
+                        },
+                        "required": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 32,
+                    "type": "array"
+                  },
+                  "name": {
+                    "maxLength": 256,
+                    "type": "string"
+                  },
+                  "outputs": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "dataType": {
+                          "maxLength": 32,
+                          "type": "string"
+                        },
+                        "id": {
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                          "type": "string"
+                        },
+                        "multiple": {
+                          "type": "boolean"
+                        },
+                        "name": {
+                          "maxLength": 256,
+                          "type": "string"
+                        },
+                        "required": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 32,
+                    "type": "array"
+                  },
+                  "position": {
+                    "additionalProperties": false,
+                    "description": "The node's position on the editor's canvas (finite, within ±1,000,000); laid out automatically when absent.",
+                    "properties": {
+                      "x": {
+                        "description": "Horizontal position.",
+                        "type": "number"
+                      },
+                      "y": {
+                        "description": "Vertical position.",
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ],
+                    "type": "object"
+                  },
+                  "risk": {
+                    "maxLength": 32,
+                    "type": "string"
+                  },
+                  "type": {
+                    "description": "The node type, from pw_list_node_types (e.g. trigger-interval, action-http).",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "type"
+                ],
+                "type": "object"
+              },
+              "maxItems": 50,
+              "type": "array"
+            },
+            "state": {
+              "maxLength": 32,
+              "type": "string"
+            },
+            "tools": {
+              "items": {},
+              "maxItems": 100,
+              "type": "array"
+            },
+            "totalConnections": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "totalNodes": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "truncated": {
+              "description": "Must not be true: a view that left nodes, connections or settings out cannot be sent back as the flow.",
+              "type": "boolean"
+            },
+            "updatedAt": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "variables": {
+              "description": "Legacy flow variables (agents may not change them).",
+              "type": "object"
+            },
+            "version": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "nodes"
+          ],
+          "type": "object"
+        },
+        "flowId": {
+          "description": "A stored flow (its current version); settings agents may not read are hidden from the run, and a node they leave invalid does not run (issue hidden_settings): give it a mock.",
+          "maxLength": 256,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+          "type": "string"
+        },
+        "flowVars": {
+          "description": "Initial flow variables of the sandbox (at most 64 KiB).",
+          "type": "object"
+        },
+        "mocks": {
+          "description": "By node id: the payload a node that does not run (not safe) emits instead, on its first output port (at most 64 KiB). Without one its branch ends there.",
+          "type": "object"
+        },
+        "payload": {
+          "description": "The message payload injected at the trigger (any JSON, at most 64 KiB)."
+        },
+        "triggerNodeId": {
+          "description": "The enabled trigger (input) node whose output receives payload; may be absent when the flow has exactly one.",
+          "maxLength": 256,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "pw_dry_run",
+    "outputSchema": {
+      "properties": {
+        "capped": {
+          "type": "boolean"
+        },
+        "issues": {
+          "items": {
+            "properties": {
+              "code": {
+                "description": "A stable code, e.g. unknown_type, config_type, invalid_config, undefined_secret.",
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "path": {
+                "description": "Where: /name, /nodes/{nodeId}, /nodes/{nodeId}/config/{setting}, /connections/{id} or /ops/{index}.",
+                "type": "string"
+              },
+              "severity": {
+                "enum": [
+                  "error",
+                  "warning"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "code",
+              "severity",
+              "message"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "missingSecrets": {
+          "description": "Secret names referenced (the sandbox has none).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "timedOut": {
+          "type": "boolean"
+        },
+        "trace": {
+          "description": "The node executions, in order (the trigger first).",
+          "items": {
+            "properties": {
+              "durationMs": {
+                "type": "number"
+              },
+              "error": {
+                "type": "string"
+              },
+              "input": {
+                "description": "The input payload's JSON, cut to 2 KiB.",
+                "type": "string"
+              },
+              "nodeId": {
+                "type": "string"
+              },
+              "outputs": {
+                "items": {
+                  "properties": {
+                    "port": {
+                      "type": "string"
+                    },
+                    "preview": {
+                      "description": "The payload's JSON, cut to 2 KiB.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "port",
+                    "preview"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "stubbed": {
+                "description": "The node did not run (a trigger, or a node that is not safe); it emitted its mock, if any.",
+                "type": "boolean"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "nodeId",
+              "type",
+              "outputs",
+              "durationMs",
+              "stubbed"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "wouldExecute": {
+          "description": "Nodes a message reached that were not run.",
+          "items": {
+            "properties": {
+              "input": {
+                "type": "string"
+              },
+              "nodeId": {
+                "type": "string"
+              },
+              "risk": {
+                "enum": [
+                  "safe",
+                  "external",
+                  "privileged"
+                ],
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "nodeId",
+              "type",
+              "risk",
+              "input"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "issues",
+        "trace",
+        "wouldExecute",
+        "missingSecrets",
+        "truncated",
+        "timedOut",
+        "capped"
+      ],
+      "type": "object"
+    },
+    "title": "Dry-run a flow"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Shows one of this token's drafts: its status (pending, approved, rejected with the admin's reason, or void), risk, issues and alerts, the version an approval saved, your note and the proposed flow (settings agents may not read are \"\u003credacted\u003e\"). Other tokens' drafts are not found.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "draftId": {
+          "description": "The draft's id, from pw_save_draft.",
+          "maxLength": 256,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "draftId"
+      ],
+      "type": "object"
+    },
+    "name": "pw_get_draft",
+    "outputSchema": {
+      "properties": {
+        "alerts": {
+          "description": "What the admin's approval page flags, compared with the flow's current version.",
+          "items": {
+            "properties": {
+              "after": {
+                "description": "The value after, when agents may read it."
+              },
+              "before": {
+                "description": "The value before, when agents may read it."
+              },
+              "kind": {
+                "description": "What the admin is warned about: risk_raised, privileged_node_added, destination_changed, dynamic_destination, new_host, secret_added, secret_moved, risk_switch_on, sensitive_literal, credentialed_request_changed.",
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "nodeId": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "message"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "appliedBy": {
+          "description": "Who applied an approved draft: the admin (editor) or this token deploying it (agent).",
+          "enum": [
+            "editor",
+            "agent"
+          ],
+          "type": "string"
+        },
+        "appliedVersion": {
+          "description": "The version an approval saved.",
+          "type": "integer"
+        },
+        "baseVersion": {
+          "type": "integer"
+        },
+        "createdAt": {
+          "description": "RFC 3339 time (UTC).",
+          "type": "string"
+        },
+        "decidedAt": {
+          "description": "RFC 3339 time (UTC).",
+          "type": "string"
+        },
+        "draftId": {
+          "type": "string"
+        },
+        "flow": {
+          "description": "The proposed flow; settings agents may not read are \"\u003credacted\u003e\".",
+          "properties": {
+            "connections": {
+              "items": {
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "sourceNode": {
+                    "type": "string"
+                  },
+                  "sourcePort": {
+                    "type": "string"
+                  },
+                  "targetNode": {
+                    "type": "string"
+                  },
+                  "targetPort": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "sourceNode",
+                  "sourcePort",
+                  "targetNode",
+                  "targetPort"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "nodes": {
+              "items": {
+                "properties": {
+                  "config": {
+                    "description": "The node's settings (an object): values not shown to agents read \"\u003credacted\u003e\". null when configOmitted."
+                  },
+                  "configOmitted": {
+                    "description": "The settings were left out to keep the view small.",
+                    "type": "boolean"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "The display name of the node's type.",
+                    "type": "string"
+                  },
+                  "position": {
+                    "properties": {
+                      "x": {
+                        "type": "number"
+                      },
+                      "y": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ],
+                    "type": "object"
+                  },
+                  "risk": {
+                    "enum": [
+                      "safe",
+                      "external",
+                      "privileged"
+                    ],
+                    "type": "string"
+                  },
+                  "type": {
+                    "description": "The node type, e.g. action-http.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "type",
+                  "name",
+                  "enabled",
+                  "position",
+                  "config"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "totalConnections": {
+              "type": "integer"
+            },
+            "totalNodes": {
+              "type": "integer"
+            },
+            "truncated": {
+              "description": "Nodes, connections or settings were left out to keep the view small.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "nodes",
+            "connections",
+            "totalNodes",
+            "totalConnections",
+            "truncated"
+          ],
+          "type": "object"
+        },
+        "flowId": {
+          "type": "string"
+        },
+        "issues": {
+          "items": {
+            "properties": {
+              "code": {
+                "description": "A stable code, e.g. unknown_type, config_type, invalid_config, undefined_secret.",
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "path": {
+                "description": "Where: /name, /nodes/{nodeId}, /nodes/{nodeId}/config/{setting}, /connections/{id} or /ops/{index}.",
+                "type": "string"
+              },
+              "severity": {
+                "enum": [
+                  "error",
+                  "warning"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "code",
+              "severity",
+              "message"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "note": {
+          "type": "string"
+        },
+        "reason": {
+          "description": "The admin's reason for a rejection, or why the draft was voided.",
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "safe",
+            "external",
+            "privileged"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "approved",
+            "rejected",
+            "void"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "draftId",
+        "status",
+        "risk",
+        "issues",
+        "alerts",
+        "flowId",
+        "baseVersion",
+        "note",
+        "createdAt",
+        "flow"
+      ],
+      "type": "object"
+    },
+    "title": "Get one of your drafts"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Lists the node types flows are built from, triggers (input) first, then processing and actions (output): type id, name, risk (safe, external: reaches other services, privileged: acts on the device), ports, settings (type, bounds, default, and the markers sensitive, agentVisible, destination, riskSwitch, operation and rate, present when true) and documentation. A dynamic URL or host, or a risk switch turned on, makes a node privileged. Without arguments the documentation is left out (documentationOmitted): ask for a category or a type to read it; documentation left out to keep a category small comes with the type alone. trigger-tool and action-reply (flow tools) are listed for reference: agents cannot add, change or remove them.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "description": "Only the types of this category, with their documentation: input (triggers), processing or output (actions).",
+          "enum": [
+            "input",
+            "processing",
+            "output"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "description": "Only this type, with its whole documentation.",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "pw_list_node_types",
+    "outputSchema": {
+      "properties": {
+        "total": {
+          "description": "The node types matching the filters.",
+          "type": "integer"
+        },
+        "truncated": {
+          "description": "Types or documentation were left out or cut to keep the list small.",
+          "type": "boolean"
+        },
+        "types": {
+          "items": {
+            "properties": {
+              "category": {
+                "description": "input (triggers), processing or output (actions).",
+                "type": "string"
+              },
+              "config": {
+                "properties": {
+                  "properties": {
+                    "description": "The settings by name: type, title, description, default, enum, minimum, maximum, unit, and the markers sensitive, agentVisible, destination, riskSwitch, operation, rate (present only when true)."
+                  },
+                  "required": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "properties",
+                  "required"
+                ],
+                "type": "object"
+              },
+              "description": {
+                "type": "string"
+              },
+              "documentation": {
+                "description": "Markdown.",
+                "type": "string"
+              },
+              "documentationOmitted": {
+                "description": "Left out to keep the list small: ask for this type alone.",
+                "type": "boolean"
+              },
+              "inputs": {
+                "items": {
+                  "properties": {
+                    "dataType": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "multiple": {
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "required": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "dataType",
+                    "multiple",
+                    "required"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "name": {
+                "type": "string"
+              },
+              "outputs": {
+                "items": {
+                  "properties": {
+                    "dataType": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "multiple": {
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "required": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "dataType",
+                    "multiple",
+                    "required"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "risk": {
+                "enum": [
+                  "safe",
+                  "external",
+                  "privileged"
+                ],
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "name",
+              "category",
+              "risk",
+              "description",
+              "inputs",
+              "outputs",
+              "config"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "types",
+        "total",
+        "truncated"
+      ],
+      "type": "object"
+    },
+    "title": "List node types"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Saves a draft of a new or changed flow for the admin to review in PiWorker's editor; nothing runs or changes until the admin approves it. A new flow: flow and a name, no flowId. An existing flow: flowId and baseVersion with ops (edits) or a whole flow (\"\u003credacted\u003e\" settings keep the current values). Sensitive settings take only {{secret.NAME}} references; flow tools (trigger-tool, action-reply), webhook paths and tokens, risk switches and legacy variables cannot be changed by agents. A draft with errors is refused with error.flowIssues (check it with pw_validate_flow first). The result lists the alerts the admin will see. Follow up with pw_get_draft.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "baseVersion": {
+          "description": "The flow's version the change is based on: the version pw_get_flow (or pw_list_flows) showed when you read it. Required with flowId, unless the flow you send carries that version. If the flow changed since, the draft is refused with conflict and error.currentVersion: read it again and redo the change.",
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "flow": {
+          "additionalProperties": false,
+          "description": "A whole flow: its nodes and connections. With flowId, version (as the read views show it) is the version the flow was read at: the base when baseVersion is absent, and it must equal baseVersion otherwise. id, state, createdAt, updatedAt, tools, totalNodes and totalConnections (as the read views and exported flows show them) are ignored.",
+          "properties": {
+            "connections": {
+              "description": "The flow's connections (at most 400).",
+              "items": {
+                "additionalProperties": false,
+                "description": "A connection from an output port to an input port.",
+                "properties": {
+                  "id": {
+                    "description": "The connection's id, unique in the flow (letters, digits, '_', '-', '.' or ':'; at most 256).",
+                    "maxLength": 256,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,256}$",
+                    "type": "string"
+                  },
+                  "sourceNode": {
+                    "description": "The source node's id.",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  },
+                  "sourcePort": {
+                    "description": "The source node's output port.",
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                    "type": "string"
+                  },
+                  "targetNode": {
+                    "description": "The target node's id.",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  },
+                  "targetPort": {
+                    "description": "The target node's input port.",
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "sourceNode",
+                  "sourcePort",
+                  "targetNode",
+                  "targetPort"
+                ],
+                "type": "object"
+              },
+              "maxItems": 400,
+              "type": "array"
+            },
+            "createdAt": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "description": {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 256,
+              "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+              "type": "string"
+            },
+            "name": {
+              "description": "The flow's name (at most 256 characters; a draft's at most 100).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "nodes": {
+              "description": "The flow's nodes (at most 200).",
+              "items": {
+                "additionalProperties": false,
+                "description": "A node. name and risk (as the read views show them) are ignored; inputs and outputs default to the type's ports.",
+                "properties": {
+                  "category": {
+                    "enum": [
+                      "input",
+                      "processing",
+                      "output"
+                    ],
+                    "type": "string"
+                  },
+                  "config": {
+                    "description": "The node's settings, as its type's config schema describes them. With flowId, \"\u003credacted\u003e\" as a whole setting (as the read views show hidden settings) keeps the current value of that setting of the same node; a new flow has none to keep. A sensitive setting takes only a {{secret.NAME}} reference. Values a view cut (\"…\u003ctruncated\u003e\", \"\u003ctruncated\u003e\") or partly hid (\"\u003credacted\u003e\" inside a value) are refused: they are not the stored values.",
+                    "type": "object"
+                  },
+                  "configOmitted": {
+                    "description": "Must not be true: a view that left this node's settings out cannot be sent back as the node.",
+                    "type": "boolean"
+                  },
+                  "enabled": {
+                    "description": "Whether the node runs (default true).",
+                    "type": "boolean"
+                  },
+                  "id": {
+                    "description": "The node's id, unique in the flow (letters, digits, '_', '-', '.' or ':'; at most 128).",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  },
+                  "inputs": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "dataType": {
+                          "maxLength": 32,
+                          "type": "string"
+                        },
+                        "id": {
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                          "type": "string"
+                        },
+                        "multiple": {
+                          "type": "boolean"
+                        },
+                        "name": {
+                          "maxLength": 256,
+                          "type": "string"
+                        },
+                        "required": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 32,
+                    "type": "array"
+                  },
+                  "name": {
+                    "maxLength": 256,
+                    "type": "string"
+                  },
+                  "outputs": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "dataType": {
+                          "maxLength": 32,
+                          "type": "string"
+                        },
+                        "id": {
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                          "type": "string"
+                        },
+                        "multiple": {
+                          "type": "boolean"
+                        },
+                        "name": {
+                          "maxLength": 256,
+                          "type": "string"
+                        },
+                        "required": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 32,
+                    "type": "array"
+                  },
+                  "position": {
+                    "additionalProperties": false,
+                    "description": "The node's position on the editor's canvas (finite, within ±1,000,000); laid out automatically when absent.",
+                    "properties": {
+                      "x": {
+                        "description": "Horizontal position.",
+                        "type": "number"
+                      },
+                      "y": {
+                        "description": "Vertical position.",
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ],
+                    "type": "object"
+                  },
+                  "risk": {
+                    "maxLength": 32,
+                    "type": "string"
+                  },
+                  "type": {
+                    "description": "The node type, from pw_list_node_types (e.g. trigger-interval, action-http).",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "type"
+                ],
+                "type": "object"
+              },
+              "maxItems": 200,
+              "type": "array"
+            },
+            "state": {
+              "maxLength": 32,
+              "type": "string"
+            },
+            "tools": {
+              "items": {},
+              "maxItems": 100,
+              "type": "array"
+            },
+            "totalConnections": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "totalNodes": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "truncated": {
+              "description": "Must not be true: a view that left nodes, connections or settings out cannot be sent back as the flow.",
+              "type": "boolean"
+            },
+            "updatedAt": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "variables": {
+              "description": "Legacy flow variables (agents may not change them).",
+              "type": "object"
+            },
+            "version": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "nodes"
+          ],
+          "type": "object"
+        },
+        "flowId": {
+          "description": "The existing flow the draft changes (absent for a new flow).",
+          "maxLength": 256,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+          "type": "string"
+        },
+        "name": {
+          "description": "The flow's name (at most 100 characters): required for a new flow unless flow.name is set; an existing flow keeps its name unless this or flow.name is set.",
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        "note": {
+          "description": "For the admin: what the draft changes and why (at most 2000 characters). Shown as written by you.",
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "ops": {
+          "description": "Edits applied in order to the flow's current version (at most 200).",
+          "items": {
+            "additionalProperties": false,
+            "description": "One edit: add_node{node}, update_node{nodeId, config?, enabled?, position?} (config is a JSON merge patch: null deletes a setting), remove_node{nodeId} (with its connections), connect{sourceNode, sourcePort, targetNode, targetPort}, disconnect{connectionId} or disconnect with the four endpoint fields.",
+            "properties": {
+              "config": {
+                "description": "update_node: a JSON merge patch of the node's settings (null deletes one).",
+                "type": "object"
+              },
+              "connectionId": {
+                "description": "disconnect: the connection to remove.",
+                "maxLength": 256,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                "type": "string"
+              },
+              "enabled": {
+                "description": "update_node: whether the node runs.",
+                "type": "boolean"
+              },
+              "node": {
+                "additionalProperties": false,
+                "description": "The node to add.",
+                "properties": {
+                  "config": {
+                    "description": "The node's settings.",
+                    "type": "object"
+                  },
+                  "enabled": {
+                    "description": "Whether the node runs (default true).",
+                    "type": "boolean"
+                  },
+                  "id": {
+                    "description": "The new node's id (1 to 64 letters, digits, '-' or '_'; generated when absent).",
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9_-]{1,64}$",
+                    "type": "string"
+                  },
+                  "position": {
+                    "additionalProperties": false,
+                    "description": "The node's position on the editor's canvas (finite, within ±1,000,000); laid out automatically when absent.",
+                    "properties": {
+                      "x": {
+                        "description": "Horizontal position.",
+                        "type": "number"
+                      },
+                      "y": {
+                        "description": "Vertical position.",
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ],
+                    "type": "object"
+                  },
+                  "type": {
+                    "description": "The node type, from pw_list_node_types.",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "type": "object"
+              },
+              "nodeId": {
+                "description": "The node to update or remove.",
+                "maxLength": 256,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                "type": "string"
+              },
+              "op": {
+                "description": "The operation.",
+                "enum": [
+                  "add_node",
+                  "update_node",
+                  "remove_node",
+                  "connect",
+                  "disconnect"
+                ],
+                "type": "string"
+              },
+              "position": {
+                "additionalProperties": false,
+                "description": "The node's position on the editor's canvas (finite, within ±1,000,000); laid out automatically when absent.",
+                "properties": {
+                  "x": {
+                    "description": "Horizontal position.",
+                    "type": "number"
+                  },
+                  "y": {
+                    "description": "Vertical position.",
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "x",
+                  "y"
+                ],
+                "type": "object"
+              },
+              "sourceNode": {
+                "description": "connect, disconnect: the source node.",
+                "maxLength": 256,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                "type": "string"
+              },
+              "sourcePort": {
+                "description": "connect, disconnect: the source node's output port.",
+                "maxLength": 256,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                "type": "string"
+              },
+              "targetNode": {
+                "description": "connect, disconnect: the target node.",
+                "maxLength": 256,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                "type": "string"
+              },
+              "targetPort": {
+                "description": "connect, disconnect: the target node's input port.",
+                "maxLength": 256,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "type": "object"
+          },
+          "maxItems": 200,
+          "type": "array"
+        }
+      },
+      "required": [
+        "note"
+      ],
+      "type": "object"
+    },
+    "name": "pw_save_draft",
+    "outputSchema": {
+      "properties": {
+        "alerts": {
+          "description": "What the admin's approval page flags, compared with the flow's current version.",
+          "items": {
+            "properties": {
+              "after": {
+                "description": "The value after, when agents may read it."
+              },
+              "before": {
+                "description": "The value before, when agents may read it."
+              },
+              "kind": {
+                "description": "What the admin is warned about: risk_raised, privileged_node_added, destination_changed, dynamic_destination, new_host, secret_added, secret_moved, risk_switch_on, sensitive_literal, credentialed_request_changed.",
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "nodeId": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "message"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "baseVersion": {
+          "description": "The version the draft is based on (0 for a new flow).",
+          "type": "integer"
+        },
+        "draftId": {
+          "type": "string"
+        },
+        "flowId": {
+          "description": "The flow the draft changes (empty for a new flow).",
+          "type": "string"
+        },
+        "issues": {
+          "items": {
+            "properties": {
+              "code": {
+                "description": "A stable code, e.g. unknown_type, config_type, invalid_config, undefined_secret.",
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "path": {
+                "description": "Where: /name, /nodes/{nodeId}, /nodes/{nodeId}/config/{setting}, /connections/{id} or /ops/{index}.",
+                "type": "string"
+              },
+              "severity": {
+                "enum": [
+                  "error",
+                  "warning"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "code",
+              "severity",
+              "message"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "risk": {
+          "enum": [
+            "safe",
+            "external",
+            "privileged"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "description": "pending: the admin decides in PiWorker's editor.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "draftId",
+        "status",
+        "risk",
+        "issues",
+        "alerts",
+        "flowId",
+        "baseVersion"
+      ],
+      "type": "object"
+    },
+    "title": "Save a draft for the admin"
+  },
+  {
+    "_meta": {
+      "anthropic/requiresUserInteraction": true
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Stops a running flow as this token (a flow that is not running is a conflict). The same agent deploy level as pw_deploy_flow applies to the flow being stopped. PiWorker's agent deploy level decides: low allows flows whose risk is at most external and that, compared with the version the admin last approved, do not raise its risk, add no privileged node, change no destination, host, secret reference, risk switch, credentialed request, rate (how often a flow that reaches other services fires), what a global variable receives or what a published tool runs, and add or change no node that reads variables, metadata or what a credential returned; all allows any flow. A refusal says which alert kinds stood in the way.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "flowId": {
+          "description": "The flow's id, from pw_list_flows.",
+          "maxLength": 256,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "flowId"
+      ],
+      "type": "object"
+    },
+    "name": "pw_stop_flow",
+    "outputSchema": {
+      "properties": {
+        "flowId": {
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "safe",
+            "external",
+            "privileged"
+          ],
+          "type": "string"
+        },
+        "running": {
+          "type": "boolean"
+        },
+        "version": {
+          "description": "The version now running (or stopped).",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "flowId",
+        "version",
+        "running",
+        "risk"
+      ],
+      "type": "object"
+    },
+    "title": "Stop a flow"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Runs one processing node of a safe type (transform, filter, switch, template, parse, …) once on input, in the same sandbox as pw_dry_run, and reports its outputs or error; settings problems are issues and the node does not run then. 5 s timeout.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "description": "The node's settings (at most 64 KiB); a sensitive setting takes only a {{secret.NAME}} reference.",
+          "type": "object"
+        },
+        "input": {
+          "description": "The input payload (any JSON, at most 64 KiB)."
+        },
+        "type": {
+          "description": "A processing node type whose risk is safe (from pw_list_node_types).",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "name": "pw_test_node",
+    "outputSchema": {
+      "properties": {
+        "durationMs": {
+          "type": "number"
+        },
+        "error": {
+          "type": "string"
+        },
+        "issues": {
+          "items": {
+            "properties": {
+              "code": {
+                "description": "A stable code, e.g. unknown_type, config_type, invalid_config, undefined_secret.",
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "path": {
+                "description": "Where: /name, /nodes/{nodeId}, /nodes/{nodeId}/config/{setting}, /connections/{id} or /ops/{index}.",
+                "type": "string"
+              },
+              "severity": {
+                "enum": [
+                  "error",
+                  "warning"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "code",
+              "severity",
+              "message"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "outputs": {
+          "items": {
+            "properties": {
+              "port": {
+                "type": "string"
+              },
+              "preview": {
+                "description": "The payload's JSON, cut to 2 KiB.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "port",
+              "preview"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "timedOut": {
+          "type": "boolean"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "issues",
+        "outputs",
+        "durationMs",
+        "truncated",
+        "timedOut"
+      ],
+      "type": "object"
+    },
+    "title": "Test one node"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Checks a flow without saving or running anything: every check a deploy runs (structure, node types, settings, tool rules, the secrets strict settings need) plus the authoring rules, and the flow's risk (safe, external or privileged). Pass a whole flow, or flowId with ops (edits of that flow's current version) or with a whole flow whose \"\u003credacted\u003e\" settings keep the current values. valid is true when no issue blocks saving a draft; an undefined_secret error still blocks a deploy until the admin defines the secret. Node types and their settings: pw_list_node_types.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "flow": {
+          "additionalProperties": false,
+          "description": "A whole flow: its nodes and connections. id, state, version, createdAt, updatedAt, tools, totalNodes and totalConnections (as the read views and exported flows show them) are ignored: the flow is named by flowId, or is new.",
+          "properties": {
+            "connections": {
+              "description": "The flow's connections (at most 400).",
+              "items": {
+                "additionalProperties": false,
+                "description": "A connection from an output port to an input port.",
+                "properties": {
+                  "id": {
+                    "description": "The connection's id, unique in the flow (letters, digits, '_', '-', '.' or ':'; at most 256).",
+                    "maxLength": 256,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,256}$",
+                    "type": "string"
+                  },
+                  "sourceNode": {
+                    "description": "The source node's id.",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  },
+                  "sourcePort": {
+                    "description": "The source node's output port.",
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                    "type": "string"
+                  },
+                  "targetNode": {
+                    "description": "The target node's id.",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  },
+                  "targetPort": {
+                    "description": "The target node's input port.",
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "sourceNode",
+                  "sourcePort",
+                  "targetNode",
+                  "targetPort"
+                ],
+                "type": "object"
+              },
+              "maxItems": 400,
+              "type": "array"
+            },
+            "createdAt": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "description": {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 256,
+              "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+              "type": "string"
+            },
+            "name": {
+              "description": "The flow's name (at most 256 characters; a draft's at most 100).",
+              "maxLength": 256,
+              "type": "string"
+            },
+            "nodes": {
+              "description": "The flow's nodes (at most 200).",
+              "items": {
+                "additionalProperties": false,
+                "description": "A node. name and risk (as the read views show them) are ignored; inputs and outputs default to the type's ports.",
+                "properties": {
+                  "category": {
+                    "enum": [
+                      "input",
+                      "processing",
+                      "output"
+                    ],
+                    "type": "string"
+                  },
+                  "config": {
+                    "description": "The node's settings, as its type's config schema describes them. With flowId, \"\u003credacted\u003e\" as a whole setting (as the read views show hidden settings) keeps the current value of that setting of the same node; a new flow has none to keep. A sensitive setting takes only a {{secret.NAME}} reference. Values a view cut (\"…\u003ctruncated\u003e\", \"\u003ctruncated\u003e\") or partly hid (\"\u003credacted\u003e\" inside a value) are refused: they are not the stored values.",
+                    "type": "object"
+                  },
+                  "configOmitted": {
+                    "description": "Must not be true: a view that left this node's settings out cannot be sent back as the node.",
+                    "type": "boolean"
+                  },
+                  "enabled": {
+                    "description": "Whether the node runs (default true).",
+                    "type": "boolean"
+                  },
+                  "id": {
+                    "description": "The node's id, unique in the flow (letters, digits, '_', '-', '.' or ':'; at most 128).",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  },
+                  "inputs": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "dataType": {
+                          "maxLength": 32,
+                          "type": "string"
+                        },
+                        "id": {
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                          "type": "string"
+                        },
+                        "multiple": {
+                          "type": "boolean"
+                        },
+                        "name": {
+                          "maxLength": 256,
+                          "type": "string"
+                        },
+                        "required": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 32,
+                    "type": "array"
+                  },
+                  "name": {
+                    "maxLength": 256,
+                    "type": "string"
+                  },
+                  "outputs": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "dataType": {
+                          "maxLength": 32,
+                          "type": "string"
+                        },
+                        "id": {
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+                          "type": "string"
+                        },
+                        "multiple": {
+                          "type": "boolean"
+                        },
+                        "name": {
+                          "maxLength": 256,
+                          "type": "string"
+                        },
+                        "required": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 32,
+                    "type": "array"
+                  },
+                  "position": {
+                    "additionalProperties": false,
+                    "description": "The node's position on the editor's canvas (finite, within ±1,000,000); laid out automatically when absent.",
+                    "properties": {
+                      "x": {
+                        "description": "Horizontal position.",
+                        "type": "number"
+                      },
+                      "y": {
+                        "description": "Vertical position.",
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ],
+                    "type": "object"
+                  },
+                  "risk": {
+                    "maxLength": 32,
+                    "type": "string"
+                  },
+                  "type": {
+                    "description": "The node type, from pw_list_node_types (e.g. trigger-interval, action-http).",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "type"
+                ],
+                "type": "object"
+              },
+              "maxItems": 200,
+              "type": "array"
+            },
+            "state": {
+              "maxLength": 32,
+              "type": "string"
+            },
+            "tools": {
+              "items": {},
+              "maxItems": 100,
+              "type": "array"
+            },
+            "totalConnections": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "totalNodes": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "truncated": {
+              "description": "Must not be true: a view that left nodes, connections or settings out cannot be sent back as the flow.",
+              "type": "boolean"
+            },
+            "updatedAt": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "variables": {
+              "description": "Legacy flow variables (agents may not change them).",
+              "type": "object"
+            },
+            "version": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "nodes"
+          ],
+          "type": "object"
+        },
+        "flowId": {
+          "description": "An existing flow the proposal is based on (its current version): needed with ops; with flow, \"\u003credacted\u003e\" settings keep that flow's values.",
+          "maxLength": 256,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+          "type": "string"
+        },
+        "ops": {
+          "description": "Edits applied in order to the flow's current version (at most 200).",
+          "items": {
+            "additionalProperties": false,
+            "description": "One edit: add_node{node}, update_node{nodeId, config?, enabled?, position?} (config is a JSON merge patch: null deletes a setting), remove_node{nodeId} (with its connections), connect{sourceNode, sourcePort, targetNode, targetPort}, disconnect{connectionId} or disconnect with the four endpoint fields.",
+            "properties": {
+              "config": {
+                "description": "update_node: a JSON merge patch of the node's settings (null deletes one).",
+                "type": "object"
+              },
+              "connectionId": {
+                "description": "disconnect: the connection to remove.",
+                "maxLength": 256,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                "type": "string"
+              },
+              "enabled": {
+                "description": "update_node: whether the node runs.",
+                "type": "boolean"
+              },
+              "node": {
+                "additionalProperties": false,
+                "description": "The node to add.",
+                "properties": {
+                  "config": {
+                    "description": "The node's settings.",
+                    "type": "object"
+                  },
+                  "enabled": {
+                    "description": "Whether the node runs (default true).",
+                    "type": "boolean"
+                  },
+                  "id": {
+                    "description": "The new node's id (1 to 64 letters, digits, '-' or '_'; generated when absent).",
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9_-]{1,64}$",
+                    "type": "string"
+                  },
+                  "position": {
+                    "additionalProperties": false,
+                    "description": "The node's position on the editor's canvas (finite, within ±1,000,000); laid out automatically when absent.",
+                    "properties": {
+                      "x": {
+                        "description": "Horizontal position.",
+                        "type": "number"
+                      },
+                      "y": {
+                        "description": "Vertical position.",
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ],
+                    "type": "object"
+                  },
+                  "type": {
+                    "description": "The node type, from pw_list_node_types.",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "type": "object"
+              },
+              "nodeId": {
+                "description": "The node to update or remove.",
+                "maxLength": 256,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                "type": "string"
+              },
+              "op": {
+                "description": "The operation.",
+                "enum": [
+                  "add_node",
+                  "update_node",
+                  "remove_node",
+                  "connect",
+                  "disconnect"
+                ],
+                "type": "string"
+              },
+              "position": {
+                "additionalProperties": false,
+                "description": "The node's position on the editor's canvas (finite, within ±1,000,000); laid out automatically when absent.",
+                "properties": {
+                  "x": {
+                    "description": "Horizontal position.",
+                    "type": "number"
+                  },
+                  "y": {
+                    "description": "Vertical position.",
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "x",
+                  "y"
+                ],
+                "type": "object"
+              },
+              "sourceNode": {
+                "description": "connect, disconnect: the source node.",
+                "maxLength": 256,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                "type": "string"
+              },
+              "sourcePort": {
+                "description": "connect, disconnect: the source node's output port.",
+                "maxLength": 256,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                "type": "string"
+              },
+              "targetNode": {
+                "description": "connect, disconnect: the target node.",
+                "maxLength": 256,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                "type": "string"
+              },
+              "targetPort": {
+                "description": "connect, disconnect: the target node's input port.",
+                "maxLength": 256,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]{1,256}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "type": "object"
+          },
+          "maxItems": 200,
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "name": "pw_validate_flow",
+    "outputSchema": {
+      "properties": {
+        "issues": {
+          "items": {
+            "properties": {
+              "code": {
+                "description": "A stable code, e.g. unknown_type, config_type, invalid_config, undefined_secret.",
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "path": {
+                "description": "Where: /name, /nodes/{nodeId}, /nodes/{nodeId}/config/{setting}, /connections/{id} or /ops/{index}.",
+                "type": "string"
+              },
+              "severity": {
+                "enum": [
+                  "error",
+                  "warning"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "code",
+              "severity",
+              "message"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "risk": {
+          "enum": [
+            "safe",
+            "external",
+            "privileged"
+          ],
+          "type": "string"
+        },
+        "valid": {
+          "description": "No issue blocks saving a draft (an undefined_secret error still blocks a deploy).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "valid",
+        "issues",
+        "risk"
+      ],
+      "type": "object"
+    },
+    "title": "Validate a flow"
+  }
+]

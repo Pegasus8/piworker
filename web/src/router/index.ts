@@ -1,0 +1,63 @@
+import { createRouter, createWebHistory } from 'vue-router'
+import FlowsView from '@/views/FlowsView.vue'
+import EditorView from '@/views/EditorView.vue'
+import { useAuthStore } from '@/stores/auth'
+
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes: [
+    { path: '/account', name: 'account', component: () => import('@/views/AccountView.vue'), meta: { requiresAuth: true } },
+    // Agent access (MCP): tokens and grants, the approval queue, the drafts
+    // agents wrote (review, approve, reject) and the audit log.
+    { path: '/agents', name: 'agents', component: () => import('@/views/AgentAccessView.vue'), meta: { requiresAuth: true } },
+    { path: '/agents/approvals', name: 'agent-approvals', component: () => import('@/views/ApprovalsView.vue'), meta: { requiresAuth: true } },
+    { path: '/agents/drafts', name: 'agent-drafts', component: () => import('@/views/DraftsView.vue'), meta: { requiresAuth: true } },
+    { path: '/agents/drafts/:id', name: 'agent-draft', component: () => import('@/views/DraftReviewView.vue'), meta: { requiresAuth: true } },
+    { path: '/agents/audit', name: 'agent-audit', component: () => import('@/views/AuditView.vue'), meta: { requiresAuth: true } },
+    // Zigbee2MQTT networks of the broker connections: devices, readings, permit join.
+    { path: '/zigbee', name: 'zigbee', component: () => import('@/views/ZigbeeView.vue'), meta: { requiresAuth: true } },
+    // Automatic backups and restore (ADR-0032).
+    { path: '/backups', name: 'backups', component: () => import('@/views/BackupsView.vue'), meta: { requiresAuth: true } },
+    // Public: reachable from the login page and the HTTP warning.
+    { path: '/trust', name: 'trust', component: () => import('@/views/TrustView.vue'), meta: { requiresAuth: false } },
+    {
+      path: '/',
+      name: 'flows',
+      component: FlowsView,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/editor/:id?',
+      name: 'editor',
+      component: EditorView,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('@/views/LoginView.vue'),
+      meta: { requiresAuth: false }
+    }
+  ]
+})
+
+// Navigation guard for authentication
+router.beforeEach((to, _from, next) => {
+  const authStore = useAuthStore()
+  const requiresAuth = to.meta.requiresAuth !== false
+
+  if (requiresAuth && !authStore.isAuthenticated) {
+    // Redirect to login with return URL
+    next({
+      name: 'login',
+      query: { redirect: to.fullPath }
+    })
+  } else if (to.name === 'login' && authStore.isAuthenticated) {
+    // Already authenticated, redirect to home
+    next({ name: 'flows' })
+  } else {
+    next()
+  }
+})
+
+export default router
