@@ -517,7 +517,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Shows one of this token's drafts: its status (pending, approved, rejected with the admin's reason, or void), risk, issues and alerts, the version an approval saved, your note and the proposed flow (settings agents may not read are \"\u003credacted\u003e\"). Other tokens' drafts are not found.",
+    "description": "Shows one of this token's drafts: its status (pending, approved, rejected with the admin's reason, or void), risk, issues and alerts, the version an approval saved, your note and the proposed flow (what you wrote as you wrote it; settings you kept of the current version and may not read are \"\u003credacted\u003e\"). Other tokens' drafts are not found.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

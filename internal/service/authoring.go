@@ -443,12 +443,13 @@ type DraftView struct {
 	Note           string     `json:"note"`
 	CreatedAt      time.Time  `json:"createdAt"`
 	DecidedAt      *time.Time `json:"decidedAt,omitempty"`
-	// Flow is the proposed flow redacted with the read views' rules.
+	// Flow is the proposed flow: what the agent wrote as written, the
+	// settings it kept of the base and may not read withheld.
 	Flow DraftFlowView `json:"flow"`
 }
 
 // DraftFlowView is a proposed flow as agents see it: the read views' nodes
-// (default-deny redacted configs) and connections, bounded like GetFlow.
+// (withheld settings redacted) and connections, bounded like GetFlow.
 type DraftFlowView struct {
 	ID               string           `json:"id,omitempty"` // "" for a new flow
 	Name             string           `json:"name"`
@@ -544,7 +545,7 @@ func decodeList[T any](raw json.RawMessage) []T {
 }
 
 // draftFlowView is a proposed flow as its author sees it: GetFlow's nodes
-// (default-deny configs: hidden and withheld settings as "<redacted>",
+// (withheld settings as "<redacted>",
 // draftConfigView; type risks) and connections, bounded the same way (the
 // structure first, then the configs while they fit). The name is
 // "<redacted>" when withheld (the base's, holding a known value).
@@ -563,20 +564,17 @@ func (a *Authoring) draftFlowView(flowID string, f *flow.Flow, withheld map[prop
 		TotalConnections: len(f.Connections),
 	}
 	budget := newViewBudget(view)
-	schemas := make([]*node.ConfigSchema, 0, cap(view.Nodes))
 	for i := range f.Nodes {
 		n := &f.Nodes[i]
 		nv := NodeView{ID: id(n.ID), Type: id(n.Type), Enabled: n.Enabled, Position: n.Position, ConfigOmitted: true}
-		var schema *node.ConfigSchema
 		if info, ok := a.registry.Get(n.Type); ok {
-			nv.Name, nv.Risk, schema = info.Name, info.Risk, info.Config
+			nv.Name, nv.Risk = info.Name, info.Risk
 		}
 		if i == maxViewNodes || !budget.takeElement(nv) {
 			view.Truncated = true
 			break
 		}
 		view.Nodes = append(view.Nodes, nv)
-		schemas = append(schemas, schema)
 	}
 	for i, c := range f.Connections {
 		cv := ConnectionView{
@@ -591,7 +589,7 @@ func (a *Authoring) draftFlowView(flowID string, f *flow.Flow, withheld map[prop
 	}
 	const omitted = len(`null,"configOmitted":true`)
 	for i := range view.Nodes {
-		cfg := draftConfigView(schemas[i], f.Nodes[i].ID, f.Nodes[i].Config, withheld)
+		cfg := draftConfigView(f.Nodes[i].ID, f.Nodes[i].Config, withheld)
 		if !budget.take(jsonLen(cfg) - omitted) {
 			view.Truncated = true
 			continue

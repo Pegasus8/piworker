@@ -231,11 +231,22 @@ Found and fixed during this validation:
 - Go 1.27.4, `golang.org/x/net` v0.62.0, `follow-redirects` ^1.16.3 and an
   `alpine:3.24` runtime image (see the dependency audit).
 
-Observations, not blocking: `pw_validate_flow` takes a flow and operations,
-not a `draftId`; agents see the Transform expression of their own draft as
-redacted (the setting is hidden from agents); a call to `pw_deploy_flow` after
-agent deploy is turned off is refused with a message about the `call` scope,
-which is accurate but confusing for a tool that left the list.
+Observations from the agent smoke test, resolved the same day:
+
+- `pw_get_draft` showed a Transform expression the agent had written in its
+  draft as `"<redacted>"`, because the view hid every setting agents cannot
+  read in a stored flow. ADR-0021 says what the agent wrote comes back as
+  written; the view now withholds only the settings the draft kept of the
+  base (`KeptJSON`). Regression tests: `TestGetDraftEchoesTheExpressionTheAgentWrote`
+  and the hidden `url` case of `TestDraftEchoesComeBackVerbatim`.
+- A call to a built-in tool the settings do not serve (`pw_deploy_flow` with
+  agent deploy off) was refused saying the token lacked the `call` scope. The
+  refusal now reads "No tool … is available to this token (flow tools need
+  the call scope)", the same for unknown and hidden names.
+- `pw_validate_flow` takes no `draftId`, by design: `pw_save_draft` refuses a
+  draft with blocking errors, so a saved draft is valid, and `pw_get_draft`
+  lists its issues. Step 2 of the smoke test now follows that order
+  (validate, save, read, dry-run the draft).
 
 Not covered here: browser setup and editing on the Pi, hardware nodes, the
 draft release's own assets, public downloads, GHCR publication and anonymous

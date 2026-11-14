@@ -1679,7 +1679,8 @@ toggling a running flow on records nothing (it deploys nothing). A
     flow's ID as its `flowId` (its `baseVersion` stays 0).
 - `GetDraft`: the agent's own drafts only (another token's: `not_found`,
   with the message of an unknown one); the proposed flow with GetFlow's
-  shape and bounds: hidden and withheld settings (and a withheld name) as
+  shape and bounds: withheld settings (kept of the base and hidden or
+  holding a known value; and a withheld name) as
   `"<redacted>"`, everything else as the agent wrote it (IDs, names and
   visible values are not redacted by comparison); the stored issues and
   alerts; the admin's reason with secret values and URLs past their host

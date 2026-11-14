@@ -97,3 +97,25 @@ func TestGetDraftShowsTheDecision(t *testing.T) {
 	assert.Empty(t, view.Flow.ID, "a new flow")
 	assert.Equal(t, "new one", view.Flow.Name)
 }
+
+// An expression the agent wrote in its draft comes back as it wrote it,
+// although the stored flow's expression is hidden from agents (ADR-0021).
+func TestGetDraftEchoesTheExpressionTheAgentWrote(t *testing.T) {
+	e := newAuthEnv(t)
+	base := e.create(lightsFlow())
+	agent := e.token()
+	saved, err := e.a.SaveDraft(t.Context(), agent, DraftInput{FlowID: base.ID, BaseVersion: 1, Ops: []flow.Op{
+		{Op: flow.OpUpdateNode, NodeID: "calc", Config: map[string]any{"expression": "payload * 2"}},
+	}})
+	require.NoError(t, err)
+
+	view, err := e.a.GetDraft(t.Context(), agent, saved.DraftID)
+	require.NoError(t, err)
+	for _, n := range view.Flow.Nodes {
+		if n.ID == "calc" {
+			assert.Equal(t, "payload * 2", n.Config["expression"])
+			return
+		}
+	}
+	t.Fatal("calc node missing from the draft view")
+}

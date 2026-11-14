@@ -207,8 +207,9 @@ func AuthorTools(authoring AuthoringService, types NodeTypeLister, audit AuditRe
 			Name:  GetDraftTool,
 			Title: "Get one of your drafts",
 			Description: "Shows one of this token's drafts: its status (pending, approved, rejected with the admin's reason, or " +
-				"void), risk, issues and alerts, the version an approval saved, your note and the proposed flow (settings " +
-				"agents may not read are \"<redacted>\"). Other tokens' drafts are not found.",
+				"void), risk, issues and alerts, the version an approval saved, your note and the proposed flow (what you " +
+				"wrote as you wrote it; settings you kept of the current version and may not read are \"<redacted>\"). " +
+				"Other tokens' drafts are not found.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"draftId":{"type":"string","pattern":` + idPatternJSON +
 				`,"maxLength":256,"description":"The draft's id, from pw_save_draft."}},"required":["draftId"]}`),
 			OutputSchema: json.RawMessage(draftViewSchema),

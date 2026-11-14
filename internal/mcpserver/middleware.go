@@ -410,7 +410,13 @@ func (h *Handler) checkMessage(w http.ResponseWriter, r *http.Request, actor ser
 	case method == "tools/call":
 		name := paramsName(m.Params)
 		if scope := h.scopeOfTool(name, actor, g); !actor.HasScope(scope) {
-			writeJSONError(w, http.StatusForbidden, fmt.Sprintf("This token does not have the %s scope needed to call %q", scope, shorten(name, maxToolNameLength)))
+			msg := fmt.Sprintf("This token does not have the %s scope needed to call %q", scope, shorten(name, maxToolNameLength))
+			if scope == storage.ScopeCall {
+				// A flow tool, an unknown name or a built-in tool not served
+				// to this token: alike, since it may not know which exist.
+				msg = fmt.Sprintf("No tool %q is available to this token (flow tools need the call scope)", shorten(name, maxToolNameLength))
+			}
+			writeJSONError(w, http.StatusForbidden, msg)
 			return false
 		}
 	}

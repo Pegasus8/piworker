@@ -285,10 +285,12 @@ func alertSetting(al flow.Alert) string {
 	return ""
 }
 
-// draftConfigView is a draft's node config as its author sees it: hidden
-// and withheld settings as "<redacted>", the rest bounded as written (no
-// value is redacted by comparison).
-func draftConfigView(schema *node.ConfigSchema, nodeID string, cfg map[string]any, withheld map[propKey]bool) map[string]any {
+// draftConfigView is a draft's node config as its author sees it: the
+// withheld settings (what it kept of the base and may not read, recorded
+// with the draft) as "<redacted>", everything else as written, bounded. What
+// the agent wrote comes back even in a setting agents cannot read in a
+// stored flow (ADR-0021); no value is redacted by comparison.
+func draftConfigView(nodeID string, cfg map[string]any, withheld map[propKey]bool) map[string]any {
 	out := make(map[string]any, len(cfg))
 	keys := make([]string, 0, len(cfg))
 	for k := range cfg {
@@ -297,11 +299,7 @@ func draftConfigView(schema *node.ConfigSchema, nodeID string, cfg map[string]an
 	sort.Strings(keys)
 	for _, k := range keys {
 		key := capText(k, maxConfigKeyBytes)
-		p, declared := node.ConfigProperty{}, false
-		if schema != nil {
-			p, declared = schema.Properties[k]
-		}
-		if !declared || !p.AgentVisible || p.Sensitive || withheld[propKey{nodeID, k}] {
+		if withheld[propKey{nodeID, k}] {
 			out[key] = redactedMark
 			continue
 		}

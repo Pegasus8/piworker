@@ -166,6 +166,10 @@ func TestDraftEchoesComeBackVerbatim(t *testing.T) {
 				if n.ID == "dbg" {
 					assert.Equal(t, guess, n.Config["name"])
 				}
+				if n.ID == "send" {
+					// url is hidden from agents in a stored flow; the agent wrote it here.
+					assert.Equal(t, "https://"+host+"/x", n.Config["url"])
+				}
 			}
 			assert.Equal(t, saved.Alerts, view.Alerts)
 		})

@@ -219,9 +219,11 @@ from Claude Code or the bridge (see the README's
    **Low-risk flows** (password), then create a token with `read`, `author` and
    `deploy`. `tools/list` shows the read, author and deploy tools; `prompts/list`
    shows `diagnose_flow` and `author_flow`.
-2. **Draft and approve.** The agent reads the flow (`pw_get_flow`), changes the
-   Transform expression with `pw_save_draft` (`baseVersion` = the version it read),
-   and checks it with `pw_validate_flow` and `pw_dry_run` (the HTTP Request is a
+2. **Draft and approve.** The agent reads the flow (`pw_get_flow`), checks a
+   Transform expression change with `pw_validate_flow` (`flowId` and the ops),
+   saves it with `pw_save_draft` (`baseVersion` = the version it read; a draft
+   with errors is refused, so a saved one is valid), sees its own expression in
+   `pw_get_draft` and runs it with `pw_dry_run {draftId}` (the HTTP Request is a
    stub listed in `wouldExecute`; nothing is sent). The draft appears under
    **Agents → Drafts** with a badge. Approve it: the running flow is redeployed, and
    **History** lists the new version as approved, from the draft.

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -234,4 +235,18 @@ func TestNoDeployLevelReaderServesNoDeployTools(t *testing.T) {
 	_, err := New(opts)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pw_deploy_thing")
+}
+
+// A built-in tool the settings do not serve answers like an unknown tool
+// (the token may not know whether it exists), and the refusal says that no
+// such tool is available instead of blaming a scope the token was never
+// meant to need for it.
+func TestHiddenBuiltinToolCallSaysNoSuchTool(t *testing.T) {
+	g := newGateEnv(t, true)
+	g.level.set(storage.AgentDeployOff, nil)
+	hidden := requireJSONError(t, g.serve(withToken(rpc(callBody("pw_deploy_thing", `{}`)), authorDeployToken)), http.StatusForbidden)
+	unknown := requireJSONError(t, g.serve(withToken(rpc(callBody("pw_no_such_tool", `{}`)), authorDeployToken)), http.StatusForbidden)
+	assert.Contains(t, hidden, `No tool "pw_deploy_thing" is available to this token`)
+	assert.Equal(t, strings.Replace(unknown, "pw_no_such_tool", "pw_deploy_thing", 1), hidden, "hidden and unknown answer alike")
+	assert.NotContains(t, hidden, "does not have")
 }
