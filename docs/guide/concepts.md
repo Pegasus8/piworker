@@ -275,6 +275,13 @@ the next backup and lists them.
   `sudo piworkerctl restore FILE` (see the
   [operations guide](../operations.md#daily-backups-and-restore)).
 
+- **Remote copy:** add an S3-compatible bucket (Backblaze B2, Cloudflare
+  R2, Amazon S3, MinIO…) and a passphrase; every backup is also copied there,
+  encrypted. Keep the passphrase in your password manager.
+- **Download** saves a backup encrypted with a passphrase you choose; on a
+  new installation, **Restore from a backup instead** on the first page puts
+  it back.
+
 To copy only the variables, connections or secrets to another installation,
 use Export and restore instead (below).
 

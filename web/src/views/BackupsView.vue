@@ -47,6 +47,8 @@ function resetRemote() {
   remoteSecret.value = remotePassphrase.value = remotePassphraseRepeat.value = remotePassword.value = ''
 }
 const remoteState = computed(() => store.overview?.remote)
+// Something to save: the destination is or was on.
+const remoteDirty = computed(() => remote.value.enabled || !!remoteState.value?.settings.enabled)
 const remotePassphraseError = computed(() => {
   const p = remotePassphrase.value
   if (!p && !remotePassphraseRepeat.value) return ''
@@ -358,13 +360,13 @@ async function afterRestore(back: boolean) {
               </p>
               <p v-if="remotePassphraseError" class="text-xs text-destructive" aria-live="polite">{{ remotePassphraseError }}</p>
             </template>
-            <div v-if="auth.authEnabled">
+            <div v-if="auth.authEnabled && remoteDirty">
               <Label for="remote-password">{{ m.backups.remotePassword }}</Label>
               <Input id="remote-password" v-model="remotePassword" type="password" autocomplete="current-password" class="mt-1 sm:max-w-xs" :disabled="pending" aria-describedby="remote-password-hint" />
               <p id="remote-password-hint" class="mt-1 text-xs text-muted-foreground">{{ m.backups.remotePasswordHint }}</p>
             </div>
             <div class="flex flex-wrap gap-2">
-              <Button type="submit" :disabled="!canSaveRemote">{{ m.backups.remoteSave }}</Button>
+              <Button v-if="remoteDirty" type="submit" :disabled="!canSaveRemote">{{ m.backups.remoteSave }}</Button>
               <Button v-if="remote.enabled" type="button" variant="outline" :disabled="pending || !remote.endpoint || !remote.bucket || !remote.accessKeyId" @click="testRemote">{{ m.backups.remoteTest }}</Button>
               <Button v-if="ov?.remote.settings.enabled" type="button" variant="outline" :disabled="pending" @click="loadRemoteList">{{ m.backups.remoteList }}</Button>
             </div>

@@ -114,6 +114,20 @@ once: isolate external devices first if you restore onto other hardware.
 The replaced database and certificates stay in
 `/var/lib/piworker/restore-previous/` until the next restore.
 
+Without a shell, a new installation can also restore a backup on its
+first-run page (**Restore from a backup instead**, with the setup code from
+`journalctl -u piworker`): a downloaded `.age` file or a copy from the S3
+bucket (download it from the provider's web console) with its passphrase.
+The configuration file is not restored that way; copy any change you need
+(allowed hosts, TLS host names) by hand.
+
+### Encrypted copies
+
+Remote copies and downloads are age files (scrypt passphrase). To read one on
+any computer: `age -d -o backup.tar.gz piworker-backup-….tar.gz.age`, then
+`tar -xzf backup.tar.gz` gives `manifest.json`, `piworker.db`, `tls/` and
+`config/piworker.toml`. Keep the passphrase apart from the copies.
+
 ## Backups and recovery after a failed update
 
 Every managed update makes a private directory under `/var/backups/piworker/`

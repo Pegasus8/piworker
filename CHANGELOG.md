@@ -24,6 +24,11 @@ version. The version number and release date have not been selected.
   Restoring brings the whole state back from the editor,
   `sudo piworkerctl restore FILE` or `piworker -restore FILE`, after backing
   up the current one. `piworkerctl update` keeps only its newest 3 backups.
+  Each backup can also be copied to an S3-compatible bucket, encrypted with
+  age and a passphrase (opens with the standard `age` tool), with the same
+  retention; backups download encrypted, a file can be restored from the
+  editor, and a fresh installation restores one on its first-run page with
+  the setup code. `/api/health` also answers the process's instance.
 - A [user guide](docs/guide/README.md): getting started, concepts, recipes, AI
   agents and troubleshooting, plus a node reference generated from the nodes'
   own schemas.

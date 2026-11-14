@@ -1057,9 +1057,32 @@ audit and sign-in sessions are left out. The database is copied with
   navigation marks it when the last backup failed or the newest is more than
   two days old.
 
-Backups are not encrypted: they are as private as the database (files 0600 in
-a 0700 directory) and contain every secret and the CA key. Protect copies
-you move elsewhere like credentials.
+Local backups are not encrypted: they are as private as the database (files
+0600 in a 0700 directory) and contain every secret and the CA key. Every copy
+that leaves the device is encrypted with [age](https://age-encryption.org)
+and a passphrase (scrypt): the remote copies and the downloads. The standard
+`age` tool opens them without PiWorker:
+`age -d -o backup.tar.gz piworker-backup-….tar.gz.age`.
+
+**Remote copy (S3-compatible):** on the **Backups** page, enter the endpoint
+URL, region, bucket, an optional folder, the access key ID and secret key of
+Amazon S3, Backblaze B2, Cloudflare R2, MinIO, Wasabi or another
+S3-compatible service, and a passphrase of at least 12 characters (keep it in
+your password manager: without it the remote copies cannot be restored).
+Saving asks for your account password; the secret key and the passphrase are
+never shown again. After every backup the newest one is uploaded as
+`<folder>/piworker-backup-….tar.gz.age` unless it is already there, and the
+same retention applies to the bucket (only objects with that name pattern are
+deleted). A failed upload never fails the local backup: the page and the
+navigation show it, and the next backup uploads the copy again. **Test
+connection** lists the bucket with the stored or the typed key (the stored key
+is only used with the stored endpoint and key ID). The backup itself contains
+the remote settings, secret included, so a restored installation keeps
+copying to the same bucket.
+
+**Download:** each backup can be downloaded encrypted with a passphrase you
+choose then (account password required; refused while authentication is
+disabled).
 
 **Restoring** brings back everything the backup holds, as it was: flows that
 were running start again, and every session ends. PiWorker first backs up the
@@ -1067,7 +1090,13 @@ current state, then restarts to apply it (exit status 75; systemd and the
 Docker Compose files start it again). The replaced database and certificates
 stay in `restore-previous/` next to the database until the next restore.
 
-- In the editor: **Restore** on a backup, with your account password.
+- In the editor: **Restore** on a backup on the device or in the bucket, or
+  **Restore from a file** (a `.tar.gz` backup or an encrypted `.age` copy with
+  its passphrase), with your account password.
+- On a fresh installation, the first-run page offers **Restore from a backup
+  instead**: the setup code from the log authorises it, instead of creating
+  an account; afterwards you sign in with the backup's account. A rejected
+  file (wrong passphrase, not a backup) leaves the code usable.
 - From a shell, for example when PiWorker no longer starts:
   `sudo piworkerctl restore FILE` on a `piworkerctl` installation (it also
   restores the configuration file, keeping the old one as
@@ -1397,6 +1426,13 @@ accounts.
 | PUT | `/api/backups/settings` | `{"enabled", "time": "HH:MM", "dir", "retention": {"daily", "weekly", "monthly"}}`; changing `dir` needs `"password"` (the account password) |
 | DELETE | `/api/backups/{name}` | Delete a backup |
 | POST | `/api/backups/{name}/restore` | `{"password"}`: back up the current state, stage the backup and restart (`202`); applied before the database is opened again |
+| POST | `/api/backups/{name}/download` | `{"passphrase", "password"}`: the backup encrypted with age (`application/octet-stream`); refused without authentication |
+| POST | `/api/backups/upload` | `{"data": base64, "passphrase", "password"}`: restore an uploaded backup (plain or `.age`, up to 64 MiB) and restart (`202`) |
+| PUT | `/api/backups/remote` | `{"enabled", "endpoint", "region", "bucket", "prefix", "accessKeyId", "pathStyle", "secretKey", "passphrase", "password"}`; empty `secretKey`/`passphrase` keep the stored ones; answers the settings with `hasSecretKey`/`hasPassphrase` only |
+| POST | `/api/backups/remote/test` | List the bucket with the given settings (`502` with the service's reason on failure) |
+| GET | `/api/backups/remote/list` | The copies in the bucket, newest first |
+| POST | `/api/backups/remote/{name}/restore` | `{"password"}`: download, decrypt and restore a remote copy, then restart (`202`) |
+| POST | `/api/auth/setup/restore` | Fresh installation only: `{"code", "data": base64, "passphrase"}` restores a backup instead of creating the account; the setup code is used up once the backup was accepted |
 
 ### Broker connections and Zigbee
 

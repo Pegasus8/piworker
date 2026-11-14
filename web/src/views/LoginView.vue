@@ -85,11 +85,12 @@ function toggleRecovery() {
           <Loader2 v-if="restoreState === 'restarting'" class="h-4 w-4 animate-spin" aria-hidden="true" />
           <span>{{ restoreState === 'slow' ? m.backups.restartSlow : m.backups.restarting }}</span>
         </div>
-        <template v-else>
+        <!-- Kept mounted while PiWorker restarts: it reports when it is back. -->
+        <div v-show="!restoreState" class="space-y-4">
           <p class="text-sm text-muted-foreground">{{ m.backups.setupCodeOnly }}</p>
           <RestoreFromFile mode="setup" @restarting="restoreState = 'restarting'" @restored="onRestored" />
           <button type="button" class="text-sm text-primary hover:underline" @click="restoringBackup = false">{{ m.backups.setupCreateLink }}</button>
-        </template>
+        </div>
       </Card>
       <Card v-else class="p-6">
         <p v-if="restoreState === 'done'" role="status" class="mb-4 text-sm">{{ m.backups.setupRestored }}</p>

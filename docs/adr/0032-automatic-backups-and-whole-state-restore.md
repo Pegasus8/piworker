@@ -1,6 +1,6 @@
 # ADR-0032: Automatic backups and whole-state restore
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-13
 **Deciders:** maintainer
 **Design:** [docs/design/backups-and-updates.md](../design/backups-and-updates.md)
@@ -74,6 +74,14 @@ installations alike):
   (`github.com/minio/minio-go/v7`).
 - `piworkerctl update` keeps its stopped full copy as the rollback, now
   limited to the newest 3.
+- **Downloads** are age-encrypted with a passphrase chosen at download
+  time, need the account password and are refused while authentication is
+  disabled (as ADR-0031's export with secret values). **Uploads** to
+  restore travel as base64 inside JSON (the request guard admits only JSON;
+  up to 64 MiB). The setup-page restore checks the setup code without
+  consuming it and uses it up only once the backup was accepted.
+- `/api/health` answers the process's random instance, so the editor can
+  tell that PiWorker restarted after a restore however quick the restart.
 - MCP exposes none of it.
 
 ## Consequences
@@ -90,7 +98,7 @@ installations alike):
 
 1. [x] Snapshot, archive, local destination, schedule, retention, Backups page.
 2. [x] Staged restore: editor, `-restore`, `piworkerctl restore`.
-3. [ ] Restore from the first-run setup page.
-4. [ ] S3-compatible destination with age encryption.
+3. [x] Restore from the first-run setup page (and from an uploaded file in the editor; encrypted downloads).
+4. [x] S3-compatible destination with age encryption.
 5. [x] Retention for `piworkerctl update` copies.
-6. [x] README, operations guide and user guide (local backups; to extend with phases 2–3).
+6. [x] README, operations guide and user guide.
