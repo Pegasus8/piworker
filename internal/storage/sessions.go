@@ -274,3 +274,20 @@ func (s *SQLiteUserStore) RedeemAuthCode(purpose, code, username, hash string, n
 	}
 	return tx.Commit()
 }
+
+// SetupCodeValid reports whether code is the unexpired setup code of an
+// installation without accounts. It does not consume the code: restoring a
+// backup on the setup page checks it first and consumes it only once the
+// backup was accepted (ConsumeSetupCode).
+func (s *SQLiteUserStore) SetupCodeValid(code string, now time.Time) (bool, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM auth_codes WHERE purpose='setup' AND token_hash=? AND expires_at>?
+		AND NOT EXISTS (SELECT 1 FROM users)`, tokenHash(code), now.Unix()).Scan(&n)
+	return n == 1, err
+}
+
+// ConsumeSetupCode removes the setup code.
+func (s *SQLiteUserStore) ConsumeSetupCode(code string) error {
+	_, err := s.db.Exec(`DELETE FROM auth_codes WHERE purpose='setup' AND token_hash=?`, tokenHash(code))
+	return err
+}

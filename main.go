@@ -19,6 +19,7 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/agentauth"
 	"github.com/Pegasus8/piworker/internal/api"
+	"github.com/Pegasus8/piworker/internal/backup"
 	"github.com/Pegasus8/piworker/internal/brokers"
 	"github.com/Pegasus8/piworker/internal/config"
 	"github.com/Pegasus8/piworker/internal/events"
@@ -52,6 +53,7 @@ var (
 	sessionSecure  = flag.Bool("session-secure", false, "Require HTTPS for session cookies (env: PIWORKER_SESSION_SECURE)")
 	recoveryUser   = flag.String("recover-account", "", "Generate a one-use password recovery code for this username, then exit")
 	setupCode      = flag.Bool("setup-code", false, "Generate a new first-installation setup code, then exit")
+	restoreFile    = flag.String("restore", "", "Validate a backup file and stage it; the next start restores it (accounts, flows, secrets, CA), then exit")
 	configPath     = flag.String("config", "", "Path to TOML config file (default: piworker.toml if present)")
 	listenAddr     = flag.String("addr", ":8443", "Listen address: HTTPS, or plain HTTP with -tls=off (env: PIWORKER_ADDR)")
 	httpAddr       = flag.String("http-addr", ":8080", "Plain HTTP listener that redirects to HTTPS; empty disables it (env: PIWORKER_HTTP_ADDR)")
@@ -66,15 +68,46 @@ var (
 	adminPass      = flag.String("admin-pass", "", "Default admin password (env: PIWORKER_ADMIN_PASS)")
 )
 
+// exitRestart is the exit status after a restore was staged from the
+// editor: systemd (Restart=on-failure) and Docker (restart: unless-stopped)
+// start PiWorker again, which applies the restore before opening the
+// database.
+const exitRestart = 75
+
+// restartRequests receives a request to stop and start again (a staged
+// restore).
+var restartRequests = make(chan struct{}, 1)
+
+// requestRestart asks main to shut down gracefully and exit with
+// exitRestart.
+func requestRestart() {
+	select {
+	case restartRequests <- struct{}{}:
+	default:
+	}
+}
+
+// resolvedConfigPath is the configuration file in use (it may not exist);
+// backups include it.
+var resolvedConfigPath string
+
 func main() {
 	flag.Parse()
 	if *showVersion {
 		fmt.Printf("PiWorker %s\n", version)
 		return
 	}
+	// Registered first, so it runs after every other deferred cleanup.
+	exitCode := 0
+	defer func() {
+		if exitCode != 0 {
+			os.Exit(exitCode)
+		}
+	}()
 
 	// Load configuration: defaults < TOML file < env vars < explicit flags.
-	cfg, err := config.Load(config.ResolveConfigPath(*configPath))
+	resolvedConfigPath = config.ResolveConfigPath(*configPath)
+	cfg, err := config.Load(resolvedConfigPath)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to load configuration")
 	}
@@ -84,7 +117,7 @@ func main() {
 	// directory, not the listeners: they run before the cross-field checks so
 	// a listener or TLS conflict (which stops the server) never blocks
 	// recovering access offline.
-	if *recoveryUser != "" || *setupCode || *tlsRegenerate {
+	if *recoveryUser != "" || *setupCode || *tlsRegenerate || *restoreFile != "" {
 		setupLogging(cfg.Debug)
 		runOfflineCommand(cfg)
 		return
@@ -104,6 +137,12 @@ func main() {
 		Str("tls", cfg.TLS.Mode).
 		Str("db", cfg.DBPath).
 		Msg("Starting PiWorker")
+
+	// A restore staged before the last stop replaces the database and tls/
+	// before either is opened (ADR-0032).
+	if err := applyPendingRestore(cfg); err != nil {
+		log.Fatal().Err(err).Msg("Cannot apply the staged restore; nothing was started")
+	}
 
 	// Initialize storage
 	store, err := storage.NewSQLiteStore(cfg.DBPath)
@@ -210,6 +249,8 @@ func main() {
 	router, flowsHandler, services := buildApp(cfg, store, runtimeManager, registry, userStore, tlsRoutes(tlsHandler))
 	// MCP audit retention (30 days, row cap): at start, then hourly.
 	go mcpserver.RunAuditRetention(appCtx, store, mcpserver.RetentionOptions{Logger: log.Logger})
+	// Scheduled backups (ADR-0032).
+	go services.backups.Run(appCtx)
 
 	// Bind before restoring flows, so a busy port fails before anything runs.
 	servers, err := listen(cfg, router, tlsConf)
@@ -239,6 +280,9 @@ func main() {
 			Msg("Received shutdown signal")
 	case err := <-errCh:
 		log.Error().Err(err).Msg("Server error")
+	case <-restartRequests:
+		log.Warn().Msg("Restarting to apply a restore")
+		exitCode = exitRestart
 	}
 
 	log.Info().Msg("Shutting down...")
@@ -256,12 +300,62 @@ func main() {
 	}
 
 	log.Info().Msg("PiWorker stopped")
+	if exitCode == exitRestart {
+		log.Warn().Msg("Start PiWorker again if your service manager does not: the restore is applied at the next start")
+	}
+}
+
+// applyPendingRestore applies a restore staged by the editor or -restore.
+func applyPendingRestore(cfg config.Config) error {
+	applied, err := backup.ApplyPending(cfg.DBPath, cfg.TLSDir())
+	if err != nil {
+		return err
+	}
+	if applied {
+		log.Warn().Str("previous", filepath.Join(filepath.Dir(cfg.DBPath), backup.PreviousDir)).
+			Msg("Backup restored; the replaced database and certificates are kept in the previous directory until the next restore")
+	}
+	return nil
+}
+
+// newBackupService is the backup service of an installation's open store.
+func newBackupService(cfg config.Config, store *storage.SQLiteStore) *backup.Service {
+	return backup.NewService(backup.ServiceOptions{
+		Sources:  backup.Sources{DB: store.DB(), TLSDir: cfg.TLSDir(), ConfigPath: resolvedConfigPath, Version: version},
+		DBPath:   cfg.DBPath,
+		Settings: store,
+		Logger:   log.Logger,
+	})
+}
+
+// runRestoreCommand stages -restore FILE: it validates the file, backs up
+// the current state when the database can be read, and exits. The next
+// start applies it.
+func runRestoreCommand(cfg config.Config) {
+	m, err := backup.Stage(*restoreFile, cfg.DBPath)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Cannot restore this file")
+	}
+	if store, err := storage.NewSQLiteStore(cfg.DBPath); err != nil {
+		log.Warn().Err(err).Msg("Cannot read the current database to back it up first; it is still kept in the previous directory when the restore is applied")
+	} else {
+		if _, _, err := newBackupService(cfg, store).BackUp(context.Background(), backup.ReasonBeforeRestore); err != nil {
+			log.Warn().Err(err).Msg("Cannot back up the current state first; it is still kept in the previous directory when the restore is applied")
+		}
+		store.Close()
+	}
+	fmt.Printf("Backup from %s (PiWorker %s) is ready to restore.\nStart PiWorker again (or restart its service) to apply it: accounts, flows, secrets and certificates return to that moment.\n",
+		m.Created.Local().Format(time.RFC1123), m.PiWorker)
 }
 
 // runOfflineCommand runs -tls-regenerate-ca, -setup-code or -recover-account
 // and exits on failure. These are local-only commands: they never start flows
 // or listeners.
 func runOfflineCommand(cfg config.Config) {
+	if *restoreFile != "" {
+		runRestoreCommand(cfg)
+		return
+	}
 	if *tlsRegenerate {
 		fingerprint, err := regenerateCA(cfg)
 		if err != nil {
@@ -354,6 +448,7 @@ type routerOption func(*mux.Router)
 // agent_deploy policy) over the editor's lifecycle path, and the MCP audit
 // writer that must be flushed on shutdown.
 type appServices struct {
+	backups   *backup.Service
 	tools     *service.Tools
 	reads     *service.Reads
 	authoring *service.Authoring
@@ -494,6 +589,11 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 	api.NewVariablesHandler(vars.DefaultStore).RegisterRoutes(router)
 	// Broker connections (passwords write-only).
 	api.NewConnectionsHandler(brokers.DefaultStore, brokers.Tester{}, log.Logger).WithFlows(flowsHandler).RegisterRoutes(router)
+	// Automatic backups and whole-state restore (ADR-0032).
+	services.backups = newBackupService(cfg, store)
+	api.NewBackupsHandler(api.BackupsOptions{
+		Service: services.backups, Auth: authHandler, Restart: requestRestart, Logger: log.Logger,
+	}).RegisterRoutes(router)
 	// Export and restore of variables, connections and secrets (ADR-0031).
 	api.NewStoresBackupHandler(api.StoresBackupOptions{
 		Flows: store, Globals: vars.DefaultStore, FlowVariables: vars.DefaultFlows,

@@ -16,6 +16,8 @@ const router = createRouter({
     { path: '/agents/audit', name: 'agent-audit', component: () => import('@/views/AuditView.vue'), meta: { requiresAuth: true } },
     // Zigbee2MQTT networks of the broker connections: devices, readings, permit join.
     { path: '/zigbee', name: 'zigbee', component: () => import('@/views/ZigbeeView.vue'), meta: { requiresAuth: true } },
+    // Automatic backups and restore (ADR-0032).
+    { path: '/backups', name: 'backups', component: () => import('@/views/BackupsView.vue'), meta: { requiresAuth: true } },
     // Public: reachable from the login page and the HTTP warning.
     { path: '/trust', name: 'trust', component: () => import('@/views/TrustView.vue'), meta: { requiresAuth: false } },
     {

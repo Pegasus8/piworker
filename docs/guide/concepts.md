@@ -257,6 +257,34 @@ and offers to reload, so nothing is silently overwritten.
 History matters most when [AI agents](agents.md) may change your flows:
 **Roll back** restores the version you last approved.
 
+## Backups
+
+PiWorker backs itself up every day: flows, accounts, secrets, variables,
+connections and the HTTPS certificate authority (run history is left out).
+The **Backups** page, in the navigation under Settings, shows the last and
+the next backup and lists them.
+
+- **Back up now** before a big change.
+- Choose a **directory** on a USB drive or another disk: a backup on the same
+  SD card is lost with the card.
+- **Restore** takes PiWorker back to that backup, everything at once: flows
+  that were running start again, and everyone signs in again. The current
+  state is backed up first, so a restore can be undone by restoring that
+  backup.
+- To move to a new Pi, or after a card failure, install PiWorker and run
+  `sudo piworkerctl restore FILE` (see the
+  [operations guide](../operations.md#daily-backups-and-restore)).
+
+- **Remote copy:** add an S3-compatible bucket (Backblaze B2, Cloudflare
+  R2, Amazon S3, MinIO…) and a passphrase; every backup is also copied there,
+  encrypted. Keep the passphrase in your password manager.
+- **Download** saves a backup encrypted with a passphrase you choose; on a
+  new installation, **Restore from a backup instead** on the first page puts
+  it back.
+
+To copy only the variables, connections or secrets to another installation,
+use Export and restore instead (below).
+
 ## Copying flows around
 
 On a flow card, the **⋯** menu can **duplicate** a flow or **export** it as a file, and

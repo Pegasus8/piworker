@@ -492,6 +492,12 @@ func TestHealthEndpoint(t *testing.T) {
 		var response map[string]string
 		json.Unmarshal(rr.Body.Bytes(), &response)
 		assert.Equal(t, "healthy", response["status"])
+		// The process's instance tells a restart apart, however quick
+		// (the editor waits for one after a restore).
+		assert.Len(t, response["instance"], 16)
+		again := map[string]string{}
+		json.Unmarshal(performRequest(server, "GET", "/api/health", nil).Body.Bytes(), &again)
+		assert.Equal(t, response["instance"], again["instance"])
 	})
 
 	t.Run("returns unhealthy when store is closed", func(t *testing.T) {

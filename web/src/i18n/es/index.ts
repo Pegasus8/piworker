@@ -13,5 +13,6 @@ import auth from './auth'
 import zigbee from './zigbee'
 import settings from './settings'
 import flowTools from './flowTools'
-const es: typeof en = { common, editor, activity, nav, http, flows, examples, drafts, agents, trust, auth, zigbee, settings, flowTools }
+import backups from './backups'
+const es: typeof en = { common, editor, activity, nav, http, flows, examples, drafts, agents, trust, auth, zigbee, settings, flowTools, backups }
 export default es

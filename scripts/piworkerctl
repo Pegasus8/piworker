@@ -10,7 +10,7 @@ BACKUPS=/var/backups/piworker
 UNIT=/etc/systemd/system/piworker.service
 LOCK=/run/lock/piworker-install.lock
 RELEASES=https://github.com/Pegasus8/piworker/releases
-work='' backup='' rollback=0 newconfig='' health_url=''
+work='' backup='' rollback=0 newconfig='' health_url='' restore_input=''
 
 die() { echo "PiWorker: $*" >&2; exit 1; }
 usage() {
@@ -19,6 +19,7 @@ Usage: sudo piworkerctl install [vVERSION]
        sudo piworkerctl update [vVERSION]
        sudo piworkerctl uninstall
        sudo piworkerctl tls on|off
+       sudo piworkerctl restore FILE
 
 Install/update defaults to the latest stable GitHub release.
 Uninstall preserves accounts, flows, configuration and backups.
@@ -27,6 +28,9 @@ Supports x86_64, aarch64 and ARMv7 (not ARMv6).
 PiWorker serves HTTPS (port 8443) with its own local CA; port 8080 redirects.
 "tls off" switches to plain HTTP (recovery, or behind your own proxy); "tls on"
 restores HTTPS with the local CA. Both restart the service.
+"restore" brings back a PiWorker backup (piworker-backup-*.tar.gz): accounts,
+flows, secrets, the local CA and the configuration, then restarts the service.
+Updates keep the newest 3 update backups; set PIWORKER_KEEP_BACKUPS to change it.
 The health check follows addr and [tls] mode in the configuration; set
 PIWORKER_HEALTH_URL to override it.
 Set PIWORKER_RELEASE_DIR to use local release files (explicit vVERSION required).
@@ -34,7 +38,7 @@ EOF
 }
 
 action=${1:-help}
-version='' tlsmode=''
+version='' tlsmode='' restorefile=''
 case "$action" in
     help|-h|--help) usage; exit 0 ;;
     install|update) [ "$#" -le 2 ] || die "Too many arguments."; version=${2:-} ;;
@@ -46,8 +50,13 @@ case "$action" in
             off) tlsmode=off ;;
             *) die "Usage: sudo piworkerctl tls on|off" ;;
         esac ;;
+    restore)
+        [ "$#" -eq 2 ] || die "Usage: sudo piworkerctl restore FILE"
+        restorefile=$2 ;;
     *) usage >&2; exit 1 ;;
 esac
+keep_backups=${PIWORKER_KEEP_BACKUPS:-3}
+[[ "$keep_backups" =~ ^[1-9][0-9]*$ ]] || die "PIWORKER_KEEP_BACKUPS must be a whole number from 1."
 if [ -n "$version" ]; then
     [[ "$version" =~ ^v[0-9][a-zA-Z0-9.+-]*$ ]] || die "Invalid release tag: $version"
 fi
@@ -79,6 +88,7 @@ cleanup() {
     fi
     [ -z "$work" ] || rm -rf "$work"
     [ -z "$newconfig" ] || rm -f "$newconfig"
+    [ -z "$restore_input" ] || rm -f "$restore_input"
     rm -f "$BIN/piworker.new" "$BIN/piworkerctl.new"
     rmdir "$LOCK"
     exit "$result"
@@ -180,6 +190,19 @@ set_tls_mode() {
     newconfig=''
 }
 
+# prune_backups keeps the newest $keep_backups update backups (the
+# directories this script names DATE-TIME.random); other entries are left.
+prune_backups() {
+    local dirs=() d i excess
+    for d in "$BACKUPS"/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9].??????; do
+        [ -d "$d" ] && dirs+=("$d")
+    done
+    excess=$(( ${#dirs[@]} - keep_backups ))
+    for ((i = 0; i < excess; i++)); do
+        rm -rf -- "${dirs[i]}" && echo "Removed old update backup ${dirs[i]}"
+    done
+}
+
 managed=0
 [ ! -f "$CONFIG/installed-version" ] || managed=1
 if [ "$action" = uninstall ]; then
@@ -195,6 +218,38 @@ if [ "$action" = tls ]; then
     set_tls_mode "$tlsmode"
     systemctl restart piworker.service
     wait_healthy || die "Health check failed at $health_url. Inspect journalctl -u piworker."
+    print_access
+    exit 0
+fi
+if [ "$action" = restore ]; then
+    [ "$managed" = 1 ] || die "No managed installation found. Run piworker -restore FILE with your own -config and -db instead."
+    if [ ! -f "$restorefile" ] || [ ! -r "$restorefile" ]; then
+        die "Cannot read $restorefile."
+    fi
+    command -v runuser >/dev/null || die "runuser (util-linux) is required."
+    # The service user validates and stages the backup; the running service
+    # is untouched until the restart applies it.
+    restore_input=$DATA/.restore-input.tar.gz
+    cp "$restorefile" "$restore_input"
+    chmod 600 "$restore_input"
+    chown piworker:piworker "$restore_input"
+    runuser -u piworker -- "$BIN/piworker" -config "$CONFIG/piworker.toml" -db "$DATA/piworker.db" -restore "$restore_input" ||
+        die "The backup was not restored; nothing changed."
+    rm -f "$restore_input"
+    restore_input=''
+    if tar -tzf "$restorefile" config/piworker.toml >/dev/null 2>&1; then
+        newconfig=$(mktemp "$CONFIG/.piworker.toml.XXXXXX")
+        tar -xOzf "$restorefile" config/piworker.toml > "$newconfig"
+        cp -p "$CONFIG/piworker.toml" "$CONFIG/piworker.toml.before-restore"
+        chown root:piworker "$newconfig"
+        chmod 640 "$newconfig"
+        mv -f "$newconfig" "$CONFIG/piworker.toml"
+        newconfig=''
+        echo "Configuration restored; the previous one is $CONFIG/piworker.toml.before-restore."
+    fi
+    systemctl restart piworker.service
+    wait_healthy || die "Health check failed at $health_url. The replaced database is in $DATA/restore-previous; inspect journalctl -u piworker."
+    echo "Backup restored. Every session ended: sign in again."
     print_access
     exit 0
 fi
@@ -328,6 +383,7 @@ install -m 755 "$work/piworkerctl" "$BIN/piworkerctl.new"
 mv -f "$BIN/piworkerctl.new" "$BIN/piworkerctl"
 printf '%s\n' "$version" > "$CONFIG/installed-version"
 rollback=0
+[ "$managed" = 0 ] || prune_backups
 echo "PiWorker $version is running."
 print_access
 echo "First setup code: sudo journalctl -u piworker -n 50 --no-pager"

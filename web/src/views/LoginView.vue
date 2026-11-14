@@ -6,6 +6,7 @@ import { useApi } from '@/composables/useApi'
 import { Button, Card, Input, Label } from '@/components/ui'
 import { Workflow, AlertCircle, Loader2 } from 'lucide-vue-next'
 import LanguageSelect from '@/components/LanguageSelect.vue'
+import RestoreFromFile from '@/components/RestoreFromFile.vue'
 import { messages as m } from '@/i18n'
 
 const router = useRouter()
@@ -18,9 +19,19 @@ const password = ref('')
 const confirmPassword = ref('')
 const code = ref('')
 const localError = ref<string | null>(null)
+// A fresh installation can restore a backup instead of creating an account
+// (ADR-0032); the restore restarts PiWorker, then its accounts apply.
+const restoringBackup = ref(false)
+const restoreState = ref<'' | 'restarting' | 'slow' | 'done'>('')
+async function onRestored(back: boolean) {
+  if (!back) { restoreState.value = 'slow'; return }
+  restoringBackup.value = false
+  restoreState.value = 'done'
+  await authStore.fetchAuthStatus()
+}
 const creating = computed(() => authStore.setupRequired)
 const choosingPassword = computed(() => creating.value || recovering.value)
-const title = computed(() => creating.value ? m.value.auth.createTitle : recovering.value ? m.value.auth.recoverTitle : m.value.auth.signInTitle)
+const title = computed(() => restoringBackup.value ? m.value.backups.setupRestoreTitle : creating.value ? m.value.auth.createTitle : recovering.value ? m.value.auth.recoverTitle : m.value.auth.signInTitle)
 const formValid = computed(() => {
   if (!username.value.trim() || !password.value) return false
   if (choosingPassword.value) {
@@ -66,9 +77,23 @@ function toggleRecovery() {
         </div>
         <p class="text-sm font-medium text-muted-foreground mb-2">PiWorker</p>
         <h1 class="text-2xl font-bold">{{ title }}</h1>
-        <p v-if="creating" class="text-sm text-muted-foreground mt-2">{{ m.auth.createHint }}</p>
+        <p v-if="restoringBackup" class="text-sm text-muted-foreground mt-2">{{ m.backups.setupRestoreHint }}</p>
+        <p v-else-if="creating" class="text-sm text-muted-foreground mt-2">{{ m.auth.createHint }}</p>
       </div>
-      <Card class="p-6">
+      <Card v-if="creating && restoringBackup" class="p-6 space-y-4">
+        <div v-if="restoreState" role="status" class="flex items-center gap-2 text-sm">
+          <Loader2 v-if="restoreState === 'restarting'" class="h-4 w-4 animate-spin" aria-hidden="true" />
+          <span>{{ restoreState === 'slow' ? m.backups.restartSlow : m.backups.restarting }}</span>
+        </div>
+        <!-- Kept mounted while PiWorker restarts: it reports when it is back. -->
+        <div v-show="!restoreState" class="space-y-4">
+          <p class="text-sm text-muted-foreground">{{ m.backups.setupCodeOnly }}</p>
+          <RestoreFromFile mode="setup" @restarting="restoreState = 'restarting'" @restored="onRestored" />
+          <button type="button" class="text-sm text-primary hover:underline" @click="restoringBackup = false">{{ m.backups.setupCreateLink }}</button>
+        </div>
+      </Card>
+      <Card v-else class="p-6">
+        <p v-if="restoreState === 'done'" role="status" class="mb-4 text-sm">{{ m.backups.setupRestored }}</p>
         <div v-if="creating" class="mb-5 text-sm text-muted-foreground space-y-2">
           <p>{{ m.auth.setupCodeHint }}</p>
           <p>{{ m.auth.setupCodeExpiry }}</p>
@@ -106,6 +131,9 @@ function toggleRecovery() {
             {{ creating ? m.auth.createAccount : recovering ? m.auth.resetPassword : m.auth.signIn }}
           </Button>
         </form>
+        <button v-if="creating" type="button" class="mt-4 text-sm text-primary hover:underline" :disabled="authStore.loading" @click="restoringBackup = true; restoreState = ''">
+          {{ m.backups.setupRestoreLink }}
+        </button>
         <button v-if="!creating" type="button" class="mt-4 text-sm text-primary hover:underline" :disabled="authStore.loading" @click="toggleRecovery">
           {{ recovering ? m.auth.backToSignIn : m.auth.forgot }}
         </button>

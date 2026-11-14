@@ -3,6 +3,8 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	flowvars "github.com/Pegasus8/piworker/internal/vars"
@@ -639,9 +641,19 @@ func (h *HealthHandler) Health(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, code, map[string]string{
-		"status": status,
+		"status":   status,
+		"instance": instanceID,
 	})
 }
+
+// instanceID identifies this process: after a restore the editor waits for
+// a health answer from a new instance, which a quick restart would
+// otherwise hide.
+var instanceID = func() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}()
 
 // NotFoundHandler handles 404 responses.
 func NotFoundHandler(w http.ResponseWriter, r *http.Request) {

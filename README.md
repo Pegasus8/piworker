@@ -91,12 +91,14 @@ with `make test-installer`; running the installer still requires published asset
 | Configuration | `/etc/piworker/piworker.toml` |
 | Accounts, flows, secrets and variables | `/var/lib/piworker/piworker.db` |
 | Local CA and server certificate | `/var/lib/piworker/tls/` |
-| Update backups (private, include the CA key; retained until you remove them) | `/var/backups/piworker/` |
+| Daily backups (private, include the CA key; see [Backups](#backups)) | `/var/lib/piworker/backups/` |
+| Update backups (private, include the CA key; the newest 3 are kept) | `/var/backups/piworker/` |
 | Logs / status | `sudo journalctl -u piworker` / `systemctl status piworker` |
 | Restart after changing configuration | `sudo systemctl restart piworker` |
 
 Updates download and validate before stopping the service. They back up its
-entire data directory and configuration, replace the executable, and check the
+entire data directory and configuration (keeping the newest 3 such copies;
+`PIWORKER_KEEP_BACKUPS` changes it), replace the executable, and check the
 health endpoint (over HTTPS, verified against the local CA). A failed update restores the previous binary and data;
 updates briefly interrupt running flows. Backups cannot undo actions already
 sent to external devices or services. Ensure there is enough disk space for a
@@ -866,6 +868,7 @@ Flags:
   -session-secure        Mark session cookies Secure behind an HTTPS proxy (default false)
   -setup-code           Generate a new setup code and exit (only before setup)
   -recover-account name Generate a password recovery code and exit
+  -restore file         Validate a backup and stage it for the next start, then exit
   -cors-origins string  Comma-separated allowed CORS origins
   -allowed-hosts string Comma-separated extra Host names (see "Host names")
   -admin-user string    Bootstrap admin username (or env PIWORKER_ADMIN_USER)
@@ -1027,6 +1030,79 @@ available while authentication is disabled. Importing shows what the file
 holds, keeps existing values unless you choose to replace them, matches flow
 variables by flow ID or a unique flow name, restarts the running flows that
 use a connection it changed, and reports what it could not restore.
+
+### Backups
+
+PiWorker backs itself up every day (ADR-0032): flows and their versions,
+accounts, agent tokens, secrets, variables, broker connections, settings,
+the local CA (`tls/`) and the configuration file, in one
+`piworker-backup-<UTC time>.tar.gz`. Run history, node events, the agent
+audit and sign-in sessions are left out. The database is copied with
+`VACUUM INTO` while PiWorker runs.
+
+- **When:** daily at 03:17 local time by default, plus up to 30 minutes; a
+  backup missed while the device was off runs a few minutes after the next
+  start. When nothing changed since the last backup, the new one is skipped.
+  **Back up now** makes one at any time.
+- **Where:** `backups/` next to the database (`/var/lib/piworker/backups` for
+  a `piworkerctl` installation, the data volume in Docker). Choose another
+  directory on the **Backups** page, ideally a USB drive or another disk: a
+  copy on the same SD card does not survive the card. PiWorker does not
+  mount anything; the directory must exist or be creatable by its user.
+  Changing it asks for your account password.
+- **How many:** the newest backup of each of the last 7 days, 4 weeks and 6
+  months (configurable); older ones are deleted. Only files named like
+  PiWorker's backups are ever deleted.
+- **Status:** the **Backups** page shows the last and next backup; the
+  navigation marks it when the last backup failed or the newest is more than
+  two days old.
+
+Local backups are not encrypted: they are as private as the database (files
+0600 in a 0700 directory) and contain every secret and the CA key. Every copy
+that leaves the device is encrypted with [age](https://age-encryption.org)
+and a passphrase (scrypt): the remote copies and the downloads. The standard
+`age` tool opens them without PiWorker:
+`age -d -o backup.tar.gz piworker-backup-….tar.gz.age`.
+
+**Remote copy (S3-compatible):** on the **Backups** page, enter the endpoint
+URL, region, bucket, an optional folder, the access key ID and secret key of
+Amazon S3, Backblaze B2, Cloudflare R2, MinIO, Wasabi or another
+S3-compatible service, and a passphrase of at least 12 characters (keep it in
+your password manager: without it the remote copies cannot be restored).
+Saving asks for your account password; the secret key and the passphrase are
+never shown again. After every backup the newest one is uploaded as
+`<folder>/piworker-backup-….tar.gz.age` unless it is already there, and the
+same retention applies to the bucket (only objects with that name pattern are
+deleted). A failed upload never fails the local backup: the page and the
+navigation show it, and the next backup uploads the copy again. **Test
+connection** lists the bucket with the stored or the typed key (the stored key
+is only used with the stored endpoint and key ID). The backup itself contains
+the remote settings, secret included, so a restored installation keeps
+copying to the same bucket.
+
+**Download:** each backup can be downloaded encrypted with a passphrase you
+choose then (account password required; refused while authentication is
+disabled).
+
+**Restoring** brings back everything the backup holds, as it was: flows that
+were running start again, and every session ends. PiWorker first backs up the
+current state, then restarts to apply it (exit status 75; systemd and the
+Docker Compose files start it again). The replaced database and certificates
+stay in `restore-previous/` next to the database until the next restore.
+
+- In the editor: **Restore** on a backup on the device or in the bucket, or
+  **Restore from a file** (a `.tar.gz` backup or an encrypted `.age` copy with
+  its passphrase), with your account password.
+- On a fresh installation, the first-run page offers **Restore from a backup
+  instead**: the setup code from the log authorises it, instead of creating
+  an account; afterwards you sign in with the backup's account. A rejected
+  file (wrong passphrase, not a backup) leaves the code usable.
+- From a shell, for example when PiWorker no longer starts:
+  `sudo piworkerctl restore FILE` on a `piworkerctl` installation (it also
+  restores the configuration file, keeping the old one as
+  `piworker.toml.before-restore`), or `piworker -restore FILE` with your own
+  `-config`/`-db` followed by a start.
+- A backup made by a newer PiWorker is refused: update first.
 
 ### Broker connections
 
@@ -1340,6 +1416,23 @@ accounts.
 | PUT, DELETE | `/api/secrets/{name}` | Set (`{"value": "…"}`) or delete a secret |
 | POST | `/api/stores/export` | Download the variables, connections and secret names as a `piworker-stores` file. `{"passphrase", "password"}` adds the secret values and connection passwords sealed with the passphrase (12+ characters); it needs the account password and authentication enabled |
 | POST | `/api/stores/import` | Restore such a file: `{"bundle", "passphrase", "overwrite"}`; answers counts per kind (`added`, `replaced`, `skipped`), what was not restored and the flows restarted. A wrong passphrase or another file is `400` and writes nothing |
+
+### Backups
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/backups` | Settings, directory and default directory, last outcome (`status`), `nextRun`, the backups newest first (`name`, `size`, `manifest`) and `restorePending` |
+| POST | `/api/backups` | Back up now (`201`) |
+| PUT | `/api/backups/settings` | `{"enabled", "time": "HH:MM", "dir", "retention": {"daily", "weekly", "monthly"}}`; changing `dir` needs `"password"` (the account password) |
+| DELETE | `/api/backups/{name}` | Delete a backup |
+| POST | `/api/backups/{name}/restore` | `{"password"}`: back up the current state, stage the backup and restart (`202`); applied before the database is opened again |
+| POST | `/api/backups/{name}/download` | `{"passphrase", "password"}`: the backup encrypted with age (`application/octet-stream`); refused without authentication |
+| POST | `/api/backups/upload` | `{"data": base64, "passphrase", "password"}`: restore an uploaded backup (plain or `.age`, up to 64 MiB) and restart (`202`) |
+| PUT | `/api/backups/remote` | `{"enabled", "endpoint", "region", "bucket", "prefix", "accessKeyId", "pathStyle", "secretKey", "passphrase", "password"}`; empty `secretKey`/`passphrase` keep the stored ones; answers the settings with `hasSecretKey`/`hasPassphrase` only |
+| POST | `/api/backups/remote/test` | List the bucket with the given settings (`502` with the service's reason on failure) |
+| GET | `/api/backups/remote/list` | The copies in the bucket, newest first |
+| POST | `/api/backups/remote/{name}/restore` | `{"password"}`: download, decrypt and restore a remote copy, then restart (`202`) |
+| POST | `/api/auth/setup/restore` | Fresh installation only: `{"code", "data": base64, "passphrase"}` restores a backup instead of creating the account; the setup code is used up once the backup was accepted |
 
 ### Broker connections and Zigbee
 
