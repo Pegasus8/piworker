@@ -51,7 +51,9 @@ candidate, publication and repository housekeeping. In order:
 - [ ] Run every unchecked item under [Candidate validation](#candidate-validation)
   against the tagged commit: archives and checksums, the six bridge binaries,
   `scripts/smoke_container.py`, the agent authoring smoke test, browser setup
-  and editing on the Pi.
+  and editing on the Pi. 2026-11-14: everything but the Pi browser check and
+  the draft's own assets passed on the candidate
+  ([report](release-validation.md#v100-beta1-candidate-validation--2026-11-14)).
 - [x] Hardware nodes (GPIO Edge/Write, I2C Read, DS18B20) have no recorded run
   on a real Pi: they ship marked **experimental** (decided 2026-11-11) in the
   editor's node list and documentation card, the node reference, the README,
@@ -166,15 +168,18 @@ audience before choosing stable status.
 
 ## Candidate validation
 
-- [ ] Record green Go formatting/vet/race tests, frontend unit/type/build/browser
+- [x] Record green Go formatting/vet/race tests, frontend unit/type/build/browser
   tests, installer tests, all Linux CGO builds and multi-platform Docker builds
-  for the candidate commit. The tag workflow runs these before creating the draft.
-- [ ] Refresh dependency checks against the candidate and record results. The
+  for the candidate commit (locally on 2026-11-14, see the report; CI on the tag
+  repeats them). The tag workflow runs these before creating the draft.
+- [x] Refresh dependency checks against the candidate and record results
+  (2026-11-14: Go, x/net, follow-redirects and the Alpine image updated). The
   [dependency audit](dependency-audit.md) is a dated snapshot, not an ongoing gate;
   native SQLite and container OS scanning were outside its scope.
 - [ ] Inspect all three archives: `piworker-linux-<arch>` and `piworkerctl` must
-  be present. Verify their entries in `SHA256SUMS`, and the standalone manager entry.
-- [ ] Check the six bridge binaries in the draft, `piworker-mcp-linux-amd64`,
+  be present (passed on a local build of the candidate; repeat on the draft). Verify their entries in `SHA256SUMS`, and the standalone manager entry.
+- [ ] Check the six bridge binaries in the draft (local build and the stdio
+  checks against the candidate passed on 2026-11-14; repeat on the draft), `piworker-mcp-linux-amd64`,
   `-linux-arm64`, `-linux-armv7`, `-darwin-amd64`, `-darwin-arm64` and
   `-windows-amd64.exe`, against their `SHA256SUMS` entries; `--version` must print
   the tag. Run one against the candidate (`--url https://…:8443/mcp --token-file …
@@ -182,13 +187,15 @@ audience before choosing stable status.
   [cmd/piworker-mcp/README.md](../cmd/piworker-mcp/README.md): `tools/list` answers,
   a wrong `--ca-fingerprint` stops it before any request, and a token file readable
   by others is refused.
-- [ ] Run the agent authoring smoke test below against the candidate.
+- [x] Run the agent authoring smoke test below against the candidate
+  (2026-11-14, all six steps).
 - [x] On the owner's Pi, test the real local-package installer lifecycle, failed
   update recovery, reboot and preserved session/variables/flow execution.
 - [ ] Complete browser setup/editing and hardware checks on the Pi. Secret
   persistence across the real installer lifecycle is not asserted by this kit;
   the earlier isolated runner covered secret-name persistence across restart.
-- [ ] Run `scripts/smoke_container.py` against the candidate image: HTTPS on 8443
+- [x] Run `scripts/smoke_container.py` against the candidate image (2026-11-14:
+  amd64, arm64 and arm/v7, the last two emulated): HTTPS on 8443
   verified with the CA from the data volume, plain-HTTP health and CA download on 8080.
 - [ ] Test anonymous container pull, first setup and persistent data after recreation.
   Published-image checks happen after publication; do not announce image availability

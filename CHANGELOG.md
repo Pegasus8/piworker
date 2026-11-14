@@ -288,7 +288,7 @@ release or the image's `latest`. The release date is set when it is published.
   Pi 4 with ARM64. ARMv7 and x86_64 builds are published and are expected to
   work, but have **not been tested on real devices**: x86_64 passed the
   automated checks natively in a container (no systemd installation or
-  reboot), and ARMv7 is only cross-compiled. Please report what you find.
+  reboot), and ARMv7 has only run under emulation (the container smoke test). Please report what you find.
 - The Zigbee nodes are covered by automated tests but not yet validated with
   real Zigbee devices and a coordinator.
 - Migration from the `v0.1.0-alpha.1` release of 2020 is **not supported**. The

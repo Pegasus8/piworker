@@ -197,3 +197,46 @@ at 52 %; permit join publishing `{"time":240,"value":true}`; and a flow naming
 an undefined connection refused at deploy with 400.
 
 Not tested: a real coordinator, real devices and Zigbee2MQTT itself.
+
+## v1.0.0-beta.1 candidate validation — 2026-11-14
+
+Candidate: `0c7abfe` on `revival` plus the release-preparation commits of
+2026-11-14 (security updates, validation-script fix, re-embedded frontend,
+documentation). Built with `VERSION=v1.0.0-beta.1`. Environment: Linux x86_64
+cloud container, Go 1.27.4, Bun 1.3.14, Docker 29.9.2 with QEMU user emulation
+for arm64 and arm/v7. CI on the tag still has to pass before the draft exists.
+
+| Check | Result |
+|-------|--------|
+| `make fmt-check vet`, `go test -race ./...` | Passed (before and after the dependency updates). |
+| Frontend unit tests, `vue-tsc`, production build | 243 tests passed; typecheck and build passed. |
+| Playwright browser tests | 70 passed. |
+| Installer and validation-kit tests, `bash -n`, ShellCheck | 55 tests passed (1 skipped: needs a real binary), ShellCheck clean. |
+| `govulncheck ./...`, `bun audit` | 0 reachable findings, 0 frontend findings after the updates in the [dependency audit](dependency-audit.md). |
+| Linux builds (`build-linux`, `build-arm64`, `build-arm`) | ELF x86-64, aarch64 and ARM EABI5 hard-float; highest glibc symbol 2.34. `-version` prints `PiWorker v1.0.0-beta.1` natively (amd64) and under QEMU (arm64, ARMv7). |
+| Archives and `SHA256SUMS` | Each `piworker-linux-<arch>.tar.gz` holds `piworker-linux-<arch>` and `piworkerctl`; all 10 manifest entries (3 archives, manager, 6 bridges) verify. |
+| Six `piworker-mcp` bridges | Linux amd64/arm64/armv7 print `piworker-mcp v1.0.0-beta.1` (ARM under QEMU); the macOS and Windows binaries are Mach-O/PE for the right CPU and embed the version string (not executable here). |
+| Bridge against the candidate (linux-amd64, stdio) | `initialize` and `tools/list` answer; a wrong `--ca-fingerprint` stops every request before the token is sent; a token file with mode 0644 is refused (exit 2). Claude Desktop itself was not used. |
+| `scripts/smoke_container.py` | Passed for `linux/amd64`, `linux/arm64` and `linux/arm/v7` images (the last two emulated). The images were built with the release Dockerfile plus this environment's proxy CA and proxy variables, which a CI build does not need. |
+| Agent authoring smoke test (checklist §Agent authoring) | All 6 steps passed over HTTPS with MCP protocol 2025-11-25; UI marks, History, rollback and the 409/Reload dialog checked with Playwright. |
+
+Found and fixed during this validation:
+
+- `smoke_container.py`, `validate_pi.py` and `validate_installation.py`
+  compared `/api/health` with exactly `{"status": "healthy"}` and so rejected a
+  healthy server since the answer also carries `instance` (ADR-0032). They now
+  check the status; unit tests cover it. `piworkerctl` was not affected.
+- The committed `internal/webui/dist` predated the Backups page; it is
+  re-embedded. Release builds were not affected (they embed a fresh build).
+- Go 1.27.4, `golang.org/x/net` v0.62.0, `follow-redirects` ^1.16.3 and an
+  `alpine:3.24` runtime image (see the dependency audit).
+
+Observations, not blocking: `pw_validate_flow` takes a flow and operations,
+not a `draftId`; agents see the Transform expression of their own draft as
+redacted (the setting is hidden from agents); a call to `pw_deploy_flow` after
+agent deploy is turned off is refused with a message about the `call` scope,
+which is accurate but confusing for a tool that left the list.
+
+Not covered here: browser setup and editing on the Pi, hardware nodes, the
+draft release's own assets, public downloads, GHCR publication and anonymous
+pulls, ARMv7 and x86_64 on real devices.
