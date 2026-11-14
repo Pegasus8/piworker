@@ -13,6 +13,7 @@ A **visual flow-based automation system** for Raspberry Pi and other devices. Cr
 - **Lightweight** - Single binary with embedded frontend, optimized for Raspberry Pi
 - **HTTPS by default** - Local certificate authority generated on first start, with automatic certificate renewal
 - **AI agents (MCP)** - Publish flows as typed tools that Claude Code, Claude Desktop and other MCP clients can call, with scoped tokens, approvals and an audit log; agents can draft flows for you to review, and deploy only if you opt in
+- **English and Spanish** - The whole interface in both languages
 - **Version history** - Every save of a flow is a numbered version, with one-click rollback to the version you last approved
 - **Fast** - Go backend with concurrent message processing
 
@@ -48,11 +49,15 @@ The native installer sets up PiWorker as an automatically started systemd servic
 It downloads a pre-built binary and verifies its SHA256 checksum; Go, Bun and
 Docker are not needed. Supported systems: Linux with systemd and glibc 2.35+
 (for example Raspberry Pi OS Bookworm), on ARM64, ARMv7 or x86_64.
+The installer lifecycle and a reboot were validated on a Raspberry Pi 4 with
+ARM64. The ARMv7 and x86_64 builds are published and expected to work but have
+not been tested on real devices yet; please report what you find.
 Install `curl` and CA certificates first if your OS does not include them.
 
-**Release availability:** this installer is new on the revival branch. The
-following download command becomes available when a release containing
-`piworkerctl` is published. Older releases are not compatible with this installer.
+**Release availability:** the first release of the revival is the prerelease
+`v1.0.0-beta.1`, installed by tag as shown below. The `latest` download command
+works from the first stable release on. Older releases are not compatible with
+this installer.
 
 ```bash
 # Install the latest stable release (run in a directory you own)
@@ -78,10 +83,11 @@ You can select a release explicitly with `sudo piworkerctl update vX.Y.Z`
 never "latest", so they are always installed by tag:
 
 ```bash
-curl -fL https://github.com/Pegasus8/piworker/releases/download/vX.Y.Z-beta.1/piworkerctl -o piworkerctl && sudo bash ./piworkerctl install vX.Y.Z-beta.1
+curl -fL https://github.com/Pegasus8/piworker/releases/download/v1.0.0-beta.1/piworkerctl -o piworkerctl && sudo bash ./piworkerctl install v1.0.0-beta.1
 ```
 
-With Docker, use the image tag of the prerelease instead of `latest`. Updates also replace
+With Docker, use the image tag of the prerelease instead of `latest`
+(`ghcr.io/pegasus8/piworker:v1.0.0-beta.1`). Updates also replace
 the manager with the version included in the verified release archive.
 Before the first compatible release, contributors can run the lifecycle tests
 with `make test-installer`; running the installer still requires published assets.
@@ -142,8 +148,9 @@ does not read the old tasks or database. Install it separately and recreate
 your automations as flows.
 
 This README describes the revival branch, including changes not yet released.
-Build from source or use `make docker-build` to try this implementation. Published
-binaries/images may still contain the previous implementation; check their release notes.
+Until a stable release exists, use the `v1.0.0-beta.1` tag instead of `latest`
+for images and downloads; `latest` may still point to the previous
+implementation. Check the release notes of what you install.
 
 ### Option 1: Docker (published releases)
 
@@ -206,7 +213,7 @@ make frontend-install build-release
 
 | Tool | Version | Purpose | Installation |
 |------|---------|---------|--------------|
-| **Go** | 1.27.3+ | Backend compilation | [go.dev/dl](https://go.dev/dl/) |
+| **Go** | 1.27.4+ | Backend compilation | [go.dev/dl](https://go.dev/dl/) |
 | **Bun** | 1.3.14 | Frontend runtime & package manager | `curl -fsSL https://bun.sh/install \| bash` |
 | **Make** | any | Build automation | Pre-installed on macOS/Linux |
 | **Docker** | BuildKit + Compose v2 | Optional, containerized dev | [docker.com](https://docker.com) |
@@ -222,7 +229,7 @@ brew install go
 curl -fsSL https://bun.sh/install | bash
 
 # Verify installations
-go version    # go1.27.3+
+go version    # go1.27.4+
 bun --version # 1.3.14
 ```
 
@@ -234,8 +241,8 @@ frontend; release binaries include it already.
 
 ```bash
 # Install Go
-wget https://go.dev/dl/go1.27.3.linux-arm64.tar.gz
-sudo tar -C /usr/local -xzf go1.27.3.linux-arm64.tar.gz
+wget https://go.dev/dl/go1.27.4.linux-arm64.tar.gz
+sudo tar -C /usr/local -xzf go1.27.4.linux-arm64.tar.gz
 export PATH=$PATH:/usr/local/go/bin
 
 # Install Bun
@@ -1492,7 +1499,7 @@ accounts.
 ## Tech Stack
 
 ### Backend
-- **Go 1.27.3+** - High performance, great concurrency
+- **Go 1.27.4+** - High performance, great concurrency
 - **gorilla/mux** - HTTP router
 - **SQLite** - Local database (no external dependencies)
 - **zerolog** - Structured JSON logging

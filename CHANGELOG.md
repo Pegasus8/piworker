@@ -1,9 +1,10 @@
 # Release notes
 
-## Unreleased — revival
+## v1.0.0-beta.1 — revival (prerelease, not yet published)
 
-This is the pending first release of the revived implementation, not a published
-version. The version number and release date have not been selected.
+The first release of the revived implementation, published as a **prerelease**
+(tag `v1.0.0-beta.1`): install it by tag, it never becomes GitHub's latest
+release or the image's `latest`. The release date is set when it is published.
 
 ### Included
 
@@ -56,6 +57,50 @@ version. The version number and release date have not been selected.
   on x86_64.
 - Health checks return HTTP 503 when storage is closed. Resizing the flow editor
   keeps nodes reachable on smaller screens.
+
+### Editor and interface
+
+- The interface is available in **English and Spanish** (ADR-0027), chosen
+  from the language selector in the navigation. Text the server sends (node
+  documentation and schemas, API errors) stays in English.
+- A navigation sidebar (a drawer on small screens) with every section and the
+  Variables, Secrets and Connections dialogs; page results appear as toasts.
+- Node settings open in a side panel that applies changes as you type, with
+  undo/redo and Ctrl/Cmd+S. A node added while another is selected is placed
+  after it and connected; node cards summarise their settings; durations take
+  friendly units.
+- The flow list shows each flow's run status, has an overflow menu, names a flow
+  when it is created and offers **Start from an example** with example flows
+  that need no hardware.
+- The node list marks `external` and `privileged` node types, and the settings
+  panel explains a node's risk level and when a setting can raise it
+  (`GET /api/node-types` now returns `risk`).
+
+### Variables, secrets and connections
+
+- Optional credentials (Email and MQTT credentials, HTTP Request URL and
+  headers) that name an undefined secret are a deploy warning
+  (`unresolved_secret`, shown by the editor and logged for restored flows)
+  instead of silently using an empty string (ADR-0028). The **Secrets** dialog
+  lists where each secret is used (flow, node, setting, broker connection),
+  warns before deleting one in use and shows referenced names that are not
+  defined.
+- MQTT Subscribe and MQTT Publish take a named broker connection or their own
+  broker settings, never both (ADR-0029). Saving a connection restarts the
+  running flows that use it and reports which ones; deleting a connection a
+  running flow uses is refused (409).
+- **Export and restore** of global and flow variables, broker connections and
+  secrets (ADR-0031), in its own file. Without a passphrase it carries
+  variables, connections without passwords and secret names; with a passphrase
+  (12+ characters, scrypt + AES-256-GCM) it also carries secret values and
+  connection passwords. Import is validated before writing, keeps existing
+  values unless asked to overwrite and reports what it could not restore,
+  never a value.
+- Secrets are not encrypted inside the database (ADR-0030, after a
+  [review](docs/design/secrets-at-rest.md)): on a Pi the key would sit on the
+  same card. Instead the database is created private (mode 0600) and other
+  users' access to an existing one and its sidecar files is removed at start;
+  full-disk encryption is recommended for devices that may be stolen.
 
 ### Native HTTPS
 
@@ -238,6 +283,14 @@ version. The version number and release date have not been selected.
   Standalone binaries do not require systemd. ARMv6 and native macOS/Windows
   release binaries of PiWorker are not provided (only of the `piworker-mcp`
   bridge). Docker is the alternative on those desktop OSes.
+- **Tested CPUs.** The full installer lifecycle (install, failed update and
+  rollback, update, uninstall/reinstall, reboot) was validated on a Raspberry
+  Pi 4 with ARM64. ARMv7 and x86_64 builds are published and are expected to
+  work, but have **not been tested on real devices**: x86_64 passed the
+  automated checks natively in a container (no systemd installation or
+  reboot), and ARMv7 is only cross-compiled. Please report what you find.
+- The Zigbee nodes are covered by automated tests but not yet validated with
+  real Zigbee devices and a coordinator.
 - Migration from the `v0.1.0-alpha.1` release of 2020 is **not supported**. The
   revival is a new program with a different data model: it does not read the
   old tasks or database, and the installer does not touch an old installation.
@@ -255,9 +308,12 @@ version. The version number and release date have not been selected.
   certificate with `[tls] mode = "custom"`). With `mode = "off"` the server
   listens over HTTP, for example behind a reverse proxy; `session_secure` then
   only controls the cookie's Secure flag.
-- Secrets have no application-level encryption at rest. Flow exports do not
-  include the separate variable or secret stores. Credentials entered literally
-  in a node can appear in its exported configuration.
+- Secrets have no application-level encryption at rest (ADR-0030); protect
+  the device's disk. A flow export does not include the variable, connection
+  or secret stores, which have their own export (ADR-0031) and are included in
+  backups. Credentials entered literally in a node can appear in its exported
+  configuration.
+- One administrator per installation.
 - Updates interrupt flows. Restoring local data cannot undo commands or requests
   already sent to devices and external services.
 - Editor saves and deploys are optimistic: `PUT /api/flows/{id}`,

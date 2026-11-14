@@ -14,6 +14,14 @@ from types import SimpleNamespace
 import validate_pi
 
 
+class HealthTests(unittest.TestCase):
+    def test_health_accepts_extra_fields_and_requires_healthy_status(self):
+        # /api/health also answers the process's instance (ADR-0032).
+        self.assertTrue(validate_pi.is_healthy({"status": "healthy", "instance": "abc"}))
+        self.assertFalse(validate_pi.is_healthy({"status": "unhealthy", "instance": "abc"}))
+        self.assertFalse(validate_pi.is_healthy(["healthy"]))
+
+
 class PackageTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

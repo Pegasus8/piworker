@@ -17,7 +17,9 @@ Pick the option that matches your machine.
 ### Raspberry Pi or another Linux machine (recommended)
 
 Needs Linux with systemd (Raspberry Pi OS Bookworm, Debian 12, Ubuntu 22.04 or
-newer) on a 64-bit or 32-bit ARM board or a PC.
+newer) on a 64-bit or 32-bit ARM board or a PC. It has been tested on a
+Raspberry Pi 4 with a 64-bit (ARM64) system; 32-bit ARM systems and PCs are
+expected to work but have not been tested yet.
 
 ```bash
 curl -fL https://github.com/Pegasus8/piworker/releases/latest/download/piworkerctl -o piworkerctl
@@ -50,11 +52,16 @@ find them out by itself. The address is then `https://<that name>:8443`.
 See [Build from source](../../README.md#option-3-build-from-source).
 
 > **Prepublication notice.** The commands above install the latest *stable*
-> release. While PiWorker is only published as a prerelease, install it by
-> tag as shown under
-> [Install, update and uninstall](../../README.md#install-update-and-uninstall-linux--raspberry-pi),
-> and use that tag instead of `latest` for the Docker image. Before any
-> release exists, build from source.
+> release. While PiWorker is only published as the prerelease
+> `v1.0.0-beta.1`, install it by tag:
+>
+> ```bash
+> curl -fL https://github.com/Pegasus8/piworker/releases/download/v1.0.0-beta.1/piworkerctl -o piworkerctl
+> sudo bash ./piworkerctl install v1.0.0-beta.1
+> ```
+>
+> and use `ghcr.io/pegasus8/piworker:v1.0.0-beta.1` instead of `:latest` for
+> the Docker image.
 
 > **Used the 2020 version of PiWorker?** This is a new program. It does not
 > read the old tasks or database, so install it separately and recreate your

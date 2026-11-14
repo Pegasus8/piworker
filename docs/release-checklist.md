@@ -27,8 +27,10 @@ published. Recheck each item against the exact commit chosen for the tag.
   `resume-report.json` from `rpi4`: all 17 checks passed, including install, failed
   update rollback, update, uninstall/reinstall, boot enablement and preserved
   session/data/flow execution after reboot. Packages were supplied locally.
-- [ ] Record the Pi OS and selected architecture; validate other advertised
-  architectures too, or explicitly narrow support.
+- [x] Record the Pi OS and selected architecture; validate other advertised
+  architectures too, or explicitly narrow support. The owner's Raspberry Pi 4
+  ran the ARM64 (`aarch64`) package (reported 2026-11-14); ARMv7 and x86_64
+  stay advertised as built but not tested on real devices (decided 2026-11-14).
 
 ## Launch gap review (2026-11-11)
 
@@ -44,8 +46,8 @@ candidate, publication and repository housekeeping. In order:
   the only way to exercise the installer's real download path before a stable
   release moves `latest`. The tag workflow now drafts a tag with a hyphen as a
   prerelease, and the README documents installing by tag.
-- [ ] Choose the version number. The only earlier tag is `v0.1.0-alpha.1`
-  (2020), so any `v0.2.0-…` or `v1.0.0-…` prerelease tag sorts after it.
+- [x] Choose the version number: **`v1.0.0-beta.1`** (decided 2026-11-14).
+  The only earlier tag is `v0.1.0-alpha.1` (2020), so it sorts after it.
 - [ ] Run every unchecked item under [Candidate validation](#candidate-validation)
   against the tagged commit: archives and checksums, the six bridge binaries,
   `scripts/smoke_container.py`, the agent authoring smoke test, browser setup
@@ -54,8 +56,11 @@ candidate, publication and repository housekeeping. In order:
   on a real Pi: they ship marked **experimental** (decided 2026-11-11) in the
   editor's node list and documentation card, the node reference, the README,
   the user guide and the release notes. Drop the mark once each is validated.
-- [ ] Record the Pi OS and architecture already validated and decide on the
+- [x] Record the Pi OS and architecture already validated and decide on the
   other advertised CPUs (ARMv7, x86_64): validate or narrow the claim.
+  Decided 2026-11-14: the Pi 4 ran ARM64; ARMv7 and x86_64 are still built
+  and advertised, and the README, the user guide and the release notes say
+  they have not been tested on real devices.
   x86_64: the automated checks passed natively on 2026-11-11
   ([report](release-validation.md#x86_64-native-validation--2026-11-11));
   the systemd installer and a reboot remain to be run on a real PC.
@@ -142,7 +147,7 @@ environment limits and generated packages, and the
 - [x] Update the release notes for the AI agents work (ADR-0009…0023): agent
   tokens and tools, authoring through drafts, the agent deploy levels, versions and
   rollback, the bridge, and the behaviour changes under "Compatibility and limits".
-- [ ] Choose the version; replace `Unreleased` only when publishing. The first
+- [x] Choose the version (`v1.0.0-beta.1`); add the date when publishing. The first
   publication is a prerelease: a `v*` tag with a hyphen is drafted with the
   prerelease flag. Still review the flag on the draft before publishing.
 - [x] Migration from the old 2020 release is not supported; the notices say so.

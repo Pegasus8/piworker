@@ -1,4 +1,38 @@
-# Current candidate audit — 2026-10-23
+# Release candidate audit — 2026-11-14 (`v1.0.0-beta.1`)
+
+Candidate baseline: `0c7abfe` on `revival`; the remediation below is part of the
+release-preparation commit. Earlier reports below are historical.
+
+- `govulncheck` v1.9.0 (CGO enabled, Go 1.27.3) found **3 reachable
+  vulnerabilities**: [GO-2026-6866](https://pkg.go.dev/vuln/GO-2026-6866) and
+  [GO-2026-6860](https://pkg.go.dev/vuln/GO-2026-6860) in `golang.org/x/net`
+  v0.60.0 (`html`, fixed in v0.62.0) and
+  [GO-2026-6859](https://pkg.go.dev/vuln/GO-2026-6859) in `net/http` (HTTP/1
+  server crash, fixed in Go 1.27.4). Module-only (not called):
+  [GO-2026-6865](https://pkg.go.dev/vuln/GO-2026-6865) in
+  `github.com/klauspost/compress` v1.19.2 and the known
+  [GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932) (`x/crypto/openpgp`).
+- Remediation: Go 1.27.4 (`go.mod`, both Dockerfiles, README), `x/net` v0.62.0,
+  `klauspost/compress` v1.20.2 (and, through `go get`, `x/crypto` v0.58.0,
+  `x/sys` v0.49.0, `x/sync` v0.24.0, `x/text` v0.43.0).
+- Repeated `govulncheck ./...`: **0 reachable, 0 imported-package
+  vulnerabilities**; only GO-2026-5932 remains at module level (no fixed release,
+  package not imported). `govulncheck -mode=binary` on the ARM64 release binary
+  agrees.
+- `bun audit` found one **high** advisory, follow-redirects 1.16.1 through
+  axios ([GHSA-mrwp-f3q8-3g9p](https://github.com/advisories/GHSA-mrwp-f3q8-3g9p)).
+  The override is now `follow-redirects ^1.16.3`; `bun audit`: **no
+  vulnerabilities** (258 packages). The braces advisory of the October report
+  no longer appears.
+- The production image's runtime base moved from `alpine:3.19` (out of support)
+  to `alpine:3.24`, the release the Go builder stage already uses.
+- After the updates: `go test -race ./...`, `go vet`, gofmt, frontend unit tests
+  (243), typecheck, production build and the container smoke test pass.
+
+Scope as before: no scan of the bundled SQLite C code or of container OS
+packages beyond moving to a supported Alpine release.
+
+# Candidate audit — 2026-10-23
 
 Candidate baseline: `83534cf` on `revival`; remediation is included in the PR.
 The September report below is historical, not a statement about current findings.

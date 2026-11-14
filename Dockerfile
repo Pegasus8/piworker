@@ -26,7 +26,7 @@ RUN bun run build
 # =============================================================================
 # Stage 2: Build Backend with Embedded Frontend
 # =============================================================================
-FROM golang:1.27.3-alpine AS backend-builder
+FROM golang:1.27.4-alpine AS backend-builder
 ARG VERSION=dev
 
 # Install build dependencies
@@ -53,7 +53,7 @@ RUN CGO_ENABLED=1 GOOS=linux go build \
 # =============================================================================
 # Stage 3: Production Runtime
 # =============================================================================
-FROM alpine:3.19
+FROM alpine:3.24
 
 # Install runtime dependencies
 RUN apk add --no-cache ca-certificates tzdata

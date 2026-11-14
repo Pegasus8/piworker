@@ -7,6 +7,12 @@ import validate_installation as validation
 
 
 class InstallationValidationTest(unittest.TestCase):
+    def test_health_accepts_extra_fields_and_requires_healthy_status(self):
+        # /api/health also answers the process's instance (ADR-0032).
+        self.assertTrue(validation.is_healthy({'status': 'healthy', 'instance': 'abc'}))
+        self.assertFalse(validation.is_healthy({'status': 'unhealthy', 'instance': 'abc'}))
+        self.assertFalse(validation.is_healthy(['healthy']))
+
     def test_existing_or_dangling_paths_are_never_adopted(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / 'existing'

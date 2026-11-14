@@ -189,13 +189,18 @@ def wait_for(predicate, timeout=30):
     raise RuntimeError("Se agotó el tiempo de espera")
 
 
+def is_healthy(body):
+    """True for a health answer reporting "healthy"; it may carry more fields (instance)."""
+    return isinstance(body, dict) and body.get("status") == "healthy"
+
+
 def exercise(runner, check):
     client = Client(runner.base)
     credential = secrets.token_urlsafe(24)
 
     def start():
         runner.start()
-        wait_for(lambda: runner.alive() and client.api("/api/health") == {"status": "healthy"})
+        wait_for(lambda: runner.alive() and is_healthy(client.api("/api/health")))
     check("startup_and_health", start)
 
     def setup():

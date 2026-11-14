@@ -19,6 +19,11 @@ import uuid
 CA_PATH = "/app/data/tls/ca.crt"
 
 
+def is_healthy(body):
+    """True for a health answer reporting "healthy"; it may carry more fields (instance)."""
+    return isinstance(body, dict) and body.get("status") == "healthy"
+
+
 def docker(*args):
     return subprocess.check_output(["docker", *args], text=True).strip()
 
@@ -60,7 +65,7 @@ def main():
     def wait_healthy(fetch):
         for _ in range(60):
             try:
-                if json.loads(fetch("/api/health")) == {"status": "healthy"}:
+                if is_healthy(json.loads(fetch("/api/health"))):
                     return
             except (OSError, ValueError):
                 pass

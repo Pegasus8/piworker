@@ -119,8 +119,13 @@ def ctl(action, release=None, health=None, ok=True):
     return result
 
 
+def is_healthy(body):
+    """True for a health answer reporting healthy; it may carry more fields (instance)."""
+    return isinstance(body, dict) and body.get('status') == 'healthy'
+
+
 def healthy(client):
-    wait_for(lambda: client.api('/api/health') == {'status': 'healthy'})
+    wait_for(lambda: is_healthy(client.api('/api/health')))
 
 
 def https_client():
