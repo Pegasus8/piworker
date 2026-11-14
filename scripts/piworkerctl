@@ -223,7 +223,9 @@ if [ "$action" = tls ]; then
 fi
 if [ "$action" = restore ]; then
     [ "$managed" = 1 ] || die "No managed installation found. Run piworker -restore FILE with your own -config and -db instead."
-    [ -f "$restorefile" ] && [ -r "$restorefile" ] || die "Cannot read $restorefile."
+    if [ ! -f "$restorefile" ] || [ ! -r "$restorefile" ]; then
+        die "Cannot read $restorefile."
+    fi
     command -v runuser >/dev/null || die "runuser (util-linux) is required."
     # The service user validates and stages the backup; the running service
     # is untouched until the restart applies it.

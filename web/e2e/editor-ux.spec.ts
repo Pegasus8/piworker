@@ -162,7 +162,8 @@ test('nodes added in turn are chained, and keyboard shortcuts save and undo', as
 test('secrets use nested confirmations and recover after mutation failures', async ({ page }) => {
  let names = ['TOKEN']
  let attempts = 0
- await page.route('**/api/secrets', route => route.fulfill({ json: { success: true, data: { secrets: names.map(name => ({ name, short: false })), shortBelow: 16 } } }))
+ // The dialog asks for ?usage=1 (where each secret is used): match the path.
+ await page.route(url => url.pathname === '/api/secrets', route => route.fulfill({ json: { success: true, data: { secrets: names.map(name => ({ name, short: false })), shortBelow: 16 } } }))
  await page.route('**/api/secrets/TOKEN', route => {
   attempts++
   if (attempts === 1) return route.fulfill({ status: 500, json: { error: 'Offline' } })
