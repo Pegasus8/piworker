@@ -21,6 +21,17 @@ type NodeTypesHandler struct {
 	store    *storage.SQLiteStore
 	registry *node.Registry
 	logger   zerolog.Logger
+	// globals and flowVars are the variables a node test previews (copies:
+	// a test never writes them); nil: none.
+	globals  *flowvars.Store
+	flowVars *flowvars.FlowStores
+}
+
+// WithVariables makes node tests preview these global and per-flow
+// variables.
+func (h *NodeTypesHandler) WithVariables(globals *flowvars.Store, flowVars *flowvars.FlowStores) *NodeTypesHandler {
+	h.globals, h.flowVars = globals, flowVars
+	return h
 }
 
 // NewNodeTypesHandler creates a new NodeTypesHandler.
@@ -142,12 +153,14 @@ func (h *NodeTypesHandler) runOnce(parent context.Context, inst node.Node, sampl
 	}()
 
 	preview := flowvars.NewStore()
-	for key, value := range flowvars.DefaultStore.Snapshot() {
-		_ = preview.Set(key, value)
+	if h.globals != nil {
+		for key, value := range h.globals.Snapshot() {
+			_ = preview.Set(key, value)
+		}
 	}
 	ctx = flowvars.WithStore(ctx, preview)
-	if sample.FlowID != "" {
-		local, err := flowvars.DefaultFlows.Get(sample.FlowID)
+	if sample.FlowID != "" && h.flowVars != nil {
+		local, err := h.flowVars.Get(sample.FlowID)
 		if err != nil {
 			result.Error = "Failed to load flow variables"
 			return result, false

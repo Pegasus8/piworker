@@ -157,7 +157,7 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
   write deadline → Bearer (own failure limiter) → per-token bucket → scope.
   Unknown and hidden tool names both go to the service (same `not_found`).
   Author tools are listed only with `mcp.author_enabled`, deploy tools only
-  while `agent_deploy` is above `off`. `mountMCP` (`main.go`) registers it
+  while `agent_deploy` is above `off`. `mountMCP` (`app.go`) registers it
   before the UI catch-all; with `mcp.enabled = false` it answers a JSON 404.
   Raw JSON-RPC exchanges per protocol version are goldens in `testdata/`
   (`TestMCPProtocolGolden`), the author/deploy tool listing one in
@@ -300,10 +300,15 @@ Categories are `input` (triggers), `processing`, `output` (actions). Node-type i
 convention: `trigger-*`, `process-*`, `action-*`, plus `set-var`/`get-var`.
 
 ## Notes
-- `main.go` wires the router/middleware directly; the `api.Server` struct +
-  `SetupMiddleware`/`corsMiddleware` in `internal/api/server.go` are legacy and
-  not on the live path — the real CORS allowlist is `makeCorsMiddleware` in
-  `main.go`.
+- Package `main` is the composition root: `main.go` (flags, startup and
+  shutdown order), `app.go` (`appDeps`, `openDeps`, `buildApp`, `mountMCP`,
+  `makeCorsMiddleware`: the real CORS allowlist), `main_server.go`,
+  `main_commands.go` (offline commands), `main_tls.go`. Stores and hubs
+  reach handlers and services through `appDeps`; `processDeps` is the only
+  place that names the process-wide defaults (`secrets.DefaultStore`, ...).
+  Do not read a `Default*` singleton from `internal/api` or `buildApp`: take
+  it as a parameter. `api.Server`/`NewServer` exist only in the api tests
+  (`server_scaffold_test.go`).
 - The stray `./piworker` binary and `./piworker.db` at the repo root are old
   artifacts; the build output is `build/piworker`.
 - Main branch is `master`; active work is on `revival`.

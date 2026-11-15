@@ -38,7 +38,7 @@ func newServicesApp(t *testing.T) (testApp, appServices) {
 	hash, err := api.HashPassword("test-password")
 	require.NoError(t, err)
 	require.NoError(t, users.CreateUser(&types.User{Username: "admin", PasswordHash: hash}))
-	router, flows, services := buildApp(cfg, store, manager, node.DefaultRegistry, users)
+	router, flows, services := buildApp(cfg, processDeps(store, manager, node.DefaultRegistry, users))
 	t.Cleanup(func() { _ = services.audit.Close(t.Context()) })
 	return testApp{handler: router, flows: flows, store: store, users: users, manager: manager}, services
 }

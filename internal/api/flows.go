@@ -3,7 +3,6 @@ package api
 
 import (
 	"cmp"
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -35,15 +34,19 @@ type FlowsHandler struct {
 	store     *storage.SQLiteStore
 	registry  *node.Registry
 	logger    zerolog.Logger
+	// flowVars are the per-flow variable stores the runtimes share.
+	flowVars *flowvars.FlowStores
 }
 
 // NewFlowsHandler creates the editor's flow routes over the lifecycle path.
-func NewFlowsHandler(store *storage.SQLiteStore, lifecycle *service.Lifecycle, registry *node.Registry, logger zerolog.Logger) *FlowsHandler {
+// flowVars are the per-flow variable stores of the runtimes lifecycle deploys.
+func NewFlowsHandler(store *storage.SQLiteStore, lifecycle *service.Lifecycle, registry *node.Registry, logger zerolog.Logger, flowVars *flowvars.FlowStores) *FlowsHandler {
 	return &FlowsHandler{
 		lifecycle: lifecycle,
 		store:     store,
 		registry:  registry,
 		logger:    logger,
+		flowVars:  flowVars,
 	}
 }
 
@@ -466,7 +469,7 @@ func (h *FlowsHandler) DeleteFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	flowvars.DefaultFlows.Forget(id)
+	h.flowVars.Forget(id)
 	h.logger.Info().Str("flowID", id).Msg("Flow deleted")
 	writeSuccess(w, http.StatusOK, nil, "Flow deleted successfully")
 }
@@ -669,62 +672,6 @@ func MethodNotAllowedHandler(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 }
 
-// Server represents the HTTP server for the API.
-type Server struct {
-	router  *mux.Router
-	handler *FlowsHandler
-	logger  zerolog.Logger
-}
-
-// NewServer creates a new API server.
-func NewServer(store *storage.SQLiteStore, registry *node.Registry, logger zerolog.Logger) *Server {
-	manager := flow.NewRuntimeManager(registry, logger)
-	handler := NewFlowsHandler(store, service.NewLifecycle(store, manager, logger), registry, logger)
-
-	router := mux.NewRouter()
-	handler.RegisterRoutes(router)
-
-	// Health check
-	healthHandler := NewHealthHandler(store)
-	router.HandleFunc("/api/health", healthHandler.Health).Methods(http.MethodGet)
-
-	// Error handlers
-	router.NotFoundHandler = http.HandlerFunc(NotFoundHandler)
-	router.MethodNotAllowedHandler = http.HandlerFunc(MethodNotAllowedHandler)
-
-	return &Server{
-		router:  router,
-		handler: handler,
-		logger:  logger,
-	}
-}
-
-// Router returns the HTTP router.
-func (s *Server) Router() *mux.Router {
-	return s.router
-}
-
-// ServeHTTP implements the http.Handler interface.
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.router.ServeHTTP(w, r)
-}
-
-// Start starts the HTTP server on the given address.
-func (s *Server) Start(ctx context.Context, addr string) error {
-	srv := &http.Server{
-		Addr:    addr,
-		Handler: s.router,
-	}
-
-	go func() {
-		<-ctx.Done()
-		srv.Shutdown(context.Background())
-	}()
-
-	s.logger.Info().Str("addr", addr).Msg("Starting API server")
-	return srv.ListenAndServe()
-}
-
 // FlowVariables serializes management with flow deletion and validates ownership.
 func (h *FlowsHandler) FlowVariables(w http.ResponseWriter, r *http.Request) {
 	held := h.lifecycle.Hold()
@@ -738,7 +685,7 @@ func (h *FlowsHandler) FlowVariables(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	store, err := flowvars.DefaultFlows.Get(id)
+	store, err := h.flowVars.Get(id)
 	if err != nil {
 		writeError(w, 500, "Failed to load flow variables")
 		return

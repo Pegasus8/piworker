@@ -195,6 +195,10 @@ type FlowRuntime struct {
 	// gets (trigger Start and Process); see WithNodeContext.
 	nodeContext func(context.Context) context.Context
 
+	// flowVars are the per-flow variable stores the flow's own is taken
+	// from (WithFlowVariables; flowvars.DefaultFlows when not set).
+	flowVars *flowvars.FlowStores
+
 	// noMetrics keeps the runtime out of the process-wide metrics (see
 	// withoutMetrics).
 	noMetrics bool
@@ -232,6 +236,17 @@ func WithObserver(hook NodeEventHook) RuntimeOption {
 func WithNodeContext(wrap func(context.Context) context.Context) RuntimeOption {
 	return func(r *FlowRuntime) {
 		r.nodeContext = wrap
+	}
+}
+
+// WithFlowVariables sets the per-flow variable stores the runtime takes its
+// flow's persistent store from (shared with the API that manages them).
+// Without it the runtime uses flowvars.DefaultFlows.
+func WithFlowVariables(stores *flowvars.FlowStores) RuntimeOption {
+	return func(r *FlowRuntime) {
+		if stores != nil {
+			r.flowVars = stores
+		}
 	}
 }
 
@@ -444,7 +459,11 @@ func (r *FlowRuntime) Start(ctx context.Context) error {
 	// The flow's persistent variable store, unless the node context brings
 	// its own (a sandboxed run must not load or touch the real one).
 	if flowvars.FlowFromContext(nodeCtx) == nil {
-		local, err := flowvars.DefaultFlows.Get(r.flow.ID)
+		stores := r.flowVars
+		if stores == nil {
+			stores = flowvars.DefaultFlows
+		}
+		local, err := stores.Get(r.flow.ID)
 		if err != nil {
 			r.mu.Unlock()
 			return fmt.Errorf("load flow variables: %w", err)
