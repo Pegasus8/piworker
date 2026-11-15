@@ -282,14 +282,40 @@ var audioExtensions = map[string]string{
 	"audio/flac": ".flac", "audio/x-flac": ".flac", "audio/opus": ".opus", "audio/aac": ".aac",
 }
 
+// audioFileName names the file of audio of mediaType. Unknown content
+// (application/octet-stream) is never named by the system's MIME table,
+// which calls it ".bin".
 func audioFileName(mediaType string) string {
 	if ext, ok := audioExtensions[mediaType]; ok {
 		return "audio" + ext
+	}
+	if mediaType == "" || mediaType == "application/octet-stream" {
+		return "audio"
 	}
 	if exts, _ := mime.ExtensionsByType(mediaType); len(exts) > 0 {
 		return "audio" + exts[0]
 	}
 	return "audio"
+}
+
+// sniffAudio returns the media type of audio whose signature
+// http.DetectContentType does not know ("" when it is none of them): FLAC,
+// AAC in ADTS frames and MPEG audio frames (an MP3 without an ID3 tag).
+func sniffAudio(data []byte) string {
+	switch {
+	case bytes.HasPrefix(data, []byte("fLaC")):
+		return "audio/flac"
+	case len(data) < 2 || data[0] != 0xFF:
+		return ""
+	case data[1]&0xF6 == 0xF0:
+		// ADTS: a 12-bit sync word, then the layer, always 00.
+		return "audio/aac"
+	case data[1]&0xE0 == 0xE0 && data[1]&0x06 != 0 && data[1]&0x18 != 0x08:
+		// An MPEG audio frame: an 11-bit sync word, a version that is not
+		// the reserved one and a layer.
+		return "audio/mpeg"
+	}
+	return ""
 }
 
 func (c *openAIClient) transcribe(ctx context.Context, model string, audio Media, language string) (string, Usage, error) {
@@ -299,14 +325,19 @@ func (c *openAIClient) transcribe(ctx context.Context, model string, audio Media
 	if len(audio.Data) > MaxAudioBytes {
 		return "", Usage{}, fmt.Errorf("the audio is too large (at most %d MiB)", MaxAudioBytes>>20)
 	}
+	// OpenAI tells the format by the file name: content of no known type
+	// is named by its own signature where it has one.
+	mediaType := audio.MediaType
+	if mediaType == "" || mediaType == "application/octet-stream" {
+		mediaType = "application/octet-stream"
+		if sniffed := sniffAudio(audio.Data); sniffed != "" {
+			mediaType = sniffed
+		}
+	}
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	header := make(textproto.MIMEHeader)
-	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename=%q`, audioFileName(audio.MediaType)))
-	mediaType := audio.MediaType
-	if mediaType == "" {
-		mediaType = "application/octet-stream"
-	}
+	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename=%q`, audioFileName(mediaType)))
 	header.Set("Content-Type", mediaType)
 	part, err := w.CreatePart(header)
 	if err == nil {

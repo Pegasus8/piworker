@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ERROR_PORT, hasErrorPort, outputPorts, ports } from '@/lib/ports'
+import { ERROR_PORT, hasErrorPort, nodeMinHeight, outputPorts, ports } from '@/lib/ports'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
 import { computed, nextTick, watch } from 'vue'
 import { Handle, Position, useVueFlow } from '@vue-flow/core'
@@ -57,6 +57,8 @@ const inputs = computed(() => ports(nodeType.value?.inputs))
 const outputs = computed(() => outputPorts(nodeType.value, props.data.config))
 // Every node that processes messages can hand its failures to the flow.
 const errorPort = computed(() => hasErrorPort(nodeType.value))
+// Tall enough to keep many handles apart (a classifier's categories).
+const minHeight = computed(() => `${nodeMinHeight(inputs.value.length, outputs.value.length)}px`)
 // What the node is set to do, instead of its type id; empty required
 // settings are flagged so they are found before deploying.
 const summary = computed(() => nodeSummary(props.data.config || {}, nodeType.value?.configSchema ?? []))
@@ -117,6 +119,7 @@ const durationLabel = computed(() => {
       colors.border,
       ringClass
     )"
+    :style="{ minHeight }"
   >
     <!-- Header -->
     <div

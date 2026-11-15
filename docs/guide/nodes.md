@@ -287,7 +287,7 @@ A language model that calls your flow tools until it can answer.
 |---------|-----|------|---------|-------------|
 | Allow privileged tools | `allowPrivileged` | boolean | `false` | Let the agent call tools that run commands, write files or touch hardware |
 | Connection (required) | `connection` | string | – | LLM connection to use (defined under LLM connections) |
-| Effort | `effort` | `(empty)`, `low`, `medium`, `high`, `xhigh`, `max` | – | How much the model thinks before answering (empty: the model's default; models without the setting ignore it) |
+| Effort | `effort` | `(empty)`, `low`, `medium`, `high`, `xhigh`, `max` | – | How much the model thinks before answering, only for models that support it: others may reject the request (empty: the model's default) |
 | Max steps | `maxSteps` | integer (steps) | `8` | Most requests to the model before the agent gives up, in steps (1 to 32) |
 | Max tokens | `maxTokens` | integer (tokens) | `4096` | Longest answer the model may give, in tokens (1 to 64000); a longer answer is cut |
 | Memory key | `memoryKey` | string | – | Conversation to remember, e.g. telegram:{{payload.message.chat.id}} (supports {{templates}}; empty: no memory) |
@@ -433,7 +433,7 @@ Ask a language model and pass on its answer (text or JSON).
 | Setting | Key | Type | Default | Description |
 |---------|-----|------|---------|-------------|
 | Connection (required) | `connection` | string | – | LLM connection to use (defined under LLM connections) |
-| Effort | `effort` | `(empty)`, `low`, `medium`, `high`, `xhigh`, `max` | – | How much the model thinks before answering (empty: the model's default; models without the setting ignore it) |
+| Effort | `effort` | `(empty)`, `low`, `medium`, `high`, `xhigh`, `max` | – | How much the model thinks before answering, only for models that support it: others may reject the request (empty: the model's default) |
 | Images | `images` | string | – | Message path of the images to send, e.g. payload.image: base64, a data URL, an http(s) URL or a list of them (empty: none) |
 | JSON schema | `schema` | json | – | Optional JSON Schema the answer must match (output json), e.g. {"type": "object", "properties": {...}} |
 | Max tokens | `maxTokens` | integer (tokens) | `1024` | Longest answer the model may give, in tokens (1 to 64000); a longer answer is cut |
@@ -656,7 +656,7 @@ Store text in the local knowledge base for later searches.
 | Chunk size | `chunkSize` | integer (characters) | `0` | Split long texts into chunks of at most this many characters, each one a document (0: one document; else 200 to 8000 characters) |
 | Collection (required) | `collection` | string | – | Collection to store the text in, e.g. manuals (created on the first document) |
 | Connection (required) | `connection` | string | – | LLM connection to use (defined under LLM connections) |
-| Document ID | `documentId` | string | – | ID of the document, e.g. {{payload.id}}: adding the same ID again replaces it (supports {{templates}}; empty: a new ID per message) |
+| Document ID | `documentId` | string | – | ID of the document, e.g. {{payload.id}}: adding the same ID again replaces it; it may not end in '#' and a number, the form of chunk IDs (supports {{templates}}; empty: a new ID per message) |
 | Metadata | `metadata` | object | – | Names and values stored with the document and returned by searches, e.g. source = {{topic}} (values support {{templates}}) |
 | Model (required) | `model` | string | – | Embedding model, e.g. text-embedding-3-small (OpenAI) or nomic-embed-text (Ollama); every document of a collection uses the same one |
 | Text | `text` | string | `{{payload}}` | Text to store, built from the message (supports {{templates}}) |

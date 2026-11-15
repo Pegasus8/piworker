@@ -58,3 +58,24 @@ export function metadataText(metadata?: Record<string, unknown>): string {
     return ''
   }
 }
+
+/**
+ * The row to put the focus on once the view of key is left, or key's row
+ * is gone (cleared, deleted): its own row while the list shows it, else the
+ * next row still listed, else the previous one; null when key is not
+ * listed (filtered out) or none is left, for the list's own controls.
+ * before and after: the keys listed before and after the change.
+ */
+export function focusRowAfter(key: string | null, before: readonly string[], after: readonly string[]): string | null {
+  if (key === null) return null
+  if (after.includes(key)) return key
+  const i = before.indexOf(key)
+  if (i < 0) return null
+  const listed = (k: string) => after.includes(k)
+  return before.slice(i + 1).find(listed) ?? before.slice(0, i).reverse().find(listed) ?? null
+}
+
+/** The element ID of a row's control (prefix-key), whatever the key holds: escaped, no spaces. */
+export function rowControlId(prefix: string, key: string): string {
+  return `${prefix}-${encodeURIComponent(key)}`
+}

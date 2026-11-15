@@ -4,7 +4,8 @@ import type { Flow, FlowNode, FlowEdge, FlowListItem, NodeCategory, VersionList 
 import type { ApplyResult } from '@/lib/drafts'
 import type { DeployWarning } from '@/lib/deployWarnings'
 import { useApi, type DeployOutcome } from '@/composables/useApi'
-import { edgesAfterConfig, outputPorts, ports, validConnection } from '@/lib/ports'
+import { followPorts, outputPorts, ports, validConnection } from '@/lib/ports'
+import type { ItemRenames } from '@/lib/configValues'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
 import { autoEdge, nextPosition } from '@/lib/autoConnect'
 import { prepareProposal, type ApplyMode } from '@/lib/assistant'
@@ -69,6 +70,12 @@ export const useFlowsStore = defineStore('flows', () => {
   const past = ref<Snapshot[]>([])
   const future = ref<Snapshot[]>([])
   let lastGroup: { key: string; at: number } | null = null
+  // The edges a node's settings took their port from while a row of the
+  // setting that gives its outputs is retyped (blank, or repeating another
+  // row, for a moment), per node: they come back when the row names an
+  // item again (updateNodeConfig, lib/ports.ts followPorts). Never saved;
+  // undo, redo and loading a flow forget them.
+  const parkedEdges = new Map<string, FlowEdge[]>()
   const canUndo = computed(() => past.value.length > 0)
   const canRedo = computed(() => future.value.length > 0)
   function snapshot(): Snapshot {
@@ -82,6 +89,7 @@ export const useFlowsStore = defineStore('flows', () => {
     future.value = []
   }
   function restore(state: Snapshot) {
+    parkedEdges.clear()
     nodes.value = state.nodes
     edges.value = state.edges
     if (selectedNodeId.value && !nodes.value.some(n => n.id === selectedNodeId.value)) selectedNodeId.value = null
@@ -106,6 +114,7 @@ export const useFlowsStore = defineStore('flows', () => {
     past.value = []
     future.value = []
     lastGroup = null
+    parkedEdges.clear()
   }
 
   const invalidConnections = computed(() => edges.value.filter(edge => !validConnection(edge, nodes.value, edges.value.filter(other => other.id !== edge.id), nodeTypesStore.getById)))
@@ -314,6 +323,7 @@ export const useFlowsStore = defineStore('flows', () => {
         currentFlow.value = null
         nodes.value = []
         edges.value = []
+        parkedEdges.clear()
       }
     } catch (e) {
       error.value = e instanceof Error ? e.message : msg().flowTools.errors.deleteFlow
@@ -508,15 +518,19 @@ export const useFlowsStore = defineStore('flows', () => {
 
   // A setting that gives the node its outputs (the classifier's categories,
   // ADR-0040) takes the edges leaving a port it removes along, in the same
-  // undo step; an item renamed in place keeps them (edgesAfterConfig).
-  function updateNodeConfig(id: string, config: Record<string, any>) {
+  // undo step; an item renamed in place keeps them. renames: what the
+  // setting's rows reported about its items (ListInput), so an edge follows
+  // its row while the row is retyped through blank or repeated text.
+  function updateNodeConfig(id: string, config: Record<string, any>, renames: readonly ItemRenames[] = []) {
     const idx = nodes.value.findIndex(n => n.id === id)
     if (idx !== -1) {
       record(`config:${id}`)
       const node = nodes.value[idx]
-      const following = edgesAfterConfig(id, nodeTypesStore.getById(node.data.nodeType), node.data.config || {}, config, edges.value)
+      const following = followPorts(id, nodeTypesStore.getById(node.data.nodeType), node.data.config || {}, config, edges.value, parkedEdges.get(id), renames)
       node.data.config = config
-      if (following !== edges.value) edges.value = following
+      if (following.edges !== edges.value) edges.value = following.edges
+      if (following.parked.length) parkedEdges.set(id, following.parked)
+      else parkedEdges.delete(id)
       isDirty.value = true
     }
   }
@@ -525,6 +539,12 @@ export const useFlowsStore = defineStore('flows', () => {
     record()
     nodes.value = nodes.value.filter(n => n.id !== id)
     edges.value = edges.value.filter(e => e.source !== id && e.target !== id)
+    parkedEdges.delete(id)
+    for (const [source, parked] of parkedEdges) {
+      const kept = parked.filter(e => e.target !== id)
+      if (kept.length) parkedEdges.set(source, kept)
+      else parkedEdges.delete(source)
+    }
     if (selectedNodeId.value === id) {
       selectedNodeId.value = null
     }
@@ -547,6 +567,7 @@ export const useFlowsStore = defineStore('flows', () => {
     const applied = { nodes: prepared.nodes.length, connections: prepared.connections.length, skippedTypes: prepared.skippedTypes, skippedConnections: prepared.skippedConnections }
     if (!prepared.nodes.length) return applied
     record()
+    if (mode === 'replace') parkedEdges.clear()
     const placed = transformNodes(prepared.nodes)
     const connected = transformEdges(prepared.connections)
     nodes.value = mode === 'replace' ? placed : [...nodes.value, ...placed]

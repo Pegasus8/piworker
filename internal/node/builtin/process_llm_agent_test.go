@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/Pegasus8/piworker/internal/llm"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/stretchr/testify/assert"
@@ -355,4 +356,43 @@ func TestLLMAgentStopsWhenItsContextEnds(t *testing.T) {
 	_, err := n.Process(ctx, types.NewMessage("x", types.DataTypeString))
 	assert.ErrorIs(t, err, context.Canceled)
 	assert.Len(t, f.Requests(), 1, "nothing is sent after the context ended")
+}
+
+// Once a tool ran, a failure of the agent is permanent: a retry would run
+// the whole loop again, and the model would call the tools it already
+// called (each a real run of another flow) a second time. Before any tool
+// ran, a transient error stays transient.
+func TestLLMAgentIsNotRetriedAfterAToolRan(t *testing.T) {
+	for _, status := range []int{529, 503, 429} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			f := newFakeLLM(t, func(n int, _ string, _ map[string]any) (int, any) {
+				if n == 0 {
+					return 200, toolCallsAnswer(fakeToolCall{"call_1", "garage_open", `{"room":"garage"}`})
+				}
+				return status, apiError("overloaded")
+			})
+			tc := &fakeToolCaller{
+				tools: []node.AgentTool{agentTool("garage_open", "Opens the garage door")},
+				call: func(string, map[string]any) (node.ToolCallOutcome, error) {
+					return node.ToolCallOutcome{Status: node.ToolCallOK, Result: json.RawMessage(`{"open":true}`)}, nil
+				},
+			}
+			env := agentEnv(t, f, tc)
+			n := mustAgent(t, map[string]any{"connection": fakeLLMConnection, "tools": []any{"garage_open"}})
+			_, err := n.Process(env.ctx, types.NewMessage("open the garage", types.DataTypeString))
+			require.Error(t, err)
+			assert.False(t, node.IsRetryable(err), "a retry would open the garage again: %v", err)
+			var apiErr *llm.APIError
+			require.ErrorAs(t, err, &apiErr, "the provider's error is kept")
+			assert.Equal(t, status, apiErr.Status)
+			assert.Equal(t, []string{"garage_open"}, tc.Calls())
+		})
+	}
+
+	f := newFakeLLM(t, func(int, string, map[string]any) (int, any) { return 529, apiError("overloaded") })
+	tc := &fakeToolCaller{tools: []node.AgentTool{agentTool("garage_open", "")}}
+	env := agentEnv(t, f, tc)
+	_, err := mustAgent(t, map[string]any{"connection": fakeLLMConnection, "tools": []any{"garage_open"}}).
+		Process(env.ctx, types.NewMessage("open the garage", types.DataTypeString))
+	assert.True(t, node.IsRetryable(err), "no tool ran yet: %v", err)
 }

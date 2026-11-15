@@ -15,7 +15,7 @@ import {
   usageSummary,
   type ConnectionFormState
 } from '../src/components/llm/connections'
-import { DOCUMENT_PAGE, filterConversations, metadataText, offsetAfterDelete, pageInfo, textPreview } from '../src/components/llm/memory'
+import { DOCUMENT_PAGE, filterConversations, focusRowAfter, metadataText, offsetAfterDelete, pageInfo, rowControlId, textPreview } from '../src/components/llm/memory'
 import { useShellStore } from '../src/stores/shell'
 import type { LLMConnection } from '../src/types'
 
@@ -84,6 +84,21 @@ test('an Anthropic connection needs a key: typed, or stored and kept', () => {
   expect(connectionFormError({ ...claude, clearApiKey: true }, { hasApiKey: true })).toBe(t().keyRequired)
   // OpenAI-compatible servers may need none.
   expect(connectionFormError({ ...claude, provider: 'openai', preset: 'openai' })).toBe('')
+})
+
+// Saving is an upsert that keeps the stored key: a new connection under a
+// name in use would silently replace that connection (and send its key to
+// the new endpoint). Only editing it changes it.
+test('a new connection cannot take the name of one already defined', () => {
+  const ollama: ConnectionFormState = { ...blankConnectionForm('ollama'), name: 'claude' }
+  expect(connectionFormError(ollama, null, ['claude', 'openai'])).toBe(t().nameTaken)
+  expect(connectionFormError({ ...ollama, name: ' claude ' }, null, ['claude'])).toBe(t().nameTaken)
+  expect(connectionFormError({ ...ollama, name: 'local' }, null, ['claude'])).toBe('')
+  // Names are compared as the server stores them: case matters.
+  expect(connectionFormError({ ...ollama, name: 'Claude' }, null, ['claude'])).toBe('')
+  // Editing a connection keeps its own name.
+  expect(connectionFormError(ollama, { hasApiKey: true }, ['claude'])).toBe('')
+  expect(es.llm.connections.form.nameTaken).toBeTruthy()
 })
 
 test('model suggestions merge the lists without repeats', () => {
@@ -161,4 +176,27 @@ test('the dialogs keep the names the editor’s hints use', () => {
   expect(es.llm.connections.title).toBe('Conexiones LLM')
   expect(en.llm.nav.connections).toBe(en.llm.connections.title)
   expect(es.llm.nav.connections).toBe(es.llm.connections.title)
+})
+
+// Leaving a conversation or a collection, or clearing or deleting one,
+// removes the focused button: the focus goes to its row in the list, the
+// row that took its place, or (none left) the list's own controls.
+test('the focus returns to the row that was shown, or to its neighbour', () => {
+  const keys = ['a', 'b', 'c']
+  expect(focusRowAfter('b', keys, keys)).toBe('b')
+  // Gone: the next row, else the previous one.
+  expect(focusRowAfter('b', keys, ['a', 'c'])).toBe('c')
+  expect(focusRowAfter('c', keys, ['a', 'b'])).toBe('b')
+  expect(focusRowAfter('a', ['a'], [])).toBeNull()
+  // Not listed (filtered out): the list's own controls.
+  expect(focusRowAfter('x', keys, keys)).toBeNull()
+  expect(focusRowAfter(null, keys, keys)).toBeNull()
+})
+
+test('a row\'s control has an element ID whatever its key holds', () => {
+  const id = rowControlId('ai-memory-open', 'chat:a b/../c\t"x"')
+  expect(id).not.toMatch(/\s/)
+  expect(id.startsWith('ai-memory-open-')).toBe(true)
+  expect(rowControlId('ai-memory-open', 'a b')).not.toBe(rowControlId('ai-memory-open', 'a%20b'))
+  expect(rowControlId('ai-memory-open', 'k')).toBe(rowControlId('ai-memory-open', 'k'))
 })

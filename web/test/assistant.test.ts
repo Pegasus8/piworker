@@ -4,6 +4,7 @@ import {
   MAX_DESCRIPTION_CHARS,
   applyMode,
   assistantError,
+  canvasFingerprint,
   changeSummary,
   currentDefinition,
   descriptionLength,
@@ -81,6 +82,29 @@ test('the current definition is the canvas in the stored shape, without sharing 
     { id: 'e2', sourceNode: 'a', sourcePort: 'output', targetNode: 'b', targetPort: 'input' }
   ])
   expect(currentDefinition(null, [], []).name).toBe('')
+})
+
+// A change of the current flow is built from the canvas as it was sent:
+// once the nodes, their settings or positions, or the connections change,
+// applying it would undo those edits (the dialog refuses it). The flow's
+// name is not part of it: the proposal never renames a saved flow.
+test('the canvas fingerprint changes with the nodes, their settings and the connections', () => {
+  const nodes = () => [canvasNode('a', 'trigger-manual', { x: 1, y: 2 }), canvasNode('b', 'process-llm', { x: 300, y: 2 }, { prompt: 'hi' })]
+  const edges = (): FlowEdge[] => [{ id: 'e1', source: 'a', target: 'b', sourceHandle: 'output', targetHandle: 'input' }]
+  const sent = canvasFingerprint(nodes(), edges())
+  expect(canvasFingerprint(nodes(), edges())).toBe(sent)
+  const edited = nodes()
+  edited[1].data.config = { prompt: 'hello' }
+  expect(canvasFingerprint(edited, edges())).not.toBe(sent)
+  const moved = nodes()
+  moved[0].position = { x: 50, y: 2 }
+  expect(canvasFingerprint(moved, edges())).not.toBe(sent)
+  const disabled = nodes()
+  disabled[1].data.enabled = false
+  expect(canvasFingerprint(disabled, edges())).not.toBe(sent)
+  expect(canvasFingerprint([...nodes(), canvasNode('c', 'process-llm', { x: 600, y: 2 })], edges())).not.toBe(sent)
+  expect(canvasFingerprint(nodes(), [])).not.toBe(sent)
+  expect(canvasFingerprint(nodes(), [{ ...edges()[0], targetHandle: 'other' }])).not.toBe(sent)
 })
 
 test('the proposal view names each node by its type, flags unknown types and counts what will be placed', () => {

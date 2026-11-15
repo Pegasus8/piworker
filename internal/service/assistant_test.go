@@ -500,3 +500,45 @@ func TestAssistantRestoresOnlyWithheldValues(t *testing.T) {
 		}
 	}
 }
+
+// The model is told to leave "enabled" out: a node it keeps (same ID and
+// type) keeps the state it has in the current flow, so a node the admin
+// disabled is never turned back on by a proposal. New nodes are enabled,
+// and an explicit "enabled" in the answer still wins.
+func TestAssistantKeepsTheEnabledStateOfKeptNodes(t *testing.T) {
+	answer := `{"name":"Changed","nodes":[{"id":"t","type":"trigger-test","config":{"interval":5}},
+{"id":"mail","type":"action-test","config":{"url":"http://x"}},
+{"id":"log","type":"action-test","config":{"url":"http://log"}},
+{"id":"p","type":"process-test","config":{"text":"x"}},
+{"id":"on","type":"action-test","enabled":true,"config":{"url":"http://on"}},
+{"id":"off","type":"action-test","enabled":false,"config":{"url":"http://off"}}],
+"connections":[{"sourceNode":"t","sourcePort":"output","targetNode":"mail","targetPort":"input"},
+{"sourceNode":"t","sourcePort":"output","targetNode":"log","targetPort":"input"},
+{"sourceNode":"t","sourcePort":"output","targetNode":"p","targetPort":"input"},
+{"sourceNode":"t","sourcePort":"output","targetNode":"on","targetPort":"input"},
+{"sourceNode":"t","sourcePort":"output","targetNode":"off","targetPort":"input"}]}`
+	a, chat, _ := assistantEnv(t, answer)
+	current := &AssistantFlow{Name: "Mine", Nodes: []flow.Node{
+		{ID: "t", Type: "trigger-test", Config: map[string]any{"interval": 5}, Enabled: true},
+		{ID: "mail", Type: "action-test", Config: map[string]any{"url": "http://x"}, Enabled: false},
+		{ID: "p", Type: "action-test", Config: map[string]any{"url": "http://p"}, Enabled: false},
+		{ID: "on", Type: "action-test", Config: map[string]any{"url": "http://on"}, Enabled: false},
+		{ID: "off", Type: "action-test", Config: map[string]any{"url": "http://off"}, Enabled: true},
+	}}
+	res, err := a.ProposeFlow(context.Background(), AssistantFlowRequest{Connection: "local", Description: "also log every message", Flow: current})
+	require.NoError(t, err)
+	assert.Contains(t, chat.messages(t, 0)[1][1], `"enabled":false`, "the model sees which nodes are disabled")
+
+	enabled := map[string]bool{}
+	for _, n := range res.Flow.Nodes {
+		enabled[n.ID] = n.Enabled
+	}
+	assert.Equal(t, map[string]bool{
+		"t":    true,
+		"mail": false, // kept: stays disabled
+		"log":  true,  // new
+		"p":    true,  // another type under the ID: a new node
+		"on":   true,  // the answer says so
+		"off":  false, // the answer says so
+	}, enabled)
+}

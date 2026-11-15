@@ -8,6 +8,7 @@ import (
 	"math"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -34,12 +35,47 @@ const (
 var ErrModelMismatch = errors.New("the embedding model does not match the collection")
 
 // KnowledgePersister persists the knowledge base and provides the initial
-// load. The SQLite store implements it.
+// load. The SQLite store implements it. ReplaceLLMDocuments saves and
+// removes documents of one collection in one transaction: all of it or
+// nothing.
 type KnowledgePersister interface {
 	LoadLLMDocuments() (map[string][]Document, error)
 	SaveLLMDocument(collection string, d Document) error
 	DeleteLLMDocument(collection, id string) error
 	DeleteLLMCollection(collection string) error
+	ReplaceLLMDocuments(collection string, save []Document, remove []string) error
+}
+
+// ChunkID is the ID of chunk n (from 1) of the document base:
+// "<base>#<n>".
+func ChunkID(base string, n int) string { return base + "#" + strconv.Itoa(n) }
+
+// IsChunkOf reports whether id is a chunk ID of base ("<base>#<n>").
+func IsChunkOf(id, base string) bool {
+	n, ok := strings.CutPrefix(id, base+"#")
+	return ok && allDigits(n)
+}
+
+// LooksLikeChunk reports whether id ends in '#' and a number, as a chunk
+// ID does. A document stored under such an ID would be taken for a chunk
+// of another document, and removed when that one is replaced: the
+// knowledge-add node refuses it.
+func LooksLikeChunk(id string) bool {
+	i := strings.LastIndexByte(id, '#')
+	return i >= 0 && allDigits(id[i+1:])
+}
+
+// allDigits reports whether s is one or more ASCII digits.
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // Knowledge is a thread-safe knowledge base: collections of documents with
@@ -201,6 +237,105 @@ func (k *Knowledge) Add(collectionName string, d Document) error {
 	} else {
 		c.updated = time.Now()
 	}
+	return nil
+}
+
+// Replace stores docs in collection as the whole of the document base:
+// each of them is base itself or one of its chunks (ChunkID), and what
+// base held that docs do not (the whole document when it is now chunked,
+// its chunks when it is not, chunks past the new last one) is removed. It
+// is atomic: every document is checked first (limits, one model and
+// dimensions, those of the collection's other documents, room), then the
+// documents are saved and the stale ones removed in one transaction of
+// the persister and under one lock, so concurrent replaces of base leave
+// one whole version. A collection holding only base takes another model.
+// Embeddings are normalized to unit length; CreatedAt defaults to now.
+func (k *Knowledge) Replace(collectionName, base string, docs []Document) error {
+	if base == "" {
+		return fmt.Errorf("invalid document ID (1 to %d characters)", MaxDocumentIDLength)
+	}
+	if !ValidName(collectionName) {
+		return fmt.Errorf("invalid collection name (1 to %d letters, digits, '_' or '-')", MaxNameLength)
+	}
+	now := time.Now()
+	prepared := make([]Document, 0, len(docs))
+	keep := make(map[string]bool, len(docs))
+	for _, d := range docs {
+		if d.ID != base && !IsChunkOf(d.ID, base) {
+			return fmt.Errorf("document %q is neither %q nor one of its chunks", d.ID, base)
+		}
+		if keep[d.ID] {
+			return fmt.Errorf("document %q is given twice", d.ID)
+		}
+		if err := validDocument(collectionName, d); err != nil {
+			return err
+		}
+		unit, err := normalize(d.Embedding)
+		if err != nil {
+			return err
+		}
+		if len(prepared) > 0 && (d.Model != prepared[0].Model || len(unit) != len(prepared[0].Embedding)) {
+			return fmt.Errorf("%w: the documents of %q hold embeddings of different models or dimensions", ErrModelMismatch, base)
+		}
+		d.Embedding = unit
+		if d.CreatedAt.IsZero() {
+			d.CreatedAt = now
+		}
+		keep[d.ID] = true
+		prepared = append(prepared, d)
+	}
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	c := k.cols[collectionName]
+	var remove []string
+	others := 0
+	if c != nil {
+		for id := range c.docs {
+			switch {
+			case keep[id]:
+			case id == base || IsChunkOf(id, base):
+				remove = append(remove, id)
+			default:
+				others++
+			}
+		}
+		sort.Strings(remove)
+		if others > 0 && len(prepared) > 0 && (prepared[0].Model != c.model || len(prepared[0].Embedding) != c.dims) {
+			return fmt.Errorf("%w: collection %q holds %d-dimension embeddings of %q, not %d-dimension embeddings of %q",
+				ErrModelMismatch, collectionName, c.dims, c.model, len(prepared[0].Embedding), prepared[0].Model)
+		}
+	}
+	if others+len(prepared) > k.maxDocuments {
+		return fmt.Errorf("collection %q is full (at most %d documents)", collectionName, k.maxDocuments)
+	}
+	if len(prepared) == 0 && len(remove) == 0 {
+		return nil
+	}
+	if k.persist != nil {
+		if err := k.persist.ReplaceLLMDocuments(collectionName, prepared, remove); err != nil {
+			return err
+		}
+	}
+	if c == nil {
+		c = &collection{docs: map[string]*Document{}}
+		k.cols[collectionName] = c
+	}
+	for _, id := range remove {
+		delete(c.docs, id)
+	}
+	for i := range prepared {
+		d := prepared[i]
+		c.docs[d.ID] = &d
+	}
+	if len(c.docs) == 0 {
+		delete(k.cols, collectionName)
+		return nil
+	}
+	if len(prepared) > 0 {
+		c.model, c.dims = prepared[0].Model, len(prepared[0].Embedding)
+	}
+	c.updated = now
 	return nil
 }
 

@@ -389,3 +389,33 @@ func TestKnowledgeAddIDLength(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{chunked + "#1"}, outs[0].Meta["knowledge"].(map[string]any)["ids"])
 }
+
+// A chunk is "<documentId>#<n>": a document stored under an ID ending in
+// '#' and a number would be taken for a chunk of another document, and
+// deleted when that one is replaced. Such an ID is refused (a literal one
+// at deploy, a rendered one before any token is spent); other IDs with a
+// '#' are fine, and stay when a document whose ID they start with is
+// replaced.
+func TestKnowledgeAddRefusesIDsThatLookLikeChunks(t *testing.T) {
+	_, err := NewKnowledgeAddAction(map[string]any{"connection": fakeLLMConnection, "model": "embed", "collection": "docs", "documentId": "INV#1042"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "documentId")
+	assert.Contains(t, err.Error(), "#")
+
+	f := newFakeEmbedder(t, 1)
+	env := f.env(t)
+	n := mustKnowledgeAdd(t, map[string]any{"documentId": "{{payload.ref}}", "text": "{{payload.text}}"})
+	_, err = n.Process(env.ctx, types.NewMessage(map[string]any{"ref": "INV#1042", "text": "invoice 1042"}, types.DataTypeObject))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "documentId")
+	assert.False(t, node.IsRetryable(err))
+	assert.Empty(t, f.Requests(), "refused before any token is spent")
+
+	for _, ref := range []string{"INV#A1", "https://example.com/page#install", "INV"} {
+		_, err := n.Process(env.ctx, types.NewMessage(map[string]any{"ref": ref, "text": "text of " + ref}, types.DataTypeObject))
+		require.NoError(t, err, ref)
+	}
+	_, err = n.Process(env.ctx, types.NewMessage(map[string]any{"ref": "INV", "text": "INV again"}, types.DataTypeObject))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"INV", "INV#A1", "https://example.com/page#install"}, documentIDs(env.knowledge, "docs"))
+}

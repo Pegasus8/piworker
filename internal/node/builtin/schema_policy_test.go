@@ -346,6 +346,11 @@ func TestKnownDestinationPropertiesAreMarked(t *testing.T) {
 		"process-knowledge-search.connection",
 		// Which documents can reach the flow's output (a tool's reply).
 		"process-knowledge-search.collection",
+		// Which conversation is read, written or forgotten: shared state
+		// replayed to the LLM and agent nodes of every flow.
+		"process-llm.memoryKey",
+		"process-llm-agent.memoryKey",
+		"action-llm-forget.memoryKey",
 	} {
 		typ, prop, _ := strings.Cut(id, ".")
 		info, ok := node.DefaultRegistry.Get(typ)

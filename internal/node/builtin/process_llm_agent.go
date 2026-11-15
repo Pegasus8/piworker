@@ -118,15 +118,18 @@ func checkAgentTools(tools []string) error {
 
 // Process runs the agent: it asks the model, runs the tool calls the answer
 // asks for and sends their results back, until an answer asks for no tool
-// (its text is the result) or maxSteps requests were sent.
+// (its text is the result) or maxSteps requests were sent. Once a tool
+// was called, a failure is permanent (afterToolsError): a retry would run
+// the loop again, and the tools with it.
 func (a *LLMAgentProcess) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
 	var out *types.Message
+	toolsCalled := false
 	err := a.run(ctx, func(ctx context.Context) error {
 		s, err := a.open(ctx, "")
 		if err != nil {
 			return err
 		}
-		key, history, err := a.memory.conversation(ctx, msg)
+		conv, history, err := a.memory.conversation(ctx, msg)
 		if err != nil {
 			return err
 		}
@@ -173,7 +176,7 @@ func (a *LLMAgentProcess) Process(ctx context.Context, msg *types.Message) ([]*t
 			}
 			usage = addUsage(usage, resp.Usage)
 			if len(resp.ToolCalls) == 0 {
-				a.memory.remember(ctx, key, prompt, resp.Text)
+				a.memory.remember(ctx, conv, prompt, resp.Text)
 				out = msg.Clone()
 				llm.SetResult(out, a.resultField, resp.Text)
 				meta := llmMeta(s.conn.Name, resp.Model, usage, resp.Stop)
@@ -191,7 +194,8 @@ func (a *LLMAgentProcess) Process(ctx context.Context, msg *types.Message) ([]*t
 			messages = append(messages, resp.Message)
 			results := make([]llm.ToolResult, 0, len(resp.ToolCalls))
 			for _, call := range resp.ToolCalls {
-				result, step := a.callTool(ctx, tc, caller, fromProvider, call)
+				result, step, called := a.callTool(ctx, tc, caller, fromProvider, call)
+				toolsCalled = toolsCalled || called
 				if err := ctx.Err(); err != nil {
 					return fmt.Errorf("the agent stopped while calling a tool: %w", err)
 				}
@@ -202,20 +206,36 @@ func (a *LLMAgentProcess) Process(ctx context.Context, msg *types.Message) ([]*t
 		}
 	})
 	if err != nil {
+		if toolsCalled {
+			err = afterToolsError{err: err}
+		}
 		return nil, err
 	}
 	return []*types.Message{out}, nil
 }
 
+// afterToolsError is a failure of an agent after it called a tool: it is
+// permanent whatever it wraps (a 429, a 529 or a network error is
+// transient otherwise), because the runtime would retry the whole loop and
+// the model would call the tools it already called, each a real run of
+// another flow, again. Its message and the error it wraps are unchanged.
+type afterToolsError struct{ err error }
+
+func (e afterToolsError) Error() string { return e.err.Error() }
+func (e afterToolsError) Unwrap() error { return e.err }
+
+// Retryable implements node.Retryable: never.
+func (e afterToolsError) Retryable() bool { return false }
+
 // callTool runs one tool call of the model's and returns its result for
-// the model and its step for meta.llm.steps (the tool's name, the status
-// and the duration: never arguments or results). Whatever goes wrong is a
-// result with IsError, so the model can react: an unknown name, arguments
-// that are not an object, a refusal (its message is safe to show the
-// model) and a failed run.
-func (a *LLMAgentProcess) callTool(ctx context.Context, tc node.ToolCaller, caller node.AgentCaller, fromProvider map[string]string, call llm.ToolCall) (llm.ToolResult, map[string]any) {
+// the model, its step for meta.llm.steps (the tool's name, the status and
+// the duration: never arguments or results) and whether the tool caller
+// was asked to run it. Whatever goes wrong is a result with IsError, so
+// the model can react: an unknown name, arguments that are not an object,
+// a refusal (its message is safe to show the model) and a failed run.
+func (a *LLMAgentProcess) callTool(ctx context.Context, tc node.ToolCaller, caller node.AgentCaller, fromProvider map[string]string, call llm.ToolCall) (result llm.ToolResult, step map[string]any, called bool) {
 	start := time.Now()
-	result := llm.ToolResult{CallID: call.ID}
+	result = llm.ToolResult{CallID: call.ID}
 	name, known := fromProvider[call.Name]
 	status := agentStepRefused
 	var args map[string]any
@@ -228,6 +248,7 @@ func (a *LLMAgentProcess) callTool(ctx context.Context, tc node.ToolCaller, call
 		result.Content = "the arguments must be a JSON object matching the tool's input schema"
 		result.IsError = true
 	default:
+		called = true
 		outcome, err := tc.CallAgentTool(ctx, caller, name, args)
 		switch {
 		case err != nil:
@@ -251,8 +272,8 @@ func (a *LLMAgentProcess) callTool(ctx context.Context, tc node.ToolCaller, call
 			result.IsError = true
 		}
 	}
-	step := map[string]any{"tool": name, "status": status, "durationMs": time.Since(start).Milliseconds()}
-	return result, step
+	step = map[string]any{"tool": name, "status": status, "durationMs": time.Since(start).Milliseconds()}
+	return result, step, called
 }
 
 // providerToolNames maps tool names to names every provider accepts
@@ -370,7 +391,7 @@ model answers without a tool call. The answer is the result.
 | maxSteps | integer | 8 | Most requests to the model, in steps (1-32) |
 | allowPrivileged | boolean | false | Allow tools that run commands, files or hardware |
 | maxTokens | integer | 4096 | Longest answer per step, in tokens (1-64000) |
-| effort | enum | - | low, medium, high, xhigh or max (models that support it) |
+| effort | enum | - | low, medium, high, xhigh or max, only for models that support it (others may reject the request) |
 | memoryKey | string | - | Conversation to remember (templates; empty: none) |
 | memoryTurns | integer | 20 | Past messages kept and sent, in messages (2-200) |
 | resultField | string | - | Payload field for the answer (empty: replace the payload) |
@@ -400,6 +421,11 @@ hold arguments or results.
 
 If the model still asks for a tool after **maxSteps** requests, the message
 fails with *the agent did not finish within N steps*.
+
+Rate limits, overloaded providers and network errors are transient, so the
+flow's retries apply to them, but only until the agent has called a tool:
+after that every failure is permanent, because a retry would start again
+and call the same tools (each a run of another flow) a second time.
 
 ## Example
 

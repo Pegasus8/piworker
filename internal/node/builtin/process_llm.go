@@ -112,7 +112,7 @@ func (p *LLMProcess) Process(ctx context.Context, msg *types.Message) ([]*types.
 		if err != nil {
 			return err
 		}
-		key, history, err := p.memory.conversation(ctx, msg)
+		conv, history, err := p.memory.conversation(ctx, msg)
 		if err != nil {
 			return err
 		}
@@ -124,7 +124,7 @@ func (p *LLMProcess) Process(ctx context.Context, msg *types.Message) ([]*types.
 		if err != nil {
 			return err
 		}
-		p.memory.remember(ctx, key, req.Messages[len(req.Messages)-1].Text, resp.Text)
+		p.memory.remember(ctx, conv, req.Messages[len(req.Messages)-1].Text, resp.Text)
 
 		out = msg.Clone()
 		var result any = resp.Text
@@ -261,7 +261,7 @@ once under **LLM connections** and pick the connection here.
 | output | enum | text | ` + "`text`" + ` or ` + "`json`" + ` |
 | schema | json | - | JSON Schema the answer must match (output json) |
 | maxTokens | integer | 1024 | Longest answer, in tokens (1-64000) |
-| effort | enum | - | low, medium, high, xhigh or max (models that support it) |
+| effort | enum | - | low, medium, high, xhigh or max, only for models that support it (others may reject the request) |
 | memoryKey | string | - | Conversation to remember (templates; empty: none) |
 | memoryTurns | integer | 20 | Past messages kept and sent, in messages (2-200) |
 | resultField | string | - | Payload field for the answer (empty: replace the payload) |

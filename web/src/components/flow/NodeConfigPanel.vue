@@ -12,7 +12,7 @@ import ReferenceInput from './ReferenceInput.vue'
 import KeyValueInput from './KeyValueInput.vue'
 import JsonInput from './JsonInput.vue'
 import ListInput from './ListInput.vue'
-import { integerFromInput, selectView, setConfigValue } from '@/lib/configValues'
+import { integerFromInput, selectView, setConfigValue, type ItemRenames } from '@/lib/configValues'
 import { multilineField, referenceMode, referenceOptions } from '@/lib/references'
 import { useApi } from '@/composables/useApi'
 import RiskBadge from '@/components/agent/RiskBadge.vue'
@@ -63,8 +63,18 @@ const invalidFields = ref<string[]>([])
 function setInvalid(key: string, invalid: boolean) {
   invalidFields.value = invalid ? [...new Set([...invalidFields.value, key])] : invalidFields.value.filter(k => k !== key)
 }
+// What the rows of the setting that gives the node its outputs (the
+// classifier's categories) reported about their items since the settings
+// were last applied: they go with them, so a connection follows a category
+// that is retyped (lib/ports.ts followPorts).
+let renames: ItemRenames[] = []
+function itemsRenamed(key: string, changes: ItemRenames) {
+  if (key === nodeTypeConfig.value?.outputsFrom) renames.push(changes)
+}
+
 watch(() => selectedNode.value?.id, id => {
  invalidFields.value = []
+ renames = []
  referencesRequest++; variableNames.value = []; flowVariableNames.value = []; secretNames.value = []; referencesError.value = ''
  if (id) void loadReferences()
 })
@@ -158,13 +168,16 @@ function updateField(key: string, value: any) {
 watch(localConfig, config => {
   const node = selectedNode.value
   if (!node || invalidFields.value.length) return
-  if (JSON.stringify(config) === JSON.stringify(node.data.config || {})) return
-  flowsStore.updateNodeConfig(node.id, { ...config })
+  if (JSON.stringify(config) === JSON.stringify(node.data.config || {})) {
+    renames = []
+    return
+  }
+  flowsStore.updateNodeConfig(node.id, { ...config }, renames.splice(0))
 }, { deep: true })
 watch(invalidFields, fields => {
   const node = selectedNode.value
   if (!node || fields.length || JSON.stringify(localConfig.value) === JSON.stringify(node.data.config || {})) return
-  flowsStore.updateNodeConfig(node.id, { ...localConfig.value })
+  flowsStore.updateNodeConfig(node.id, { ...localConfig.value }, renames.splice(0))
 })
 
 function close() {
@@ -256,6 +269,7 @@ const duration = (field: ConfigField) => (field.type === 'number' || field.type 
               :suggestions="fieldSuggestions(field)"
               :describedby="suggestHint(field).text ? `${field.key}-hint` : undefined"
               @update:model-value="v => updateField(field.key, v)"
+              @renamed="changes => itemsRenamed(field.key, changes)"
             />
             <p v-if="suggestHint(field).text" :id="`${field.key}-hint`" class="mt-1 break-words text-xs" :class="suggestHint(field).warning ? 'text-amber-600 dark:text-amber-400' : 'text-primary'">{{ suggestHint(field).text }}</p>
           </template>

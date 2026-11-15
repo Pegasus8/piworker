@@ -55,13 +55,16 @@ export function baseUrlError(raw: string): string {
 /**
  * What is wrong with the form before it is saved or tested ('' when
  * nothing). stored: the connection being edited (its key is kept unless
- * cleared).
+ * cleared). taken: the names already defined, which a new connection may
+ * not use: saving is an upsert that keeps the stored key, so it would
+ * silently replace that connection and send its key to the new endpoint.
  */
-export function connectionFormError(form: ConnectionFormState, stored?: Pick<LLMConnection, 'hasApiKey'> | null): string {
+export function connectionFormError(form: ConnectionFormState, stored?: Pick<LLMConnection, 'hasApiKey'> | null, taken: readonly string[] = []): string {
   const t = msg().llm.connections.form
   const name = form.name.trim()
   if (!name) return t.nameRequired
   if (!validLLMName(name)) return t.nameChars
+  if (!stored && taken.includes(name)) return t.nameTaken
   // Another server with no address would silently be OpenAI's.
   if (form.preset === 'custom' && !form.baseUrl.trim()) return t.baseUrlRequired
   const urlError = baseUrlError(form.baseUrl)

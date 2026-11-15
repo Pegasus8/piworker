@@ -58,6 +58,8 @@ const es: typeof en = {
     add: 'Añade la propuesta a la derecha de los nodos actuales, con identificadores nuevos.'
   },
   undoHint: 'Deshacer la retira. No se guarda nada hasta que guardes el flujo.',
+  stale: 'El lienzo cambió después de esta propuesta: aplicarla ahora desharía esos cambios. Pide otra propuesta a partir del lienzo tal como está ahora.',
+  proposeAgain: 'Proponer de nuevo',
   nothingToApply: 'La propuesta no tiene ningún nodo de un tipo que este editor conozca, así que no hay nada que colocar.',
   nodeTypesUnavailable: 'No se pudieron cargar los tipos de nodo, así que la propuesta no se puede colocar. Recarga la página e inténtalo de nuevo.',
   edit: 'Cambiar la descripción',

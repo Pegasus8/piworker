@@ -43,7 +43,7 @@ const form = ref<ConnectionFormState>(blankConnectionForm())
 // The connection being edited (its name cannot change), or null for a new one.
 const editing = ref<LLMConnection | null>(null)
 const attempted = ref(false)
-const formError = computed(() => connectionFormError(form.value, editing.value))
+const formError = computed(() => connectionFormError(form.value, editing.value, store.connections.map(c => c.name)))
 const shownError = computed(() => attempted.value ? formError.value : '')
 const testing = ref(false)
 const testResult = ref<LLMConnectionTest | null>(null)

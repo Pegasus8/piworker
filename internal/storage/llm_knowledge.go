@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"database/sql"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -115,12 +116,22 @@ func decodeDocument(d *llm.Document, metadata string, raw []byte, dims int) erro
 	return nil
 }
 
+// execer is what saveLLMDocument writes through: the store's pool or a
+// transaction.
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
 // SaveLLMDocument stores (or replaces) a document of collection. Implements
 // llm.KnowledgePersister.
 func (s *SQLiteStore) SaveLLMDocument(collection string, d llm.Document) error {
 	if s.isClosed() {
 		return ErrDatabaseClosed
 	}
+	return saveLLMDocument(s.db, collection, d)
+}
+
+func saveLLMDocument(db execer, collection string, d llm.Document) error {
 	meta := []byte("{}")
 	if len(d.Metadata) > 0 {
 		raw, err := json.Marshal(d.Metadata)
@@ -133,13 +144,41 @@ func (s *SQLiteStore) SaveLLMDocument(collection string, d llm.Document) error {
 	if created.IsZero() {
 		created = time.Now()
 	}
-	_, err := s.db.Exec(`
+	_, err := db.Exec(`
 		INSERT INTO llm_documents (collection, id, text, metadata, model, dimensions, embedding, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(collection, id) DO UPDATE SET text = excluded.text, metadata = excluded.metadata, model = excluded.model,
 			dimensions = excluded.dimensions, embedding = excluded.embedding, created_at = excluded.created_at
 	`, collection, d.ID, d.Text, string(meta), d.Model, len(d.Embedding), encodeEmbedding(d.Embedding), created)
 	if err != nil {
 		return fmt.Errorf("failed to save a knowledge document: %w", err)
+	}
+	return nil
+}
+
+// ReplaceLLMDocuments saves the documents save and removes the documents
+// remove (by ID) of collection in one transaction: all of it or nothing
+// (llm.Knowledge.Replace). Implements llm.KnowledgePersister.
+func (s *SQLiteStore) ReplaceLLMDocuments(collection string, save []llm.Document, remove []string) error {
+	if s.isClosed() {
+		return ErrDatabaseClosed
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin replacing knowledge documents: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	for _, d := range save {
+		if err := saveLLMDocument(tx, collection, d); err != nil {
+			return err
+		}
+	}
+	for _, id := range remove {
+		if _, err := tx.Exec(`DELETE FROM llm_documents WHERE collection = ? AND id = ?`, collection, id); err != nil {
+			return fmt.Errorf("failed to delete a knowledge document: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit the knowledge documents: %w", err)
 	}
 	return nil
 }

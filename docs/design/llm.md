@@ -633,7 +633,12 @@ the static outputs.
 `GET /api/node-types` sends `outputsFrom`; the editor renders the ports
 from the node's config with the same rule (`web/src/lib/ports.ts`);
 removing an item removes the edges leaving its port in the same undo step,
-renaming one in place keeps them. The implicit `error` port (ADR-0036)
+renaming one in place keeps them. Settings apply as they are typed, so a
+row is followed, not the list: while a row is blank or repeats another
+item its edges wait aside (never saved), and they follow the name it ends
+with; removing the row or giving its old name to another row drops them
+(`ListInput` reports the renames, `lib/configValues.ts` `followRows`;
+`lib/ports.ts` `followPorts`). The implicit `error` port (ADR-0036)
 still comes last.
 
 `node.ConfigProperty` of `Type: "array"` is a list of strings in the editor
@@ -750,6 +755,10 @@ notes, remaining issues, tokens spent) and places it as one undo step:
 **Apply** on an empty canvas, **Apply changes** (replacing the canvas) for
 a proposal made with "Change the current flow", which keeps the IDs of the
 nodes it kept, or **Add to canvas** beside the current nodes with new IDs.
+A change of the current flow is applied only while the canvas still is what
+was sent (nodes, settings, positions, connections: `canvasFingerprint` in
+`web/src/lib/assistant.ts`); once it changed, applying would undo those
+edits, so the dialog says so and offers to propose again.
 Nodes of types the editor does not know are left out, with their
 connections. A new flow still named "Untitled Flow" takes the proposal's
 name and description. Closing the dialog while the model works cancels the

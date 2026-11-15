@@ -59,9 +59,18 @@ export const useLLMStore = defineStore('llm', () => {
     connectionsLoaded.value = true
   }
 
+  // One listing per connection at a time, and how many times each
+  // connection's models were forgotten: a listing started before is
+  // dropped when it ends (it listed settings that no longer exist).
+  const modelReads = new Map<string, Promise<LLMModel[]>>()
+  const modelGenerations = new Map<string, number>()
+
   // A connection's settings changed or it is gone: its models are listed
-  // again the next time they are needed.
+  // again the next time they are needed, and a listing still running with
+  // the old settings is not kept.
   function forgetModels(name: string) {
+    modelGenerations.set(name, (modelGenerations.get(name) ?? 0) + 1)
+    modelReads.delete(name)
     models.value = without(models.value, name)
     modelErrors.value = without(modelErrors.value, name)
   }
@@ -92,14 +101,12 @@ export const useLLMStore = defineStore('llm', () => {
     return { ok: false, error: typeof result?.error === 'string' && result.error ? result.error : msg().editor.llm.testFailed }
   }
 
-  // One listing per connection at a time.
-  const modelReads = new Map<string, Promise<LLMModel[]>>()
-
   /**
    * The models of a stored connection, listed once and cached. Never
    * throws: a failure (a local server that is down, a wrong key) is kept in
    * modelErrors and answers none, so the field stays free text. A failure
-   * is not cached: asking again lists them again.
+   * is not cached: asking again lists them again. A listing that ends after
+   * the connection was saved or deleted keeps nothing and answers none.
    */
   function loadModels(name: string, opts: { force?: boolean } = {}): Promise<LLMModel[]> {
     if (!name) return Promise.resolve([])
@@ -107,17 +114,21 @@ export const useLLMStore = defineStore('llm', () => {
     if (cached && !opts.force) return Promise.resolve(cached)
     const pending = modelReads.get(name)
     if (pending) return pending
-    const read = (async () => {
+    const generation = modelGenerations.get(name) ?? 0
+    const current = () => (modelGenerations.get(name) ?? 0) === generation
+    const read: Promise<LLMModel[]> = (async () => {
       try {
         const list = await api.getLLMModels(name)
+        if (!current()) return []
         models.value = { ...models.value, [name]: list }
         modelErrors.value = without(modelErrors.value, name)
         return list
       } catch (e) {
+        if (!current()) return []
         modelErrors.value = { ...modelErrors.value, [name]: errorMessage(e, msg().editor.llm.modelsUnavailable) }
         return []
       } finally {
-        modelReads.delete(name)
+        if (modelReads.get(name) === read) modelReads.delete(name)
       }
     })()
     modelReads.set(name, read)

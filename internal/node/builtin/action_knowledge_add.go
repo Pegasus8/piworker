@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -68,6 +67,9 @@ func NewKnowledgeAddAction(config map[string]interface{}) (node.Node, error) {
 		return nil, err
 	}
 	a.documentID = strings.TrimSpace(a.documentID)
+	if !strings.Contains(a.documentID, "{{") && llm.LooksLikeChunk(a.documentID) {
+		return nil, errChunkLikeID("documentId")
+	}
 	if a.metadata, err = parseKnowledgeMetadata(cfg); err != nil {
 		return nil, err
 	}
@@ -131,17 +133,15 @@ func (a *KnowledgeAddAction) Process(ctx context.Context, msg *types.Message) ([
 		if err != nil {
 			return err
 		}
+		// The new version and the removal of what it no longer has (the
+		// whole document when it is now chunked, its chunks when it is
+		// not, chunks past the new last one) are one atomic replace.
+		if err := kb.Replace(a.collection, id, docs); err != nil {
+			return fmt.Errorf("cannot store the document in collection %q: %w", a.collection, err)
+		}
 		ids := make([]string, len(docs))
 		for i, d := range docs {
-			if err := kb.Add(a.collection, d); err != nil {
-				return fmt.Errorf("cannot store the document in collection %q: %w", a.collection, err)
-			}
 			ids[i] = d.ID
-		}
-		if a.documentID != "" {
-			if err := removeStale(kb, a.collection, id, docs); err != nil {
-				return err
-			}
 		}
 		out = msg.Clone()
 		out.SetMeta("knowledge", map[string]any{
@@ -200,7 +200,7 @@ func (a *KnowledgeAddAction) documents(ctx context.Context, msg *types.Message, 
 	for i, t := range texts {
 		docID := id
 		if a.chunkSize > 0 {
-			docID = id + "#" + strconv.Itoa(i+1)
+			docID = llm.ChunkID(id, i+1)
 		}
 		if utf8.RuneCountInString(docID) > llm.MaxDocumentIDLength {
 			return "", nil, fmt.Errorf("documentId is too long for this message (at most %d characters, with the chunk number #n when chunkSize is set)", llm.MaxDocumentIDLength)
@@ -222,7 +222,18 @@ func (a *KnowledgeAddAction) renderID(ctx context.Context, msg *types.Message) (
 	if !utf8.ValidString(id) || strings.ContainsAny(id, "\x00\r\n") {
 		return "", errors.New("documentId rendered to an invalid ID for this message (one line of text)")
 	}
+	if llm.LooksLikeChunk(id) {
+		return "", errChunkLikeID("documentId rendered to an ID that")
+	}
 	return id, nil
+}
+
+// errChunkLikeID refuses a document ID that ends in '#' and a number:
+// chunk IDs are "<documentId>#<n>", so such a document would be taken for
+// a chunk of another one and deleted when that one is replaced. what says
+// which ID ("documentId", or the rendered ID of a message).
+func errChunkLikeID(what string) error {
+	return fmt.Errorf("%s ends in '#' and a number, the form of chunk IDs (<documentId>#<n>): end it otherwise, e.g. {{payload.ref}}-doc", what)
 }
 
 // renderMetadata renders the metadata's templates for msg.
@@ -266,39 +277,6 @@ func embedDocuments(ctx context.Context, client llm.Client, model string, docs [
 	return total, nil
 }
 
-// removeStale removes what an earlier message stored under the document
-// ID base that docs (the documents just stored for it) no longer have: the
-// whole document when the text is now chunked, its chunks when it is not,
-// or chunks past the new last one. An ID "<base>#<number>" is a chunk of
-// base.
-func removeStale(kb *llm.Knowledge, collection, base string, docs []llm.Document) error {
-	keep := make(map[string]bool, len(docs))
-	for _, d := range docs {
-		keep[d.ID] = true
-	}
-	_, err := kb.DeleteMatching(collection, func(id string) bool {
-		return !keep[id] && (id == base || isChunkOf(id, base))
-	})
-	if err != nil {
-		return fmt.Errorf("cannot remove the document's old chunks from collection %q: %w", collection, err)
-	}
-	return nil
-}
-
-// isChunkOf reports whether id is "<base>#<n>".
-func isChunkOf(id, base string) bool {
-	n, ok := strings.CutPrefix(id, base+"#")
-	if !ok || n == "" {
-		return false
-	}
-	for _, r := range n {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
-}
-
 // Ports returns the port definitions.
 func (a *KnowledgeAddAction) Ports() (inputs []types.Port, outputs []types.Port) {
 	return llmInputs, llmOutputs
@@ -318,7 +296,7 @@ func knowledgeAddConfigSchema() node.ConfigSchema {
 			"text": {Type: "string", Title: "Text",
 				Description: "Text to store, built from the message (supports {{templates}})", Default: "{{payload}}"},
 			"documentId": {Type: "string", Title: "Document ID",
-				Description: "ID of the document, e.g. {{payload.id}}: adding the same ID again replaces it (supports {{templates}}; empty: a new ID per message)"},
+				Description: "ID of the document, e.g. {{payload.id}}: adding the same ID again replaces it; it may not end in '#' and a number, the form of chunk IDs (supports {{templates}}; empty: a new ID per message)"},
 			"metadata": {Type: "object", Title: "Metadata",
 				Description: "Names and values stored with the document and returned by searches, e.g. source = {{topic}} (values support {{templates}})"},
 			"chunkSize": {Type: "integer", Title: "Chunk size",
@@ -357,7 +335,7 @@ database. The message is passed on unchanged.
 | model | string | - | Embedding model (required) |
 | collection | string | - | Collection to store the text in (required) |
 | text | string | {{payload}} | Text to store (templates) |
-| documentId | string | new ID | Document ID (templates): the same ID replaces the document |
+| documentId | string | new ID | Document ID (templates): the same ID replaces the document; not ending in ` + "`#<number>`" + ` |
 | metadata | object | - | Names and values stored with the document (values: templates) |
 | chunkSize | integer | 0 | Split long texts into chunks of at most this many characters (0: one document; 200-8000) |
 | timeout | integer | 120 | Longest time for the whole call, in seconds (1-600) |
@@ -372,7 +350,10 @@ A document holds at most 32 KiB of text. Set **chunkSize** (e.g. 1000) to
 split long texts on paragraph, sentence and word boundaries; each chunk is a
 document with the ID ` + "`<documentId>#<n>`" + `, repeating the end of the
 previous chunk so a passage cut in two is still found. Adding the same
-**documentId** again replaces all its chunks.
+**documentId** again replaces all its chunks, at once. A **documentId**
+may therefore not end in ` + "`#`" + ` and a number (` + "`INV#1042`" + `): it
+would be taken for a chunk of another document. Other IDs with a ` + "`#`" + `
+(` + "`INV#A1`" + `, a URL with a fragment) are fine.
 
 ## Output
 
@@ -393,7 +374,8 @@ metadata: source = {{payload.author}}
 ## Errors
 
 An empty text, a text too long for one document without **chunkSize**, a
-collection of another embedding model, a spent daily limit and a timeout
+document ID ending in ` + "`#`" + ` and a number, a collection of another embedding
+model, a spent daily limit and a timeout
 fail the message. Rate limits, overloaded providers and network errors are
 transient: the flow's retries apply to them.
 

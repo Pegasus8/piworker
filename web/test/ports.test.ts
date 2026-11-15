@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
-import { ERROR_PORT, edgesAfterConfig, outputPorts, sourcePorts, validConnection } from '../src/lib/ports'
+import { ERROR_PORT, HANDLE_SPACING, edgesAfterConfig, followPorts, nodeMinHeight, outputPorts, sourcePorts, validConnection } from '../src/lib/ports'
+import { followRows, listFromRows, rowItems, type ItemRenames, type RowItem } from '../src/lib/configValues'
 import type { FlowNode, NodeTypeConfig } from '../src/types'
 
 const node = (id: string, nodeType: string) => ({ id, type: 'process', position: { x: 0, y: 0 }, data: { nodeType, config: {} } }) as unknown as FlowNode
@@ -102,4 +103,130 @@ test('edges follow the ports when the setting changes', () => {
   expect(edgesAfterConfig('c', classify, before, { categories: ['question', 'question'] }, edges).map(e => e.id)).toEqual(['e2', 'e3', 'e4', 'e5'])
   // Types without outputsFrom keep their edges.
   expect(edgesAfterConfig('c', types.log as NodeTypeConfig, before, {}, edges)).toBe(edges)
+})
+
+// Typing in a category's row as the editor does: ListInput says which item
+// each row stands for (followRows) and the store follows the ports with the
+// renames it reports (followPorts), keeping aside the connections of a row
+// that is blank or repeats another for a moment.
+type Edge = { id: string; source: string; target: string; sourceHandle: string; targetHandle: string }
+function editor(categories: string[], edges: Edge[]) {
+  let rows = [...categories]
+  let items = rowItems(rows)
+  let config: Record<string, unknown> = { categories: listFromRows(rows) }
+  let parked: Edge[] = []
+  const apply = (next: string[], kept: RowItem[], removed: RowItem[] = []) => {
+    const followed = followRows(next, kept, removed)
+    const renames: ItemRenames[] = followed.renamed.size ? [followed.renamed] : []
+    const after = { categories: listFromRows(next) }
+    const result = followPorts('c', classify, config, after, edges, parked, renames)
+    rows = next
+    items = followed.items
+    config = after
+    edges = result.edges
+    parked = result.parked
+  }
+  return {
+    type: (index: number, ...texts: string[]) => {
+      for (const text of texts) apply(rows.map((r, i) => i === index ? text : r), items)
+    },
+    remove: (index: number) => apply(rows.filter((_, i) => i !== index), items.filter((_, i) => i !== index), [items[index]]),
+    add: () => { rows = [...rows, '']; items = [...items, { name: null, own: false }] },
+    port: (id: string) => edges.find(e => e.id === id)?.sourceHandle,
+    ids: () => edges.map(e => e.id),
+    parked: () => parked
+  }
+}
+const edgeFrom = (id: string, port: string, target = 'l'): Edge => ({ id, source: 'c', target, sourceHandle: port, targetHandle: 'input' })
+
+test('a category retyped through a blank row keeps its connections', () => {
+  const ed = editor(['bug', 'question'], [edgeFrom('e1', 'bug'), edgeFrom('e2', 'question'), edgeFrom('e3', 'other')])
+  ed.type(0, 'bu', 'b', '')
+  // Blank: its port is gone, so is the connection, for now.
+  expect(ed.ids()).toEqual(['e2', 'e3'])
+  ed.type(0, 'd', 'de', 'defect')
+  expect(ed.port('e1')).toBe('defect')
+  expect(ed.port('e2')).toBe('question')
+  expect(ed.parked()).toEqual([])
+})
+
+test('a category retyped through another category\'s name keeps its connections', () => {
+  const ed = editor(['bug', 'bugs'], [edgeFrom('e1', 'bug'), edgeFrom('e2', 'bugs', 'm')])
+  ed.type(1, 'bug')
+  expect(ed.ids()).toEqual(['e1'])
+  ed.type(1, 'bugf', 'bugfix')
+  expect(ed.port('e2')).toBe('bugfix')
+  expect(ed.port('e1')).toBe('bug')
+  // Back to its own name after repeating another: the connection is back too.
+  const back = editor(['bug', 'bugs'], [edgeFrom('e1', 'bug'), edgeFrom('e2', 'bugs', 'm')])
+  back.type(1, 'bug', 'bugs')
+  expect(back.port('e2')).toBe('bugs')
+  // The first row renamed while the second repeats it: each keeps its own.
+  const swap = editor(['bug', 'bugs'], [edgeFrom('e1', 'bug'), edgeFrom('e2', 'bugs', 'm')])
+  swap.type(1, 'bug')
+  swap.type(0, 'bu')
+  expect(swap.port('e1')).toBe('bu')
+  expect(swap.port('e2')).toBe('bug')
+})
+
+test('a row removed while blank or repeated takes its connections along for good', () => {
+  const blank = editor(['bug', 'question'], [edgeFrom('e1', 'bug'), edgeFrom('e2', 'question')])
+  blank.type(0, '')
+  blank.remove(0)
+  blank.add()
+  blank.type(1, 'b', 'bug', 'bugs')
+  expect(blank.ids()).toEqual(['e2'])
+  expect(blank.parked()).toEqual([])
+  // Removed while repeating another: only its own connections go.
+  const repeated = editor(['bug', 'bugs'], [edgeFrom('e1', 'bug'), edgeFrom('e2', 'bugs', 'm')])
+  repeated.type(1, 'bug')
+  repeated.remove(0)
+  expect(repeated.ids()).toEqual(['e2'])
+  expect(repeated.port('e2')).toBe('bug')
+})
+
+test('a new category with the name of a removed one does not take its connections', () => {
+  const ed = editor(['bug', 'question'], [edgeFrom('e1', 'bug'), edgeFrom('e2', 'question')])
+  ed.remove(0)
+  ed.add()
+  ed.type(1, 'b', 'bu', 'bug')
+  expect(ed.ids()).toEqual(['e2'])
+})
+
+test('a category never takes over the static outputs or the error port', () => {
+  const ed = editor(['oth'], [edgeFrom('e1', 'oth'), edgeFrom('e2', 'other', 'm'), edgeFrom('e3', ERROR_PORT, 'n')])
+  ed.type(0, 'othe', 'other')
+  // "other" is the static output: the category's connection waits aside.
+  expect(ed.ids()).toEqual(['e2', 'e3'])
+  ed.type(0, 'others')
+  expect(ed.port('e1')).toBe('others')
+  expect(ed.port('e2')).toBe('other')
+  expect(ed.port('e3')).toBe(ERROR_PORT)
+  // Without the rows' reports, a rename to a static output is a removal too.
+  const edges = [edgeFrom('e1', 'othe'), edgeFrom('e2', 'other', 'm')]
+  expect(edgesAfterConfig('c', classify, { categories: ['othe'] }, { categories: ['other'] }, edges).map(e => [e.id, e.sourceHandle])).toEqual([['e2', 'other']])
+})
+
+test('a connection that comes back never repeats one drawn meanwhile', () => {
+  const ed = editor(['bug'], [edgeFrom('e1', 'bug')])
+  ed.type(0, '')
+  ed.type(0, 'bug')
+  expect(ed.ids()).toEqual(['e1'])
+  const result = followPorts('c', classify, { categories: [] }, { categories: ['bug'] }, [edgeFrom('e9', 'bug')], [edgeFrom('e1', 'bug')], [new Map([['bug', 'bug']])])
+  expect(result.edges.map(e => e.id)).toEqual(['e9'])
+  expect(result.parked).toEqual([])
+})
+
+// Handles are spread evenly over a node's side: a classifier with many
+// categories (up to 20 plus "other") grows tall enough that its 12px
+// handles stay apart and each can be picked.
+test('a node with many ports is tall enough to keep its handles apart', () => {
+  for (const outputs of [1, 2, 8, 13, 21]) {
+    const height = nodeMinHeight(1, outputs)
+    expect(height / (outputs + 1)).toBeGreaterThanOrEqual(HANDLE_SPACING)
+  }
+  expect(HANDLE_SPACING).toBeGreaterThanOrEqual(18)
+  expect(nodeMinHeight(4, 2)).toBe(nodeMinHeight(1, 4))
+  // A node with a few ports keeps its natural height (header and summary).
+  expect(nodeMinHeight(1, 2)).toBeLessThanOrEqual(80)
 })

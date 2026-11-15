@@ -130,6 +130,9 @@ func TestParseJSONAnswer(t *testing.T) {
 		"```\n[1]\n```":                     []any{float64(1)},
 		"Here you go: {\"ok\": true} hope it helps.": map[string]any{"ok": true},
 		"[note] then {\"x\": \"y\"}":                 map[string]any{"x": "y"},
+		// A failed candidate that closes is skipped as a whole.
+		"See {this} and {\"x\": [1]}":                 map[string]any{"x": []any{float64(1)}},
+		"{\"note\": \"a } in text\" bad} {\"ok\": 1}": map[string]any{"ok": float64(1)},
 	}
 	for text, want := range cases {
 		got, err := ParseJSONAnswer(text)
@@ -141,7 +144,14 @@ func TestParseJSONAnswer(t *testing.T) {
 			t.Errorf("%q: got %#v, want %#v", text, got, want)
 		}
 	}
-	for _, text := range []string{"", "no json here", `"just a string"`, "{broken"} {
+	// A malformed answer is invalid, never a value nested inside it: the
+	// object's trailing comma must not turn the answer into its "items".
+	for _, text := range []string{"", "no json here", `"just a string"`, "{broken",
+		`{"summary":"x","items":[{"a":1}],}`,
+		"```json\n{\"summary\": \"x\", \"items\": [1, 2] x}\n```",
+		`Sure: {"a": {"b": 1}, oops}`,
+		`[{"a":1}, {"b":2},]`,
+	} {
 		if _, err := ParseJSONAnswer(text); !errors.Is(err, ErrInvalidAnswer) {
 			t.Errorf("%q: want ErrInvalidAnswer, got %v", text, err)
 		}

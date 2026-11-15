@@ -295,3 +295,34 @@ func TestLLMProcessRequestCaching(t *testing.T) {
 	assert.True(t, reqWith.Cache)
 	assert.False(t, reqWithout.Cache)
 }
+
+// A Forget while the model answers (a chat's /reset sent during a long
+// answer) wins: the exchange that was in flight is not written back into
+// the forgotten conversation.
+func TestLLMProcessForgetDuringTheCallWins(t *testing.T) {
+	asked := make(chan struct{})
+	release := make(chan struct{})
+	f := newFakeLLM(t, func(n int, _ string, _ map[string]any) (int, any) {
+		close(asked)
+		<-release
+		return 200, chatAnswer("Here is your long answer.", 1, 1)
+	})
+	env := f.env(t)
+	require.NoError(t, env.memory.Append("chat:42", 0,
+		llm.Turn{Role: llm.RoleUser, Text: "my secret"}, llm.Turn{Role: llm.RoleAssistant, Text: "noted"}))
+	ask := mustLLMProcess(t, map[string]any{"connection": fakeLLMConnection, "prompt": "{{payload.text}}", "memoryKey": "chat:{{payload.chat}}"})
+	forget, err := NewLLMForgetAction(map[string]any{"memoryKey": "chat:{{payload.chat}}"})
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := ask.Process(env.ctx, types.NewMessage(map[string]any{"chat": 42, "text": "a long question"}, types.DataTypeObject))
+		done <- err
+	}()
+	<-asked
+	_, err = forget.Process(env.ctx, types.NewMessage(map[string]any{"chat": 42, "text": "/reset"}, types.DataTypeObject))
+	require.NoError(t, err)
+	close(release)
+	require.NoError(t, <-done, "the answer is still delivered")
+	assert.Nil(t, env.memory.Turns("chat:42"), "the forgotten conversation stays forgotten")
+}

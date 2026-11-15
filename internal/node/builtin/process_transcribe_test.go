@@ -588,3 +588,32 @@ func TestUnsupportedOnAnthropic(t *testing.T) {
 	require.ErrorIs(t, err, llm.ErrUnsupported)
 	assert.Equal(t, fmt.Sprintf("embeddings: %s: LLM connection %q is an Anthropic connection, which has no embeddings API; use an OpenAI-compatible connection such as OpenAI or Ollama", llm.ErrUnsupported, "claude"), err.Error())
 }
+
+// Formats http.DetectContentType does not know (MP3 without an ID3 tag,
+// FLAC, AAC in ADTS frames) sent inline are named by their own signature:
+// OpenAI tells the format by the file name's extension, and refuses
+// "audio" or "audio.bin".
+func TestTranscribeNamesInlineAudioBySignature(t *testing.T) {
+	ft := newFakeTranscriber(t, "x")
+	env := ft.env(t)
+	n := mustTranscribe(t, map[string]any{"connection": fakeLLMConnection})
+	for _, tc := range []struct {
+		name, file, fileType string
+		data                 []byte
+	}{
+		{"MPEG audio frames", "audio.mp3", "audio/mpeg", append([]byte{0xFF, 0xFB, 0x90, 0x64}, make([]byte, 64)...)},
+		{"MPEG-2 layer III frames", "audio.mp3", "audio/mpeg", append([]byte{0xFF, 0xF3, 0x48, 0xC4}, make([]byte, 64)...)},
+		{"FLAC", "audio.flac", "audio/flac", append([]byte("fLaC\x00\x00\x00\x22"), make([]byte, 64)...)},
+		{"AAC in ADTS frames", "audio.aac", "audio/aac", append([]byte{0xFF, 0xF1, 0x50, 0x80}, make([]byte, 64)...)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := n.Process(env.ctx, types.NewMessage(base64.StdEncoding.EncodeToString(tc.data), types.DataTypeString))
+			require.NoError(t, err)
+			calls := ft.Calls()
+			last := calls[len(calls)-1]
+			assert.Equal(t, tc.file, last.filename)
+			assert.Equal(t, tc.fileType, last.fileType)
+			assert.Equal(t, tc.data, last.file)
+		})
+	}
+}

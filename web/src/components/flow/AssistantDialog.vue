@@ -5,7 +5,9 @@
 // what Lint still finds) and places on the canvas as one undo step. It
 // never saves or deploys. The model's text is shown as plain text with
 // hidden characters revealed (AgentText). Closing the dialog while the
-// model works cancels the request.
+// model works cancels the request. A change of the current flow is not
+// applied once the canvas changed since it was sent (it would undo those
+// edits): it is proposed again.
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { Button, Dialog, Label, Select, Switch, Textarea, Input } from '@/components/ui'
 import OperationFeedback from '@/components/ui/OperationFeedback.vue'
@@ -18,7 +20,7 @@ import { useFlowsStore } from '@/stores/flows'
 import { useLLMStore } from '@/stores/llm'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
 import {
-  MAX_DESCRIPTION_CHARS, applyMode, assistantError, changeSummary, currentDefinition, descriptionLength, issueLocation, proposalView
+  MAX_DESCRIPTION_CHARS, applyMode, assistantError, canvasFingerprint, changeSummary, currentDefinition, descriptionLength, issueLocation, proposalView
 } from '@/lib/assistant'
 import { suggestionHint, suggestions, type SuggestionContext } from '@/lib/suggestions'
 import { connectionKind } from '@/lib/llm'
@@ -97,6 +99,8 @@ const notice = ref<Feedback | null>(null)
 const result = ref<AssistantFlowResult | null>(null)
 // Whether the proposal is a change of the current flow (it then replaces the canvas).
 const resultChanges = ref(false)
+// The canvas a change of the current flow was built from (canvasFingerprint).
+const sentCanvas = ref('')
 // Placed on the canvas: the next opening starts from the form (the
 // proposal stays on screen while the dialog closes).
 let placed = false
@@ -127,6 +131,7 @@ async function generate() {
   const body: AssistantFlowRequest = { connection: connection.value, description: description.value.trim() }
   if (model.value.trim()) body.model = model.value.trim()
   if (changesCurrent) body.flow = currentDefinition(flows.currentFlow, flows.nodes, flows.edges)
+  const sent = changesCurrent ? canvasFingerprint(flows.nodes, flows.edges) : ''
   const request = new AbortController()
   controller = request
   running.value = true
@@ -140,6 +145,7 @@ async function generate() {
     if (controller !== request) return
     result.value = answer
     resultChanges.value = changesCurrent
+    sentCanvas.value = sent
   } catch (e) {
     if (controller !== request) return
     notice.value = { kind: request.signal.aborted ? 'warning' : 'error', text: assistantError(e, request.signal.aborted) }
@@ -175,7 +181,12 @@ const counts = computed(() => issueCounts(result.value?.issues))
 const typesUnavailable = computed(() => !nodeTypes.initialized && !nodeTypes.loading)
 const applyLabel = computed(() => !flows.nodes.length ? t.value.apply : mode.value === 'replace' ? t.value.applyChanges : t.value.addToCanvas)
 const applyHint = computed(() => !flows.nodes.length ? t.value.applyHints.replace : mode.value === 'replace' ? t.value.applyHints.change : t.value.applyHints.add)
-const canApply = computed(() => !!view.value && nodeTypes.initialized && view.value.nodes.some(n => n.known))
+// A change of the current flow replaces the whole canvas with what the
+// model built from it as it was sent: once the canvas changed (the dialog
+// was closed and nodes edited, or another flow opened), applying it would
+// silently undo those edits, so it is refused and can be proposed again.
+const stale = computed(() => !!result.value && resultChanges.value && canvasFingerprint(flows.nodes, flows.edges) !== sentCanvas.value)
+const canApply = computed(() => !!view.value && nodeTypes.initialized && view.value.nodes.some(n => n.known) && !stale.value)
 
 function apply() {
   if (!result.value || !canApply.value) return
@@ -271,12 +282,14 @@ function edit() {
 
         <p v-if="typesUnavailable" role="alert" class="text-sm text-destructive">{{ t.nodeTypesUnavailable }}</p>
         <p v-else-if="!view.nodes.some(n => n.known)" role="alert" class="text-sm text-destructive">{{ t.nothingToApply }}</p>
+        <p v-else-if="stale" role="alert" class="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm">{{ t.stale }}</p>
         <p v-else class="text-sm text-muted-foreground">{{ applyHint }} {{ t.undoHint }}</p>
 
         <div class="flex flex-wrap justify-end gap-2">
           <Button variant="outline" @click="setOpen(false)">{{ t.close }}</Button>
           <Button variant="outline" @click="edit">{{ t.edit }}</Button>
-          <Button :disabled="!canApply" @click="apply">{{ applyLabel }}</Button>
+          <Button v-if="stale" :disabled="!canGenerate" @click="generate"><Sparkles class="mr-2 h-4 w-4" aria-hidden="true" />{{ t.proposeAgain }}</Button>
+          <Button v-else :disabled="!canApply" @click="apply">{{ applyLabel }}</Button>
         </div>
       </section>
 
@@ -334,11 +347,12 @@ function edit() {
             <p class="text-xs text-muted-foreground">{{ t.privacy }}</p>
           </fieldset>
 
-          <!-- While the model works: how long, and a way out. -->
+          <!-- While the model works: how long, and a way out. The seconds
+               are not announced: a screen reader would read them every second. -->
           <div v-if="running" role="status" aria-live="polite" class="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
             <Loader2 class="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" aria-hidden="true" />
             <div class="min-w-0 flex-1">
-              <p class="font-medium">{{ t.generating }} <span class="font-normal text-muted-foreground">{{ t.elapsed(elapsed) }}</span></p>
+              <p class="font-medium">{{ t.generating }} <span class="font-normal text-muted-foreground" aria-hidden="true">{{ t.elapsed(elapsed) }}</span></p>
               <p class="text-xs text-muted-foreground">{{ t.progressHint }}</p>
             </div>
             <Button type="button" size="sm" variant="outline" @click="cancel">{{ t.cancel }}</Button>

@@ -165,3 +165,74 @@ func TestMemoryContextIsolation(t *testing.T) {
 		t.Fatal("nil memory must be an empty one")
 	}
 }
+
+// An exchange reads the conversation, waits for the model, then appends.
+// A Clear in between (a Forget node, the AI memory dialog) wins: the
+// exchange that read the cleared conversation is dropped, so the forgotten
+// conversation never comes back with it.
+func TestAppendAfterAClearIsDropped(t *testing.T) {
+	p := &memMemoryPersister{convs: map[string][]Turn{}}
+	m := NewMemory()
+	if err := m.Attach(p); err != nil {
+		t.Fatal(err)
+	}
+	exchange := []Turn{{Role: RoleUser, Text: "q"}, {Role: RoleAssistant, Text: "a"}}
+	if err := m.Append("chat:1", 0, Turn{Role: RoleUser, Text: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Read, cleared, then the answer arrives.
+	turns, gen := m.Read("chat:1")
+	if len(turns) != 1 || gen == 0 {
+		t.Fatalf("read %v at %d", turns, gen)
+	}
+	if err := m.Clear("chat:1"); err != nil {
+		t.Fatal(err)
+	}
+	ok, err := m.AppendAfter("chat:1", gen, 0, exchange...)
+	if err != nil || ok {
+		t.Fatalf("appended after a clear: %v %v", ok, err)
+	}
+	if m.Turns("chat:1") != nil || p.convs["chat:1"] != nil {
+		t.Fatal("the cleared conversation came back")
+	}
+
+	// Cleared and started again by another message: still another
+	// conversation than the one read.
+	if err := m.Append("chat:2", 0, Turn{Role: RoleUser, Text: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	_, gen = m.Read("chat:2")
+	if err := m.Clear("chat:2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Append("chat:2", 0, Turn{Role: RoleUser, Text: "new"}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := m.AppendAfter("chat:2", gen, 0, exchange...); ok {
+		t.Fatal("appended to a conversation started after the clear")
+	}
+	if got := m.Turns("chat:2"); len(got) != 1 || got[0].Text != "new" {
+		t.Fatalf("chat:2 %v", got)
+	}
+
+	// Nothing cleared: the exchange is appended, also after another one,
+	// and to a conversation that did not exist yet.
+	_, gen = m.Read("chat:3")
+	if gen != 0 {
+		t.Fatalf("a conversation that does not exist has generation %d", gen)
+	}
+	if ok, err := m.AppendAfter("chat:3", gen, 0, exchange...); !ok || err != nil {
+		t.Fatalf("new conversation: %v %v", ok, err)
+	}
+	_, gen = m.Read("chat:3")
+	if err := m.Append("chat:3", 0, exchange...); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := m.AppendAfter("chat:3", gen, 0, exchange...); !ok || err != nil {
+		t.Fatalf("same conversation: %v %v", ok, err)
+	}
+	if got := m.Turns("chat:3"); len(got) != 6 {
+		t.Fatalf("chat:3 %v", got)
+	}
+}

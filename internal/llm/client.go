@@ -212,11 +212,18 @@ func (m *meteredClient) Transcribe(ctx context.Context, model string, audio Medi
 // the process (the nodes build a client per call). Private and loopback
 // addresses are allowed: the endpoint is the admin's (agents only pick a
 // connection by name).
+//
+// It sets no ResponseHeaderTimeout: an OpenAI-compatible answer is not
+// streamed, so its headers arrive only once the whole answer is generated
+// (minutes on a slow local model, a long reasoning run or a long
+// transcription). The caller's context, bounded by the node's timeout, is
+// what ends a call; it ends it as a permanent error (requestError), where
+// a transport limit would be a transient one and the runtime would pay for
+// the same generation again.
 var sharedTransport = &http.Transport{
 	Proxy:                 http.ProxyFromEnvironment,
 	DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
 	TLSHandshakeTimeout:   10 * time.Second,
-	ResponseHeaderTimeout: 120 * time.Second, // local models can be slow to start
 	ForceAttemptHTTP2:     true,
 	MaxIdleConns:          20,
 	IdleConnTimeout:       90 * time.Second,
@@ -224,7 +231,8 @@ var sharedTransport = &http.Transport{
 }
 
 // newHTTPClient returns a client's HTTP client: no overall timeout (the
-// caller's context bounds a call; answers stream for minutes).
+// caller's context bounds a call: answers stream, or are generated before
+// their headers are sent, for minutes).
 func newHTTPClient() *http.Client {
 	return &http.Client{Transport: sharedTransport}
 }

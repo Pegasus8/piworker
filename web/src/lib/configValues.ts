@@ -106,6 +106,60 @@ export function listDuplicates(items: string[]): string[] {
   return [...repeated]
 }
 
+/**
+ * What a list row stands for (ListInput): the item it last named on its own
+ * (null: none yet) and whether its text names it now. A row that is blank
+ * or repeats another row names no item of its own for the moment, but keeps
+ * the one it had, so retyping a row is a rename and not a removal.
+ */
+export interface RowItem { name: string | null; own: boolean }
+
+/**
+ * How the items of a list changed, by the name each had before: its new
+ * name, or null when its row was removed. A name that maps to itself is a
+ * row back to its item after being blank or repeated for a moment.
+ */
+export type ItemRenames = ReadonlyMap<string, string | null>
+
+// The rows' texts (trimmed) that no other row repeats: those name their own item.
+function ownTexts(rows: readonly string[]): string[] {
+  const texts = rows.map(row => row.trim())
+  const count = new Map<string, number>()
+  for (const text of texts) if (text) count.set(text, (count.get(text) ?? 0) + 1)
+  return texts.map(text => text && count.get(text) === 1 ? text : '')
+}
+
+/** The items rows stand for when they are first shown (or replaced from outside). */
+export function rowItems(rows: readonly string[]): RowItem[] {
+  return ownTexts(rows).map(text => text ? { name: text, own: true } : { name: null, own: false })
+}
+
+/**
+ * The items rows stand for after an edit, from the ones they stood for
+ * (items, one per row, in the same order) and the rows the edit removed,
+ * with what happened to each item: a row that names an item of its own
+ * again reports the name it had; a removed row reports its item gone; a
+ * blank or repeated row whose name another row now has gives its item up.
+ */
+export function followRows(rows: readonly string[], items: readonly RowItem[], removed: readonly RowItem[] = []): { items: RowItem[]; renamed: Map<string, string | null> } {
+  const renamed = new Map<string, string | null>()
+  for (const row of removed) if (row.name !== null) renamed.set(row.name, null)
+  const next = ownTexts(rows).map((text, i): RowItem => {
+    const before = items[i] ?? { name: null, own: false }
+    if (!text) return { name: before.name, own: false }
+    if (before.name !== null && (before.name !== text || !before.own)) renamed.set(before.name, text)
+    return { name: text, own: true }
+  })
+  const owned = new Set(next.filter(row => row.own).map(row => row.name))
+  for (const row of next) {
+    if (row.own || row.name === null || !owned.has(row.name)) continue
+    // Another row took its name: the item it kept is not this one any more.
+    if (!renamed.has(row.name)) renamed.set(row.name, null)
+    row.name = null
+  }
+  return { items: next, renamed }
+}
+
 // A copy of list with the item at from moved to to (unchanged when either is out of range).
 export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
   const out = [...list]

@@ -62,6 +62,8 @@ export default {
     add: 'Adds the proposal to the right of the current nodes, with new IDs.'
   },
   undoHint: 'Undo takes it back. Nothing is saved until you save the flow.',
+  stale: 'The canvas changed after this proposal was made: applying it now would undo those changes. Propose again from the canvas as it is now.',
+  proposeAgain: 'Propose again',
   nothingToApply: 'The proposal has no node of a type this editor knows, so there is nothing to place.',
   nodeTypesUnavailable: 'The node types could not be loaded, so the proposal cannot be placed. Reload the page and try again.',
   edit: 'Change the description',

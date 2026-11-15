@@ -405,3 +405,18 @@ func llmAnswerText(t *testing.T, outs []*types.Message) string {
 	require.True(t, ok, "payload %T", outs[0].Payload)
 	return s
 }
+
+// Effort is sent as reasoning_effort (OpenAI-compatible) or
+// output_config.effort (Anthropic) whatever the model: a model without the
+// setting may refuse the request, so the description must not promise
+// that such models ignore it.
+func TestEffortDescriptionDoesNotPromiseItIsIgnored(t *testing.T) {
+	for _, typ := range []string{"process-llm", "process-llm-agent"} {
+		info, ok := node.DefaultRegistry.Get(typ)
+		require.True(t, ok, typ)
+		d := info.Config.Properties["effort"].Description
+		assert.NotContains(t, d, "ignore", typ)
+		assert.Contains(t, d, "only for models that support it", typ)
+		assert.Contains(t, d, "reject", typ)
+	}
+}

@@ -475,6 +475,49 @@ test('removing a category removes the edges leaving its port, undone together', 
   }
 })
 
+// Retyping a category in its row (NodeConfigPanel passes the renames
+// ListInput reports): the connection waits aside while the row is blank and
+// follows the name it ends with; undo, removing a node and loading a flow
+// forget what waits aside.
+test('a category retyped through a blank row keeps its connection', () => {
+  setActivePinia(createPinia())
+  nodeTypes = { classify: classifyType, log: logType }
+  try {
+    const store = useFlowsStore()
+    store.initNewFlow()
+    store.addNode(typedNode('c', 'classify', { categories: ['bug', 'question'] }))
+    store.addNode(typedNode('l', 'log'))
+    store.addEdge({ id: 'bug', source: 'c', target: 'l', sourceHandle: 'bug', targetHandle: 'input' })
+    store.updateNodeConfig('c', { categories: ['question'] })
+    expect(store.edges).toEqual([])
+    store.updateNodeConfig('c', { categories: ['defect', 'question'] }, [new Map([['bug', 'defect']])])
+    expect(store.edges.map(e => [e.id, e.sourceHandle])).toEqual([['bug', 'defect']])
+    expect(store.invalidConnections).toEqual([])
+    // One undo step for the whole edit.
+    store.undo()
+    expect(store.edges.map(e => [e.id, e.sourceHandle])).toEqual([['bug', 'bug']])
+
+    // Undo forgets what waits aside: a connection deleted after it stays deleted.
+    store.updateNodeConfig('c', { categories: ['question'] })
+    store.undo()
+    store.removeEdge('bug')
+    store.updateNodeConfig('c', { categories: ['question'] })
+    store.updateNodeConfig('c', { categories: ['defect', 'question'] }, [new Map([['bug', 'defect']])])
+    expect(store.edges).toEqual([])
+
+    // A target removed meanwhile is not connected again.
+    store.undo()
+    store.undo()
+    expect(store.edges.map(e => e.id)).toEqual(['bug'])
+    store.updateNodeConfig('c', { categories: ['question'] })
+    store.removeNode('l')
+    store.updateNodeConfig('c', { categories: ['defect', 'question'] }, [new Map([['bug', 'defect']])])
+    expect(store.edges).toEqual([])
+  } finally {
+    nodeTypes = {}
+  }
+})
+
 test('a saved node carries the outputs its settings give it', async () => {
   setActivePinia(createPinia())
   nodeTypes = { classify: classifyType }

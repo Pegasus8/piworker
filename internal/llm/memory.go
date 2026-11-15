@@ -40,11 +40,17 @@ type Memory struct {
 
 	maxConversations int              // MaxConversations (tests lower it)
 	now              func() time.Time // the clock (tests replace it)
+	lastGen          uint64           // the generation of the newest conversation
 }
 
+// conversation is a stored conversation. gen tells it from another
+// conversation of the same key: it is set when the conversation starts and
+// kept by every append, so one cleared (or evicted) and started again has
+// another.
 type conversation struct {
 	turns   []Turn
 	updated time.Time
+	gen     uint64
 }
 
 // NewMemory creates an empty in-memory store.
@@ -66,13 +72,14 @@ func (m *Memory) Attach(p MemoryPersister) error {
 		return fmt.Errorf("failed to load LLM conversations: %w", err)
 	}
 	convs := make(map[string]*conversation, len(loaded))
+	m.mu.Lock()
 	for key, turns := range loaded {
 		if len(turns) == 0 {
 			continue
 		}
-		convs[key] = &conversation{turns: turns, updated: turns[len(turns)-1].At}
+		m.lastGen++
+		convs[key] = &conversation{turns: turns, updated: turns[len(turns)-1].At, gen: m.lastGen}
 	}
-	m.mu.Lock()
 	m.convs = convs
 	m.persist = p
 	m.mu.Unlock()
@@ -81,13 +88,20 @@ func (m *Memory) Attach(p MemoryPersister) error {
 
 // Turns returns a copy of the turns of key (nil when there are none).
 func (m *Memory) Turns(key string) []Turn {
+	turns, _ := m.Read(key)
+	return turns
+}
+
+// Read returns a copy of the turns of key (nil when there are none) and
+// the conversation's generation (0 when there is none), for AppendAfter.
+func (m *Memory) Read(key string) ([]Turn, uint64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	c := m.convs[key]
 	if c == nil {
-		return nil
+		return nil, 0
 	}
-	return append([]Turn(nil), c.turns...)
+	return append([]Turn(nil), c.turns...), c.gen
 }
 
 // Append adds turns to the conversation key and keeps its last keep turns
@@ -99,11 +113,38 @@ func (m *Memory) Append(key string, keep int, turns ...Turn) error {
 	if !ValidConversationKey(key) {
 		return fmt.Errorf("invalid conversation key (1 to %d characters, one line)", MaxConversationKeyLength)
 	}
-	if keep <= 0 || keep > MaxTurns {
-		keep = MaxTurns
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.appendLocked(key, keep, turns)
+}
+
+// AppendAfter is Append for an exchange that read the conversation key at
+// generation gen (Read) before asking the model: when that conversation
+// is gone since (cleared by a Forget node or the AI memory dialog, or
+// evicted), the turns are dropped and ok is false, so a conversation that
+// was forgotten while the model answered never comes back with the
+// exchange. A conversation that did not exist when it was read (gen 0) is
+// started, or appended to when another message started it meanwhile.
+func (m *Memory) AppendAfter(key string, gen uint64, keep int, turns ...Turn) (ok bool, err error) {
+	if !ValidConversationKey(key) {
+		return false, fmt.Errorf("invalid conversation key (1 to %d characters, one line)", MaxConversationKeyLength)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if c := m.convs[key]; gen != 0 && (c == nil || c.gen != gen) {
+		return false, nil
+	}
+	if err := m.appendLocked(key, keep, turns); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// appendLocked is Append with m.mu held.
+func (m *Memory) appendLocked(key string, keep int, turns []Turn) error {
+	if keep <= 0 || keep > MaxTurns {
+		keep = MaxTurns
+	}
 	now := m.now()
 	add := make([]Turn, 0, len(turns))
 	for _, t := range turns {
@@ -137,7 +178,14 @@ func (m *Memory) Append(key string, keep int, turns ...Turn) error {
 			return err
 		}
 	}
-	m.convs[key] = &conversation{turns: next, updated: now}
+	var gen uint64
+	if c != nil {
+		gen = c.gen
+	} else {
+		m.lastGen++
+		gen = m.lastGen
+	}
+	m.convs[key] = &conversation{turns: next, updated: now, gen: gen}
 	return nil
 }
 

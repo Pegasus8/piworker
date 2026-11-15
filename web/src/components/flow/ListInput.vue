@@ -3,22 +3,31 @@
 // §5), such as the classifier's categories or the tools an agent node may
 // call: one row per item, added, removed and reordered, stored as a list of
 // strings (trimmed, blank rows left out). With suggestions, every row
-// offers them; the value stays free text.
+// offers them; the value stays free text. Each row keeps the item it named
+// while it is blank or repeats another row, and reports the name it takes
+// next (renamed), so a classifier's connections follow a category that is
+// retyped (lib/configValues.ts followRows, ADR-0040).
 import { computed, nextTick, ref, watch } from 'vue'
 import { Button, Input } from '@/components/ui'
 import { ArrowDown, ArrowUp, Plus, X } from 'lucide-vue-next'
 import { messages as m } from '@/i18n'
-import { listDuplicates, listFromRows, listRows, moveItem, unreadableList } from '@/lib/configValues'
+import { followRows, listDuplicates, listFromRows, listRows, moveItem, rowItems, unreadableList, type ItemRenames, type RowItem } from '@/lib/configValues'
 import type { Suggestion } from '@/lib/suggestions'
 
 const props = defineProps<{ id: string; label: string; modelValue: unknown; suggestions?: Suggestion[]; describedby?: string }>()
-const emit = defineEmits<{ 'update:modelValue': [string[] | undefined] }>()
+// renamed: how the items changed, by the name each had (emitted before the
+// value it goes with).
+const emit = defineEmits<{ 'update:modelValue': [string[] | undefined]; renamed: [ItemRenames] }>()
 
 const rows = ref<string[]>(listRows(props.modelValue))
+// The item each row stands for, one per row.
+let items: RowItem[] = rowItems(rows.value)
 // Blank rows are kept while editing; re-read only when the value changes
 // from outside (another node, undo, discarded changes).
 watch(() => props.modelValue, value => {
-  if (JSON.stringify(value ?? null) !== JSON.stringify(listFromRows(rows.value) ?? null)) rows.value = listRows(value)
+  if (JSON.stringify(value ?? null) === JSON.stringify(listFromRows(rows.value) ?? null)) return
+  rows.value = listRows(value)
+  items = rowItems(rows.value)
 })
 
 // Free text saved by hand or by an agent: the node ignores it and deploys refuse it.
@@ -33,9 +42,16 @@ const rowId = (index: number) => `${props.id}-item-${index}`
 const t = computed(() => m.value.flowTools.list)
 
 function save() { emit('update:modelValue', listFromRows(rows.value)) }
+// Saves an edit of the rows, after reporting what it did to their items.
+function commit(removed: RowItem[] = []) {
+  const followed = followRows(rows.value, items, removed)
+  items = followed.items
+  if (followed.renamed.size) emit('renamed', followed.renamed)
+  save()
+}
 function setRow(index: number, value: string | number) {
   rows.value[index] = String(value)
-  save()
+  commit()
 }
 async function focus(id: string) {
   await nextTick()
@@ -43,11 +59,13 @@ async function focus(id: string) {
 }
 function add() {
   rows.value.push('')
+  items.push({ name: null, own: false })
   void focus(rowId(rows.value.length - 1))
 }
 function remove(index: number) {
   const [item] = rows.value.splice(index, 1)
-  save()
+  const [gone] = items.splice(index, 1)
+  commit(gone ? [gone] : [])
   announcement.value = t.value.removed(item.trim() || t.value.item(props.label, index + 1))
   void focus(rows.value.length ? rowId(Math.min(index, rows.value.length - 1)) : `${props.id}-add`)
 }
@@ -55,6 +73,7 @@ function move(index: number, delta: -1 | 1) {
   const to = index + delta
   if (to < 0 || to >= rows.value.length) return
   rows.value = moveItem(rows.value, index, to)
+  items = moveItem(items, index, to)
   save()
   announcement.value = t.value.moved(rows.value[to].trim() || t.value.item(props.label, to + 1), to + 1, rows.value.length)
   // The focus stays on the same button of the moved row, or on its text

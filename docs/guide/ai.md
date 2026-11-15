@@ -206,7 +206,9 @@ Input: {{payload.subject}} {{payload.text}}
 
 Whatever the text says, the model can only choose one of these ports.
 Removing a category removes the connections of its port; renaming it in
-place keeps them. `other` and `error` are reserved names. To send uncertain
+place keeps them, even when you clear its text or pass through another
+category's name while you type (the connection comes back once the row has
+a name of its own). `other` and `error` are reserved names. To send uncertain
 messages to a person, follow a port with a **Switch** on
 `meta.llm.confidence > 0.7`.
 
@@ -385,7 +387,9 @@ The proposal lists its nodes (with their risk), connections, the model's
 **notes** (secrets or connections to create, values to check), any problems
 still found and the tokens spent. **Apply** (or **Apply changes**) places
 it on the canvas, **Add to canvas** adds it beside your nodes. **Undo**
-takes it back. Nothing is saved or deployed: review each node's settings,
+takes it back. If you edit the canvas after asking for a change of the
+current flow, the proposal is out of date: the dialog offers **Propose
+again** instead of applying it over your edits. Nothing is saved or deployed: review each node's settings,
 create the secrets and connections the notes mention, then save and deploy
 as usual.
 

@@ -410,3 +410,16 @@ func TestOpenAIBodyLimit(t *testing.T) {
 		t.Fatal("an oversized body accepted")
 	}
 }
+
+// Unknown content is never named by the system's MIME table for
+// application/octet-stream (".bin" where /etc/mime.types is read).
+func TestAudioFileNameOfUnknownContent(t *testing.T) {
+	for _, mt := range []string{"", "application/octet-stream"} {
+		if name := audioFileName(mt); name != "audio" {
+			t.Errorf("%q: %q", mt, name)
+		}
+	}
+	if name := audioFileName("audio/flac"); name != "audio.flac" {
+		t.Errorf("flac: %q", name)
+	}
+}

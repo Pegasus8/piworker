@@ -82,6 +82,7 @@ const es: typeof en = {
     form: {
       nameRequired: 'Introduce un nombre.',
       nameChars: 'Usa de 1 a 64 letras, dígitos, _ o - en el nombre.',
+      nameTaken: 'Ya existe una conexión con este nombre. Elige otro nombre, o edita esa conexión en la lista.',
       baseUrlRequired: 'Introduce la URL base del servidor, por ejemplo http://192.168.1.20:8000/v1.',
       baseUrlFormat: 'La URL base debe empezar por http:// o https:// e indicar un host, por ejemplo http://192.168.1.20:11434/v1.',
       baseUrlCredentials: 'Pon la clave de API en su propio campo, no en la URL base.',

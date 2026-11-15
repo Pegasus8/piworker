@@ -113,6 +113,40 @@ test('models load once per connection and tolerate failure', async () => {
   expect(await store.loadModels('')).toEqual([])
 })
 
+// A listing started with the old settings (opening a connection to edit
+// it) that ends after the connection was saved or deleted lists models of
+// settings that no longer exist: it is dropped, and the next caller lists
+// them again.
+test('a model listing that ends after a save or delete is dropped', async () => {
+  for (const change of ['save', 'delete'] as const) {
+    calls = []
+    let finish!: (value: unknown) => void
+    let fail!: (e: unknown) => void
+    handlers.getLLMModels = () => new Promise((resolve, reject) => { finish = resolve; fail = reject })
+    handlers.saveLLMConnection = () => ollama
+    handlers.deleteLLMConnection = () => undefined
+    handlers.getLLMConnections = () => [ollama]
+    const store = useLLMStore()
+    store.models = {}
+    store.modelErrors = {}
+    const old = store.loadModels('ollama')
+    if (change === 'save') await store.saveConnection('ollama', body)
+    else await store.deleteConnection('ollama')
+    // A new listing is not the old one.
+    handlers.getLLMModels = () => [{ id: 'llama3.2' }]
+    const fresh = store.loadModels('ollama')
+    expect(fresh).not.toBe(old)
+    expect(await fresh).toEqual([{ id: 'llama3.2' }])
+    // The old one ends now, with a success or an error: neither is kept.
+    if (change === 'save') finish([{ id: 'wrong-server-model' }])
+    else fail(httpError(502, 'connection refused'))
+    expect(await old).toEqual([])
+    expect(store.models.ollama).toEqual([{ id: 'llama3.2' }])
+    expect(store.modelErrors.ollama).toBeUndefined()
+    expect(calls.filter(c => c.name === 'getLLMModels')).toHaveLength(2)
+  }
+})
+
 test('conversations are listed, read and cleared', async () => {
   const info = { key: 'telegram:42', turns: 2, updatedAt: '2026-11-15T10:00:00Z' }
   handlers.getLLMConversations = () => [info, { ...info, key: 'other' }]

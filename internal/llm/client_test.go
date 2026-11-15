@@ -229,3 +229,36 @@ func TestRequestErrorIsTransientAndRedacted(t *testing.T) {
 		t.Fatalf("deadline: %v (retryable %v)", err, node.IsRetryable(err))
 	}
 }
+
+// An OpenAI-compatible answer is not streamed: its headers arrive only once
+// the whole answer is generated, which takes minutes on a slow local model,
+// a long reasoning run or a long transcription. Only the caller's context
+// (the node's timeout, up to 600 seconds) may bound the wait: a transport
+// limit would cut such a call short and report it as a transient network
+// error, so the runtime would pay for the same generation again.
+func TestOnlyTheCallersContextBoundsTheWaitForAnAnswer(t *testing.T) {
+	if d := sharedTransport.ResponseHeaderTimeout; d != 0 {
+		t.Fatalf("the transport gives up after %s without response headers", d)
+	}
+	if c := newHTTPClient(); c.Timeout != 0 {
+		t.Fatalf("the HTTP client gives up after %s", c.Timeout)
+	}
+
+	// Headers that come late but within the context are an answer.
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"llama3"}]}`))
+	}))
+	defer slow.Close()
+	client, err := NewClient(context.Background(), Connection{Name: "x", Provider: ProviderOpenAI, BaseURL: slow.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	models, err := client.Models(ctx)
+	if err != nil || len(models) != 1 {
+		t.Fatalf("models %v, err %v", models, err)
+	}
+}

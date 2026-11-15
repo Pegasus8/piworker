@@ -116,3 +116,39 @@ func TestLLMDocumentsSkipUnreadableRows(t *testing.T) {
 	require.Len(t, loaded["c"], 1)
 	assert.Equal(t, "good", loaded["c"][0].ID)
 }
+
+// ReplaceLLMDocuments saves and removes documents of a collection in one
+// transaction: a failure leaves the collection as it was.
+func TestReplaceLLMDocuments(t *testing.T) {
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "knowledge.db"))
+	require.NoError(t, err)
+	doc := func(id, text string) llm.Document {
+		return llm.Document{ID: id, Text: text, Model: "emb", Embedding: llm.Embedding{1, 0}, CreatedAt: time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)}
+	}
+	for _, id := range []string{"manual#1", "manual#2", "manual#3", "faq"} {
+		require.NoError(t, store.SaveLLMDocument("home", doc(id, "v1")))
+	}
+	require.NoError(t, store.SaveLLMDocument("work", doc("manual#3", "other collection")))
+
+	require.NoError(t, store.ReplaceLLMDocuments("home", []llm.Document{doc("manual#1", "v2"), doc("manual#2", "v2")}, []string{"manual#3"}))
+	loaded, err := store.LoadLLMDocuments()
+	require.NoError(t, err)
+	texts := map[string]string{}
+	for _, d := range loaded["home"] {
+		texts[d.ID] = d.Text
+	}
+	assert.Equal(t, map[string]string{"manual#1": "v2", "manual#2": "v2", "faq": "v1"}, texts)
+	require.Len(t, loaded["work"], 1, "other collections stay")
+
+	// A document that cannot be saved rolls the whole replace back.
+	broken := doc("manual#2", "v3")
+	broken.Metadata = map[string]any{"bad": func() {}}
+	require.Error(t, store.ReplaceLLMDocuments("home", []llm.Document{doc("manual#1", "v3"), broken}, []string{"faq"}))
+	loaded, err = store.LoadLLMDocuments()
+	require.NoError(t, err)
+	texts = map[string]string{}
+	for _, d := range loaded["home"] {
+		texts[d.ID] = d.Text
+	}
+	assert.Equal(t, map[string]string{"manual#1": "v2", "manual#2": "v2", "faq": "v1"}, texts, "nothing changed")
+}

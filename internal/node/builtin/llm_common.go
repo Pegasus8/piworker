@@ -104,16 +104,27 @@ func llmSchemaMaxTokens(def int) node.ConfigProperty {
 		Default:     def, Minimum: &one, Maximum: &max, Unit: "tokens", AgentVisible: true}
 }
 
+// llmSchemaEffort is the effort setting. It is sent whatever the model
+// (reasoning_effort, output_config.effort), and a model without the
+// setting may refuse the request (HTTP 400), so it is only for the models
+// that support it.
 func llmSchemaEffort() node.ConfigProperty {
 	return node.ConfigProperty{Type: "string", Title: "Effort",
-		Description: "How much the model thinks before answering (empty: the model's default; models without the setting ignore it)",
+		Description: "How much the model thinks before answering, only for models that support it: others may reject the request (empty: the model's default)",
 		Default:     "", Enum: llmEfforts, AgentVisible: true}
 }
 
+// llmSchemaMemoryKey is the memoryKey setting. It is a Destination: the
+// memory (llm.DefaultMemory) is one store for the whole process, keyed by
+// the rendered key, and the LLM and agent nodes replay a conversation as
+// model context, so which conversation a node reads, writes or forgets is
+// shared state other flows read, like a knowledge collection. A new or
+// changed key is flagged on drafts and refused by the low agent-deploy
+// policy (destination_changed, dynamic_destination).
 func llmSchemaMemoryKey() node.ConfigProperty {
 	return node.ConfigProperty{Type: "string", Title: "Memory key",
 		Description:  "Conversation to remember, e.g. telegram:{{payload.message.chat.id}} (supports {{templates}}; empty: no memory)",
-		AgentVisible: true}
+		AgentVisible: true, Destination: true}
 }
 
 func llmSchemaMemoryTurns() node.ConfigProperty {
@@ -382,36 +393,49 @@ func parseLLMMemory(base *node.BaseNode) (llmMemory, error) {
 // enabled reports whether the node remembers conversations.
 func (m llmMemory) enabled() bool { return m.key != "" }
 
-// conversation renders the key for msg and returns it with the stored
-// history of that conversation (its last m.turns turns, as request
-// messages that start with the user). Without memory both are empty.
-func (m llmMemory) conversation(ctx context.Context, msg *types.Message) (string, []llm.Message, error) {
+// conversationRef is the conversation an exchange read: its key ("" for
+// none) and its generation (llm.Memory.Read), which remember passes on.
+type conversationRef struct {
+	key string
+	gen uint64
+}
+
+// conversation renders the key for msg and returns the conversation read
+// with its stored history (its last m.turns turns, as request messages
+// that start with the user). Without memory both are empty.
+func (m llmMemory) conversation(ctx context.Context, msg *types.Message) (conversationRef, []llm.Message, error) {
 	if !m.enabled() {
-		return "", nil, nil
+		return conversationRef{}, nil, nil
 	}
 	key, err := renderMemoryKey(ctx, m.key, msg)
 	if err != nil {
-		return "", nil, err
+		return conversationRef{}, nil, err
 	}
-	turns := llm.MemoryFromContext(ctx).Turns(key)
+	turns, gen := llm.MemoryFromContext(ctx).Read(key)
 	if len(turns) > m.turns {
 		turns = turns[len(turns)-m.turns:]
 	}
-	return key, llm.MessagesFromTurns(turns), nil
+	return conversationRef{key: key, gen: gen}, llm.MessagesFromTurns(turns), nil
 }
 
-// remember appends a successful exchange to the conversation key, keeping
-// its last m.turns turns. A failure is logged, not returned: the answer was
-// paid for and is passed on; only the next message loses this exchange.
-func (m llmMemory) remember(ctx context.Context, key, prompt, answer string) {
-	if key == "" {
+// remember appends a successful exchange to the conversation it read,
+// keeping its last m.turns turns. When that conversation was cleared while
+// the model answered (a Forget node, the AI memory dialog), the exchange
+// is dropped: a forgotten conversation never comes back with it. A failure
+// is logged, not returned: the answer was paid for and is passed on; only
+// the next message loses this exchange.
+func (m llmMemory) remember(ctx context.Context, conv conversationRef, prompt, answer string) {
+	if conv.key == "" {
 		return
 	}
-	err := llm.MemoryFromContext(ctx).Append(key, m.turns,
+	kept, err := llm.MemoryFromContext(ctx).AppendAfter(conv.key, conv.gen, m.turns,
 		llm.Turn{Role: llm.RoleUser, Text: prompt},
 		llm.Turn{Role: llm.RoleAssistant, Text: answer})
-	if err != nil {
+	switch {
+	case err != nil:
 		log.Warn().Err(err).Msg("llm: the conversation was not saved")
+	case !kept:
+		log.Debug().Msg("llm: the conversation was cleared during the call; the exchange is not saved")
 	}
 }
 

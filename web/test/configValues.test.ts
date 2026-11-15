@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { configFieldsFromSchema, integerFromInput, selectView, jsonText, listDuplicates, listFromRows, listRows, moveItem, numberFromInput, objectFromRows, objectRows, parseJsonObject, setConfigValue, unreadableList } from '../src/lib/configValues'
+import { configFieldsFromSchema, followRows, integerFromInput, selectView, jsonText, listDuplicates, listFromRows, listRows, moveItem, numberFromInput, objectFromRows, objectRows, parseJsonObject, rowItems, setConfigValue, unreadableList, type RowItem } from '../src/lib/configValues'
 
 test('a cleared number input is unset, not 0', () => {
   expect(numberFromInput('')).toBeUndefined()
@@ -167,6 +167,59 @@ test('a list value that is not a list is reported, an unset one is not', () => {
   expect(unreadableList(undefined)).toBe(false)
   expect(unreadableList(null)).toBe(false)
   expect(unreadableList('')).toBe(false)
+})
+
+// Which item each row stands for (ListInput): a row keeps its item while it
+// is blank or repeats another row, and reports the name it takes next, so
+// what refers to the item (a classifier's connections) follows the row.
+const renamed = (rows: string[], items: RowItem[], removed: RowItem[] = []) => {
+  const next = followRows(rows, items, removed)
+  return { items: next.items, renamed: Object.fromEntries(next.renamed) }
+}
+
+test('each row stands for the item it names, unless blank or repeated', () => {
+  expect(rowItems(['bug', ' question ', '', 'bug2'])).toEqual([
+    { name: 'bug', own: true }, { name: 'question', own: true }, { name: null, own: false }, { name: 'bug2', own: true }
+  ])
+  // Repeated text names no item of its own.
+  expect(rowItems(['bug', 'bug'])).toEqual([{ name: null, own: false }, { name: null, own: false }])
+})
+
+test('a row retyped through blank and repeated text keeps its item and reports its new name', () => {
+  let step = renamed(['bu', 'question'], rowItems(['bug', 'question']))
+  expect(step.renamed).toEqual({ bug: 'bu' })
+  step = renamed(['', 'question'], step.items)
+  expect(step.renamed).toEqual({})
+  expect(step.items[0]).toEqual({ name: 'bu', own: false })
+  // Repeating another row: neither names its own item for now.
+  step = renamed(['question', 'question'], step.items)
+  expect(step.renamed).toEqual({})
+  expect(step.items).toEqual([{ name: 'bu', own: false }, { name: 'question', own: false }])
+  // Both name their own again: the second is back to its name.
+  step = renamed(['d', 'question'], step.items)
+  expect(step.renamed).toEqual({ bu: 'd', question: 'question' })
+  step = renamed(['defect', 'question'], step.items)
+  expect(step.renamed).toEqual({ d: 'defect' })
+  // Spaces around the text change nothing.
+  expect(renamed([' defect ', 'question'], step.items).renamed).toEqual({})
+})
+
+test('a new row names a new item, a removed one reports its item gone', () => {
+  const items = rowItems(['bug'])
+  expect(renamed(['bug', 'praise'], [...items, { name: null, own: false }]).renamed).toEqual({})
+  // Removed while it repeated another row: that row names its item again.
+  const repeated = renamed(['bug', 'bug'], rowItems(['bug', 'bugs'])).items
+  expect(renamed(['bug'], [repeated[1]], [repeated[0]]).renamed).toEqual({ bug: null, bugs: 'bug' })
+  // A blank row removed: its item is gone.
+  const blank = renamed(['', 'question'], rowItems(['bug', 'question'])).items
+  expect(renamed(['question'], [blank[1]], [blank[0]]).renamed).toEqual({ bug: null })
+})
+
+test('a row that takes the name a blank row kept ends that row\'s item', () => {
+  const blank = renamed(['', 'xy'], rowItems(['x', 'xy'])).items
+  const step = renamed(['', 'x'], blank)
+  expect(step.renamed).toEqual({ x: null, xy: 'x' })
+  expect(step.items[0]).toEqual({ name: null, own: false })
 })
 
 test('repeated items are named once each', () => {

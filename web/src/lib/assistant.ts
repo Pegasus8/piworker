@@ -64,6 +64,19 @@ export function currentDefinition(flow: Pick<Flow, 'name' | 'description'> | nul
   }
 }
 
+/**
+ * What a "change the current flow" proposal was built from: the canvas's
+ * nodes (types, positions, settings, enabled) and connections, as the
+ * request sent them. When the canvas no longer matches, applying the
+ * proposal would silently undo the edits made since (AssistantDialog
+ * refuses it and offers to propose again). The flow's name and description
+ * are left out: placing a proposal never renames a saved flow.
+ */
+export function canvasFingerprint(nodes: readonly FlowNode[], edges: readonly FlowEdge[]): string {
+  const { nodes: sentNodes, connections } = currentDefinition(null, nodes, edges)
+  return JSON.stringify({ nodes: sentNodes, connections })
+}
+
 /** A node of the proposal as the dialog lists it. */
 export interface ProposalNode {
   id: string

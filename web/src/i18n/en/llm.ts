@@ -84,6 +84,7 @@ export default {
     form: {
       nameRequired: 'Enter a name.',
       nameChars: 'Use 1 to 64 letters, digits, _ or - in the name.',
+      nameTaken: 'A connection with this name already exists. Choose another name, or edit that connection in the list.',
       baseUrlRequired: 'Enter the server’s base URL, for example http://192.168.1.20:8000/v1.',
       baseUrlFormat: 'The base URL must start with http:// or https:// and name a host, for example http://192.168.1.20:11434/v1.',
       baseUrlCredentials: 'Put the API key in its own field, not in the base URL.',

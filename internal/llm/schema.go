@@ -185,7 +185,11 @@ const maxJSONCandidates = 64
 
 // ParseJSONAnswer parses a model's JSON answer: it trims the text, strips a
 // Markdown code fence (```json ... ```) and decodes the first JSON object or
-// array it finds (text around it is ignored). Errors wrap ErrInvalidAnswer.
+// array it finds (text around it is ignored). A '{' or '[' that does not
+// start a valid value is skipped up to the bracket that closes it: what is
+// inside a malformed object (a trailing comma, a stray word) belongs to a
+// broken answer and is never taken for the answer itself; one that never
+// closes ends the search. Errors wrap ErrInvalidAnswer.
 func ParseJSONAnswer(text string) (any, error) {
 	text = stripFence(strings.TrimSpace(text))
 	tried := 0
@@ -199,11 +203,49 @@ func ParseJSONAnswer(text string) (any, error) {
 		if err := dec.Decode(&v); err == nil {
 			return v, nil
 		}
+		end := closingBracket(text, i)
+		if end < 0 {
+			break
+		}
+		i = end
 	}
 	if text == "" {
 		return nil, fmt.Errorf("%w: the answer is empty", ErrInvalidAnswer)
 	}
 	return nil, fmt.Errorf("%w: the answer is not a JSON object or array: %s", ErrInvalidAnswer, quote(text))
+}
+
+// closingBracket returns the index of the bracket that closes the '{' or
+// '[' at start, counting both kinds and skipping JSON strings, or -1 when
+// it never closes.
+func closingBracket(text string, start int) int {
+	depth := 0
+	inString, escaped := false, false
+	for j := start; j < len(text); j++ {
+		c := text[j]
+		if inString {
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\':
+				escaped = true
+			case c == '"':
+				inString = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inString = true
+		case '{', '[':
+			depth++
+		case '}', ']':
+			if depth--; depth == 0 {
+				return j
+			}
+		}
+	}
+	return -1
 }
 
 // stripFence removes a surrounding Markdown code fence, if any.

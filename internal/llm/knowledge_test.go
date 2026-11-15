@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"reflect"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"unicode/utf8"
 )
@@ -267,5 +270,170 @@ func TestKnowledgeDeleteMatching(t *testing.T) {
 	}
 	if len(k.Collections()) != 0 {
 		t.Fatal("an emptied collection is removed")
+	}
+}
+
+func (p *memKnowledgePersister) ReplaceLLMDocuments(collection string, save []Document, remove []string) error {
+	if p.docs[collection] == nil {
+		p.docs[collection] = map[string]Document{}
+	}
+	for _, d := range save {
+		p.docs[collection][d.ID] = d
+	}
+	for _, id := range remove {
+		delete(p.docs[collection], id)
+	}
+	return nil
+}
+
+// chunkDocs are the n chunks "<base>#1".."<base>#n" of a version (their
+// text), or the whole document base when n is 0.
+func chunkDocs(base, version string, n int) []Document {
+	if n == 0 {
+		return []Document{{ID: base, Text: version, Model: "emb", Embedding: Embedding{1, 1}}}
+	}
+	docs := make([]Document, n)
+	for i := range docs {
+		docs[i] = Document{ID: ChunkID(base, i+1), Text: version, Model: "emb", Embedding: Embedding{1, float32(i + 1)}}
+	}
+	return docs
+}
+
+func sortedIDs(k *Knowledge, collection string) []string {
+	docs, _ := k.Documents(collection, 0, MaxDocuments)
+	ids := make([]string, len(docs))
+	for i, d := range docs {
+		ids[i] = d.ID
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// Replace stores a document, or its chunks, as the whole of it: what the
+// document held before and the new version no longer has is removed, in
+// memory and in the persister; other documents stay, whatever their IDs.
+func TestKnowledgeReplace(t *testing.T) {
+	p := &memKnowledgePersister{docs: map[string]map[string]Document{}}
+	k := NewKnowledge()
+	if err := k.Attach(p); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"manualx#1", "manual#notes", "manual-old"} {
+		if err := k.Add("docs", Document{ID: id, Text: "other", Model: "emb", Embedding: Embedding{1, 0}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	others := []string{"manual#notes", "manual-old", "manualx#1"}
+	check := func(want ...string) {
+		t.Helper()
+		want = append(want, others...)
+		sort.Strings(want)
+		if got := sortedIDs(k, "docs"); !reflect.DeepEqual(got, want) {
+			t.Fatalf("documents %v, want %v", got, want)
+		}
+		var persisted []string
+		for id := range p.docs["docs"] {
+			persisted = append(persisted, id)
+		}
+		sort.Strings(persisted)
+		if !reflect.DeepEqual(persisted, want) {
+			t.Fatalf("persisted %v, want %v", persisted, want)
+		}
+	}
+
+	if err := k.Replace("docs", "manual", chunkDocs("manual", "v1", 3)); err != nil {
+		t.Fatal(err)
+	}
+	check("manual#1", "manual#2", "manual#3")
+	if err := k.Replace("docs", "manual", chunkDocs("manual", "v2", 0)); err != nil {
+		t.Fatal(err)
+	}
+	check("manual")
+	if err := k.Replace("docs", "manual", chunkDocs("manual", "v3", 2)); err != nil {
+		t.Fatal(err)
+	}
+	check("manual#1", "manual#2")
+
+	// Only the document and its chunks.
+	if err := k.Replace("docs", "manual", []Document{{ID: "manual-old", Text: "x", Model: "emb", Embedding: Embedding{1, 0}}}); err == nil {
+		t.Fatal("a document of another ID was accepted")
+	}
+	// Every document is checked before anything is stored.
+	bad := chunkDocs("manual", "v4", 3)
+	bad[2].Model = "other"
+	if err := k.Replace("docs", "manual", bad); !errors.Is(err, ErrModelMismatch) {
+		t.Fatalf("another model: %v", err)
+	}
+	check("manual#1", "manual#2")
+	k.maxDocuments = 6
+	if err := k.Replace("docs", "manual", chunkDocs("manual", "v5", 4)); err == nil {
+		t.Fatal("a collection over its limit")
+	}
+	if err := k.Replace("docs", "manual", chunkDocs("manual", "v5", 3)); err != nil {
+		t.Fatalf("replaced chunks make room: %v", err)
+	}
+	check("manual#1", "manual#2", "manual#3")
+}
+
+// A collection holding only the document takes another model with its
+// next version (it is rebuilt), as Add lets a lone document change.
+func TestKnowledgeReplaceRebuildsALoneDocument(t *testing.T) {
+	k := NewKnowledge()
+	if err := k.Replace("docs", "a", chunkDocs("a", "v1", 2)); err != nil {
+		t.Fatal(err)
+	}
+	next := []Document{{ID: "a", Text: "v2", Model: "new", Embedding: Embedding{1, 2, 3}}}
+	if err := k.Replace("docs", "a", next); err != nil {
+		t.Fatal(err)
+	}
+	if cols := k.Collections(); len(cols) != 1 || cols[0].Model != "new" || cols[0].Dimensions != 3 || cols[0].Documents != 1 {
+		t.Fatalf("collections %+v", cols)
+	}
+}
+
+// Concurrent replaces of one document leave one whole version, never a
+// mix of two or a version cut short.
+func TestKnowledgeReplaceIsAtomic(t *testing.T) {
+	k := NewKnowledge()
+	var wg sync.WaitGroup
+	for i := 0; i < 40; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if err := k.Replace("docs", "manual", chunkDocs("manual", fmt.Sprintf("v%d", i), 1+i%7)); err != nil {
+				t.Error(err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	docs, total := k.Documents("docs", 0, MaxDocuments)
+	if total == 0 {
+		t.Fatal("no document")
+	}
+	version := docs[0].Text
+	want := map[string]bool{}
+	for i := 1; i <= total; i++ {
+		want[ChunkID("manual", i)] = true
+	}
+	for _, d := range docs {
+		if d.Text != version || !want[d.ID] {
+			t.Fatalf("a mixed or cut version: %+v", docs)
+		}
+	}
+}
+
+func TestChunkIDs(t *testing.T) {
+	if ChunkID("manual", 3) != "manual#3" {
+		t.Fatal(ChunkID("manual", 3))
+	}
+	for id, want := range map[string]bool{"manual#3": true, "manual#12": true, "manual": false, "manual#": false, "manual#x": false, "manualx#1": false, "manual#1#2": false} {
+		if IsChunkOf(id, "manual") != want {
+			t.Errorf("IsChunkOf(%q, manual) = %v", id, !want)
+		}
+	}
+	for id, want := range map[string]bool{"INV#1042": true, "a#1": true, "INV": false, "INV#A1": false, "page#install": false, "#": false, "x#": false} {
+		if LooksLikeChunk(id) != want {
+			t.Errorf("LooksLikeChunk(%q) = %v", id, !want)
+		}
 	}
 }
