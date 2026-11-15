@@ -30,11 +30,15 @@ func sessionTestRouter(t *testing.T, existing bool) (*mux.Router, *AuthHandler, 
 		require.NoError(t, store.CreateUser(&types.User{Username: "admin", PasswordHash: hash}))
 	}
 	h := NewAuthHandler(store, false, nil)
+	return sessionRouterFor(h), h, store
+}
+
+func sessionRouterFor(h *AuthHandler) *mux.Router {
 	router := mux.NewRouter()
 	h.RegisterRoutes(router)
 	router.Use(AuthMiddleware(h))
 	router.HandleFunc("/api/private", func(w http.ResponseWriter, r *http.Request) { writeSuccess(w, http.StatusOK, nil, "") }).Methods("GET", "POST")
-	return router, h, store
+	return router
 }
 func authRequest(router http.Handler, method, path string, body any, cookie *http.Cookie) *httptest.ResponseRecorder {
 	var b bytes.Buffer

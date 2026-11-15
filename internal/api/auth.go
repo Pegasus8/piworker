@@ -13,6 +13,7 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/gorilla/mux"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -288,10 +289,14 @@ func (h *AuthHandler) redeem(w http.ResponseWriter, r *http.Request, purpose str
 		return
 	}
 	if err != nil && revokeFailed() {
+		log.Error().Err(err).Str("purpose", purpose).Msg("Account recovery failed: agent tokens could not be revoked; the code is still valid")
 		writeError(w, 500, "The password was not reset because agent tokens could not be revoked. Please retry with the same code.")
 		return
 	}
 	if err != nil {
+		// The answer stays generic; the cause (a full disk, a read-only
+		// database) is for the admin's log. The code is still valid.
+		log.Error().Err(err).Str("purpose", purpose).Msg("Cannot redeem the " + purpose + " code: the account was not saved; the code is still valid")
 		writeError(w, 500, "Cannot update account")
 		return
 	}
