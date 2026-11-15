@@ -9,6 +9,7 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/brokers"
 	"github.com/Pegasus8/piworker/internal/flow"
+	"github.com/Pegasus8/piworker/internal/llm"
 	"github.com/Pegasus8/piworker/internal/secrets"
 	"github.com/Pegasus8/piworker/internal/storesbackup"
 	"github.com/Pegasus8/piworker/internal/vars"
@@ -23,14 +24,16 @@ type backupEnv struct {
 	flows   *vars.FlowStores
 	secrets *secrets.Store
 	conns   *brokers.Store
+	models  *llm.Store
 }
 
 // newBackupEnv is a signed-in admin with a flow "Heating" (one flow
-// variable), a global variable, a secret and a connection with a password.
+// variable), a global variable, a secret, a connection with a password and
+// an LLM connection with an API key.
 func newBackupEnv(t *testing.T, withAuth bool) backupEnv {
 	t.Helper()
 	env := backupEnv{agentTestEnv: newAgentTestEnv(t, AgentHandlerOptions{}), globals: vars.NewStore(),
-		flows: &vars.FlowStores{}, secrets: secrets.NewStore(), conns: brokers.NewStore()}
+		flows: &vars.FlowStores{}, secrets: secrets.NewStore(), conns: brokers.NewStore(), models: llm.NewStore()}
 	require.NoError(t, env.globals.Set("threshold", 21.5))
 	f := flow.NewFlow("Heating")
 	require.NoError(t, env.store.CreateFlow(f))
@@ -39,13 +42,14 @@ func newBackupEnv(t *testing.T, withAuth bool) backupEnv {
 	require.NoError(t, fv.Set("count", 3.0))
 	require.NoError(t, env.secrets.Set("api_key", "zzSECRETzz-api-key-value"))
 	require.NoError(t, env.conns.Set(brokers.Connection{Name: "home", Broker: "tcp://10.0.0.2:1883", Password: "zzSECRETzz-broker"}))
+	require.NoError(t, env.models.Set(llm.Connection{Name: "claude", Provider: llm.ProviderAnthropic, APIKey: "zzSECRETzz-anthropic", Model: "claude-sonnet-4-5"}))
 	auth := env.auth
 	if !withAuth {
 		auth = nil
 	}
 	NewStoresBackupHandler(StoresBackupOptions{
 		Flows: env.store, Globals: env.globals, FlowVariables: env.flows, Secrets: env.secrets, Connections: env.conns,
-		Auth: auth, Logger: zerolog.Nop(),
+		LLMConnections: env.models, Auth: auth, Logger: zerolog.Nop(),
 	}).RegisterRoutes(env.router)
 	return env
 }
@@ -70,6 +74,7 @@ func TestExportStoresWithoutSecrets(t *testing.T) {
 	assert.Contains(t, w.Header().Get("Content-Disposition"), `attachment; filename="piworker-stores-`)
 	assert.NotContains(t, w.Body.String(), "zzSECRETzz")
 	assert.Equal(t, []string{"api_key"}, b.Secrets)
+	assert.Equal(t, []storesbackup.LLMConnection{{Name: "claude", Provider: "anthropic", Model: "claude-sonnet-4-5", HasAPIKey: true}}, b.LLMConnections)
 	require.Len(t, b.FlowVariables, 1)
 	assert.Equal(t, "Heating", b.FlowVariables[0].FlowName)
 }
@@ -108,6 +113,7 @@ func TestImportStores(t *testing.T) {
 	dst := newBackupEnv(t, true)
 	require.NoError(t, dst.secrets.Delete("api_key"))
 	require.NoError(t, dst.conns.Delete("home"))
+	require.NoError(t, dst.models.Delete("claude"))
 
 	w := dst.do("POST", "/api/stores/import", map[string]any{"bundle": b, "passphrase": "wrong passphrase here"})
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -120,6 +126,11 @@ func TestImportStores(t *testing.T) {
 	got := data[StoresImportResponse](t, w)
 	assert.Equal(t, storesbackup.Counts{Added: 1}, got.Report.Secrets)
 	assert.Equal(t, storesbackup.Counts{Added: 1}, got.Report.Connections)
+	assert.Equal(t, storesbackup.Counts{Added: 1}, got.Report.LLMConnections)
+	assert.Equal(t, []string{}, got.Report.APIKeysNotRestored)
+	claude, ok := dst.models.Get("claude")
+	require.True(t, ok)
+	assert.Equal(t, "zzSECRETzz-anthropic", claude.APIKey, "the key came back from the sealed part")
 	assert.Equal(t, storesbackup.Counts{Skipped: 1}, got.Report.Variables, "existing values are kept by default")
 	assert.NotNil(t, got.Restarted)
 	v, _ := dst.secrets.Get("api_key")

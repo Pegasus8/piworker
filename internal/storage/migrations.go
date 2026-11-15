@@ -8,7 +8,7 @@ import (
 
 // SchemaVersion is the schema this binary reads and writes: the number of
 // migrations, stored in the database as PRAGMA user_version (ADR-0035).
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 // ErrSchemaTooNew refuses a database written by a newer PiWorker.
 var ErrSchemaTooNew = errors.New("the database was written by a newer PiWorker; update PiWorker to open it")
@@ -25,6 +25,7 @@ type migration struct {
 // reorder one that was released: append a new one and bump SchemaVersion.
 var migrations = []migration{
 	{name: "baseline", up: migrateBaseline},
+	{name: "llm", up: migrateLLM},
 }
 
 // migrate brings db to the last version of list. A database at a higher
@@ -83,6 +84,19 @@ func migrateBaseline(tx *sql.Tx) error {
 	for _, schema := range []string{apiTokensSchema, agentApprovalsSchema, mcpAuditSchema, flowDraftsSchema} {
 		if _, err := tx.Exec(schema); err != nil {
 			return fmt.Errorf("failed to create agent tables: %w", err)
+		}
+	}
+	return nil
+}
+
+// migrateLLM is schema 2: the LLM connections and their daily usage, the
+// conversation memory and the knowledge base (docs/design/llm.md §2,
+// ADR-0038). The tables are new, so the statements are plain CREATEs: a
+// migration runs exactly once per database.
+func migrateLLM(tx *sql.Tx) error {
+	for _, schema := range []string{llmConnectionsSchema, llmMemorySchema, llmKnowledgeSchema} {
+		if _, err := tx.Exec(schema); err != nil {
+			return fmt.Errorf("failed to create LLM tables: %w", err)
 		}
 	}
 	return nil

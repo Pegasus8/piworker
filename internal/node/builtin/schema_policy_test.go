@@ -57,6 +57,16 @@ func TestBuiltinRiskClassification(t *testing.T) {
 		// Zigbee commands and requests go out through the broker.
 		"action-zigbee":      node.RiskExternal,
 		"process-zigbee-get": node.RiskExternal,
+		// LLM nodes send message data to the provider (docs/design/llm.md
+		// §3); forgetting a conversation only touches local memory.
+		"process-llm":          node.RiskExternal,
+		"process-llm-classify": node.RiskExternal,
+		"process-llm-agent":    node.RiskExternal,
+		// Audio, documents and queries go to the connection's provider to
+		// be transcribed or embedded.
+		"process-transcribe":       node.RiskExternal,
+		"action-knowledge-add":     node.RiskExternal,
+		"process-knowledge-search": node.RiskExternal,
 	}
 	for _, info := range registeredTypes(t) {
 		expected, listed := want[info.Type]
@@ -80,6 +90,13 @@ var notCredentials = map[string]string{
 	"set-var.key":          "variable name",
 	"process-join.key":     "correlation-key expression over the message",
 	"process-join.maxKeys": "maximum number of pending groups",
+	// LLM nodes: a token count and a conversation key (a template naming
+	// the conversation, e.g. telegram:{{payload.chat.id}}).
+	"process-llm.maxTokens":       "maximum answer length, in tokens",
+	"process-llm.memoryKey":       "conversation key",
+	"process-llm-agent.maxTokens": "maximum answer length, in tokens",
+	"process-llm-agent.memoryKey": "conversation key",
+	"action-llm-forget.memoryKey": "conversation key",
 }
 
 func TestCredentialLikePropertiesAreSensitive(t *testing.T) {
@@ -159,6 +176,17 @@ func TestFreeTextPropertiesAreNotAgentVisible(t *testing.T) {
 		"trigger-webhook.path",
 		"trigger-rss.url",
 		"trigger-manual.payload",
+		"process-llm.system",
+		"process-llm.prompt",
+		"process-llm.schema",
+		"process-llm-classify.instructions",
+		"process-llm-classify.input",
+		"process-llm-agent.system",
+		"process-llm-agent.prompt",
+		"action-knowledge-add.text",
+		"action-knowledge-add.documentId",
+		"action-knowledge-add.metadata",
+		"process-knowledge-search.query",
 	} {
 		typ, prop, _ := strings.Cut(id, ".")
 		info, ok := node.DefaultRegistry.Get(typ)
@@ -173,6 +201,7 @@ var unitless = map[string]bool{
 	"count": true, "limit": true, "maxKeys": true, "qos": true, "port": true, "threshold": true,
 	"minChange": true, // in the unit of the Zigbee property it watches
 	"duration":  true, // the timer's, in its durationUnit
+	"minScore":  true, // a cosine similarity, 0 to 1
 }
 
 // Numeric settings state their unit both in Unit (quoted by deploy errors)
@@ -305,6 +334,16 @@ func TestKnownDestinationPropertiesAreMarked(t *testing.T) {
 		"trigger-mqtt.broker",
 		"trigger-rss.url",
 		"trigger-webhook.path",
+		// The LLM connection says where message data goes; the agent's
+		// tools are what it may act on (docs/design/llm.md §4).
+		"process-llm.connection",
+		"process-llm-classify.connection",
+		"process-llm-agent.connection",
+		"process-llm-agent.tools",
+		"process-transcribe.connection",
+		"action-knowledge-add.connection",
+		"action-knowledge-add.collection", // where the text is stored
+		"process-knowledge-search.connection",
 	} {
 		typ, prop, _ := strings.Cut(id, ".")
 		info, ok := node.DefaultRegistry.Get(typ)

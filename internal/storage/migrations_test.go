@@ -61,6 +61,31 @@ func TestUnversionedDatabaseIsUpgraded(t *testing.T) {
 	assert.Equal(t, 1, v.Version)
 }
 
+// A database at schema 1 (written before the LLM tables) gets them from
+// migration 2, keeping its rows.
+func TestSchemaOneDatabaseGetsTheLLMTables(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v1.db")
+	db, err := openDB(path)
+	require.NoError(t, err)
+	require.NoError(t, migrate(db, migrations[:1]))
+	_, err = db.Exec(`INSERT INTO secrets (name, value, updated_at) VALUES ('kept', 'v', '2026-01-01')`)
+	require.NoError(t, err)
+	require.Equal(t, 1, userVersion(t, db))
+	require.NoError(t, db.Close())
+
+	store, err := NewSQLiteStore(path)
+	require.NoError(t, err)
+	defer store.Close()
+	assert.Equal(t, SchemaVersion, userVersion(t, store.DB()))
+	assert.GreaterOrEqual(t, SchemaVersion, 2)
+	var n int
+	require.NoError(t, store.DB().QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'
+		AND name IN ('llm_connections','llm_usage','llm_conversations','llm_documents')`).Scan(&n))
+	assert.Equal(t, 4, n)
+	require.NoError(t, store.DB().QueryRow(`SELECT COUNT(*) FROM secrets WHERE name = 'kept'`).Scan(&n))
+	assert.Equal(t, 1, n)
+}
+
 // A database from a newer PiWorker is refused, untouched: this binary does
 // not know what its tables mean.
 func TestNewerSchemaIsRefused(t *testing.T) {

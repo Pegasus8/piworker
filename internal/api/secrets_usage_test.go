@@ -9,6 +9,7 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/brokers"
 	"github.com/Pegasus8/piworker/internal/flow"
+	"github.com/Pegasus8/piworker/internal/llm"
 	"github.com/Pegasus8/piworker/internal/secrets"
 	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/gorilla/mux"
@@ -75,4 +76,39 @@ func TestListSecretsShowsWhereEachIsUsed(t *testing.T) {
 	rr = httptest.NewRecorder()
 	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/secrets", nil))
 	require.Equal(t, http.StatusOK, rr.Code)
+}
+
+// The usage listing also names the LLM connections whose API key references
+// a secret (llm.SecretReferences), after the broker connections and before
+// the flows; a reference to an undefined secret is listed as undefined.
+// The key itself is never returned.
+func TestListSecretsShowsLLMConnectionUses(t *testing.T) {
+	sec := secrets.NewStore()
+	require.NoError(t, sec.Set("anthropic", "zzSECRETzz-anthropic-api-key"))
+	conns := brokers.NewStore()
+	require.NoError(t, conns.Set(brokers.Connection{Name: "home", Broker: "tcp://localhost:1883", Password: "{{secret.anthropic}}"}))
+	models := llm.NewStore()
+	require.NoError(t, models.Set(llm.Connection{Name: "claude", Provider: llm.ProviderAnthropic, APIKey: "{{secret.anthropic}}"}))
+	require.NoError(t, models.Set(llm.Connection{Name: "router", Provider: llm.ProviderOpenAI, APIKey: "{{secret.openrouter}}"}))
+	require.NoError(t, models.Set(llm.Connection{Name: "inline", Provider: llm.ProviderOpenAI, APIKey: "zzSECRETzz-plain-key"}))
+
+	h := NewSecretsHandler(sec, zerolog.Nop()).WithUsage(nil, conns).WithLLMConnections(models)
+	r := mux.NewRouter()
+	h.RegisterRoutes(r)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/secrets?usage=1", nil))
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	assert.NotContains(t, rr.Body.String(), "zzSECRETzz")
+
+	var resp struct {
+		Data SecretsListResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.Len(t, resp.Data.Secrets, 1)
+	assert.Equal(t, []SecretUse{
+		{Connection: "home", Setting: "password"},
+		{LLMConnection: "claude", Setting: "apiKey"},
+	}, resp.Data.Secrets[0].Uses)
+	assert.Equal(t, []UndefinedSecret{{Name: "openrouter", Uses: []SecretUse{{LLMConnection: "router", Setting: "apiKey"}}}}, resp.Data.Undefined)
+	assert.Contains(t, rr.Body.String(), `"llmConnection":"claude"`)
 }

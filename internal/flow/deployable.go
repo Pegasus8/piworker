@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/Pegasus8/piworker/internal/brokers"
+	"github.com/Pegasus8/piworker/internal/llm"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/secrets"
 )
@@ -51,15 +52,22 @@ func validateDeployable(rt *FlowRuntime, reg *node.Registry) ([]ToolInfo, []Issu
 // (secrets.FromContext: the process-wide store for a deploy). It is Lint's
 // collector (requiredSecretFindings), so Lint reports the same secrets
 // (IssueUndefinedSecret). It also refuses a broker connection a node names
-// (node.ConnectionRequirer) that is not defined (IssueUndefinedConnection).
-// The dry-run does not call it.
+// (node.ConnectionRequirer) that is not defined (IssueUndefinedConnection),
+// and an LLM connection a node names (node.LLMConnectionRequirer) that is
+// not defined (IssueUndefinedLLMConnection). The dry-run does not call it.
 func checkRequiredSecrets(ctx context.Context, rt *FlowRuntime) error {
 	instances := rt.instancesByIndex()
 	if err := firstError(requiredSecretFindings(rt.flow, instances, secrets.FromContext(ctx))); err != nil {
 		return err
 	}
 	// The broker connections nodes name (ADR-0026), from the store of ctx.
-	return firstError(requiredConnectionFindings(rt.flow, instances, brokers.FromContext(ctx)))
+	if err := firstError(requiredConnectionFindings(rt.flow, instances, brokers.FromContext(ctx))); err != nil {
+		return err
+	}
+	// The LLM connections nodes name (ADR-0038), from the store of ctx.
+	// The nodes resolve them again on every call: this only refuses a flow
+	// that could never work.
+	return firstError(requiredLLMConnectionFindings(rt.flow, instances, llm.FromContext(ctx)))
 }
 
 // instancesByIndex returns the runtime's node instances keyed by their
@@ -114,6 +122,23 @@ func (r *FlowRuntime) ConnectionsUsed() []string {
 	for _, in := range r.nodes {
 		if req, ok := in.(node.ConnectionRequirer); ok {
 			for _, name := range req.RequiredConnections() {
+				set[name] = true
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(set))
+}
+
+// LLMConnectionsUsed returns the LLM connections (ADR-0038) the runtime's
+// nodes name (node.LLMConnectionRequirer), sorted, each once. A change to
+// one restarts nothing (the nodes resolve it per call); the API refuses to
+// delete one while a running flow uses it. It asks the running instances,
+// so it is the definition that runs, not a later stored one.
+func (r *FlowRuntime) LLMConnectionsUsed() []string {
+	set := map[string]bool{}
+	for _, in := range r.nodes {
+		if req, ok := in.(node.LLMConnectionRequirer); ok {
+			for _, name := range req.RequiredLLMConnections() {
 				set[name] = true
 			}
 		}

@@ -313,21 +313,35 @@ export interface KnowledgeDocumentPage {
   total: number
 }
 
-/** A node of a flow as the server stores it (flow.Node): what the assistant proposes. */
+/** A port of a stored node (types.Port). */
+export interface StoredPort {
+  id: string
+  name: string
+  dataType: string
+  multiple: boolean
+  required: boolean
+}
+
+/**
+ * A node of a flow as the server stores it (flow.Node): what the assistant
+ * proposes, every field set (the registered category and ports, the outputs
+ * its config gives it, a laid-out position).
+ */
 export interface StoredFlowNode {
   id: string
   type: string
-  category?: string
-  position?: { x: number; y: number }
-  config?: Record<string, unknown>
-  enabled?: boolean
-  inputs?: unknown[]
-  outputs?: unknown[]
+  /** input, processing or output ('' for an unregistered type). */
+  category: string
+  position: { x: number; y: number }
+  config: Record<string, unknown>
+  enabled: boolean
+  inputs: StoredPort[]
+  outputs: StoredPort[]
 }
 
 /** A connection as the server stores it (flow.Connection). */
 export interface StoredFlowConnection {
-  id?: string
+  id: string
   sourceNode: string
   sourcePort: string
   targetNode: string

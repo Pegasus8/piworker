@@ -10,7 +10,8 @@ import { useFlowsStore } from '@/stores/flows'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
 import { TriggerNode, ProcessNode, OutputNode } from './nodes'
 import type { FlowNode, NodeCategory } from '@/types'
-import { MousePointerClick } from 'lucide-vue-next'
+import { MousePointerClick, Sparkles } from 'lucide-vue-next'
+import { Button } from '@/components/ui'
 import { messages as m } from '@/i18n'
 
 import '@vue-flow/core/dist/style.css'
@@ -18,6 +19,8 @@ import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
 
+// assist: the empty canvas's "Create with AI" (the flow assistant).
+const emit = defineEmits<{ assist: [] }>()
 const flowsStore = useFlowsStore()
 const nodeTypesStore = useNodeTypesStore()
 
@@ -165,7 +168,13 @@ function buildNode(nodeTypeId: string, position: { x: number; y: number }): Flow
   }
   return newNode
 }
-defineExpose({ addNodeType })
+// Shows the whole graph once Vue Flow has the nodes the store just got (a
+// proposal placed by the flow assistant).
+async function fit() {
+  await nextTick()
+  requestAnimationFrame(() => requestAnimationFrame(() => fitView({ padding: 0.3, maxZoom: 1 })))
+}
+defineExpose({ addNodeType, fit })
 
 // Minimap node color
 function minimapNodeColor(node: any): string {
@@ -240,6 +249,10 @@ onUnmounted(() => {
         <p class="font-medium">{{ m.editor.emptyTitle }}</p>
         <p class="mt-1 text-sm text-muted-foreground">{{ m.editor.emptyBody }}</p>
         <p class="mt-3 hidden text-xs text-muted-foreground sm:block">{{ m.editor.emptyShortcuts }}</p>
+        <p class="mt-4 text-sm text-muted-foreground">{{ m.assistant.emptyHint }}</p>
+        <Button size="sm" variant="outline" class="pointer-events-auto mt-2" @click="emit('assist')">
+          <Sparkles class="mr-2 h-4 w-4" aria-hidden="true" />{{ m.assistant.open }}
+        </Button>
       </div>
     </div>
   </div>

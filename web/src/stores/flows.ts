@@ -7,6 +7,9 @@ import { useApi, type DeployOutcome } from '@/composables/useApi'
 import { edgesAfterConfig, outputPorts, ports, validConnection } from '@/lib/ports'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
 import { autoEdge, nextPosition } from '@/lib/autoConnect'
+import { prepareProposal, type ApplyMode } from '@/lib/assistant'
+import { visibleText } from '@/lib/agentAccess'
+import type { AssistantFlow } from '@/types'
 import { msg } from '@/i18n'
 
 // Map backend categories to frontend categories
@@ -532,6 +535,32 @@ export const useFlowsStore = defineStore('flows', () => {
     selectedNodeId.value = id
   }
 
+  // Places the flow assistant's proposal on the canvas (docs/design/llm.md
+  // §7): replacing the nodes (an empty canvas, a change of the current
+  // flow) or beside them with new IDs (lib/assistant.ts prepareProposal),
+  // converted as a loaded flow is, in one undo step. Nodes of types this
+  // editor does not know are left out; with none left nothing changes. A
+  // new flow still named by default takes the proposal's name and
+  // description. Nothing is saved or deployed.
+  function applyProposal(flow: AssistantFlow, mode: ApplyMode) {
+    const prepared = prepareProposal(flow, nodes.value, nodeTypesStore.getById, mode)
+    const applied = { nodes: prepared.nodes.length, connections: prepared.connections.length, skippedTypes: prepared.skippedTypes, skippedConnections: prepared.skippedConnections }
+    if (!prepared.nodes.length) return applied
+    record()
+    const placed = transformNodes(prepared.nodes)
+    const connected = transformEdges(prepared.connections)
+    nodes.value = mode === 'replace' ? placed : [...nodes.value, ...placed]
+    edges.value = mode === 'replace' ? connected : [...edges.value, ...connected]
+    if (selectedNodeId.value && !nodes.value.some(n => n.id === selectedNodeId.value)) selectedNodeId.value = null
+    const current = currentFlow.value
+    if (mode === 'replace' && current && !current.id && current.name === msg().editor.untitled) {
+      if (flow.name.trim()) current.name = visibleText(flow.name.trim())
+      if (!current.description && flow.description.trim()) current.description = visibleText(flow.description.trim())
+    }
+    isDirty.value = true
+    return applied
+  }
+
   // Edge operations
   function addEdge(edge: FlowEdge) {
     // Prevent duplicate edges
@@ -632,6 +661,7 @@ export const useFlowsStore = defineStore('flows', () => {
     updateNodeConfig,
     removeNode,
     selectNode,
+    applyProposal,
 
     // Edge operations
     addEdge,

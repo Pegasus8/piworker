@@ -8,6 +8,7 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/brokers"
 	"github.com/Pegasus8/piworker/internal/flow"
+	"github.com/Pegasus8/piworker/internal/llm"
 	"github.com/Pegasus8/piworker/internal/secrets"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
@@ -19,9 +20,11 @@ import (
 type SecretsHandler struct {
 	store  *secrets.Store
 	logger zerolog.Logger
-	// flows and conns, when set (WithUsage), say where each secret is used.
-	flows FlowLister
-	conns *brokers.Store
+	// flows, conns and llmConns, when set (WithUsage, WithLLMConnections),
+	// say where each secret is used.
+	flows    FlowLister
+	conns    *brokers.Store
+	llmConns *llm.Store
 }
 
 // FlowLister lists the stored flows (the SQLite store implements it).
@@ -34,6 +37,13 @@ type FlowLister interface {
 // connections of conns (either may be nil).
 func (h *SecretsHandler) WithUsage(flows FlowLister, conns *brokers.Store) *SecretsHandler {
 	h.flows, h.conns = flows, conns
+	return h
+}
+
+// WithLLMConnections makes the usage listing also name the LLM connections
+// of conns (ADR-0038) whose API key references a secret (nil: none).
+func (h *SecretsHandler) WithLLMConnections(conns *llm.Store) *SecretsHandler {
+	h.llmConns = conns
 	return h
 }
 
@@ -60,17 +70,20 @@ type SecretItem struct {
 
 // SecretUse is one place a secret is referenced ({{secret.NAME}}): a node
 // setting of a flow (FlowID, FlowName, NodeID, NodeType, Setting; NodeDisabled
-// when the node does not run; FlowRunning when the flow is deployed), or a
-// broker connection's credential (Connection, Setting).
+// when the node does not run; FlowRunning when the flow is deployed), a
+// broker connection's credential (Connection, Setting) or an LLM
+// connection's API key (LLMConnection, Setting "apiKey"). Connections are
+// always in use: a node resolves them, and their secrets, when it runs.
 type SecretUse struct {
-	FlowID       string `json:"flowId,omitempty"`
-	FlowName     string `json:"flowName,omitempty"`
-	FlowRunning  bool   `json:"flowRunning,omitempty"`
-	NodeID       string `json:"nodeId,omitempty"`
-	NodeType     string `json:"nodeType,omitempty"`
-	NodeDisabled bool   `json:"nodeDisabled,omitempty"`
-	Connection   string `json:"connection,omitempty"`
-	Setting      string `json:"setting"`
+	FlowID        string `json:"flowId,omitempty"`
+	FlowName      string `json:"flowName,omitempty"`
+	FlowRunning   bool   `json:"flowRunning,omitempty"`
+	NodeID        string `json:"nodeId,omitempty"`
+	NodeType      string `json:"nodeType,omitempty"`
+	NodeDisabled  bool   `json:"nodeDisabled,omitempty"`
+	Connection    string `json:"connection,omitempty"`
+	LLMConnection string `json:"llmConnection,omitempty"`
+	Setting       string `json:"setting"`
 }
 
 // UndefinedSecret is a secret name referenced somewhere that the store does
@@ -93,8 +106,9 @@ type SecretsListResponse struct {
 // ListSecrets returns the stored secrets, each marked short or not, so the
 // editor can tell the admin which values an agent could confirm a guess of
 // (ADR-0021), and where each is used (WithUsage), so deleting or renaming
-// one is not a surprise. Uses are listed connections first (by name), then
-// flows (by name, then node order).
+// one is not a surprise. Uses are listed broker connections first (by
+// name), then LLM connections (by name), then flows (by name, then node
+// order).
 //
 // Uses are computed only with ?usage=1 (the Secrets dialog): they read every
 // stored flow, and the editor lists the names on every node it selects.
@@ -131,6 +145,13 @@ func (h *SecretsHandler) secretUses() (map[string][]SecretUse, error) {
 		for _, c := range h.conns.List() {
 			for _, ref := range brokers.SecretReferences(c) {
 				uses[ref.Name] = append(uses[ref.Name], SecretUse{Connection: c.Name, Setting: ref.Setting})
+			}
+		}
+	}
+	if h.llmConns != nil {
+		for _, c := range h.llmConns.List() {
+			for _, ref := range llm.SecretReferences(c) {
+				uses[ref.Name] = append(uses[ref.Name], SecretUse{LLMConnection: c.Name, Setting: ref.Setting})
 			}
 		}
 	}

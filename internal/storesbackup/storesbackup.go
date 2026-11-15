@@ -1,15 +1,17 @@
 // Package storesbackup exports and restores the installation's stores that a
 // flow export does not carry (ADR-0031): the global variables, each flow's
-// variables, the named broker connections and the secrets. A flow export
-// names secrets and connections but holds none of their values; this file
-// is how they move to another installation or survive a reinstall.
+// variables, the named broker connections, the LLM connections (ADR-0038)
+// and the secrets. A flow export names secrets and connections but holds
+// none of their values; this file is how they move to another installation
+// or survive a reinstall.
 //
-// The file is JSON. Variables, connection settings without passwords and
-// secret names are readable. Secret values and connections with their
-// passwords travel only sealed with a passphrase (scrypt, then AES-256-GCM):
-// the whole connection is sealed, not only its password, so someone who
-// edits the file cannot point a password at another broker. PiWorker does
-// not encrypt its own database (ADR-0030); this is the one place it writes
+// The file is JSON. Variables, connection settings without passwords or API
+// keys and secret names are readable. Secret values and connections with
+// their passwords or API keys travel only sealed with a passphrase (scrypt,
+// then AES-256-GCM): the whole connection is sealed, not only its
+// credential, so someone who edits the file cannot point a password at
+// another broker or an API key at another endpoint. PiWorker does not
+// encrypt its own database (ADR-0030); this is the one place it writes
 // secret values to a file, so the file is encrypted.
 package storesbackup
 
@@ -28,12 +30,15 @@ import (
 	"unicode/utf8"
 
 	"github.com/Pegasus8/piworker/internal/brokers"
+	"github.com/Pegasus8/piworker/internal/llm"
 	"github.com/Pegasus8/piworker/internal/secrets"
 	"github.com/Pegasus8/piworker/internal/vars"
 	"golang.org/x/crypto/scrypt"
 )
 
-// Format and Version identify the file.
+// Format and Version identify the file. The LLM connections were added to
+// version 1 as new members: a PiWorker that predates them ignores them, and
+// a file without them restores none.
 const (
 	Format  = "piworker-stores"
 	Version = 1
@@ -80,10 +85,14 @@ type Bundle struct {
 	// Connections are the broker connections without passwords; empty when
 	// they are sealed.
 	Connections []Connection `json:"connections"`
+	// LLMConnections are the LLM connections without API keys; empty when
+	// they are sealed.
+	LLMConnections []LLMConnection `json:"llmConnections"`
 	// Secrets are the names of the secrets (their values only sealed).
 	Secrets []string `json:"secrets"`
-	// Sealed holds the secret values and the connections with their
-	// passwords, when the export had a passphrase.
+	// Sealed holds the secret values, the broker connections with their
+	// passwords and the LLM connections with their API keys, when the export
+	// had a passphrase.
 	Sealed *Sealed `json:"sealed,omitempty"`
 }
 
@@ -106,10 +115,29 @@ type Connection struct {
 	HasPassword bool   `json:"hasPassword"`
 }
 
+// LLMConnection is an LLM connection in the file. APIKey (as stored: plain
+// or {{secret.NAME}} references) is set only inside the sealed part.
+type LLMConnection struct {
+	Name            string `json:"name"`
+	Provider        string `json:"provider"`
+	BaseURL         string `json:"baseUrl,omitempty"`
+	APIKey          string `json:"apiKey,omitempty"`
+	Model           string `json:"model,omitempty"`
+	DailyTokenLimit int64  `json:"dailyTokenLimit"`
+	HasAPIKey       bool   `json:"hasApiKey"`
+}
+
+// connection is c as the LLM store holds it.
+func (c LLMConnection) connection() llm.Connection {
+	return llm.Connection{Name: c.Name, Provider: llm.Provider(c.Provider), BaseURL: c.BaseURL, APIKey: c.APIKey,
+		Model: c.Model, DailyTokenLimit: c.DailyTokenLimit}
+}
+
 // SealedContent is what the sealed part holds.
 type SealedContent struct {
-	Secrets     map[string]string `json:"secrets"`
-	Connections []Connection      `json:"connections"`
+	Secrets        map[string]string `json:"secrets"`
+	Connections    []Connection      `json:"connections"`
+	LLMConnections []LLMConnection   `json:"llmConnections"`
 }
 
 // Sealed is SealedContent encrypted with a key derived from a passphrase.
@@ -132,17 +160,21 @@ type FlowStore struct {
 }
 
 // Sources are the stores an export reads and a restore writes.
+// LLMConnections may be nil: an export then carries none, and a restore
+// skips the file's.
 type Sources struct {
-	Globals     *vars.Store
-	Flows       []FlowStore
-	Secrets     *secrets.Store
-	Connections *brokers.Store
+	Globals        *vars.Store
+	Flows          []FlowStore
+	Secrets        *secrets.Store
+	Connections    *brokers.Store
+	LLMConnections *llm.Store
 }
 
 // Export builds the file from src. With a passphrase (at least
 // MinPassphraseRunes characters) the secret values and the connections with
-// their passwords are sealed; without one the file carries neither: only
-// the secret names and the connections without passwords.
+// their passwords and API keys are sealed; without one the file carries
+// none of them: only the secret names and the connections without
+// passwords or API keys.
 func Export(src Sources, passphrase string) (*Bundle, error) {
 	if passphrase != "" {
 		if err := CheckPassphrase(passphrase); err != nil {
@@ -151,7 +183,8 @@ func Export(src Sources, passphrase string) (*Bundle, error) {
 	}
 	b := &Bundle{
 		Format: Format, Version: Version, CreatedAt: time.Now().UTC(),
-		Variables: map[string]any{}, FlowVariables: []FlowVariables{}, Connections: []Connection{}, Secrets: []string{},
+		Variables: map[string]any{}, FlowVariables: []FlowVariables{}, Connections: []Connection{},
+		LLMConnections: []LLMConnection{}, Secrets: []string{},
 	}
 	if src.Globals != nil {
 		b.Variables = src.Globals.Snapshot()
@@ -171,7 +204,14 @@ func Export(src Sources, passphrase string) (*Bundle, error) {
 				Password: c.Password, HasPassword: c.Password != ""})
 		}
 	}
-	content := SealedContent{Secrets: map[string]string{}, Connections: conns}
+	llmConns := []LLMConnection{}
+	if src.LLMConnections != nil {
+		for _, c := range src.LLMConnections.List() {
+			llmConns = append(llmConns, LLMConnection{Name: c.Name, Provider: string(c.Provider), BaseURL: c.BaseURL,
+				APIKey: c.APIKey, Model: c.Model, DailyTokenLimit: c.DailyTokenLimit, HasAPIKey: c.APIKey != ""})
+		}
+	}
+	content := SealedContent{Secrets: map[string]string{}, Connections: conns, LLMConnections: llmConns}
 	if src.Secrets != nil {
 		for _, name := range src.Secrets.Names() {
 			b.Secrets = append(b.Secrets, name)
@@ -184,6 +224,10 @@ func Export(src Sources, passphrase string) (*Bundle, error) {
 		for _, c := range conns {
 			c.Password = ""
 			b.Connections = append(b.Connections, c)
+		}
+		for _, c := range llmConns {
+			c.APIKey = "" // even a {{secret.NAME}} reference: the key is the admin's
+			b.LLMConnections = append(b.LLMConnections, c)
 		}
 		return b, nil
 	}
@@ -304,6 +348,10 @@ type Report struct {
 	FlowVariables Counts `json:"flowVariables"`
 	Secrets       Counts `json:"secrets"`
 	Connections   Counts `json:"connections"`
+	// LLMConnections counts the LLM connections. Changing one restarts no
+	// flow (the nodes resolve it on every call), so they are never in
+	// ChangedConnections.
+	LLMConnections Counts `json:"llmConnections"`
 	// ChangedConnections were added or replaced: the caller restarts the
 	// running flows that use them (ADR-0029).
 	ChangedConnections []string `json:"changedConnections"`
@@ -316,20 +364,27 @@ type Report struct {
 	// PasswordsNotRestored are the connections created without the
 	// password they had (the file did not carry it).
 	PasswordsNotRestored []string `json:"passwordsNotRestored"`
+	// APIKeysNotRestored are the LLM connections whose API key the file did
+	// not carry and that have none here for the same endpoint: an
+	// OpenAI-compatible one was restored without a key; an Anthropic one,
+	// which cannot work without a key, was not (counted as skipped).
+	APIKeysNotRestored []string `json:"apiKeysNotRestored"`
 }
 
 // Restore writes b into dst: secrets first (connection credentials may
-// reference them), then connections, global variables and flow variables.
+// reference them), then broker connections, LLM connections, global
+// variables and flow variables.
 // The sealed part is opened with passphrase; without one, only the readable
 // part is restored and the secret names are reported. Everything is
 // checked before anything is written; a write error stops the restore
 // where it happened (what was written stays).
 func Restore(b *Bundle, passphrase string, dst Sources, opts Options) (Report, error) {
-	rep := Report{ChangedConnections: []string{}, UnmatchedFlows: []FlowRef{}, SecretsNotRestored: []string{}, PasswordsNotRestored: []string{}}
+	rep := Report{ChangedConnections: []string{}, UnmatchedFlows: []FlowRef{}, SecretsNotRestored: []string{},
+		PasswordsNotRestored: []string{}, APIKeysNotRestored: []string{}}
 	if err := b.validate(); err != nil {
 		return rep, err
 	}
-	conns := b.Connections
+	conns, llmConns := b.Connections, b.LLMConnections
 	var secretValues map[string]string
 	if b.Sealed != nil && passphrase != "" {
 		content, err := b.Sealed.Open(passphrase)
@@ -339,7 +394,7 @@ func Restore(b *Bundle, passphrase string, dst Sources, opts Options) (Report, e
 		if err := content.validate(); err != nil {
 			return rep, err
 		}
-		secretValues, conns = content.Secrets, content.Connections
+		secretValues, conns, llmConns = content.Secrets, content.Connections, content.LLMConnections
 	} else {
 		rep.SecretsNotRestored = append(rep.SecretsNotRestored, b.Secrets...)
 		sort.Strings(rep.SecretsNotRestored)
@@ -386,6 +441,11 @@ func Restore(b *Bundle, passphrase string, dst Sources, opts Options) (Report, e
 	}
 	sort.Strings(rep.ChangedConnections)
 
+	// LLM connections.
+	if err := restoreLLMConnections(llmConns, dst.LLMConnections, opts, &rep); err != nil {
+		return rep, err
+	}
+
 	// Global variables.
 	if err := restoreVars(b.Variables, dst.Globals, opts, &rep.Variables); err != nil {
 		return rep, err
@@ -420,6 +480,53 @@ func count(c *Counts, existed bool) {
 	} else {
 		c.Added++
 	}
+}
+
+// restoreLLMConnections writes conns into store (nil: each is skipped).
+// A connection without its key in the file keeps the one it has here while
+// the file leaves it at the same provider and endpoint: the readable part
+// is not authenticated, and an edited one must not send this
+// installation's key elsewhere. Otherwise it is restored without a key,
+// unless it cannot work without one (Anthropic: then it is left as it is,
+// or not created); both are reported in APIKeysNotRestored. Nothing
+// restarts.
+func restoreLLMConnections(conns []LLMConnection, store *llm.Store, opts Options, rep *Report) error {
+	defer sort.Strings(rep.APIKeysNotRestored)
+	for _, c := range conns {
+		if store == nil {
+			rep.LLMConnections.Skipped++
+			continue
+		}
+		old, exists := store.Get(c.Name)
+		if exists && !opts.Overwrite {
+			rep.LLMConnections.Skipped++
+			continue
+		}
+		conn := c.connection()
+		conn.Normalize()
+		if c.HasAPIKey && conn.APIKey == "" {
+			sameEndpoint := exists && old.Provider == conn.Provider && old.Endpoint() == conn.Endpoint()
+			switch {
+			case sameEndpoint:
+				conn.APIKey = old.APIKey // the file does not carry it: keep this installation's
+			case conn.Provider == llm.ProviderAnthropic:
+				rep.APIKeysNotRestored = append(rep.APIKeysNotRestored, c.Name)
+				rep.LLMConnections.Skipped++
+				continue
+			default:
+				rep.APIKeysNotRestored = append(rep.APIKeysNotRestored, c.Name)
+			}
+		}
+		if exists && conn == old {
+			rep.LLMConnections.Skipped++ // identical
+			continue
+		}
+		if err := store.Set(conn); err != nil {
+			return err
+		}
+		count(&rep.LLMConnections, exists)
+	}
+	return nil
 }
 
 func restoreVars(values map[string]any, store *vars.Store, opts Options, c *Counts) error {
@@ -462,7 +569,10 @@ func (b *Bundle) validate() error {
 			return fmt.Errorf("%w: invalid secret name %q", ErrInvalidBundle, name)
 		}
 	}
-	return validateConnections(b.Connections)
+	if err := validateConnections(b.Connections); err != nil {
+		return err
+	}
+	return validateLLMConnections(b.LLMConnections)
 }
 
 // validate checks the sealed part.
@@ -472,7 +582,10 @@ func (c *SealedContent) validate() error {
 			return fmt.Errorf("%w: invalid secret name %q", ErrInvalidBundle, name)
 		}
 	}
-	return validateConnections(c.Connections)
+	if err := validateConnections(c.Connections); err != nil {
+		return err
+	}
+	return validateLLMConnections(c.LLMConnections)
 }
 
 // validateConnections checks each connection as the store would, so a
@@ -483,6 +596,25 @@ func validateConnections(conns []Connection) error {
 		conn.Normalize()
 		if err := conn.Validate(); err != nil {
 			return fmt.Errorf("%w: connection %q: %v", ErrInvalidBundle, c.Name, err)
+		}
+	}
+	return nil
+}
+
+// validateLLMConnections checks each LLM connection as the store would
+// (llm.Connection.Validate), so a restore never stops halfway on a bad one.
+// A key the file says exists but does not carry counts as present: the
+// restore keeps this installation's or reports it. Errors never quote a key
+// or a base URL (llm.Connection.Validate quotes neither).
+func validateLLMConnections(conns []LLMConnection) error {
+	for _, c := range conns {
+		conn := c.connection()
+		if c.HasAPIKey && conn.APIKey == "" {
+			conn.APIKey = "present"
+		}
+		conn.Normalize()
+		if err := conn.Validate(); err != nil {
+			return fmt.Errorf("%w: LLM connection %q: %v", ErrInvalidBundle, c.Name, err)
 		}
 	}
 	return nil

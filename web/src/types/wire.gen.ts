@@ -100,3 +100,158 @@ export interface TLSInfo {
   httpPort: number | null
   warning?: string
 }
+
+/** api.LLMConnectionsResponse */
+export interface LLMConnectionsResponse {
+  connections: LLMConnectionItem[]
+}
+
+/** api.LLMConnectionItem */
+export interface LLMConnectionItem {
+  name: string
+  provider: string
+  baseUrl: string
+  hasApiKey: boolean
+  model: string
+  dailyTokenLimit: number
+  usageToday: Usage
+}
+
+/** llm.Usage */
+export interface Usage {
+  inputTokens: number
+  outputTokens: number
+  requests: number
+}
+
+/** api.LLMConnectionTest */
+export interface LLMConnectionTest {
+  ok: boolean
+  error?: string
+  models?: ModelInfo[]
+}
+
+/** llm.ModelInfo */
+export interface ModelInfo {
+  id: string
+  name?: string
+}
+
+/** api.LLMModelsResponse */
+export interface LLMModelsResponse {
+  models: ModelInfo[]
+}
+
+/** api.LLMConversationsResponse */
+export interface LLMConversationsResponse {
+  conversations: ConversationInfo[]
+}
+
+/** llm.ConversationInfo */
+export interface ConversationInfo {
+  key: string
+  turns: number
+  updatedAt: string
+}
+
+/** api.LLMConversation */
+export interface LLMConversation {
+  key: string
+  turns: Turn[]
+}
+
+/** llm.Turn */
+export interface Turn {
+  role: string
+  text: string
+  at: string
+}
+
+/** api.KnowledgeCollectionsResponse */
+export interface KnowledgeCollectionsResponse {
+  collections: CollectionInfo[]
+}
+
+/** llm.CollectionInfo */
+export interface CollectionInfo {
+  name: string
+  documents: number
+  model: string
+  dimensions: number
+  updatedAt: string
+}
+
+/** api.KnowledgeDocumentPage */
+export interface KnowledgeDocumentPage {
+  documents: Document[]
+  total: number
+}
+
+/** llm.Document */
+export interface Document {
+  id: string
+  text: string
+  metadata?: Record<string, unknown>
+  model: string
+  createdAt: string
+}
+
+/** service.AssistantFlowResult */
+export interface AssistantFlowResult {
+  flow: AssistantFlow
+  notes: string
+  issues: Issue[]
+  usage: Usage
+}
+
+/** service.AssistantFlow */
+export interface AssistantFlow {
+  name: string
+  description: string
+  nodes: Node[]
+  connections: Connection[]
+}
+
+/** flow.Node */
+export interface Node {
+  id: string
+  type: string
+  category: string
+  position: Position
+  config: Record<string, unknown>
+  inputs: Port[]
+  outputs: Port[]
+  enabled: boolean
+}
+
+/** flow.Position */
+export interface Position {
+  x: number
+  y: number
+}
+
+/** types.Port */
+export interface Port {
+  id: string
+  name: string
+  dataType: string
+  multiple: boolean
+  required: boolean
+}
+
+/** flow.Connection */
+export interface Connection {
+  id: string
+  sourceNode: string
+  sourcePort: string
+  targetNode: string
+  targetPort: string
+}
+
+/** flow.Issue */
+export interface Issue {
+  path: string
+  code: string
+  severity: string
+  message: string
+}

@@ -15,7 +15,8 @@ import {
   Workflow,
   History,
   Undo2,
-  Redo2
+  Redo2,
+  Sparkles
 } from 'lucide-vue-next'
 import { messages as m } from '@/i18n'
 
@@ -27,12 +28,32 @@ import ManualRunDialog from '@/components/flow/ManualRunDialog.vue'
 import ConnectionsDialog from '@/components/flow/ConnectionsDialog.vue'
 import VersionHistoryDialog from '@/components/flow/VersionHistoryDialog.vue'
 import FlowMarks from '@/components/agent/FlowMarks.vue'
-import { useFeedback } from '@/composables/useFeedback'
+import AssistantDialog from '@/components/flow/AssistantDialog.vue'
+import LLMConnectionsDialog from '@/components/LLMConnectionsDialog.vue'
+import { useFeedback, type Feedback } from '@/composables/useFeedback'
 const confirmation = ref<InstanceType<typeof ConfirmDialog>>()
 const canvas = ref<InstanceType<typeof FlowCanvas>>()
 const showManualRun = ref(false)
 const showNodes = ref(false)
 const showConnections = ref(false)
+// The flow assistant (docs/design/llm.md §7): proposes a flow from a
+// description; placing it is one undo step, never a save or a deploy.
+const showAssistant = ref(false)
+// The editor has no navigation shell: the assistant opens the LLM
+// connections dialog here when none is defined, and comes back when it
+// closes.
+const showLLMConnections = ref(false)
+let backToAssistant = false
+function manageLLMConnections() {
+  showAssistant.value = false
+  showLLMConnections.value = true
+  backToAssistant = true
+}
+watch(showLLMConnections, open => {
+  if (open || !backToAssistant) return
+  backToAssistant = false
+  showAssistant.value = true
+})
 const { feedback, pending, run } = useFeedback()
 async function addNode(type: string) {
   showNodes.value = false
@@ -152,6 +173,10 @@ function nodeName(id: string) {
   return n ? `${n.data.label} (${id})` : id
 }
 function handleBack() { router.push('/') }
+function assistantApplied(result: Feedback) {
+  feedback.value = result
+  void canvas.value?.fit()
+}
 onBeforeRouteLeave(async to => {
   // Session expiry must still redirect to authentication.
   if (to.name === 'login' || !flowsStore.isDirty) return true
@@ -276,6 +301,7 @@ function updateFlowDescription(value: string | number) {
         <Button size="icon" variant="ghost" class="h-8 w-8" :disabled="!flowsStore.canUndo" :aria-label="m.editor.undo" :title="`${m.editor.undo} (${mod}Z)`" @click="flowsStore.undo()"><Undo2 class="h-4 w-4" /></Button>
         <Button size="icon" variant="ghost" class="h-8 w-8" :disabled="!flowsStore.canRedo" :aria-label="m.editor.redo" :title="`${m.editor.redo} (${mod}${isMac ? '⇧Z' : 'Y'})`" @click="flowsStore.redo()"><Redo2 class="h-4 w-4" /></Button>
       </div>
+      <Button size="sm" variant="outline" :title="m.assistant.openHint" @click="showAssistant = true"><Sparkles class="mr-2 h-4 w-4" aria-hidden="true" />{{ m.assistant.open }}</Button>
       <Button size="sm" variant="outline" :title="m.editor.flowVariablesHint" @click="showVariables = true">{{ m.editor.flowVariables }}</Button>
       <Button size="sm" variant="outline" :title="m.editor.connectionsHint" @click="showConnections = true">{{ m.editor.connections }}</Button>
       <Button v-if="flowId" size="sm" variant="outline" @click="showHistory = true"><History class="mr-2 h-4 w-4" aria-hidden="true" />{{ m.editor.history }}</Button>
@@ -291,7 +317,7 @@ function updateFlowDescription(value: string | number) {
 
       <!-- Canvas -->
       <main class="min-w-0 flex-1 relative">
-        <FlowCanvas ref="canvas" />
+        <FlowCanvas ref="canvas" @assist="showAssistant = true" />
       </main>
 
       <!-- Settings of the selected node, beside the canvas -->
@@ -305,6 +331,8 @@ function updateFlowDescription(value: string | number) {
     <VariablesDialog v-model:open="showVariables" :flow-id="flowsStore.currentFlow?.id || undefined" />
     <ManualRunDialog v-model:open="showManualRun" />
     <ConnectionsDialog v-model:open="showConnections" />
+    <AssistantDialog v-model:open="showAssistant" can-manage-connections @applied="assistantApplied" @manage-connections="manageLLMConnections" />
+    <LLMConnectionsDialog v-model:open="showLLMConnections" />
     <VersionHistoryDialog
       v-if="flowId && flowsStore.currentFlow"
       v-model:open="showHistory"
