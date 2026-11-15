@@ -12,7 +12,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/toolschema"
 	"github.com/Pegasus8/piworker/internal/types"
@@ -38,7 +37,7 @@ var toolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
 // flow.ErrFlowNotRunning, as the flow is no longer running either. Emit
 // refuses arguments with a *node.ToolArgumentsError, which matches
 // node.ErrInvalidToolArguments.
-var errToolNotRunning = fmt.Errorf("%w: tool trigger stopped", flow.ErrFlowNotRunning)
+var errToolNotRunning = fmt.Errorf("%w: tool trigger stopped", node.ErrNotRunning)
 
 // ToolTrigger publishes its flow as an MCP tool (trigger-tool). A call
 // validates the arguments against the input schema and starts a run whose

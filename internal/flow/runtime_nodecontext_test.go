@@ -99,7 +99,7 @@ func TestWithNodeContextWrapsStartAndProcess(t *testing.T) {
 	rec.mu.Unlock()
 	for _, ctx := range []context.Context{startCtx, rec.processCtxs()[0]} {
 		assert.Equal(t, "wrapped", ctx.Value(nodeCtxKey{}))
-		assert.NotNil(t, ctx.Value(callRegistryKey{}), "the runtime's own values stay")
+		assert.IsType(t, &callRegistry{}, ReplyFromContext(ctx), "the runtime's own values stay")
 		assert.NotNil(t, flowvars.FlowFromContext(ctx), "a flow store is always present")
 	}
 	require.NoError(t, rt.Stop())
