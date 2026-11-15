@@ -79,3 +79,21 @@ export function focusRowAfter(key: string | null, before: readonly string[], aft
 export function rowControlId(prefix: string, key: string): string {
   return `${prefix}-${encodeURIComponent(key)}`
 }
+
+/**
+ * The element IDs to focus, the first one present, once the view of key is
+ * left or key's row is gone: the control (rowPrefix) of the row
+ * focusRowAfter picks, then the list's own controls (fallbacks).
+ */
+export function focusCandidates(key: string | null, before: readonly string[], after: readonly string[], rowPrefix: string, fallbacks: readonly string[]): string[] {
+  const row = focusRowAfter(key, before, after)
+  return [...(row === null ? [] : [rowControlId(rowPrefix, row)]), ...fallbacks]
+}
+
+/**
+ * The memory key the empty list gives as an example. Telegram updates
+ * reach a flow through the Webhook trigger, which puts the request body
+ * under payload.body: a path without it renders empty, and every chat
+ * would share the one conversation "telegram:".
+ */
+export const EXAMPLE_MEMORY_KEY = 'telegram:{{payload.body.message.chat.id}}'

@@ -16,7 +16,9 @@ import (
 // docs/design/llm.md §6): the conversations of the memory and the
 // collections of the knowledge base. Conversation keys hold ':' and '/' and
 // document IDs '#' and '/': the editor path-escapes them, the router
-// matches the decoded path, so their routes take the rest of the path.
+// matches the decoded path, so their routes take the rest of the path. The
+// app's router cleans paths as sent (CleanPathsAsSent): a key or ID that
+// holds "//" or ".." once decoded is never redirected to another one.
 type LLMMemoryHandler struct {
 	memory    LLMConversations
 	knowledge KnowledgeBase

@@ -217,6 +217,9 @@ func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *
 func buildApp(cfg config.Config, deps appDeps, opts ...routerOption) (*mux.Router, *service.Lifecycle, appServices) {
 	store, users, registry, runtimeManager := deps.store, deps.users, deps.registry, deps.runtimes
 	router := mux.NewRouter()
+	// Paths are cleaned as sent, so an escaped conversation key or document
+	// ID holding "//" or ".." reaches its route (first route).
+	api.CleanPathsAsSent(router)
 
 	// CORS allowed origins (from config).
 	corsOrigins := cfg.CORSOrigins

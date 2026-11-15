@@ -238,7 +238,7 @@ First the tool, as its own flow. Deploy it before the agent's flow:
 
 | # | Node | Settings |
 |---|------|----------|
-| 1 | **Agent Tool** | Tool name `lights_set` · Description `Turns a light of the house on or off. Use it when the user asks to switch a light.` · Input schema below · Cooldown `2000` |
+| 1 | **Agent Tool** | Tool name `lights_set` · Description `Turns a light of the house on or off. Use it when the user asks to switch a light.` · Input schema below |
 | 2 | **Zigbee Set** | Connection `home` · Device `{{payload.room}}_light` · Command `set` · Property `state` · Value `{{payload.state}}` |
 | 3 | **Agent Reply** | leave as it is |
 
@@ -270,6 +270,12 @@ Then, in the chat bot's flow, replace the **LLM Prompt** (node 6) with an
 - The tool's `enum`s are the real limit: whatever a message says, the agent
   can only switch these three lights on or off. The Filter on your chat ID
   keeps everyone else out.
+- "Turn off the kitchen and bedroom lights" is two calls of `lights_set` in
+  one answer of the model, run one after the other. That is why the tool
+  has no **Cooldown**: a cooldown refuses the next call until it has
+  passed, so the second light would be refused and the agent would spend
+  its steps retrying. Keep cooldowns for tools that should not run twice in
+  a row.
 - The tool's **Confirmation** stays `none` (an agent node cannot wait for a
   confirmation) and it is not privileged, so **Allow privileged tools**
   stays off.

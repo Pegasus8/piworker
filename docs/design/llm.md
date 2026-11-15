@@ -143,8 +143,13 @@ What counts:
 HTTP: one shared transport for the process (one connection pool; the nodes
 build a client per call), each client an `http.Client` with no overall
 timeout (the caller's context bounds a call), dial timeout 10 s, TLS
-handshake 10 s, response header timeout 120 s (local models can be slow to
-start), honouring `HTTP(S)_PROXY`. Private and loopback addresses are
+handshake 10 s and no response header timeout: an OpenAI-compatible answer
+is not streamed, so its headers arrive only once the whole answer is
+generated (minutes on a slow local model, a long reasoning run or a long
+transcription). Only the caller's context, bounded by the node's
+`timeout`, ends a call, as a permanent error, where a transport limit
+would be a transient one and a retry would pay for the same generation
+again. It honours `HTTP(S)_PROXY`. Private and loopback addresses are
 allowed: the endpoint is the admin's (agents only choose a connection's
 name). Response bodies are capped (chat 8 MiB, models 4 MiB, embeddings
 64 MiB); a longer body is an error ("the LLM provider's answer is too
@@ -177,7 +182,10 @@ Errors:
 - `JSON` set (no schema): the system prompt gets "Answer with one JSON
   object and nothing else." appended; the answer is parsed with
   `ParseJSONAnswer` (trims, strips a ```json fence, takes the first JSON
-  object or array, trying at most 64 positions).
+  object or array, trying at most 64 positions; a `{` or `[` that does not
+  start a valid value is skipped up to the bracket that closes it, so a
+  fragment inside a malformed answer is never taken for the answer, and
+  one that never closes ends the search: `ErrInvalidAnswer`).
 - A refusal (Anthropic `stop_reason: refusal`; OpenAI `finish_reason:
   content_filter` or a `refusal` field) returns an error wrapping
   `ErrRefused` (with the category and explanation when present; permanent).
@@ -209,9 +217,11 @@ Errors:
   `required` taken from the tool's schema, every other keyword as is).
 - `Models`: `Models.ListAutoPaging` (pages of 100, at most 1 000 models; ID
   and display name).
-- `Embed`, `Transcribe`: `ErrUnsupported` ("Anthropic has no embeddings or
-  transcription API; use an OpenAI-compatible connection such as OpenAI or
-  Ollama").
+- `Embed`, `Transcribe`: `ErrUnsupported` (Anthropic has no embeddings or
+  transcription API). The nodes refuse an Anthropic connection before
+  calling the client and name what offers the feature: OpenAI or Ollama
+  for embeddings, OpenAI or a local Whisper server (LocalAI, Speaches) for
+  transcription; Ollama has no transcription endpoint.
 
 **OpenAI-compatible** (`openai.go`, plain JSON over HTTP; `Authorization:
 Bearer <key>` only when a key is set):
@@ -235,6 +245,10 @@ Bearer <key>` only when a key is set):
   ordered by `index`; usage `prompt_tokens`.
 - `POST {endpoint}/audio/transcriptions` (multipart: `file`, `model`,
   optional `language`, `response_format=json`) → `{text}`; at most 25 MiB.
+  OpenAI tells the format by the file name, so its extension comes from the
+  media type; when that is unknown (`application/octet-stream`) FLAC, ADTS
+  AAC and MPEG audio frames are recognised by their signature, and
+  anything else is named `audio` without an extension (never `.bin`).
   Transcription spends no tokens: it counts one request.
 
 ### 1.3 Structured output helpers (`schema.go`)
@@ -272,7 +286,9 @@ limited to image/png, image/jpeg, image/gif, image/webp.
 ### 1.6 Memory (`memory.go`)
 
 A conversation is a key (1–200 characters of valid UTF-8, one line,
-rendered by the node from a template, e.g. `telegram:{{payload.chat.id}}`)
+rendered by the node from a template, e.g.
+`telegram:{{payload.body.message.chat.id}}` for Telegram updates received
+by a Webhook trigger, whose request body is `payload.body`)
 and its turns.
 
 ```go
@@ -289,7 +305,15 @@ type MemoryPersister interface {
 without a time the current one, writes through first), `Clear(key)`,
 `List() []ConversationInfo` (by key), and caps: at most 200 turns per
 conversation, at most 5 000 conversations (adding one past it evicts the
-least recently updated). `DefaultMemory`, `WithMemory(ctx, m)` (nil →
+least recently updated). The nodes read a conversation with `Read(key)
+([]Turn, uint64)` (the turns and a generation) before the call and save
+the exchange with `AppendAfter(key, gen, keep, turns...) (bool, error)`
+after it: `Clear` (Forget Conversation, the AI memory dialog) leaves a
+mark of the key for an hour (longer than a node's longest timeout), and an
+exchange that read the key before that mark is dropped, so a conversation
+forgotten while the model answered never comes back with that exchange,
+nor starts with it when it had none yet. Otherwise the exchange is
+appended to the conversation as it is then. `DefaultMemory`, `WithMemory(ctx, m)` (nil →
 empty), `MemoryFromContext(ctx)`. Only text turns are stored (no images, no
 tool calls). `MessagesFromTurns` replays a conversation as alternating
 user/assistant messages: leading assistant turns are dropped and
@@ -303,6 +327,7 @@ type KnowledgePersister interface {
 	SaveLLMDocument(collection string, d Document) error
 	DeleteLLMDocument(collection, id string) error
 	DeleteLLMCollection(collection string) error
+	ReplaceLLMDocuments(collection string, save []Document, remove []string) error
 }
 ```
 
@@ -310,7 +335,14 @@ type KnowledgePersister interface {
 error` (replaces the same ID; normalizes the embedding to unit length;
 every document of a collection has the same model and dimensions, else
 `ErrModelMismatch`, except when the one document of a collection is
-replaced; a full collection refuses a new ID), `Search(collection, model
+replaced; a full collection refuses a new ID), `Replace(collection, base
+string, docs []Document) error` (stores `docs`, each `base` or one of its
+chunks, as the whole of the document `base`, and removes what `base` held
+that they do not: the whole document when it is now chunked, its chunks
+when it is not, chunks past the new last one; every document is checked
+first, then the saves and removals happen under one lock and in one
+transaction of the persister, so concurrent replaces of one `base` leave
+one whole version), `Search(collection, model
 string, query Embedding, k int, minScore float64) ([]Hit, error)`
 (brute-force cosine, best first; a missing collection has no hits;
 `ErrModelMismatch` when the collection's model or dimensions differ),
@@ -324,7 +356,10 @@ collection; ≤ 8 192 dimensions; metadata ≤ 8 KiB once encoded.
 `DefaultKnowledge`, `WithKnowledge` (nil → empty), `KnowledgeFromContext`.
 `Chunk(text string, size int) []string` splits on paragraph, then sentence,
 then word boundaries into chunks of at most `size` runes with a 10 %
-overlap.
+overlap. Chunk IDs are `ChunkID(base, n)` = `<base>#<n>` (`IsChunkOf`);
+`LooksLikeChunk(id)` reports an ID that ends in `#` and digits, which the
+knowledge-add node refuses as a document ID (such a document would be
+taken for a chunk of another one and removed when that one is replaced).
 
 ## 2. Storage
 
@@ -420,12 +455,19 @@ Shared rules:
   model that answered (as the provider reports it), `inputTokens`,
   `outputTokens`, `requests` and `stop` (`end`, `max_tokens`, `tool_use`,
   `other`), plus the node's own keys.
-- With a `memoryKey` (template; `AgentVisible`), the rendered key must be a
-  valid conversation key (an empty or invalid one fails the message before
-  any call); `memoryTurns` (integer, `Unit: "messages"`, 2–200, default 20)
-  turns are sent and kept. The prompt and the answer are appended after a
-  successful call; a failure to save is logged and the answer is still
-  passed on. `Cache` is set.
+- With a `memoryKey` (template; `AgentVisible`, `Destination`), the
+  rendered key must be a valid conversation key (an empty or invalid one
+  fails the message before any call); `memoryTurns` (integer, `Unit:
+  "messages"`, 2–200, default 20) turns are sent and kept. The prompt and
+  the answer are appended after a successful call (`AppendAfter`, §1.6:
+  dropped when the key was cleared during the call); a failure to save is
+  logged and the answer is still passed on. `Cache` is set. The key is a
+  `Destination` because it names shared state: conversations are
+  process-wide, so a key another flow uses reads that flow's history into
+  this one's prompts (and a Forget node clears it). A new or changed key
+  raises `destination_changed`, a templated one `dynamic_destination`, and
+  the `low` agent deploy level refuses both, as for knowledge collections
+  (ADR-0019).
 - An empty rendered prompt (with no images) fails the message before any
   call.
 
@@ -494,10 +536,23 @@ without a reply), `error` (the run failed), `running` (no answer within the
 tool's timeout; the run goes on) or `refused` (no run: an unknown tool, bad
 arguments or a call the rules refused).
 
+Retries: until the first tool call, a transient error stays transient (the
+flow's opt-in retries apply). Once a tool was called, every failure is
+permanent (`afterToolsError`: same message, unwraps to the original
+error, `Retryable` false): a retry would start the loop again and run the
+same tools, each a run of another flow, a second time.
+
+The node fills `AgentCaller.Waiting` with `node.WaitingFlows(ctx, id)`,
+`id` being the message's `correlationID` meta: the flows whose agent nodes
+wait for the run it serves (§4).
+
 ### `action-llm-forget` (Forget Conversation; output; icon `eraser`; `safe`)
 
-Settings: `memoryKey` (template, required). Clears the conversation from
-the memory of its context and passes the message on. It is `safe`, so
+Settings: `memoryKey` (template, required, `Destination`: adding a Forget
+node or changing its key is flagged like the LLM nodes' key). Clears the
+conversation from the memory of its context and passes the message on; an
+exchange that LLM Prompt or AI Agent is completing for that key is then
+not saved (§1.6). It is `safe`, so
 `Registry.Derive` does not stub it: in a dry-run or node test it clears the
 sandbox's own empty memory, never the process-wide one.
 
@@ -525,9 +580,13 @@ is refused before any token is spent. Embeds the text (or its chunks, IDs
 `<id>#<n>`, always with `#n` when `chunkSize` > 0; at most 1 000 chunks per
 message, 32 per embeddings request), stores the documents and passes the
 message on unchanged with `meta.knowledge = {connection, model, collection,
-ids, inputTokens}`. Adding a `documentId` again replaces all of it: stale
-chunks and an earlier whole document of that ID are deleted
-(`Knowledge.DeleteMatching`) after the new ones are stored.
+ids, inputTokens}`. Adding a `documentId` again replaces all of it in one
+step (`Knowledge.Replace`, §1.7: the new documents are stored and stale
+chunks or an earlier whole document of that ID removed in one
+transaction), so two messages adding the same ID at once leave one whole
+version. A `documentId` that ends in `#` and digits (`INV#1042`), the form
+of chunk IDs, is refused: a literal one by the factory, a rendered one for
+that message.
 
 ### `process-knowledge-search` (Search Knowledge Base; processing; icon `book-open`)
 
@@ -589,7 +648,16 @@ secret store.
 - only tools the node lists, by name; any other is `not_found`, without a
   lookup;
 - tools published by the agent's own flow are refused (a call would wait
-  for the node that is waiting for it);
+  for the node that is waiting for it), and so are those of every flow
+  that waits for the run the node serves (`AgentCaller.Waiting`): when A's
+  agent calls a tool of B whose agent calls a tool of A, the second call
+  would queue behind the agent node that waits for it until the tool's
+  timeout. A run an agent node starts carries the flows waiting for it
+  (`flow.CallRequest.Waiting`: those waiting for the caller's run plus the
+  caller's own flow, kept on the call's waiter); the runtime's `Replier`
+  answers them through `node.CallWaiters` (`node.WaitingFlows(ctx,
+  correlationID)`, outermost first, nil once the caller has its result).
+  Such tools are neither listed nor callable;
 - privileged tools only with `allowPrivileged`;
 - only tools whose `confirm` is `none`: an agent node has no human to
   confirm a call (`client`) and cannot wait for the admin's approval
@@ -670,12 +738,18 @@ of the node's `connection`), `tools` (published tool names),
 
 The conversation and document routes take the rest of the path
 (`{key:.+}`, `{id:.+}`): keys hold `:` and `/` and document IDs `#`; the
-editor path-escapes them. The router cleans paths before matching, so a
-key or ID with an empty or dot segment (`a//b`, `a/../b`, `./x`, a leading
-`/`) answers a redirect to another path: such conversations and documents
-cannot be viewed or deleted from the editor (the nodes still use them;
-deleting the collection removes such documents). Ordinary keys like
-`telegram:42/main` or `q?x#y%z` work.
+editor path-escapes them (one segment, `/` as `%2F`). The router does not
+clean the decoded path (`SkipClean`); `api.CleanPathsAsSent`, its first
+route, answers the 301 to the clean path only when the path is unclean as
+the client sent it (`URL.EscapedPath`), so an escaped `/` or `.` stays
+inside its segment and a key or ID such as `https://example.com/page`,
+`docs/../faq`, `a/./b` or `x//y` reaches its route unchanged (routes
+still match the decoded path, so handlers read their variables as
+before). Ordinary keys like `telegram:42/main` or `q?x#y%z` work too. One
+case remains: a key or ID that is exactly `.` or `..` is one path segment
+the browser itself resolves (WHATWG URL dot segments, `%2e` included)
+before the request is sent, so the editor cannot reach it (the nodes
+still use it; deleting the collection removes such a document).
 
 Changing a connection restarts nothing (the nodes resolve it per call).
 `GET /api/secrets?usage=1` lists LLM connections whose key references a
@@ -720,8 +794,11 @@ connection's default; neither is 400). `service.Assistant`:
    connections}` (`JSON` mode, `Cache` set; `maxTokens` 16 000), spending
    from the connection's budget (also when the answer fails);
 3. builds the flow: every node gets its registered category and ports
-   (`ConfigOutputs`), an empty config when it has none, enabled unless it
-   says otherwise; values withheld as `<redacted>` come back on the nodes
+   (`ConfigOutputs`), an empty config when it has none; a node the model
+   kept (same ID and type) that the answer gives no `enabled` keeps its
+   current state (a node the admin disabled is never turned back on by a
+   proposal; the prompt says so), any other node is enabled unless the
+   answer says otherwise; values withheld as `<redacted>` come back on the nodes
    the model kept (same ID and type); a valid position the model gave is
    kept, a kept node without one keeps its current one and the rest are
    laid out (`flow.AutoLayout`); each connection gets an ID; `notes` is a
@@ -817,6 +894,7 @@ request (and the server's call).
   ("the answer was cut at maxTokens (256)").
 - Search is a linear scan of a collection (at most 20 000 documents);
   replacing a `documentId` scans the collection's IDs for its old chunks.
-- Conversation keys and document IDs with empty or dot path segments
-  cannot be reached through the REST routes (§6).
+- A conversation key or document ID that is exactly `.` or `..` cannot be
+  reached from the editor: the browser resolves it as a dot segment before
+  the request is sent (§6).
 - The daily budget is checked before a call, so one call can pass it.

@@ -290,7 +290,7 @@ A language model that calls your flow tools until it can answer.
 | Effort | `effort` | `(empty)`, `low`, `medium`, `high`, `xhigh`, `max` | – | How much the model thinks before answering, only for models that support it: others may reject the request (empty: the model's default) |
 | Max steps | `maxSteps` | integer (steps) | `8` | Most requests to the model before the agent gives up, in steps (1 to 32) |
 | Max tokens | `maxTokens` | integer (tokens) | `4096` | Longest answer the model may give, in tokens (1 to 64000); a longer answer is cut |
-| Memory key | `memoryKey` | string | – | Conversation to remember, e.g. telegram:{{payload.message.chat.id}} (supports {{templates}}; empty: no memory) |
+| Memory key | `memoryKey` | string | – | Conversation to remember, e.g. telegram:{{payload.body.message.chat.id}} (supports {{templates}}; empty: no memory) |
 | Memory length | `memoryTurns` | integer (messages) | `20` | How many past messages of the conversation to keep and send, in messages (2 to 200) |
 | Model | `model` | string | – | Model to ask; it must support tool use (empty: the connection's default model) |
 | Prompt (required) | `prompt` | string | `{{payload}}` | The request, built from the message (supports {{templates}}) |
@@ -437,7 +437,7 @@ Ask a language model and pass on its answer (text or JSON).
 | Images | `images` | string | – | Message path of the images to send, e.g. payload.image: base64, a data URL, an http(s) URL or a list of them (empty: none) |
 | JSON schema | `schema` | json | – | Optional JSON Schema the answer must match (output json), e.g. {"type": "object", "properties": {...}} |
 | Max tokens | `maxTokens` | integer (tokens) | `1024` | Longest answer the model may give, in tokens (1 to 64000); a longer answer is cut |
-| Memory key | `memoryKey` | string | – | Conversation to remember, e.g. telegram:{{payload.message.chat.id}} (supports {{templates}}; empty: no memory) |
+| Memory key | `memoryKey` | string | – | Conversation to remember, e.g. telegram:{{payload.body.message.chat.id}} (supports {{templates}}; empty: no memory) |
 | Memory length | `memoryTurns` | integer (messages) | `20` | How many past messages of the conversation to keep and send, in messages (2 to 200) |
 | Model | `model` | string | – | Model to ask (empty: the connection's default model) |
 | Output | `output` | `text`, `json` | `text` | text: the answer as text; json: the answer parsed as a JSON object |
@@ -750,7 +750,7 @@ Clear a conversation the LLM nodes remember.
 
 | Setting | Key | Type | Default | Description |
 |---------|-----|------|---------|-------------|
-| Memory key (required) | `memoryKey` | string | – | Conversation to forget: the memory key of the LLM node, e.g. telegram:{{payload.message.chat.id}} (supports {{templates}}) |
+| Memory key (required) | `memoryKey` | string | – | Conversation to forget: the memory key of the LLM node, e.g. telegram:{{payload.body.message.chat.id}} (supports {{templates}}) |
 
 <a id="action-gpio"></a>
 

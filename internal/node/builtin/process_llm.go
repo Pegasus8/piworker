@@ -282,11 +282,13 @@ WebP, at most 20 MiB together. A message without the path sends no image.
 
 ## Memory
 
-With a **memoryKey** such as ` + "`telegram:{{payload.message.chat.id}}`" + `, the
-node remembers each conversation: the last **memoryTurns** messages are sent
-before the prompt, and the prompt and answer are added after a successful
-call. Clear one with **Forget Conversation**; see and clear them all under
-**AI memory**.
+With a **memoryKey** such as ` + "`telegram:{{payload.body.message.chat.id}}`" + `
+(Telegram updates received by a **Webhook** trigger), the node remembers
+each conversation: the last **memoryTurns** messages are sent before the
+prompt, and the prompt and answer are added after a successful call. Clear
+one with **Forget Conversation**; see and clear them all under **AI
+memory**. A conversation cleared while the model answers does not get that
+exchange.
 
 ## Examples
 

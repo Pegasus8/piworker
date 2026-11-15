@@ -40,7 +40,23 @@ type Memory struct {
 
 	maxConversations int              // MaxConversations (tests lower it)
 	now              func() time.Time // the clock (tests replace it)
-	lastGen          uint64           // the generation of the newest conversation
+	// lastGen is the newest generation, of a conversation started or of a
+	// Clear: generations only grow.
+	lastGen uint64
+	// cleared holds, for clearedLifetime, the generation at which each
+	// key was cleared: an exchange that read the key before it
+	// (AppendAfter) is dropped, even when there was no conversation yet.
+	cleared map[string]clearMark
+}
+
+// clearedLifetime is how long Clear's mark of a key is kept: longer than
+// any exchange takes (a node's timeout is at most 10 minutes).
+const clearedLifetime = time.Hour
+
+// clearMark is when (gen, at) a key was cleared.
+type clearMark struct {
+	gen uint64
+	at  time.Time
 }
 
 // conversation is a stored conversation. gen tells it from another
@@ -55,7 +71,7 @@ type conversation struct {
 
 // NewMemory creates an empty in-memory store.
 func NewMemory() *Memory {
-	return &Memory{convs: map[string]*conversation{}, maxConversations: MaxConversations, now: time.Now}
+	return &Memory{convs: map[string]*conversation{}, cleared: map[string]clearMark{}, maxConversations: MaxConversations, now: time.Now}
 }
 
 // ValidConversationKey reports whether key is a legal conversation key: 1
@@ -93,13 +109,13 @@ func (m *Memory) Turns(key string) []Turn {
 }
 
 // Read returns a copy of the turns of key (nil when there are none) and
-// the conversation's generation (0 when there is none), for AppendAfter.
+// the generation it read them at, for AppendAfter.
 func (m *Memory) Read(key string) ([]Turn, uint64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	c := m.convs[key]
 	if c == nil {
-		return nil, 0
+		return nil, m.lastGen
 	}
 	return append([]Turn(nil), c.turns...), c.gen
 }
@@ -119,19 +135,19 @@ func (m *Memory) Append(key string, keep int, turns ...Turn) error {
 }
 
 // AppendAfter is Append for an exchange that read the conversation key at
-// generation gen (Read) before asking the model: when that conversation
-// is gone since (cleared by a Forget node or the AI memory dialog, or
-// evicted), the turns are dropped and ok is false, so a conversation that
-// was forgotten while the model answered never comes back with the
-// exchange. A conversation that did not exist when it was read (gen 0) is
-// started, or appended to when another message started it meanwhile.
+// generation gen (Read) before asking the model: when key was cleared
+// since (by a Forget node or the AI memory dialog), the turns are dropped
+// and ok is false, so a conversation forgotten while the model answered
+// never comes back with the exchange, nor starts with it when there was
+// none yet. Otherwise the turns are appended to the conversation as it is
+// now (another message may have started it, or added to it, meanwhile).
 func (m *Memory) AppendAfter(key string, gen uint64, keep int, turns ...Turn) (ok bool, err error) {
 	if !ValidConversationKey(key) {
 		return false, fmt.Errorf("invalid conversation key (1 to %d characters, one line)", MaxConversationKeyLength)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if c := m.convs[key]; gen != 0 && (c == nil || c.gen != gen) {
+	if mark, cleared := m.cleared[key]; cleared && mark.gen > gen {
 		return false, nil
 	}
 	if err := m.appendLocked(key, keep, turns); err != nil {
@@ -210,7 +226,9 @@ func (m *Memory) evictLocked() error {
 	return nil
 }
 
-// Clear deletes the conversation key after its persistent deletion succeeds.
+// Clear deletes the conversation key after its persistent deletion
+// succeeds. Exchanges in flight that read key before (AppendAfter) are
+// not saved, whether or not it had a conversation.
 func (m *Memory) Clear(key string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -220,6 +238,14 @@ func (m *Memory) Clear(key string) error {
 		}
 	}
 	delete(m.convs, key)
+	now := m.now()
+	for k, mark := range m.cleared {
+		if now.Sub(mark.at) > clearedLifetime {
+			delete(m.cleared, k)
+		}
+	}
+	m.lastGen++
+	m.cleared[key] = clearMark{gen: m.lastGen, at: now}
 	return nil
 }
 

@@ -101,7 +101,7 @@ const es: typeof en = {
     conversations: {
       tab: 'Conversaciones',
       loadFailed: 'No se pudieron cargar las conversaciones. Inténtalo de nuevo.',
-      empty: ['Aún no hay conversaciones. Los nodos «LLM Prompt» y «AI Agent» recuerdan una cuando tienen el ajuste «Memory key», por ejemplo ', ': cada clave guarda su propio historial, y el nodo «Forget Conversation» lo borra.'],
+      empty: ['Aún no hay conversaciones. Los nodos «LLM Prompt» y «AI Agent» recuerdan una cuando tienen el ajuste «Memory key», por ejemplo ', ' para los mensajes de Telegram que recibe un disparador «Webhook»: cada clave guarda su propio historial, y el nodo «Forget Conversation» lo borra.'],
       filter: 'Filtrar por clave',
       noMatch: 'Ninguna conversación coincide con el filtro.',
       more: (shown: string) => `${shown} más: filtra para acotar la lista.`,

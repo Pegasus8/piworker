@@ -116,7 +116,7 @@ export const useLLMStore = defineStore('llm', () => {
     if (pending) return pending
     const generation = modelGenerations.get(name) ?? 0
     const current = () => (modelGenerations.get(name) ?? 0) === generation
-    const read: Promise<LLMModel[]> = (async () => {
+    const read = (async (): Promise<LLMModel[]> => {
       try {
         const list = await api.getLLMModels(name)
         if (!current()) return []
@@ -127,11 +127,12 @@ export const useLLMStore = defineStore('llm', () => {
         if (!current()) return []
         modelErrors.value = { ...modelErrors.value, [name]: errorMessage(e, msg().editor.llm.modelsUnavailable) }
         return []
-      } finally {
-        if (modelReads.get(name) === read) modelReads.delete(name)
       }
     })()
     modelReads.set(name, read)
+    // Never rejects; the listing is shared until it ends (unless a newer
+    // one replaced it), even when it ends at once.
+    void read.finally(() => { if (modelReads.get(name) === read) modelReads.delete(name) })
     return read
   }
 

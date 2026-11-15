@@ -37,6 +37,11 @@ type AgentCaller struct {
 	Tools []string
 	// AllowPrivileged lets the node call privileged tools.
 	AllowPrivileged bool
+	// Waiting are the flows whose agent nodes wait, through tool calls, for
+	// the run the node serves (WaitingFlows of its message's correlation
+	// ID): a tool of one of them is refused, like one of the node's own
+	// flow, because its run would wait for an agent node that waits for it.
+	Waiting []string
 }
 
 // Statuses of a ToolCallOutcome.

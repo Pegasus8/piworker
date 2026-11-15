@@ -3,6 +3,7 @@ package flow
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/Pegasus8/piworker/internal/metrics"
@@ -164,36 +165,54 @@ func (m *RuntimeManager) deploy(ctx context.Context, f *Flow, extra ...RuntimeOp
 	return nil
 }
 
-// Undeploy stops and removes the runtime for the given flow.
+// Undeploy stops and removes the runtime for the given flow. The runtime
+// leaves the manager under its lock, and is stopped once the lock is
+// released: Stop waits (up to the stop timeout) for the flow's executors to
+// drain, and a node that reads the manager while it runs (an agent node
+// listing or calling tools, ADR-0039) must not wait behind that wait, or
+// the flow could not drain. Until it has drained, the flow cannot be
+// deployed again (ErrFlowStillStopping).
 func (m *RuntimeManager) Undeploy(flowID string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	rt, exists := m.runtimes[flowID]
 	if !exists {
+		m.mu.Unlock()
 		return ErrFlowNotFound
 	}
-
-	wasRunning := rt.IsRunning()
-	if wasRunning {
-		if err := rt.Stop(); err != nil {
-			return err
-		}
-		// Decrement running flows metric
-		metrics.DecrementFlowsRunning()
-	}
-
 	delete(m.runtimes, flowID)
+	m.stopping[flowID] = rt
 	m.toolsVersion++
-	if !rt.Drained() {
-		m.stopping[flowID] = rt
+	m.mu.Unlock()
+
+	m.stop(flowID, rt)
+
+	m.mu.Lock()
+	if m.stopping[flowID] == rt && rt.Drained() {
+		delete(m.stopping, flowID)
 	}
+	m.mu.Unlock()
 
 	m.logger.Info().
 		Str("flowID", flowID).
 		Msg("Flow undeployed successfully")
 
 	return nil
+}
+
+// stop stops rt (the runtime of flowID) if it runs and no other caller is
+// stopping it, keeping the running-flows gauge. It must be called without
+// m.mu held.
+func (m *RuntimeManager) stop(flowID string, rt *FlowRuntime) {
+	if !rt.IsRunning() {
+		return
+	}
+	if err := rt.Stop(); err != nil {
+		// Already stopped, or being stopped by another caller (Undeploy
+		// during StopAll), which keeps the gauge.
+		m.logger.Debug().Err(err).Str("flowID", flowID).Msg("Flow already stopping")
+		return
+	}
+	metrics.DecrementFlowsRunning()
 }
 
 // checkDrained returns ErrFlowStillStopping if a stopped instance of flowID is
@@ -235,24 +254,33 @@ func (m *RuntimeManager) ListRunning() []string {
 	return running
 }
 
-// StopAll stops all running flows.
+// StopAll stops all running flows. The stopped runtimes stay in the
+// manager (not running). As in Undeploy, they are stopped without m.mu
+// held, one after the other.
 func (m *RuntimeManager) StopAll() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	ids := make([]string, 0, len(m.runtimes))
 	for id, rt := range m.runtimes {
 		if rt.IsRunning() {
-			if err := rt.Stop(); err != nil {
-				m.logger.Error().
-					Err(err).
-					Str("flowID", id).
-					Msg("Error stopping flow")
-				continue
-			}
-			metrics.DecrementFlowsRunning()
+			ids = append(ids, id)
 		}
 	}
+	sort.Strings(ids)
+	rts := make([]*FlowRuntime, len(ids))
+	for i, id := range ids {
+		rts[i] = m.runtimes[id]
+	}
+	m.mu.Unlock()
+
+	for i, rt := range rts {
+		m.stop(ids[i], rt)
+	}
+
+	// Tools lists the running flows' tools: a list cached while they were
+	// stopping is stale now.
+	m.mu.Lock()
 	m.toolsVersion++
+	m.mu.Unlock()
 
 	m.logger.Info().Msg("All flows stopped")
 }

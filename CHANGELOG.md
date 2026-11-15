@@ -25,7 +25,8 @@
     per category you type, plus `other`;
     [ADR-0040](docs/adr/0040-node-outputs-from-a-setting.md)), **AI Agent**
     (a model that calls the tool flows you list, through the same checks as
-    MCP agents: never its own flow's tools or tools that need confirmation,
+    MCP agents: never its own flow's tools (nor those of a flow whose agent
+    waits for it) or tools that need confirmation,
     privileged ones only with **Allow privileged tools**;
     [ADR-0039](docs/adr/0039-agent-nodes-call-flow-tools-through-the-tool-service.md)),
     **Forget Conversation**, **Transcribe Audio**, **Add to Knowledge Base**

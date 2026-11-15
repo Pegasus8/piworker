@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -100,6 +101,12 @@ type CallRequest struct {
 	Args          map[string]any // already validated
 	Actor         string         // "token:<name>", "editor", …
 	Timeout       time.Duration
+	// Waiting are the flows whose agent nodes wait for this call (an agent
+	// node's call: its own flow and the flows waiting for the run it
+	// serves). While the caller waits, the run's nodes read them
+	// (node.WaitingFlows), so an agent node of the run never calls a tool
+	// of a flow that waits for it.
+	Waiting []string
 }
 
 // Replier delivers the reply of a called run (node.Replier).
@@ -148,7 +155,7 @@ func (r *FlowRuntime) Call(ctx context.Context, req CallRequest) (CallResult, er
 	}
 
 	runID := uuid.New().String()
-	w, err := r.calls.register(runID, timeout)
+	w, err := r.calls.register(runID, timeout, req.Waiting)
 	if err != nil {
 		return CallResult{}, err
 	}
@@ -266,6 +273,9 @@ type callWaiter struct {
 	// finished, the flow stopped, or the waiter expired.
 	runDone chan struct{}
 
+	// waiting are the flows waiting for the run (CallRequest.Waiting).
+	waiting []string
+
 	final       bool
 	runFinished bool
 	// delivered: Call returned the final result to its caller, so nothing
@@ -311,7 +321,7 @@ func (c *callRegistry) start() {
 // lifetime is timeout + grace. At maxWaiters, the uncollected result closest
 // to its expiry is evicted to make room; when every waiter belongs to a run
 // that still executes, register fails with ErrTooManyCalls.
-func (c *callRegistry) register(runID string, timeout time.Duration) (*callWaiter, error) {
+func (c *callRegistry) register(runID string, timeout time.Duration, waiting []string) (*callWaiter, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.stopped {
@@ -330,6 +340,7 @@ func (c *callRegistry) register(runID string, timeout time.Duration) (*callWaite
 		deadline: now.Add(timeout + c.grace),
 		done:     make(chan struct{}),
 		runDone:  make(chan struct{}),
+		waiting:  slices.Clone(waiting),
 	}
 	w.expiry = time.AfterFunc(timeout+c.grace, func() { c.expire(w) })
 	c.waiters[runID] = w
@@ -370,6 +381,18 @@ func (c *callRegistry) waiting(correlationID string) bool {
 	defer c.mu.Unlock()
 	w := c.waiters[correlationID]
 	return w != nil && !w.final
+}
+
+// WaitingFlows implements node.CallWaiters: the flows waiting for the
+// called run correlationID while its caller waits for the result.
+func (c *callRegistry) WaitingFlows(correlationID string) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	w := c.waiters[correlationID]
+	if w == nil || w.final || len(w.waiting) == 0 {
+		return nil
+	}
+	return slices.Clone(w.waiting)
 }
 
 // Reply implements Replier.

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -332,4 +333,62 @@ func TestAttachLLMPersists(t *testing.T) {
 	assert.Equal(t, 1, total)
 	require.Len(t, docs, 1)
 	assert.Equal(t, "boiler", docs[0].ID)
+}
+
+// The editor path-escapes conversation keys and document IDs
+// (encodeURIComponent). One that holds "//", "/./" or "/../" once decoded
+// (a URL stored as a document ID, "docs/../faq") reaches its route as
+// sent: the router never redirects it to the "clean" path, which names
+// another key (a redirected DELETE would delete another document, or none
+// while answering 200). Paths that are unclean as sent are still
+// redirected.
+func TestLLMItemRoutesTakeEscapedKeysAsSent(t *testing.T) {
+	app := newTestApp(t, false)
+	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+	collection := "pw_test_" + suffix
+	t.Cleanup(func() { _ = llm.DefaultKnowledge.DeleteCollection(collection) })
+	ids := []string{"https://example.com/page", "docs/../faq", "faq", "a/./b", "a/b", "x//y"}
+	for _, id := range ids {
+		require.NoError(t, llm.DefaultKnowledge.Add(collection, llm.Document{ID: id, Text: id, Model: "emb", Embedding: llm.Embedding{1, 0}}))
+	}
+	remaining := func() []string {
+		docs, _ := llm.DefaultKnowledge.Documents(collection, 0, 100)
+		var left []string
+		for _, d := range docs {
+			left = append(left, d.ID)
+		}
+		return left
+	}
+	for i, id := range []string{"https://example.com/page", "docs/../faq", "a/./b", "x//y"} {
+		path := "/api/llm/knowledge/" + collection + "/documents/" + url.PathEscape(id)
+		w := app.do("DELETE", path, "", "", editorHeaders)
+		require.Equalf(t, http.StatusOK, w.Code, "DELETE %s: %s", path, w.Body.String())
+		assert.NotContains(t, remaining(), id, "the document named is deleted")
+		assert.Len(t, remaining(), len(ids)-i-1, "and only it")
+	}
+	assert.ElementsMatch(t, []string{"faq", "a/b"}, remaining())
+
+	key := "pw_test_" + suffix + ":https://example.com/chat"
+	t.Cleanup(func() { _ = llm.DefaultMemory.Clear(key) })
+	require.NoError(t, llm.DefaultMemory.Append(key, 10, llm.Turn{Role: llm.RoleUser, Text: "hello"}))
+	path := "/api/llm/conversations/" + url.PathEscape(key)
+	w := app.do("GET", path, "", "", nil)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), `"hello"`)
+	w = app.do("DELETE", path, "", "", editorHeaders)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Empty(t, llm.DefaultMemory.Turns(key))
+
+	// Unclean as sent: redirected to the clean path, as before.
+	for from, to := range map[string]string{
+		"/api//llm/conversations":                    "/api/llm/conversations",
+		"/api/llm/./conversations?x=1":               "/api/llm/conversations?x=1",
+		"/api/flows/../llm/conversations":            "/api/llm/conversations",
+		"/api/llm/conversations/a%2Fb/../c%2Fd":      "/api/llm/conversations/c%2Fd",
+		"/api/llm/knowledge/c/documents/a//b%2F%2Fc": "/api/llm/knowledge/c/documents/a/b%2F%2Fc",
+	} {
+		w := app.do("GET", from, "", "", nil)
+		require.Equalf(t, http.StatusMovedPermanently, w.Code, "GET %s: %s", from, w.Body.String())
+		assert.Equalf(t, to, w.Header().Get("Location"), "GET %s", from)
+	}
 }

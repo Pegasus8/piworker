@@ -28,7 +28,7 @@ func NewLLMForgetAction(config map[string]interface{}) (node.Node, error) {
 		return nil, err
 	}
 	if key = strings.TrimSpace(key); key == "" {
-		return nil, errors.New("memoryKey is required: the conversation to forget, e.g. telegram:{{payload.message.chat.id}}")
+		return nil, errors.New("memoryKey is required: the conversation to forget, e.g. telegram:{{payload.body.message.chat.id}}")
 	}
 	return &LLMForgetAction{BaseNode: base, memoryKey: key}, nil
 }
@@ -64,7 +64,7 @@ func llmForgetConfigSchema() node.ConfigSchema {
 		Required:   []string{"memoryKey"},
 	}
 	key := schema.Properties["memoryKey"]
-	key.Description = "Conversation to forget: the memory key of the LLM node, e.g. telegram:{{payload.message.chat.id}} (supports {{templates}})"
+	key.Description = "Conversation to forget: the memory key of the LLM node, e.g. telegram:{{payload.body.message.chat.id}} (supports {{templates}})"
 	schema.Properties["memoryKey"] = key
 	return schema
 }
@@ -96,10 +96,10 @@ Use the same key template as the LLM node, so it renders to the same key.
 ## Example
 
 A Telegram bot that starts over on /reset: a **Switch** on
-` + "`payload.message.text == \"/reset\"`" + ` sends those messages here with
+` + "`payload.body.message.text == \"/reset\"`" + ` sends those messages here with
 
 ` + "```" + `
-memoryKey: telegram:{{payload.message.chat.id}}
+memoryKey: telegram:{{payload.body.message.chat.id}}
 ` + "```" + `
 
 Conversations can also be viewed and cleared under **AI memory**.

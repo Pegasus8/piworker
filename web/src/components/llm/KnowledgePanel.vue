@@ -4,6 +4,9 @@
 // document or a whole collection. Document IDs, texts and metadata come
 // from messages that reached the flows: shown through AgentText (hidden
 // characters escaped), and confirmations quote them with visibleText.
+// Leaving a collection, or deleting a document or a collection, puts the
+// focus on the row that was shown (or the one that took its place), never
+// on the page.
 import { computed, nextTick, ref, watch } from 'vue'
 import { Button } from '@/components/ui'
 import { ArrowLeft, BookOpen, ChevronLeft, ChevronRight, Library, RefreshCw, Trash2 } from 'lucide-vue-next'
@@ -15,7 +18,7 @@ import { useLLMStore } from '@/stores/llm'
 import { errorMessage } from '@/lib/llm'
 import { visibleText } from '@/lib/agentAccess'
 import { messages as m, formatDateTime, formatNumber, formatRelative } from '@/i18n'
-import { DOCUMENT_PAGE, metadataText, offsetAfterDelete, pageInfo, textPreview } from './memory'
+import { DOCUMENT_PAGE, focusCandidates, metadataText, offsetAfterDelete, pageInfo, rowControlId, textPreview } from './memory'
 import type { KnowledgeCollection, KnowledgeDocumentPage } from '@/types'
 
 // open: the dialog is open (each opening reads the collections again).
@@ -39,6 +42,27 @@ const docsLoading = ref(false)
 const docsError = ref('')
 const heading = ref<HTMLElement>()
 let docsRequest = 0
+// The element IDs the focus goes back to: a row's button, else Refresh or the collection's heading.
+const BROWSE_ID = 'ai-memory-browse'
+const DELETE_DOCUMENT_ID = 'ai-memory-delete-document'
+const REFRESH_ID = 'ai-memory-collections-refresh'
+const HEADING_ID = 'ai-memory-collection'
+const collectionNames = () => store.collections.map(c => c.name)
+const documentIds = () => page.value.documents.map(d => d.id)
+
+// The focused control went with the view or its row: the focus goes to
+// the row of key (or the one that took its place), else to the fallbacks.
+// before: the rows listed before the change, after reads them once drawn.
+async function refocus(key: string | null, before: readonly string[], after: () => readonly string[], rowPrefix: string, fallbacks: string[]) {
+  await nextTick()
+  for (const id of focusCandidates(key, before, after(), rowPrefix, fallbacks)) {
+    const target = document.getElementById(id)
+    if (target) {
+      target.focus()
+      return
+    }
+  }
+}
 
 async function load() {
   loading.value = true
@@ -95,6 +119,14 @@ function back() {
   docsError.value = ''
 }
 
+// Back to the collections, focusing the one that was shown. before: the
+// collections listed before a delete took it.
+function leave(before = collectionNames()) {
+  const name = browsing.value
+  back()
+  void refocus(name, before, collectionNames, BROWSE_ID, [REFRESH_ID])
+}
+
 function go(pages: number) {
   offset.value = Math.max(0, offset.value + pages * DOCUMENT_PAGE)
   void loadDocuments()
@@ -104,22 +136,30 @@ async function deleteDocument(id: string) {
   const name = browsing.value
   const text = t.value
   if (!name || pending.value || !await confirmation.value?.ask(text.deleteDocumentTitle, text.deleteDocumentText(visibleText(id)), text.deleteDocumentConfirm)) return
+  const collections = collectionNames()
+  const documents = documentIds()
   const ok = await run(() => store.deleteDocument(name, id), text.documentDeleted, e => errorMessage(e, text.deleteDocumentFailed))
   if (!ok || browsing.value !== name) return
   // The last document took the collection with it.
   if (!store.collections.some(c => c.name === name)) {
-    back()
+    leave(collections)
     return
   }
   offset.value = offsetAfterDelete(offset.value, page.value.total - 1)
   await loadDocuments()
+  // Its delete button went with it: the next document's, else the heading.
+  if (browsing.value === name) await refocus(id, documents, documentIds, DELETE_DOCUMENT_ID, [HEADING_ID])
 }
 
 async function deleteCollection(c: KnowledgeCollection) {
   const text = t.value
   if (pending.value || !await confirmation.value?.ask(text.deleteCollectionTitle, text.deleteCollectionText(c.name, c.documents, formatNumber(c.documents)), text.deleteCollectionConfirm)) return
+  const before = collectionNames()
   const ok = await run(() => store.deleteCollection(c.name), text.collectionDeleted, e => errorMessage(e, text.deleteCollectionFailed))
-  if (ok && browsing.value === c.name) back()
+  if (!ok) return
+  // Its view, or its row in the list, is gone with the button that deleted it.
+  if (browsing.value === c.name) leave(before)
+  else if (!browsing.value) await refocus(c.name, before, collectionNames, BROWSE_ID, [REFRESH_ID])
 }
 
 const summary = (c: KnowledgeCollection) => `${t.value.documents(c.documents, formatNumber(c.documents))} · ${t.value.embedding(c.model, formatNumber(c.dimensions))}`
@@ -130,15 +170,15 @@ const summary = (c: KnowledgeCollection) => `${t.value.documents(c.documents, fo
     <OperationFeedback :message="feedback" @dismiss="feedback = null" />
 
     <!-- One collection's documents -->
-    <section v-if="browsing" class="space-y-3" aria-labelledby="ai-memory-collection">
+    <section v-if="browsing" class="space-y-3" :aria-labelledby="HEADING_ID">
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <Button variant="ghost" size="sm" @click="back"><ArrowLeft class="mr-1 h-4 w-4" aria-hidden="true" />{{ t.back }}</Button>
+        <Button variant="ghost" size="sm" @click="leave()"><ArrowLeft class="mr-1 h-4 w-4" aria-hidden="true" />{{ t.back }}</Button>
         <Button v-if="collection" variant="outline" size="sm" class="text-destructive" :disabled="pending" :aria-label="t.deleteCollectionLabel(collection.name)" @click="deleteCollection(collection)">
           <Trash2 class="mr-1 h-4 w-4" aria-hidden="true" />{{ t.deleteCollection }}
         </Button>
       </div>
       <div>
-        <h3 id="ai-memory-collection" ref="heading" tabindex="-1" class="break-all font-mono text-sm font-semibold focus:outline-none">{{ browsing }}</h3>
+        <h3 :id="HEADING_ID" ref="heading" tabindex="-1" class="break-all font-mono text-sm font-semibold focus:outline-none">{{ browsing }}</h3>
         <p v-if="collection" class="break-words text-xs text-muted-foreground">{{ summary(collection) }}</p>
       </div>
 
@@ -161,7 +201,7 @@ const summary = (c: KnowledgeCollection) => `${t.value.documents(c.documents, fo
               </p>
             </div>
           </details>
-          <Button variant="ghost" size="icon" class="h-9 w-9 shrink-0 text-destructive" :disabled="pending" :aria-label="t.deleteDocumentLabel(visibleText(d.id))" :title="t.deleteDocumentConfirm" @click="deleteDocument(d.id)">
+          <Button :id="rowControlId(DELETE_DOCUMENT_ID, d.id)" variant="ghost" size="icon" class="h-9 w-9 shrink-0 text-destructive" :disabled="pending" :aria-label="t.deleteDocumentLabel(visibleText(d.id))" :title="t.deleteDocumentConfirm" @click="deleteDocument(d.id)">
             <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
           </Button>
         </li>
@@ -181,7 +221,7 @@ const summary = (c: KnowledgeCollection) => `${t.value.documents(c.documents, fo
     <!-- The collections -->
     <template v-else>
       <div class="flex justify-end">
-        <Button variant="outline" size="icon" class="h-9 w-9" :disabled="loading" :aria-label="m.llm.memory.refresh" :title="m.llm.memory.refresh" @click="load">
+        <Button :id="REFRESH_ID" variant="outline" size="icon" class="h-9 w-9" :disabled="loading" :aria-label="m.llm.memory.refresh" :title="m.llm.memory.refresh" @click="load">
           <RefreshCw class="h-4 w-4" :class="loading ? 'animate-spin' : ''" aria-hidden="true" />
         </Button>
       </div>
@@ -202,7 +242,7 @@ const summary = (c: KnowledgeCollection) => `${t.value.documents(c.documents, fo
             </p>
           </div>
           <div class="flex shrink-0 gap-1">
-            <Button variant="outline" size="sm" :aria-label="t.browseLabel(c.name)" @click="browse(c.name)">
+            <Button :id="rowControlId(BROWSE_ID, c.name)" variant="outline" size="sm" :aria-label="t.browseLabel(c.name)" @click="browse(c.name)">
               <BookOpen class="h-3.5 w-3.5 sm:mr-1" aria-hidden="true" /><span class="hidden sm:inline">{{ t.browse }}</span>
             </Button>
             <Button variant="ghost" size="icon" class="h-9 w-9 text-destructive" :disabled="pending" :aria-label="t.deleteCollectionLabel(c.name)" :title="t.deleteCollection" @click="deleteCollection(c)">

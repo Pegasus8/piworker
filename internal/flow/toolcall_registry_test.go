@@ -31,7 +31,7 @@ func newTestRegistry(t *testing.T) *callRegistry {
 
 func TestCallRegistryReplyCompletes(t *testing.T) {
 	reg := newTestRegistry(t)
-	w, err := reg.register("run-1", time.Second)
+	w, err := reg.register("run-1", time.Second, nil)
 	require.NoError(t, err)
 
 	assert.True(t, reg.Reply("run-1", map[string]any{"ok": true}, false))
@@ -51,7 +51,7 @@ func TestCallRegistryReplyCompletes(t *testing.T) {
 
 func TestCallRegistryFirstReplyWins(t *testing.T) {
 	reg := newTestRegistry(t)
-	w, err := reg.register("run-1", time.Second)
+	w, err := reg.register("run-1", time.Second, nil)
 	require.NoError(t, err)
 
 	assert.True(t, reg.Reply("run-1", "first", false))
@@ -63,7 +63,7 @@ func TestCallRegistryFirstReplyWins(t *testing.T) {
 
 func TestCallRegistryReplyErrorMode(t *testing.T) {
 	reg := newTestRegistry(t)
-	w, err := reg.register("run-1", time.Second)
+	w, err := reg.register("run-1", time.Second, nil)
 	require.NoError(t, err)
 
 	assert.True(t, reg.Reply("run-1", "bad input", true))
@@ -76,7 +76,7 @@ func TestCallRegistryReplyUnknownOrFinished(t *testing.T) {
 	reg := newTestRegistry(t)
 	assert.False(t, reg.Reply("nope", 1, false), "unknown correlation ID")
 
-	_, err := reg.register("run-1", time.Second)
+	_, err := reg.register("run-1", time.Second, nil)
 	require.NoError(t, err)
 	reg.runFinished("run-1")
 	assert.False(t, reg.Reply("run-1", 1, false), "the run already finished without a reply")
@@ -84,7 +84,7 @@ func TestCallRegistryReplyUnknownOrFinished(t *testing.T) {
 
 func TestCallRegistryReplyDeepCopies(t *testing.T) {
 	reg := newTestRegistry(t)
-	w, err := reg.register("run-1", time.Second)
+	w, err := reg.register("run-1", time.Second, nil)
 	require.NoError(t, err)
 
 	payload := map[string]any{"list": []any{"a"}, "n": 1}
@@ -103,7 +103,7 @@ func TestCallRegistryReplyDeepCopies(t *testing.T) {
 
 func TestCallRegistryUnserializableReplyIsAnError(t *testing.T) {
 	reg := newTestRegistry(t)
-	w, err := reg.register("run-1", time.Second)
+	w, err := reg.register("run-1", time.Second, nil)
 	require.NoError(t, err)
 
 	assert.False(t, reg.Reply("run-1", make(chan int), false))
@@ -122,7 +122,7 @@ func TestCallRegistryReplyTooLarge(t *testing.T) {
 	reg := newTestRegistry(t)
 	reg.maxResultBytes = 8
 
-	w, err := reg.register("run-1", time.Second)
+	w, err := reg.register("run-1", time.Second, nil)
 	require.NoError(t, err)
 	assert.False(t, reg.Reply("run-1", "123456789", false), `"123456789" is 11 bytes`)
 	assert.False(t, isClosed(w.done), "an oversized reply is not a result")
@@ -134,13 +134,13 @@ func TestCallRegistryReplyTooLarge(t *testing.T) {
 	assert.Contains(t, res.Error.Message, "too large")
 	assert.Contains(t, res.Error.Message, "11 bytes")
 
-	atLimit, err := reg.register("run-2", time.Second)
+	atLimit, err := reg.register("run-2", time.Second, nil)
 	require.NoError(t, err)
 	assert.True(t, reg.Reply("run-2", "123456", false), `"123456" is exactly 8 bytes`)
 	assert.JSONEq(t, `"123456"`, string(reg.snapshot(atLimit).Result))
 
 	// A later, smaller reply can still win.
-	retry, err := reg.register("run-3", time.Second)
+	retry, err := reg.register("run-3", time.Second, nil)
 	require.NoError(t, err)
 	assert.False(t, reg.Reply("run-3", "far too long", false))
 	assert.True(t, reg.Reply("run-3", "short", true))
@@ -150,7 +150,7 @@ func TestCallRegistryReplyTooLarge(t *testing.T) {
 
 func TestCallRegistryRunEndWithoutReply(t *testing.T) {
 	reg := newTestRegistry(t)
-	w, err := reg.register("run-1", time.Second)
+	w, err := reg.register("run-1", time.Second, nil)
 	require.NoError(t, err)
 
 	reg.runFinished("run-1")
@@ -166,7 +166,7 @@ func TestCallRegistryRunEndWithoutReply(t *testing.T) {
 
 func TestCallRegistryFirstNodeErrorIsCollected(t *testing.T) {
 	reg := newTestRegistry(t)
-	w, err := reg.register("run-1", time.Second)
+	w, err := reg.register("run-1", time.Second, nil)
 	require.NoError(t, err)
 
 	reg.nodeError("run-1", "n1", "type-a", errors.New("first"))
@@ -182,7 +182,7 @@ func TestCallRegistryFirstNodeErrorIsCollected(t *testing.T) {
 
 func TestCallRegistryReplyWinsOverNodeError(t *testing.T) {
 	reg := newTestRegistry(t)
-	w, err := reg.register("run-1", time.Second)
+	w, err := reg.register("run-1", time.Second, nil)
 	require.NoError(t, err)
 
 	reg.nodeError("run-1", "n1", "type-a", errors.New("branch failed"))
@@ -197,7 +197,7 @@ func TestCallRegistryReplyWinsOverNodeError(t *testing.T) {
 
 func TestCallRegistryPendingSnapshotIsRunning(t *testing.T) {
 	reg := newTestRegistry(t)
-	w, err := reg.register("run-1", time.Second)
+	w, err := reg.register("run-1", time.Second, nil)
 	require.NoError(t, err)
 
 	res := reg.snapshot(w)
@@ -208,9 +208,9 @@ func TestCallRegistryPendingSnapshotIsRunning(t *testing.T) {
 
 func TestCallRegistryStopCancelsWaiters(t *testing.T) {
 	reg := newTestRegistry(t)
-	pending, err := reg.register("pending", time.Second)
+	pending, err := reg.register("pending", time.Second, nil)
 	require.NoError(t, err)
-	done, err := reg.register("done", time.Second)
+	done, err := reg.register("done", time.Second, nil)
 	require.NoError(t, err)
 	require.True(t, reg.Reply("done", "kept", false))
 
@@ -233,18 +233,18 @@ func TestCallRegistryStopCancelsWaiters(t *testing.T) {
 	assert.True(t, timerStopped(done.expiry), "stop stops the expiry timers")
 	assert.False(t, reg.Reply("done", "late", false))
 
-	_, err = reg.register("late", time.Second)
+	_, err = reg.register("late", time.Second, nil)
 	assert.ErrorIs(t, err, ErrFlowNotRunning, "no new calls on a stopped flow")
 
 	reg.start()
-	_, err = reg.register("after-restart", time.Second)
+	_, err = reg.register("after-restart", time.Second, nil)
 	assert.NoError(t, err)
 }
 
 func TestCallRegistryExpiry(t *testing.T) {
 	reg := newCallRegistry(30 * time.Millisecond)
 	reg.start()
-	w, err := reg.register("run-1", 10*time.Millisecond)
+	w, err := reg.register("run-1", 10*time.Millisecond, nil)
 	require.NoError(t, err)
 
 	select {
@@ -262,7 +262,7 @@ func TestCallRegistryExpiry(t *testing.T) {
 func TestCallRegistryFinishedWaiterIsForgottenAtExpiry(t *testing.T) {
 	reg := newCallRegistry(20 * time.Millisecond)
 	reg.start()
-	w, err := reg.register("run-1", 10*time.Millisecond)
+	w, err := reg.register("run-1", 10*time.Millisecond, nil)
 	require.NoError(t, err)
 	require.True(t, reg.Reply("run-1", "ok", false))
 	reg.runFinished("run-1")
@@ -280,7 +280,7 @@ func timerStopped(t *time.Timer) bool { return !t.Stop() }
 // is still going (RunDone must keep working), then frees it at once.
 func TestCallRegistryDeliveredResultIsForgottenAtRunEnd(t *testing.T) {
 	reg := newTestRegistry(t)
-	w, err := reg.register("run-1", time.Second)
+	w, err := reg.register("run-1", time.Second, nil)
 	require.NoError(t, err)
 	require.True(t, reg.Reply("run-1", "ok", false))
 
@@ -303,7 +303,7 @@ func TestCallRegistryDeliveredResultIsForgottenAtRunEnd(t *testing.T) {
 // when Call returns leaves nothing behind.
 func TestCallRegistryDeliveryAfterRunEndForgetsAtOnce(t *testing.T) {
 	reg := newTestRegistry(t)
-	w, err := reg.register("run-1", time.Second)
+	w, err := reg.register("run-1", time.Second, nil)
 	require.NoError(t, err)
 	reg.runFinished("run-1")
 	require.Same(t, w, reg.get("run-1"), "not delivered yet: kept for Call")
@@ -322,13 +322,13 @@ func TestCallRegistryDeliveryAfterRunEndForgetsAtOnce(t *testing.T) {
 func TestCallRegistryUndeliveredResultsStayForWait(t *testing.T) {
 	reg := newTestRegistry(t)
 
-	timedOut, err := reg.register("timed-out", time.Second)
+	timedOut, err := reg.register("timed-out", time.Second, nil)
 	require.NoError(t, err)
 	res, err := reg.deliver(timedOut, nil)
 	require.NoError(t, err)
 	assert.Equal(t, CallStatusRunning, res.Status)
 
-	cancelled, err := reg.register("cancelled", time.Second)
+	cancelled, err := reg.register("cancelled", time.Second, nil)
 	require.NoError(t, err)
 	res, err = reg.deliver(cancelled, context.Canceled)
 	assert.ErrorIs(t, err, context.Canceled, "an interrupted wait reports why")
@@ -348,7 +348,7 @@ func TestCallRegistryUndeliveredResultsStayForWait(t *testing.T) {
 // ctx error.
 func TestCallRegistryFinalResultWinsOverInterruption(t *testing.T) {
 	reg := newTestRegistry(t)
-	w, err := reg.register("run-1", time.Second)
+	w, err := reg.register("run-1", time.Second, nil)
 	require.NoError(t, err)
 	reg.runFinished("run-1")
 
@@ -364,12 +364,12 @@ func TestCallRegistryFinalResultWinsOverInterruption(t *testing.T) {
 func TestCallRegistryWaiterLimit(t *testing.T) {
 	reg := newTestRegistry(t)
 	reg.maxWaiters = 2
-	_, err := reg.register("a", time.Second)
+	_, err := reg.register("a", time.Second, nil)
 	require.NoError(t, err)
-	b, err := reg.register("b", time.Second)
+	b, err := reg.register("b", time.Second, nil)
 	require.NoError(t, err)
 
-	_, err = reg.register("c", time.Second)
+	_, err = reg.register("c", time.Second, nil)
 	assert.ErrorIs(t, err, ErrTooManyCalls)
 	assert.Nil(t, reg.get("c"))
 
@@ -378,12 +378,12 @@ func TestCallRegistryWaiterLimit(t *testing.T) {
 	require.True(t, reg.Reply("b", "ok", false))
 	_, err = reg.deliver(b, nil)
 	require.NoError(t, err)
-	_, err = reg.register("c", time.Second)
+	_, err = reg.register("c", time.Second, nil)
 	assert.ErrorIs(t, err, ErrTooManyCalls)
 
 	// a's run ended and nobody collected its result: it makes room.
 	reg.runFinished("a")
-	_, err = reg.register("c", time.Second)
+	_, err = reg.register("c", time.Second, nil)
 	require.NoError(t, err)
 	assert.Nil(t, reg.get("a"), "the uncollected result was evicted")
 	assert.NotNil(t, reg.get("b"))
@@ -399,18 +399,18 @@ func TestCallRegistryLimitEvictsTheResultClosestToExpiry(t *testing.T) {
 	now := time.Now()
 	reg.now = func() time.Time { return now }
 
-	long, err := reg.register("long", 30*time.Second)
+	long, err := reg.register("long", 30*time.Second, nil)
 	require.NoError(t, err)
 	now = now.Add(time.Second)
-	short, err := reg.register("short", time.Second) // expires first
+	short, err := reg.register("short", time.Second, nil) // expires first
 	require.NoError(t, err)
 	now = now.Add(time.Second)
-	_, err = reg.register("live", time.Second)
+	_, err = reg.register("live", time.Second, nil)
 	require.NoError(t, err)
 	reg.runFinished("long")
 	reg.runFinished("short")
 
-	_, err = reg.register("new", time.Second)
+	_, err = reg.register("new", time.Second, nil)
 	require.NoError(t, err)
 	assert.Nil(t, reg.get("short"), "evicted: closest to its expiry")
 	assert.True(t, timerStopped(short.expiry))
@@ -420,7 +420,7 @@ func TestCallRegistryLimitEvictsTheResultClosestToExpiry(t *testing.T) {
 
 func TestCallRegistryRemove(t *testing.T) {
 	reg := newTestRegistry(t)
-	w, err := reg.register("run-1", time.Second)
+	w, err := reg.register("run-1", time.Second, nil)
 	require.NoError(t, err)
 	reg.remove("run-1")
 	assert.Nil(t, reg.get("run-1"))
@@ -430,9 +430,9 @@ func TestCallRegistryRemove(t *testing.T) {
 
 func TestCallRegistryDuplicateRunID(t *testing.T) {
 	reg := newTestRegistry(t)
-	_, err := reg.register("run-1", time.Second)
+	_, err := reg.register("run-1", time.Second, nil)
 	require.NoError(t, err)
-	_, err = reg.register("run-1", time.Second)
+	_, err = reg.register("run-1", time.Second, nil)
 	assert.Error(t, err)
 }
 
@@ -444,7 +444,7 @@ func TestReplyFromContextWithoutRegistry(t *testing.T) {
 
 func TestReplyFromContextFindsRegistry(t *testing.T) {
 	reg := newTestRegistry(t)
-	w, err := reg.register("run-1", time.Second)
+	w, err := reg.register("run-1", time.Second, nil)
 	require.NoError(t, err)
 	ctx := withCallRegistry(context.Background(), reg)
 

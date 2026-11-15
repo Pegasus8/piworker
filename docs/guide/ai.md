@@ -63,7 +63,7 @@ it, and spends no tokens.
 
 | Preset | Base URL | API key | Notes |
 |--------|----------|---------|-------|
-| **Anthropic** (Claude) | `https://api.anthropic.com` (default) | Required | Chat, images, JSON and agents. No embeddings or transcription: add an OpenAI or Ollama connection for those. |
+| **Anthropic** (Claude) | `https://api.anthropic.com` (default) | Required | Chat, images, JSON and agents. No embeddings or transcription: add an OpenAI or Ollama connection for embeddings, and an OpenAI connection or a local Whisper server (LocalAI, Speaches) for transcription. |
 | **OpenAI** | `https://api.openai.com/v1` (default) | Required | Chat, images, JSON, agents, embeddings (`text-embedding-3-small`) and transcription (`whisper-1`). |
 | **Ollama** | `http://localhost:11434/v1` | None | Runs models on your own hardware. Install a model first (`ollama pull <model>`); an embedding model such as `nomic-embed-text` for the knowledge base. |
 | **LM Studio** | `http://localhost:1234/v1` | None | Start LM Studio's local server and load a model. |
@@ -92,8 +92,11 @@ when you deploy it (`undefined_llm_connection`).
   Current Claude and OpenAI models do; with local models check the model's
   description.
 - **Effort** (LLM Prompt, AI Agent) asks a model that can think before
-  answering to think less or more. Models without the setting ignore it.
-  Thinking counts towards **Max tokens**.
+  answering to think less or more. It is sent whatever the model, so set it
+  only for models that support it: others may reject every request (OpenAI
+  answers 400 *Unsupported parameter: 'reasoning_effort'* for models such
+  as `gpt-4o` or `gpt-4.1`; many local servers ignore it). Leave it empty
+  for those models. Thinking counts towards **Max tokens**.
 
 ## What leaves your device
 
@@ -251,7 +254,11 @@ use to check a flow never call a model.
 
 LLM Prompt and AI Agent remember a conversation when **Memory key** is set.
 The key is a template, so each chat gets its own history:
-`telegram:{{payload.body.message.chat.id}}`.
+`telegram:{{payload.body.message.chat.id}}` (a Webhook trigger puts the
+update Telegram sends under `payload.body`). Check the path with a
+**Debug** node first: a path the message does not have renders empty, so
+the key would be the same (`telegram:`) for every chat and all of them
+would share one conversation.
 
 - Before the prompt, the node sends the last **Memory length** messages of
   that conversation (default 20; a question and its answer are two). After
@@ -263,13 +270,17 @@ The key is a template, so each chat gets its own history:
   is dropped.
 - **Forget Conversation** with the same key template clears one, for
   example on a `/reset` message. **AI memory → Conversations** lists them,
-  shows them as plain text and clears them.
+  shows them as plain text and clears them. An answer the model was still
+  writing when its conversation was cleared is not added to it.
 - A longer memory sends more tokens on every message. With Anthropic the
   repeated part is cached by the provider, but it still counts towards the
   daily limit.
-- A key with an empty or `..` part (`a//b`, `a/../b`) or starting with `/`
-  works in flows but cannot be opened or cleared in AI memory; avoid such
-  keys.
+- Conversations are shared by all flows: two nodes with the same key share
+  one history. When an AI assistant drafts flows for you, a new or changed
+  **Memory key**, or a new **Forget Conversation**, is flagged on the
+  approval page, and the `low` [agent deploy](agents.md) level refuses it.
+- A key that is exactly `.` or `..` works in flows but cannot be opened or
+  cleared in AI memory (the browser rewrites such a path); avoid it.
 
 ## Knowledge base: answers from your documents
 
@@ -294,9 +305,11 @@ come from any connection, Claude included.
 - A document holds at most 32 KiB of text. Set **Chunk size** (for example
   `1000`) to split long texts into overlapping pieces; each piece is a
   document `<id>#<n>`.
-- The same **Document ID** again replaces the document and all its pieces,
-  so re-adding an updated manual does not leave old passages behind. Empty
-  gives each message a new document.
+- The same **Document ID** again replaces the document and all its pieces
+  at once, so re-adding an updated manual does not leave old passages
+  behind. Empty gives each message a new document. A Document ID may not
+  end in `#` and a number (`INV#1042`), the form of the pieces' IDs: end
+  it otherwise, for example `{{payload.ref}}-doc`.
 - A collection holds at most 20 000 documents. Searching it is done on the
   device and sends nothing but the query to the provider.
 - **AI memory → Knowledge base** lists the collections, shows their
@@ -320,7 +333,10 @@ result. MCP does not need to be on.
 published ones and warns about any it cannot call. Of those it may only
 call tools that:
 
-- are published by a **running** flow other than the agent's own;
+- are published by a **running** flow other than the agent's own, and
+  other than a flow whose agent is waiting for this one (when flow A's
+  agent calls a tool of flow B, B's agent cannot call A's tools: each
+  would wait for the other);
 - need no confirmation (**Confirmation** `none`): the agent has nobody to
   ask and cannot wait for your approval;
 - are not privileged (commands, files, databases, hardware pins), unless
@@ -328,8 +344,11 @@ call tools that:
 
 On every call, as for Claude over MCP: the arguments must match the tool's
 input schema (a mismatch goes back to the model, which can fix its call);
-the tool's **Concurrent calls** and **Cooldown** apply; one agent node runs
-at most 2 tool calls at once; and the result is cleaned like an agent's:
+the tool's **Concurrent calls** and **Cooldown** apply (a cooldown also
+refuses the second call of a tool in the same answer of the model, as when
+one message asks for two lights: leave it empty on tools an agent may call
+several times in a row); one agent node runs at most 2 tool calls at once;
+and the result is cleaned like an agent's:
 secrets are removed, and errors of nodes with settings agents may not read
 are withheld. A refused or failed call is reported to the model as an
 error, so it can try something else.
@@ -378,7 +397,8 @@ asks a model for a first version of a flow:
    devices, connections and secrets you already have.
 3. Optionally tick **Change the current flow**: the proposal then replaces
    the nodes on the canvas (your unsaved changes included). Credentials in
-   the flow are not sent; the proposal keeps them.
+   the flow are not sent; the proposal keeps them. Nodes it keeps stay
+   disabled if you disabled them.
 4. **Propose a flow**. It can take up to 3 minutes: PiWorker checks the
    proposal the way a deploy would and, when it finds problems, sends them
    back to the model to fix (twice at most).
@@ -389,9 +409,9 @@ still found and the tokens spent. **Apply** (or **Apply changes**) places
 it on the canvas, **Add to canvas** adds it beside your nodes. **Undo**
 takes it back. If you edit the canvas after asking for a change of the
 current flow, the proposal is out of date: the dialog offers **Propose
-again** instead of applying it over your edits. Nothing is saved or deployed: review each node's settings,
-create the secrets and connections the notes mention, then save and deploy
-as usual.
+again** instead of applying it over your edits. Nothing is saved or
+deployed: review each node's settings, create the secrets and connections
+the notes mention, then save and deploy as usual.
 
 - One proposal is made at a time. Closing the dialog cancels the request.
 - The tokens come from the chosen connection's daily limit. The request is
@@ -413,15 +433,16 @@ as usual.
 | *the model declined the request* | The provider refused this content. Rephrase the prompt, or connect the node's **On error** port. Retrying sends the same request. |
 | *the answer was cut at maxTokens (N)* | Raise **Max tokens**, or lower **Effort**: thinking counts towards the limit. **LLM Classify** has a fixed limit of 256: if it fails this way, use a model that answers without long thinking. |
 | *the model's answer is not valid* | The model did not answer the JSON asked for. Simplify the schema, describe the fields in the prompt, or use a more capable model. Some local servers do not support JSON schemas well; try **Output** `json` without a schema. |
-| *not supported by this provider* | Anthropic has no embeddings or transcription. Use an OpenAI or Ollama connection in that node. |
+| *not supported by this provider* | Anthropic has no embeddings or transcription. For **Add to Knowledge Base** and **Search Knowledge Base**, use an OpenAI or Ollama connection; for **Transcribe Audio**, an OpenAI connection or a local server with a Whisper model (LocalAI, Speaches). Ollama has no transcription. |
+| *'reasoning_effort' is not supported with this model*, or another 400 naming `effort` | The model does not take **Effort**: leave it empty on that node. |
 | *collection "X" holds embeddings of "A", not "B"* | Set the node's **Model** to the collection's model, or delete the collection under **AI memory** and add the documents again with the new one. |
 | A local model's answers ignore the instructions, or **Create with AI** fails or proposes nonsense with it | The prompt is probably longer than the model's context window and the server cut it without saying so. **Create with AI** needs at least about 16 000 to 32 000 tokens. For Ollama, start it with `OLLAMA_CONTEXT_LENGTH=32768` (or set `num_ctx` in a Modelfile); in LM Studio, raise the context length when loading the model. Long memories and knowledge-base context need room too. |
 | *the LLM call did not finish within N seconds* | Raise the node's **Timeout (s)** (up to 600), or use a faster model. A test in the Payload playground stops after 2 minutes whatever the node's timeout. |
 | *LLM calls do not run in a dry-run or a node test* | Expected: the checks AI agents run never call a model. Use **Test node** in the Payload playground, or **Run manually** on a deployed flow. |
-| The agent never calls a tool | Check the hints under **Tools**: the tool's flow must be running, must not be this flow, must have **Confirmation** `none`, and must not be privileged unless allowed. The model must support tool use. |
+| The agent never calls a tool | Check the hints under **Tools**: the tool's flow must be running, must not be this flow (nor a flow whose agent called the tool that started this run), must have **Confirmation** `none`, and must not be privileged unless allowed. The model must support tool use. |
 | *the agent did not finish within N steps* | Raise **Max steps**, make the tools' descriptions clearer, or give the agent fewer tools. |
 | *this agent node already runs 2 call(s), its limit* | Earlier tool calls of this agent are still running (they did not answer within the tool's **Timeout**). The model is told and can try later; give the tool a longer timeout or make its flow faster. |
-| **AI memory** cannot open a conversation or delete a document | Its key or ID has an empty or `..` part (`a//b`, `a/../b`), or starts with `/`. Use keys like `telegram:123`. Such a document goes when you delete its collection. |
+| **AI memory** cannot open a conversation or delete a document | Its key or ID is exactly `.` or `..`, which the browser rewrites. Use keys like `telegram:123`. Such a document goes when you delete its collection. |
 | Deleting a connection is refused | Running flows use it; the message names them. Stop them first. |
 | **Create with AI** says it is busy | Another proposal is being made; wait for it. |
 | **Create with AI** stops after 3 minutes | Use a faster model or a shorter description. |

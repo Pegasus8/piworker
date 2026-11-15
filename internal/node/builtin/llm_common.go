@@ -123,7 +123,7 @@ func llmSchemaEffort() node.ConfigProperty {
 // policy (destination_changed, dynamic_destination).
 func llmSchemaMemoryKey() node.ConfigProperty {
 	return node.ConfigProperty{Type: "string", Title: "Memory key",
-		Description:  "Conversation to remember, e.g. telegram:{{payload.message.chat.id}} (supports {{templates}}; empty: no memory)",
+		Description:  "Conversation to remember, e.g. telegram:{{payload.body.message.chat.id}} (supports {{templates}}; empty: no memory)",
 		AgentVisible: true, Destination: true}
 }
 

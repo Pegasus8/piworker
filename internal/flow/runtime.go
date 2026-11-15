@@ -153,10 +153,13 @@ type FlowRuntime struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	// State management
-	mu      sync.RWMutex
-	running bool
-	state   FlowState
+	// State management. stopping is set while Stop shuts the runtime down
+	// (running stays true until it is done), so a second Stop, from another
+	// caller, does not shut it down again.
+	mu       sync.RWMutex
+	running  bool
+	stopping bool
+	state    FlowState
 
 	// observer receives structured per-execution NodeEvents (running/success/
 	// error). It is the bridge to the observability layer (history + live SSE).
@@ -455,13 +458,15 @@ func (r *FlowRuntime) startSeeder(nodeID string) chan *types.Message {
 	return seedChan
 }
 
-// Stop gracefully stops the flow execution.
+// Stop gracefully stops the flow execution. A runtime that is not running,
+// or that another Stop is stopping, returns ErrFlowNotRunning.
 func (r *FlowRuntime) Stop() error {
 	r.mu.Lock()
-	if !r.running {
+	if !r.running || r.stopping {
 		r.mu.Unlock()
 		return ErrFlowNotRunning
 	}
+	r.stopping = true
 	r.mu.Unlock()
 
 	r.logger.Info().
@@ -533,6 +538,7 @@ func (r *FlowRuntime) shutdown(triggerIDs []string) {
 
 	r.mu.Lock()
 	r.running = false
+	r.stopping = false
 	r.state = FlowStateInactive
 	r.mu.Unlock()
 }

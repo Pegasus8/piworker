@@ -61,13 +61,14 @@ C and F.
 
 - **Memory** (`llm.Memory`, table `llm_conversations`): a conversation is
   a key the node renders from a template (1–200 characters, one line, e.g.
-  `telegram:{{payload.message.chat.id}}`) and its text turns (no images,
+  `telegram:{{payload.body.message.chat.id}}`) and its text turns (no images,
   no tool calls). LLM Prompt and AI Agent send the last `memoryTurns`
   turns before the prompt and append the prompt and the answer after a
   successful call (a failed save is logged; the answer is still passed
   on). Bounds: 32 KiB per turn (cut), 200 turns per conversation, 5 000
   conversations (adding one past it evicts the least recently updated).
-  Forget Conversation clears one.
+  Forget Conversation clears one; an exchange in flight for a key cleared
+  during it is not saved, so a forgotten conversation never comes back.
 - **Knowledge base** (`llm.Knowledge`, table `llm_documents`): named
   collections of documents with a unit-length float32 embedding, text and
   metadata; one embedding model and dimension per collection
@@ -85,8 +86,10 @@ C and F.
   is `safe` and so runs there, clears the sandbox's own memory. The
   editor's payload playground runs LLM nodes for real but with an empty
   memory, so a test never writes a real conversation. Knowledge
-  collections are `Destination` settings: changing which collection a
-  flow writes or searches is flagged on drafts.
+  collections and memory keys are `Destination` settings: changing which
+  collection a flow writes or searches, or which conversation it reads,
+  writes or forgets (conversations are shared by the whole process), is
+  flagged on drafts.
 - **Editor.** The AI memory dialog lists, shows (as plain text with hidden
   characters escaped) and clears conversations, and browses and deletes
   documents and collections, through `/api/llm/conversations` and

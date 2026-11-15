@@ -219,9 +219,6 @@ func TestAppendAfterAClearIsDropped(t *testing.T) {
 	// Nothing cleared: the exchange is appended, also after another one,
 	// and to a conversation that did not exist yet.
 	_, gen = m.Read("chat:3")
-	if gen != 0 {
-		t.Fatalf("a conversation that does not exist has generation %d", gen)
-	}
 	if ok, err := m.AppendAfter("chat:3", gen, 0, exchange...); !ok || err != nil {
 		t.Fatalf("new conversation: %v %v", ok, err)
 	}
@@ -234,5 +231,42 @@ func TestAppendAfterAClearIsDropped(t *testing.T) {
 	}
 	if got := m.Turns("chat:3"); len(got) != 6 {
 		t.Fatalf("chat:3 %v", got)
+	}
+}
+
+// A conversation forgotten during its first exchange (a /reset sent while
+// the model answers the first message) is not started with it.
+func TestAppendAfterAClearOfANewConversationIsDropped(t *testing.T) {
+	m := NewMemory()
+	exchange := []Turn{{Role: RoleUser, Text: "q"}, {Role: RoleAssistant, Text: "a"}}
+	_, gen := m.Read("chat:1")
+	if err := m.Clear("chat:1"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := m.AppendAfter("chat:1", gen, 0, exchange...); ok || m.Turns("chat:1") != nil {
+		t.Fatal("the forgotten conversation was started with the exchange")
+	}
+
+	// An exchange that read the key after the clear is saved.
+	_, gen = m.Read("chat:1")
+	if ok, err := m.AppendAfter("chat:1", gen, 0, exchange...); !ok || err != nil {
+		t.Fatalf("after the clear: %v %v", ok, err)
+	}
+
+	// A clear's mark is kept for a while, then forgotten.
+	start := time.Now()
+	m.now = func() time.Time { return start }
+	if err := m.Clear("chat:2"); err != nil {
+		t.Fatal(err)
+	}
+	m.now = func() time.Time { return start.Add(2 * time.Hour) }
+	if err := m.Clear("chat:3"); err != nil {
+		t.Fatal(err)
+	}
+	if _, kept := m.cleared["chat:2"]; kept {
+		t.Fatal("an old clear mark is kept")
+	}
+	if _, kept := m.cleared["chat:3"]; !kept {
+		t.Fatal("a new clear mark is not kept")
 	}
 }

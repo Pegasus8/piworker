@@ -288,7 +288,7 @@ func namesList(names []string) string {
 const assistantRules = `You design flows for PiWorker, a visual automation system: a flow is a graph of nodes that pass messages along connections. The admin describes what a flow should do and you answer the flow as one JSON object. Nothing is saved, deployed or run until the admin reviews your proposal in the editor.
 
 The flow model:
-- nodes: [{"id", "type", "config"}]. id: a short unique name (letters, digits, '-' or '_'). type: one of the node types listed below, no other. config: the node's settings by name. Leave "position" out (PiWorker lays the nodes out) and "enabled" out (nodes are enabled).
+- nodes: [{"id", "type", "config"}]. id: a short unique name (letters, digits, '-' or '_'). type: one of the node types listed below, no other. config: the node's settings by name. Leave "position" out (PiWorker lays the nodes out) and "enabled" out (new nodes are enabled; a node you keep keeps its current state).
 - connections: [{"sourceNode", "sourcePort", "targetNode", "targetPort"}]: a message leaves the node sourceNode through its output port sourcePort and enters the node targetNode through its input port targetPort.
 - A flow starts at a trigger (category input; it has no input port): a schedule, a webhook, an incoming message. Processing nodes transform, filter or route messages; output nodes act (send, write, notify). No cycles, and no connection from a node to itself.
 - The ports of a node are those its type lists. A type with "outputsFrom" also has one output port per item of that list setting (the port ID is the item). Every processing and output node also has the output port "error": when the node fails, a message {message, nodeId, nodeType, input} leaves through it; connect it where a failure needs handling.
@@ -302,7 +302,7 @@ Settings:
 Answer with exactly one JSON object and nothing else:
 {"name": "a short name for the flow", "description": "one sentence", "notes": "what the admin must do or check before deploying it: secrets and connections to define, values to adjust", "nodes": [...], "connections": [...]}
 
-When the admin gives the current flow, answer the whole flow after the change: keep the id, type and config of every node you keep. A "<redacted>" value is a credential PiWorker withheld from you: keep it as "<redacted>" and its value is kept.
+When the admin gives the current flow, answer the whole flow after the change: keep the id, type and config of every node you keep (a kept node with "enabled": false stays disabled unless the admin asks to enable it). A "<redacted>" value is a credential PiWorker withheld from you: keep it as "<redacted>" and its value is kept.
 `
 
 // catalogType is a node type as the prompt lists it: what writing a node
@@ -638,16 +638,20 @@ func truncateRunes(s string, n int) string {
 
 // buildFlow turns a decoded answer into a flow: each node gets its
 // registered category and ports (the outputs its config gives it), an
-// empty config when it has none and enabled unless it says otherwise; each
-// connection an ID. Values the prompt withheld come back on the nodes the
-// model kept (same ID and type) where it wrote RedactedValue; a kept node
+// empty config when it has none; each connection an ID. Values the prompt
+// withheld come back on the nodes the model kept (same ID and type) where
+// it wrote RedactedValue. A kept node without "enabled" keeps its current
+// state (a node the admin disabled is never turned back on by a proposal),
+// other nodes are enabled unless the answer says otherwise; a kept node
 // without a position keeps its current one, the others are laid out.
 func (a *Assistant) buildFlow(p assistantAnswer, current *AssistantFlow, withheld map[string]withheldNode) *flow.Flow {
 	positions := map[string]flow.Position{}
+	kept := map[string]flow.Node{}
 	if current != nil {
 		for _, n := range current.Nodes {
 			if _, dup := positions[n.ID]; !dup {
 				positions[n.ID] = n.Position
+				kept[n.ID] = n
 			}
 		}
 	}
@@ -668,8 +672,11 @@ func (a *Assistant) buildFlow(p assistantAnswer, current *AssistantFlow, withhel
 				}
 			}
 		}
-		if pn.Enabled != nil {
+		switch cur, ok := kept[n.ID]; {
+		case pn.Enabled != nil:
 			n.Enabled = *pn.Enabled
+		case ok && cur.Type == n.Type:
+			n.Enabled = cur.Enabled
 		}
 		if info, ok := a.registry.Get(n.Type); ok {
 			n.Category = info.Category

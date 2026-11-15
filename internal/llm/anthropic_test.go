@@ -389,6 +389,21 @@ func TestAnthropicModelsAndUnsupported(t *testing.T) {
 	}
 }
 
+// Each unsupported feature points to servers that offer that feature:
+// Ollama embeds text but does not transcribe audio.
+func TestAnthropicUnsupportedFeaturesNameServersThatOfferThem(t *testing.T) {
+	_, srv := newFakeAnthropic(t)
+	c := newTestAnthropic(t, srv)
+	_, _, err := c.Embed(context.Background(), "m", []string{"x"})
+	if err == nil || !strings.Contains(err.Error(), "embeddings") || !strings.Contains(err.Error(), "Ollama") {
+		t.Fatalf("embed: %v", err)
+	}
+	_, err = c.Transcribe(context.Background(), "m", Media{MediaType: "audio/mpeg", Data: []byte("x")}, "")
+	if err == nil || !strings.Contains(err.Error(), "transcription") || strings.Contains(err.Error(), "Ollama") || strings.Contains(err.Error(), "embeddings") {
+		t.Fatalf("transcribe: %v", err)
+	}
+}
+
 func TestAnthropicRejectsUnsupportedImages(t *testing.T) {
 	_, srv := newFakeAnthropic(t)
 	c := newTestAnthropic(t, srv)

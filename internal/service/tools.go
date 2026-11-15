@@ -206,6 +206,7 @@ func (t *Tools) call(ctx context.Context, actor Actor, ref ToolRef, args map[str
 		Args:          args,
 		Actor:         actor.runActor(),
 		Timeout:       ti.Timeout,
+		Waiting:       actor.runWaiting(),
 	})
 	if res.RunID == "" {
 		release(false) // nothing ran: no cooldown

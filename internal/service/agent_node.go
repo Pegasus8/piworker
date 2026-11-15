@@ -16,6 +16,13 @@ import (
 // limits, cooldowns, redaction) with the rules of agentNodeAccess. An agent
 // node has no token, so its calls write no MCP audit row: each run is in
 // its flow's activity, with the actor "agent-node:<flowID>/<nodeID>".
+//
+// A run an agent node starts carries the flows that wait for it
+// (flow.CallRequest.Waiting: the node's own flow and those waiting for the
+// run the node serves), so an agent node of that run is refused the tools
+// of every one of them, not only of its own flow: mutual delegation
+// (A's agent calls B's tool, whose agent calls A's) would otherwise queue
+// a run behind the agent node waiting for it until the tool's timeout.
 
 var _ node.ToolCaller = (*Tools)(nil)
 
@@ -30,6 +37,10 @@ func agentNodeAccess(actor Actor, info flow.ToolInfo) error {
 	case info.FlowID == actor.FlowID:
 		// The run would wait for the agent node, which waits for the run.
 		return toolError(ErrPermissionDenied, fmt.Sprintf("tool %q is published by this agent node's own flow, whose tools it cannot call", info.ToolName))
+	case slices.Contains(actor.Waiting, info.FlowID):
+		// The same wait through other flows: an agent node of that flow
+		// called a tool whose run led here, and waits for this node.
+		return toolError(ErrPermissionDenied, fmt.Sprintf("tool %q is published by a flow that waits for this agent node (one of its agent nodes called a tool whose run led here), whose tools it cannot call", info.ToolName))
 	case info.Risk == node.RiskPrivileged && !actor.Privileged:
 		return toolError(ErrPermissionDenied, fmt.Sprintf("tool %q is privileged; this agent node may call privileged tools only with allowPrivileged turned on", info.ToolName))
 	case info.Confirm == node.ToolConfirmClient:

@@ -10,6 +10,7 @@ import (
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/storage"
+	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -316,4 +317,78 @@ func TestAgentNodeInvalidArgumentsListTheIssues(t *testing.T) {
 	assert.Contains(t, err.Error(), "the arguments do not match the tool's input schema")
 	assert.Contains(t, err.Error(), "/door: must be one of")
 	assert.Contains(t, err.Error(), "/extra: unknown property")
+}
+
+// waitingNodeType replies with the flows that wait for its run
+// (node.WaitingFlows), as an agent node of the run reads them.
+const waitingNodeType = "test-service-waiting"
+
+type waitingNode struct{}
+
+func (waitingNode) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
+	v, _ := msg.GetMeta("correlationID")
+	corr, _ := v.(string)
+	node.ReplierFromContext(ctx).Reply(corr, map[string]any{"waiting": node.WaitingFlows(ctx, corr)}, false)
+	return nil, nil
+}
+func (waitingNode) Ports() ([]types.Port, []types.Port) {
+	return []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny}}, nil
+}
+func (waitingNode) Validate() error { return nil }
+
+var registerWaitingNode sync.Once
+
+func init() {
+	registerWaitingNode.Do(func() {
+		err := node.Register(node.NodeTypeInfo{
+			Type: waitingNodeType, Name: "Waiting", Category: types.NodeCategoryOutput, Risk: node.RiskSafe,
+			Inputs: []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny}},
+		}, func(map[string]any) (node.Node, error) { return waitingNode{}, nil })
+		if err != nil {
+			panic(err)
+		}
+	})
+}
+
+// An agent node's call tells the run it starts which flows wait for it:
+// the node's own flow and the flows waiting for the run the node serves.
+// Other callers' runs have none.
+func TestAgentNodeCallTellsTheRunWhoWaits(t *testing.T) {
+	e := newEnv(t)
+	info := e.deploy(fan(toolConfig(nil), step{id: "w", typ: waitingNodeType}))
+
+	caller := agentNode(info.ToolName)
+	caller.Waiting = []string{"first-flow"}
+	out, err := e.callAsNode(caller, info.ToolName, map[string]any{"door": "left"})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"waiting":["first-flow","agent-flow"]}`, string(out.Result))
+	e.waitIdle(info)
+
+	res, err := e.call(EditorActor(), info, map[string]any{"door": "left"})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"waiting":null}`, string(res.Result))
+}
+
+// An agent node never calls a tool of a flow that waits for it (A's agent
+// called B's tool, whose agent now calls A's): the run would queue behind
+// the agent node that waits for it, until the tool's timeout. Such a tool
+// is neither listed nor called.
+func TestAgentNodeNeverCallsAFlowThatWaitsForIt(t *testing.T) {
+	e := newEnv(t)
+	a := e.deploy(fan(toolConfig(nil), echo()))
+	other := e.deploy(fan(toolConfig(nil), echo()))
+
+	caller := agentNode(a.ToolName, other.ToolName)
+	caller.Waiting = []string{a.FlowID}
+	assert.Equal(t, []string{other.ToolName}, agentToolNames(e.tools.AgentTools(caller)))
+
+	out, err := e.callAsNode(caller, a.ToolName, map[string]any{"door": "left"})
+	te := requireKind(t, err, ErrPermissionDenied)
+	assert.Contains(t, te.Message, "waits for this agent node")
+	assert.Empty(t, out.Status)
+	assert.Zero(t, e.tools.slots.inflight(toolKey(a)), "a refusal holds no slot")
+
+	out, err = e.callAsNode(caller, other.ToolName, map[string]any{"door": "left"})
+	require.NoError(t, err)
+	assert.Equal(t, node.ToolCallOK, out.Status)
 }

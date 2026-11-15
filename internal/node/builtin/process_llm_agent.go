@@ -139,7 +139,11 @@ func (a *LLMAgentProcess) Process(ctx context.Context, msg *types.Message) ([]*t
 		}
 
 		info := node.NodeInfoFromContext(ctx)
-		caller := node.AgentCaller{FlowID: info.FlowID, NodeID: info.NodeID, Tools: a.tools, AllowPrivileged: a.allowPrivileged}
+		caller := node.AgentCaller{FlowID: info.FlowID, NodeID: info.NodeID, Tools: a.tools, AllowPrivileged: a.allowPrivileged,
+			// The flows waiting for this message's run (a tool call of
+			// another flow's agent led here): their tools would wait for
+			// this node.
+			Waiting: node.WaitingFlows(ctx, correlationIDOf(msg))}
 		tc := node.ToolCallerFromContext(ctx)
 		var tools []llm.Tool
 		var fromProvider map[string]string
@@ -212,6 +216,13 @@ func (a *LLMAgentProcess) Process(ctx context.Context, msg *types.Message) ([]*t
 		return nil, err
 	}
 	return []*types.Message{out}, nil
+}
+
+// correlationIDOf returns the run msg belongs to ("" when it has none).
+func correlationIDOf(msg *types.Message) string {
+	v, _ := msg.GetMeta("correlationID")
+	id, _ := v.(string)
+	return id
 }
 
 // afterToolsError is a failure of an agent after it called a tool: it is
@@ -429,13 +440,14 @@ and call the same tools (each a run of another flow) a second time.
 
 ## Example
 
-A home assistant answering Telegram messages:
+A home assistant answering Telegram messages (received by a **Webhook**
+trigger):
 
 ` + "```" + `
 system: You control the house. Use the tools; answer in one short sentence.
-prompt: {{payload.message.text}}
+prompt: {{payload.body.message.text}}
 tools: lights_set, thermostat_get, thermostat_set
-memoryKey: telegram:{{payload.message.chat.id}}
+memoryKey: telegram:{{payload.body.message.chat.id}}
 ` + "```" + `
 
 ## Security: prompt injection

@@ -972,3 +972,47 @@ func TestCallResultJSON(t *testing.T) {
 	assert.JSONEq(t, `{"status":"error","runId":"r1","durationMs":3,
 		"error":{"nodeId":"n1","nodeType":"action-http","message":"boom"}}`, string(data))
 }
+
+// A call names the flows whose agent nodes wait for it (an agent node's
+// call: its own flow and those waiting for the run it serves). Nodes of
+// the run read them (node.WaitingFlows), so an agent node of the run
+// never calls a tool of a flow that waits for it; once the caller has the
+// result, nobody waits.
+func TestCallTellsTheRunWhichFlowsWaitForIt(t *testing.T) {
+	seen := make(chan []string, 2)
+	gate := make(chan struct{})
+	reg := callRegistryFor(t, map[string]node.NodeFactory{
+		"look": funcFactory(func(ctx context.Context, msg *Message) ([]*Message, error) {
+			seen <- node.WaitingFlows(ctx, corrOf(msg))
+			ReplyFromContext(ctx).Reply(corrOf(msg), "ok", false)
+			return passFn(ctx, msg)
+		}),
+		"after": funcFactory(gateFn(gate, func(ctx context.Context, msg *Message) ([]*Message, error) {
+			seen <- node.WaitingFlows(ctx, corrOf(msg))
+			return nil, nil
+		})),
+	})
+	f := callGraph(map[string]string{"tool": "tool", "l": "look", "a": "after"}, [2]string{"tool", "l"}, [2]string{"l", "a"})
+	rt := startRuntime(t, f, reg)
+
+	waiting := []string{"flow-a", "flow-b"}
+	res, err := rt.Call(context.Background(), CallRequest{TriggerNodeID: "tool", Args: map[string]any{}, Timeout: 3 * time.Second, Waiting: waiting})
+	require.NoError(t, err)
+	require.Equal(t, CallStatusCompleted, res.Status)
+	assert.Equal(t, []string{"flow-a", "flow-b"}, <-seen, "while the caller waits")
+	waiting[0] = "changed by the caller"
+	close(gate)
+	assert.Nil(t, <-seen, "the caller has its result: nobody waits")
+
+	reg = callRegistryFor(t, map[string]node.NodeFactory{
+		"look": funcFactory(func(ctx context.Context, msg *Message) ([]*Message, error) {
+			seen <- node.WaitingFlows(ctx, corrOf(msg))
+			return nil, nil
+		}),
+	})
+	rt = startRuntime(t, callGraph(map[string]string{"tool": "tool", "l": "look"}, [2]string{"tool", "l"}), reg)
+	_, err = rt.Call(context.Background(), CallRequest{TriggerNodeID: "tool", Args: map[string]any{}, Timeout: 3 * time.Second})
+	require.NoError(t, err)
+	assert.Nil(t, <-seen, "a call of no agent node")
+	assert.Nil(t, node.WaitingFlows(context.Background(), "x"), "outside a runtime")
+}

@@ -316,13 +316,17 @@ func (c *anthropicClient) models(ctx context.Context) ([]ModelInfo, error) {
 	return out, nil
 }
 
-// errNoEmbeddings is the answer of the features Anthropic does not offer.
-var errNoEmbeddings = fmt.Errorf("%w: Anthropic has no embeddings or transcription API; use an OpenAI-compatible connection such as OpenAI or Ollama", ErrUnsupported)
+// The answers of the features Anthropic does not offer, each naming servers
+// that offer that feature (Ollama embeds text but transcribes no audio).
+var (
+	errNoEmbeddings    = fmt.Errorf("%w: Anthropic has no embeddings API; use an OpenAI-compatible connection such as OpenAI or Ollama", ErrUnsupported)
+	errNoTranscription = fmt.Errorf("%w: Anthropic has no transcription API; use an OpenAI connection or a local Whisper server with an OpenAI-compatible API (LocalAI, Speaches)", ErrUnsupported)
+)
 
 func (c *anthropicClient) embed(context.Context, string, []string) ([]Embedding, Usage, error) {
 	return nil, Usage{}, errNoEmbeddings
 }
 
 func (c *anthropicClient) transcribe(context.Context, string, Media, string) (string, Usage, error) {
-	return "", Usage{}, errNoEmbeddings
+	return "", Usage{}, errNoTranscription
 }

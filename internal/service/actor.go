@@ -37,9 +37,12 @@ type Actor struct {
 	Grants     []storage.TokenGrant
 	AllTools   bool
 	// FlowID and NodeID name an agent node (ActorAgentNode), Tools the tool
-	// names its settings list; its Privileged is allowPrivileged.
+	// names its settings list; its Privileged is allowPrivileged. Waiting
+	// are the flows that wait for the run the node serves
+	// (node.AgentCaller.Waiting).
 	FlowID, NodeID string
 	Tools          []string
+	Waiting        []string
 }
 
 // AgentNodeActor is the actor of an agent node's tool calls.
@@ -50,6 +53,7 @@ func AgentNodeActor(c node.AgentCaller) Actor {
 		NodeID:     c.NodeID,
 		Tools:      slices.Clone(c.Tools),
 		Privileged: c.AllowPrivileged,
+		Waiting:    slices.Clone(c.Waiting),
 	}
 }
 
@@ -91,6 +95,21 @@ func (a Actor) agentView() bool { return a.isAgent() || a.isAgentNode() }
 
 // agentNodeKeyPrefix starts the key of an agent node.
 const agentNodeKeyPrefix = "agent-node:"
+
+// runWaiting are the flows that wait for a run the actor starts
+// (flow.CallRequest.Waiting): for an agent node, those that wait for the
+// run it serves and its own flow; nil for other callers, which wait
+// outside any flow.
+func (a Actor) runWaiting() []string {
+	if !a.isAgentNode() {
+		return nil
+	}
+	waiting := slices.Clone(a.Waiting)
+	if !slices.Contains(waiting, a.FlowID) {
+		waiting = append(waiting, a.FlowID)
+	}
+	return waiting
+}
 
 // runActor is the "actor" meta of runs the actor starts.
 func (a Actor) runActor() string {

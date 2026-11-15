@@ -104,8 +104,8 @@ export default {
     conversations: {
       tab: 'Conversations',
       loadFailed: 'Could not load the conversations. Try again.',
-      // "No conversations yet. … for example <code>telegram:{{payload.message.chat.id}}</code>: …"
-      empty: ['No conversations yet. The LLM Prompt and AI Agent nodes remember one when their Memory key is set, for example ', ': each key keeps its own history, and the Forget Conversation node clears it.'],
+      // "No conversations yet. … for example <code>telegram:{{payload.body.message.chat.id}}</code> …: …"
+      empty: ['No conversations yet. The LLM Prompt and AI Agent nodes remember one when their Memory key is set, for example ', ' for Telegram updates received by a Webhook trigger: each key keeps its own history, and the Forget Conversation node clears it.'],
       filter: 'Filter by key',
       noMatch: 'No conversation matches the filter.',
       more: (shown: string) => `${shown} more: filter to narrow the list.`,

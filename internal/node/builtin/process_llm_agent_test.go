@@ -396,3 +396,44 @@ func TestLLMAgentIsNotRetriedAfterAToolRan(t *testing.T) {
 		Process(env.ctx, types.NewMessage("open the garage", types.DataTypeString))
 	assert.True(t, node.IsRetryable(err), "no tool ran yet: %v", err)
 }
+
+// waitingReplier is the Replier of a runtime whose called runs have
+// flows waiting for them (node.WaitingFlows).
+type waitingReplier map[string][]string
+
+func (waitingReplier) Reply(string, any, bool) bool { return false }
+
+func (w waitingReplier) WaitingFlows(correlationID string) []string { return w[correlationID] }
+
+// The agent tells the tool caller which flows wait for the run its message
+// belongs to (a tool call of another flow's agent led here), so a tool of
+// one of them is refused instead of waiting for this node until it times
+// out.
+func TestLLMAgentTellsTheToolCallerWhoWaits(t *testing.T) {
+	f := newFakeLLM(t, func(n int, _ string, _ map[string]any) (int, any) {
+		if n == 0 {
+			return 200, toolCallsAnswer(fakeToolCall{"call_1", "garage_open", `{"room":"garage"}`})
+		}
+		return 200, chatAnswer("Done.", 1, 1)
+	})
+	tc := &fakeToolCaller{
+		tools: []node.AgentTool{agentTool("garage_open", "")},
+		call: func(string, map[string]any) (node.ToolCallOutcome, error) {
+			return node.ToolCallOutcome{Status: node.ToolCallOK, Result: json.RawMessage(`{}`)}, nil
+		},
+	}
+	env := agentEnv(t, f, tc)
+	ctx := node.WithReplier(env.ctx, waitingReplier{"run-1": {"flow-a"}})
+	n := mustAgent(t, map[string]any{"connection": fakeLLMConnection, "tools": []any{"garage_open"}})
+	msg := types.NewMessage("open the garage", types.DataTypeString)
+	msg.SetMeta("correlationID", "run-1")
+	_, err := n.Process(ctx, msg)
+	require.NoError(t, err)
+
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	require.Len(t, tc.listed, 1)
+	require.Len(t, tc.callers, 1)
+	assert.Equal(t, []string{"flow-a"}, tc.listed[0].Waiting)
+	assert.Equal(t, []string{"flow-a"}, tc.callers[0].Waiting)
+}

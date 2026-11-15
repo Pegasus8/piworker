@@ -65,7 +65,9 @@ Option D.
   - only the tools the node's `tools` setting lists, by name; any other name
     is `not_found` without a lookup;
   - a tool published by the agent's own flow is refused (the run would wait
-    for the node that waits for it);
+    for the node that waits for it), and so is one of any flow that waits,
+    through agent tool calls, for the run the node serves (mutual
+    delegation: a call carries the flows waiting for it);
   - privileged tools only with `allowPrivileged`, a `RiskSwitch`: turning it
     on makes the instance `privileged`, so the drafts' approval page flags
     it and the `low` agent-deploy policy refuses an agent turning it on

@@ -91,7 +91,7 @@ var notCredentials = map[string]string{
 	"process-join.key":     "correlation-key expression over the message",
 	"process-join.maxKeys": "maximum number of pending groups",
 	// LLM nodes: a token count and a conversation key (a template naming
-	// the conversation, e.g. telegram:{{payload.chat.id}}).
+	// the conversation, e.g. telegram:{{payload.body.message.chat.id}}).
 	"process-llm.maxTokens":       "maximum answer length, in tokens",
 	"process-llm.memoryKey":       "conversation key",
 	"process-llm-agent.maxTokens": "maximum answer length, in tokens",

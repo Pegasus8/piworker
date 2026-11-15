@@ -44,3 +44,23 @@ func ReplierFromContext(ctx context.Context) Replier {
 type noReplier struct{}
 
 func (noReplier) Reply(string, any, bool) bool { return false }
+
+// CallWaiters is implemented by the Replier of a flow runtime: it knows
+// which flows wait for a called run.
+type CallWaiters interface {
+	// WaitingFlows returns the flows whose agent nodes wait, through tool
+	// calls, for the called run correlationID, outermost first: nil when
+	// the run was not started by an agent node's call, or its caller no
+	// longer waits (it has the result).
+	WaitingFlows(correlationID string) []string
+}
+
+// WaitingFlows returns the flows waiting for the run correlationID of the
+// flow runtime that owns ctx (CallWaiters); nil outside a runtime. An agent
+// node passes them on in AgentCaller.Waiting.
+func WaitingFlows(ctx context.Context, correlationID string) []string {
+	if w, ok := ReplierFromContext(ctx).(CallWaiters); ok && correlationID != "" {
+		return w.WaitingFlows(correlationID)
+	}
+	return nil
+}

@@ -1175,8 +1175,8 @@ with AI** in the editor asks a connection for a proposed flow, checked with
 the same rules as a deploy, which you review and place on the canvas;
 nothing is saved or deployed (ADR-0041). The **AI Agent** node calls only
 the tool flows it lists, through the same path as MCP agents, never tools of
-its own flow, never tools that need confirmation, and privileged ones only
-with `allowPrivileged` (ADR-0039).
+its own flow or of a flow whose agent waits for it, never tools that need
+confirmation, and privileged ones only with `allowPrivileged` (ADR-0039).
 
 ### Environment Variables
 

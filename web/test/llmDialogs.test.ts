@@ -15,7 +15,7 @@ import {
   usageSummary,
   type ConnectionFormState
 } from '../src/components/llm/connections'
-import { DOCUMENT_PAGE, filterConversations, focusRowAfter, metadataText, offsetAfterDelete, pageInfo, rowControlId, textPreview } from '../src/components/llm/memory'
+import { DOCUMENT_PAGE, EXAMPLE_MEMORY_KEY, filterConversations, focusCandidates, focusRowAfter, metadataText, offsetAfterDelete, pageInfo, rowControlId, textPreview } from '../src/components/llm/memory'
 import { useShellStore } from '../src/stores/shell'
 import type { LLMConnection } from '../src/types'
 
@@ -199,4 +199,22 @@ test('a row\'s control has an element ID whatever its key holds', () => {
   expect(id.startsWith('ai-memory-open-')).toBe(true)
   expect(rowControlId('ai-memory-open', 'a b')).not.toBe(rowControlId('ai-memory-open', 'a%20b'))
   expect(rowControlId('ai-memory-open', 'k')).toBe(rowControlId('ai-memory-open', 'k'))
+})
+
+// The panels try these element IDs in order: the row's control, then the
+// list's own controls, so the focus never falls back to the page.
+test('the focus goes to a row\'s control, else to the list\'s own controls', () => {
+  const keys = ['a', 'b']
+  expect(focusCandidates('b', keys, ['a'], 'ai-memory-open', ['ai-memory-filter', 'ai-memory-refresh']))
+    .toEqual([rowControlId('ai-memory-open', 'a'), 'ai-memory-filter', 'ai-memory-refresh'])
+  expect(focusCandidates('a', ['a'], [], 'ai-memory-open', ['ai-memory-refresh'])).toEqual(['ai-memory-refresh'])
+})
+
+// Telegram updates reach a flow through the Webhook trigger, which puts the
+// request body under payload.body: a key without it renders the same for
+// every chat ("telegram:"), and all chats would share one conversation.
+test('the example memory key reads the chat from the webhook body', () => {
+  expect(EXAMPLE_MEMORY_KEY).toBe('telegram:{{payload.body.message.chat.id}}')
+  expect(en.llm.memory.conversations.empty.join('')).not.toContain('payload.message')
+  expect(es.llm.memory.conversations.empty.join('')).not.toContain('payload.message')
 })

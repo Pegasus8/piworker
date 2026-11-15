@@ -3,6 +3,8 @@
 // listed by key, opened as plain text, cleared. Keys and turns come from
 // messages that reached the flows: shown through AgentText (hidden
 // characters escaped), and confirmations quote them with visibleText.
+// Leaving a conversation, or clearing one, puts the focus back on its row
+// in the list (or the row that took its place), never on the page.
 import { computed, nextTick, ref, watch } from 'vue'
 import { Button, Input } from '@/components/ui'
 import { ArrowLeft, Eraser, Loader2, MessagesSquare, RefreshCw } from 'lucide-vue-next'
@@ -14,7 +16,7 @@ import { useLLMStore } from '@/stores/llm'
 import { errorMessage } from '@/lib/llm'
 import { visibleText } from '@/lib/agentAccess'
 import { messages as m, formatDateTime, formatNumber, formatRelative } from '@/i18n'
-import { filterConversations } from './memory'
+import { EXAMPLE_MEMORY_KEY, filterConversations, focusCandidates, rowControlId } from './memory'
 import type { LLMConversation, LLMTurn } from '@/types'
 
 // open: the dialog is open (each opening reads the list again).
@@ -35,7 +37,12 @@ const opening = ref('')
 const heading = ref<HTMLElement>()
 const now = ref(Date.now())
 // Kept in script so the literal braces don't confuse the template parser.
-const exampleKey = 'telegram:{{payload.message.chat.id}}'
+const exampleKey = EXAMPLE_MEMORY_KEY
+// The element IDs the focus goes back to: a row's Open button, else the filter or Refresh.
+const OPEN_ID = 'ai-memory-open'
+const FILTER_ID = 'ai-memory-filter'
+const REFRESH_ID = 'ai-memory-conversations-refresh'
+const listedKeys = () => shown.value.items.map(c => c.key)
 
 async function load() {
   loading.value = true
@@ -75,15 +82,36 @@ async function openConversation(key: string) {
   }
 }
 
+// The focused control went with the view or the row: the focus goes to
+// key's row in the list, the row that took its place, or the list's own
+// controls. before: the keys listed before the change.
+async function focusList(key: string | null, before: readonly string[]) {
+  await nextTick()
+  for (const id of focusCandidates(key, before, listedKeys(), OPEN_ID, [FILTER_ID, REFRESH_ID])) {
+    const target = document.getElementById(id)
+    if (target) {
+      target.focus()
+      return
+    }
+  }
+}
+
 function back() {
+  const key = selected.value?.key ?? null
   selected.value = null
+  void focusList(key, listedKeys())
 }
 
 async function clear(key: string) {
   const text = t.value
   if (pending.value || !await confirmation.value?.ask(text.clearTitle, text.clearText(visibleText(key)), text.clearConfirm)) return
+  const before = listedKeys()
   const ok = await run(() => store.clearConversation(key), text.cleared, e => errorMessage(e, text.clearFailed))
-  if (ok && selected.value?.key === key) selected.value = null
+  if (!ok) return
+  // Its row (or its view, when open) is gone with the button that cleared it.
+  if (selected.value?.key === key) selected.value = null
+  else if (selected.value) return
+  await focusList(key, before)
 }
 
 const roleLabel = (turn: LLMTurn) => t.value.roles[turn.role] ?? turn.role
@@ -119,8 +147,8 @@ const roleLabel = (turn: LLMTurn) => t.value.roles[turn.role] ?? turn.role
     <!-- The conversations -->
     <template v-else>
       <div class="flex items-center gap-2">
-        <Input v-if="store.conversations.length" v-model="query" type="search" :placeholder="t.filter" :aria-label="t.filter" class="h-9" autocomplete="off" spellcheck="false" />
-        <Button variant="outline" size="icon" class="ml-auto h-9 w-9 shrink-0" :disabled="loading" :aria-label="m.llm.memory.refresh" :title="m.llm.memory.refresh" @click="load">
+        <Input v-if="store.conversations.length" :id="FILTER_ID" v-model="query" type="search" :placeholder="t.filter" :aria-label="t.filter" class="h-9" autocomplete="off" spellcheck="false" />
+        <Button :id="REFRESH_ID" variant="outline" size="icon" class="ml-auto h-9 w-9 shrink-0" :disabled="loading" :aria-label="m.llm.memory.refresh" :title="m.llm.memory.refresh" @click="load">
           <RefreshCw class="h-4 w-4" :class="loading ? 'animate-spin' : ''" aria-hidden="true" />
         </Button>
       </div>
@@ -143,7 +171,7 @@ const roleLabel = (turn: LLMTurn) => t.value.roles[turn.role] ?? turn.role
               </p>
             </div>
             <div class="flex shrink-0 gap-1">
-              <Button variant="outline" size="sm" :disabled="!!opening" :aria-label="t.openLabel(visibleText(c.key))" @click="openConversation(c.key)">
+              <Button :id="rowControlId(OPEN_ID, c.key)" variant="outline" size="sm" :disabled="!!opening" :aria-label="t.openLabel(visibleText(c.key))" @click="openConversation(c.key)">
                 <Loader2 v-if="opening === c.key" class="h-3.5 w-3.5 animate-spin sm:mr-1" aria-hidden="true" />
                 <MessagesSquare v-else class="h-3.5 w-3.5 sm:mr-1" aria-hidden="true" />
                 <span class="hidden sm:inline">{{ t.open }}</span>
