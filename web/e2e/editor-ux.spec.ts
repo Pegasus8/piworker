@@ -186,3 +186,56 @@ test('secrets use nested confirmations and recover after mutation failures', asy
  await expect(secrets.getByRole('status')).toContainText('Secret deleted')
  await expect(secrets.getByText('No secrets yet.')).toBeVisible()
 })
+
+// Animations run 10x slower, so that polling for one under way (a CSS
+// transition starts a frame after its element mounts) does not race its
+// short duration.
+async function slowMotion(page: import('@playwright/test').Page) {
+ const cdp = await page.context().newCDPSession(page)
+ await cdp.send('Animation.enable')
+ await cdp.send('Animation.setPlaybackRate', { playbackRate: 0.1 })
+}
+
+test('the node settings panel slides in and out, and stays still with reduced motion', async ({ page }) => {
+ await page.setViewportSize({ width: 1280, height: 800 })
+ await page.goto('/editor/f1')
+ await slowMotion(page)
+ const config = page.getByRole('complementary', { name: 'Node settings' })
+ await page.getByRole('button', { name: 'Add Log', exact: true }).click()
+ // The panel opens with a transition (not at once) and ends at its full width.
+ await expect.poll(() => config.evaluate(el => el.getAnimations({ subtree: true }).length)).toBeGreaterThan(0)
+ await expect.poll(() => config.evaluate(el => Math.round(el.getBoundingClientRect().width))).toBe(400)
+ await config.getByRole('button', { name: 'Done', exact: true }).click()
+ // Leaving finishes: the panel is removed, not left half-closed.
+ await expect(config).toHaveCount(0)
+
+ await page.emulateMedia({ reducedMotion: 'reduce' })
+ await page.locator('.vue-flow__node').click()
+ await expect(config).toBeVisible()
+ // No animation runs (Vue still applies its enter class for one frame).
+ expect(await config.evaluate(el => el.getAnimations({ subtree: true }).length)).toBe(0)
+ await expect.poll(() => config.evaluate(el => Math.round(el.getBoundingClientRect().width))).toBe(400)
+})
+
+test('menus, dialogs and the activity panel open and close with a transition', async ({ page }) => {
+ await page.goto('/')
+ await slowMotion(page)
+ await page.getByRole('button', { name: 'More actions for Morning lab' }).click()
+ const menu = page.getByRole('menu')
+ await expect.poll(() => menu.evaluate(el => el.getAnimations().length)).toBeGreaterThan(0)
+ await page.getByRole('menuitem', { name: 'Delete flow' }).click()
+ await expect(menu).toHaveCount(0)
+ const dialog = page.getByRole('dialog', { name: 'Delete flow?' })
+ await expect(dialog).toBeVisible()
+ await expect.poll(() => dialog.evaluate(el => el.getAnimations().length)).toBeGreaterThan(0)
+ await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+ await expect(dialog).toBeHidden()
+
+ await page.goto('/editor/f1')
+ await slowMotion(page)
+ await page.getByRole('button', { name: 'Expand activity', exact: true }).click()
+ const activity = page.locator('[data-activity-body]')
+ await expect.poll(() => activity.evaluate(el => el.getAnimations().length)).toBeGreaterThan(0)
+ await page.getByRole('button', { name: 'Collapse activity', exact: true }).click()
+ await expect(activity).toHaveCount(0)
+})

@@ -160,10 +160,15 @@ const duration = (field: ConfigField) => (field.type === 'number' || field.type 
 </script>
 
 <template>
+  <!-- Opens and closes smoothly (settings-panel in main.css). The inner
+       column keeps the panel's full width, anchored to the right edge, while
+       the aside grows: the panel slides in and the form does not reflow. -->
+  <Transition name="settings-panel">
   <aside v-if="selectedNode && nodeTypeConfig" :aria-label="m.editor.nodeSettings"
-    class="fixed inset-0 z-40 flex flex-col bg-card md:static md:z-auto md:w-[400px] md:shrink-0 md:border-l"
+    class="fixed inset-0 z-40 flex flex-col bg-card md:static md:z-auto md:w-[400px] md:shrink-0 md:flex-row md:justify-end md:overflow-hidden md:border-l"
     :class="isProcessing ? 'xl:w-[520px]' : ''" @keydown="onKeydown">
-    <div class="flex items-start gap-3 border-b p-4">
+    <div class="flex min-h-0 flex-1 flex-col md:w-[400px] md:flex-none md:shrink-0" :class="isProcessing ? 'xl:w-[520px]' : ''">
+    <div :key="selectedNode.id" class="lab-fade-in flex items-start gap-3 border-b p-4">
       <component :is="icon" class="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-1">
@@ -317,5 +322,7 @@ const duration = (field: ConfigField) => (field.type === 'number' || field.type 
       <Button size="sm" variant="outline" @click="close">{{ m.common.done }}</Button>
     </div>
     <ConfirmDialog ref="confirmation" />
+    </div>
   </aside>
+  </Transition>
 </template>

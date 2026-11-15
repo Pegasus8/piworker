@@ -138,11 +138,77 @@
 }
 .lab-button { transition: background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
 .lab-button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
-.lab-page { animation: lab-enter 240ms ease-out both; }
+.lab-page { animation: lab-enter 280ms var(--ease-smooth) both; }
 .lab-empty { background-image: radial-gradient(hsl(var(--border)) 1px, transparent 1px); background-size: 24px 24px; }
-.lab-dialog { color: hsl(var(--foreground)); animation: lab-enter 180ms ease-out; }
-.lab-dialog::backdrop { background: rgb(0 0 0 / .65); backdrop-filter: blur(5px); }
 @keyframes lab-enter { from { opacity: 0; translate: 0 6px; } to { opacity: 1; translate: 0 0; } }
+@keyframes lab-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* Motion: one easing and a few durations, so everything moves alike.
+   Entrances decelerate (smooth), exits are quicker and accelerate. */
+:root {
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --motion-fast: 140ms;
+  --motion-base: 220ms;
+  --motion-panel: 320ms;
+}
+.lab-fade-in { animation: lab-fade-in var(--motion-base) var(--ease-smooth) both; }
+
+/* Dialogs fade and rise in, and fade out on close (with the backdrop):
+   @starting-style gives the opening state, allow-discrete keeps the dialog
+   on screen while it fades out. Older browsers just show and hide it. */
+.lab-dialog {
+  color: hsl(var(--foreground));
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+  transition: opacity var(--motion-fast) var(--ease-exit), transform var(--motion-fast) var(--ease-exit),
+    overlay var(--motion-fast) allow-discrete, display var(--motion-fast) allow-discrete;
+}
+.lab-dialog:not([open]) { pointer-events: none; }
+.lab-dialog[open] {
+  opacity: 1;
+  transform: none;
+  transition-duration: var(--motion-base);
+  transition-timing-function: var(--ease-smooth);
+}
+@starting-style { .lab-dialog[open] { opacity: 0; transform: translateY(8px) scale(0.98); } }
+.lab-dialog::backdrop {
+  background: rgb(0 0 0 / 0);
+  backdrop-filter: blur(0);
+  transition: background-color var(--motion-base) var(--ease-smooth), backdrop-filter var(--motion-base) var(--ease-smooth),
+    overlay var(--motion-base) allow-discrete, display var(--motion-base) allow-discrete;
+}
+.lab-dialog[open]::backdrop { background: rgb(0 0 0 / .65); backdrop-filter: blur(5px); }
+@starting-style { .lab-dialog[open]::backdrop { background: rgb(0 0 0 / 0); backdrop-filter: blur(0); } }
+
+/* Menus and other popovers (radix-vue: data-state open/closed; the content
+   unmounts once its closing animation ends). */
+.lab-popover[data-state="open"] { animation: lab-popover-in var(--motion-fast) var(--ease-smooth); }
+.lab-popover[data-state="closed"] { animation: lab-popover-out 100ms var(--ease-exit); }
+@keyframes lab-popover-in { from { opacity: 0; transform: translateY(-4px) scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes lab-popover-out { from { opacity: 1; } to { opacity: 0; transform: scale(0.98); } }
+
+/* Node settings panel (Vue <Transition name="settings-panel">). Beside the
+   canvas it grows from the right edge, its content held at full width so
+   nothing reflows; full screen on phones it rises into place. */
+.settings-panel-enter-active { transition: width var(--motion-panel) var(--ease-smooth), opacity var(--motion-panel) var(--ease-smooth), transform var(--motion-panel) var(--ease-smooth); }
+.settings-panel-leave-active { transition: width var(--motion-base) var(--ease-exit), opacity var(--motion-base) var(--ease-exit), transform var(--motion-base) var(--ease-exit); }
+@media (min-width: 768px) {
+  .settings-panel-enter-from, .settings-panel-leave-to { width: 0 !important; opacity: 0; border-left-width: 0; }
+}
+@media (max-width: 767.98px) {
+  .settings-panel-enter-from, .settings-panel-leave-to { opacity: 0; transform: translateY(24px); }
+}
+
+/* Collapsible regions (Vue <Transition name="collapse">) of a fixed height. */
+.collapse-enter-active { transition: max-height var(--motion-panel) var(--ease-smooth), opacity var(--motion-panel) var(--ease-smooth); overflow: hidden; }
+.collapse-leave-active { transition: max-height var(--motion-base) var(--ease-exit), opacity var(--motion-base) var(--ease-exit); overflow: hidden; }
+.collapse-enter-from, .collapse-leave-to { max-height: 0 !important; opacity: 0; }
+
+/* Plain fades (Vue <Transition name="fade">), e.g. backdrops. */
+.fade-enter-active { transition: opacity var(--motion-base) var(--ease-smooth); }
+.fade-leave-active { transition: opacity var(--motion-fast) var(--ease-exit); }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }

@@ -86,7 +86,8 @@ function pretty(v: unknown): string {
     </div>
 
     <!-- Body -->
-    <div v-if="!collapsed" class="h-48 overflow-auto border-t">
+    <Transition name="collapse">
+    <div v-if="!collapsed" data-activity-body class="h-48 max-h-48 overflow-auto border-t">
       <!-- Runs -->
       <div v-if="tab === 'runs'" class="divide-y">
         <p v-if="obs.runsLoading" role="status" class="p-4 text-sm">{{ m.activity.loadingRuns }}</p>
@@ -127,6 +128,7 @@ function pretty(v: unknown): string {
         </div>
       </div>
     </div>
+    </Transition>
     <Dialog :open="!!obs.selectedRunId"   :title="m.activity.runDetails" @update:open="!$event && obs.closeRun()">
       <h2 class="text-lg font-semibold">{{ m.activity.runDetails }}</h2>
       <p class="mt-1 break-all font-mono text-xs text-muted-foreground">{{ obs.selectedRunId }}</p>

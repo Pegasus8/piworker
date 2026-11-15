@@ -78,10 +78,12 @@ const item = 'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-m
     <RouterLink to="/" class="flex items-center gap-2 font-bold"><Workflow class="h-6 w-6 text-primary" aria-hidden="true" />PiWorker</RouterLink>
     <span v-if="agentWaiting" class="ml-auto rounded-full bg-destructive px-2 text-xs font-semibold text-destructive-foreground" :aria-label="agentsLabel">{{ agentWaiting }}</span>
   </div>
-  <div v-if="shell.drawerOpen" class="fixed inset-0 z-40 bg-black/50 md:hidden" aria-hidden="true" @click="shell.drawerOpen = false" />
+  <Transition name="fade">
+    <div v-if="shell.drawerOpen" class="fixed inset-0 z-40 bg-black/50 md:hidden" aria-hidden="true" @click="shell.drawerOpen = false" />
+  </Transition>
 
   <nav id="app-navigation" :aria-label="m.nav.main"
-    class="fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r bg-card transition-transform md:static md:z-auto md:w-56 md:translate-x-0 lg:w-60"
+    class="fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r bg-card transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] md:static md:z-auto md:w-56 md:translate-x-0 lg:w-60"
     :class="shell.drawerOpen ? 'translate-x-0' : '-translate-x-full'">
     <div class="flex items-center gap-2 px-4 py-4">
       <RouterLink to="/" class="flex items-center gap-2 text-lg font-bold"><Workflow class="h-7 w-7 text-primary" aria-hidden="true" />PiWorker</RouterLink>

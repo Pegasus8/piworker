@@ -15,7 +15,7 @@ defineProps<{ label: string; actions: MenuAction[] }>()
       <MoreHorizontal class="h-4 w-4" />
     </DropdownMenuTrigger>
     <DropdownMenuPortal>
-      <DropdownMenuContent align="end" :side-offset="4" class="z-50 min-w-[12rem] rounded-md border bg-card p-1 text-sm shadow-lg">
+      <DropdownMenuContent align="end" :side-offset="4" class="lab-popover z-50 min-w-[12rem] rounded-md border bg-card p-1 text-sm shadow-lg">
         <template v-for="action in actions" :key="action.label">
           <DropdownMenuSeparator v-if="action.separated" class="my-1 h-px bg-border" />
           <DropdownMenuItem :disabled="action.disabled"

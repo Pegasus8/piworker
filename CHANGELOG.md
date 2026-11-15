@@ -72,6 +72,10 @@ release or the image's `latest`. The release date is set when it is published.
 - The flow list shows each flow's run status, has an overflow menu, names a flow
   when it is created and offers **Start from an example** with example flows
   that need no hardware.
+- Smooth motion: the node settings panel slides in from the edge (and rises
+  into place on phones), dialogs and menus fade in and out, the activity
+  panel and the phone navigation drawer animate open and closed. All of it
+  follows the system's "reduce motion" setting.
 - The node list marks `external` and `privileged` node types, and the settings
   panel explains a node's risk level and when a setting can raise it
   (`GET /api/node-types` now returns `risk`).
