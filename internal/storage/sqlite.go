@@ -83,9 +83,9 @@ func (s *SQLiteStore) DB() *sql.DB {
 	return s.db
 }
 
-// initialize creates the necessary tables if they don't exist.
-func (s *SQLiteStore) initialize() error {
-	schema := `
+// coreSchema is the baseline's flows, settings, history, secrets and
+// variables tables (migrateBaseline).
+const coreSchema = `
 		CREATE TABLE IF NOT EXISTS flows (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
@@ -151,19 +151,9 @@ CREATE TABLE IF NOT EXISTS vars (
 		);
 	`
 
-	if _, err := s.db.Exec(schema); err != nil {
-		return err
-	}
-	if _, err := s.db.Exec(brokerConnectionsSchema); err != nil {
-		return err
-	}
-	if err := migrateHistory(s.db); err != nil {
-		return err
-	}
-	if err := migrateFlowVersions(s.db); err != nil {
-		return err
-	}
-	return s.migrateAgent()
+// initialize brings the schema to SchemaVersion (migrations.go).
+func (s *SQLiteStore) initialize() error {
+	return migrate(s.db, migrations)
 }
 
 // GetSetting returns a stored setting value and whether it exists.

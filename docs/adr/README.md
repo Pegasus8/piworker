@@ -76,3 +76,4 @@ node recipe, UI changes and documentation do **not** need an ADR.
 | [0032](0032-automatic-backups-and-whole-state-restore.md) | Automatic backups and whole-state restore | Accepted |
 | [0033](0033-update-checks-and-requested-updates.md) | Update checks and requested updates | Proposed |
 | [0034](0034-lifecycle-service-owns-deploy-and-stop.md) | A lifecycle service owns deploy, stop and restore | Proposed |
+| [0035](0035-numbered-schema-migrations.md) | Numbered schema migrations recorded in the database | Proposed |

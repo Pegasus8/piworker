@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -294,6 +295,24 @@ func TestValidateRejectsTamperedAndForeignArchives(t *testing.T) {
 	corrupt["manifest.json"], _ = json.Marshal(m)
 	_, err = Validate(write("c.tar.gz", corrupt, all...), t.TempDir())
 	assert.ErrorIs(t, err, ErrInvalidBackup)
+
+	// The database itself says which schema it has: one from a newer
+	// PiWorker is refused whatever the manifest claims.
+	dbFile := filepath.Join(t.TempDir(), "newer.db")
+	require.NoError(t, os.WriteFile(dbFile, good["piworker.db"], 0o600))
+	raw, err := sql.Open("sqlite3", dbFile)
+	require.NoError(t, err)
+	_, err = raw.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, SchemaVersion+1))
+	require.NoError(t, err)
+	require.NoError(t, raw.Close())
+	lying := clone()
+	lying["piworker.db"], err = os.ReadFile(dbFile)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(good["manifest.json"], &m))
+	m.Files["piworker.db"] = sha256Hex(lying["piworker.db"])
+	lying["manifest.json"], _ = json.Marshal(m)
+	_, err = Validate(write("l.tar.gz", lying, all...), t.TempDir())
+	assert.ErrorIs(t, err, ErrNewerBackup)
 
 	_, err = Validate(filepath.Join(t.TempDir(), "absent.tar.gz"), t.TempDir())
 	assert.Error(t, err)

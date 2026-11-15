@@ -196,7 +196,11 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
 
 ### Storage, auth, config
 - `internal/storage`: SQLite tuned in `buildDSN` (WAL, `busy_timeout`,
-  `_txlock=immediate`) with `SetMaxOpenConns(1)` (single writer). Flows are
+  `_txlock=immediate`) with `SetMaxOpenConns(1)` (single writer). The schema
+  is a numbered list of migrations (`migrations.go`, ADR-0035) recorded in
+  `PRAGMA user_version`: to change it, **append** a migration and bump
+  `SchemaVersion`; never edit a released one or add `IF NOT EXISTS` checks
+  elsewhere. A database from a newer version is refused. Flows are
   stored as a JSON blob in the `data` column with a `version`, each definition
   also in `flow_versions` (newest 50 plus the last admin-approved); the
   `settings` key/value table holds `agent_deploy` and `tokens_epoch`. The

@@ -119,7 +119,8 @@ The server never replaces the database it has open.
 1. Validate before anything is written: manifest, checksums, archive layout
    (only the known entries, regular files, no paths outside), SQLite
    `PRAGMA integrity_check`, and that the backup is not from a newer schema
-   than this binary understands (older is fine; startup migrates it).
+   than this binary understands, read from the database itself (`PRAGMA
+   user_version`, ADR-0035; older is fine: startup migrates it).
 2. Take a backup of the current state ("before restore") unless the
    installation is fresh.
 3. Write the validated content to `restore-pending/` next to the database

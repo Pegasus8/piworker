@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Pegasus8/piworker/internal/storage"
 	// The SQLite driver, registered as "sqlite3".
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -37,10 +38,11 @@ const Format = "piworker-backup"
 // FormatVersion is the archive layout's version.
 const FormatVersion = 1
 
-// SchemaVersion marks the database schema this binary understands. Bump it
-// when a migration makes a database unreadable for older binaries: a backup
-// with a higher value is refused on restore (ErrNewerBackup).
-const SchemaVersion = 1
+// SchemaVersion is the database schema this binary understands (the
+// store's migrations, ADR-0035): a backup whose database has a higher one
+// is refused on restore (ErrNewerBackup); an older one is migrated when the
+// restored database is opened.
+const SchemaVersion = storage.SchemaVersion
 
 // Why a backup was made.
 const (
@@ -155,8 +157,12 @@ func Create(ctx context.Context, src Sources, dir, reason string, now time.Time)
 		}
 	}
 
+	schema, err := schemaOf(snap)
+	if err != nil {
+		return Info{}, err
+	}
 	m := Manifest{
-		Format: Format, Version: FormatVersion, Schema: SchemaVersion,
+		Format: Format, Version: FormatVersion, Schema: schema,
 		PiWorker: src.Version, Created: now.UTC().Truncate(time.Second), Reason: reason,
 		Files: map[string]string{},
 	}
@@ -667,5 +673,25 @@ func checkIntegrity(p string) error {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'flows'`).Scan(&flows); err != nil || flows == 0 {
 		return fmt.Errorf("%w: not a PiWorker database", ErrInvalidBackup)
 	}
+	// The manifest's schema is what the backup says; this is what it holds.
+	var schema int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&schema); err != nil {
+		return fmt.Errorf("%w: database: %v", ErrInvalidBackup, err)
+	}
+	if schema > SchemaVersion {
+		return ErrNewerBackup
+	}
 	return nil
+}
+
+// schemaOf reads the schema version of the database file p.
+func schemaOf(p string) (int, error) {
+	db, err := sql.Open("sqlite3", "file:"+p+"?mode=ro")
+	if err != nil {
+		return 0, err
+	}
+	defer db.Close()
+	var schema int
+	err = db.QueryRow(`PRAGMA user_version`).Scan(&schema)
+	return schema, err
 }

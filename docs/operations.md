@@ -225,6 +225,7 @@ Then create a new token with only the tools and scopes the agent needs.
 | Health check fails | `piworkerctl` checks `https://127.0.0.1:<addr port>/api/health` against the local CA (plain HTTP with `[tls] mode = "off"`). Inspect logs, check for occupied ports (8443 and 8080), and supply `PIWORKER_HEALTH_URL` when using a non-default address. |
 | Service refuses to start: `http_addr` uses the same port as `addr` | An old configuration with a lone `addr = ":8080"`: set `addr = ":8443"` and `http_addr = ":8080"` (or `http_addr = ""`). |
 | Browser warns about the certificate | Trust the local CA on that device (`/trust`) and check its fingerprint. After trusting it, a warning means something is wrong: do not continue. |
+| Service refuses to start: `the database was written by a newer PiWorker` | An older binary was started on a database a newer release already migrated ([ADR-0035](adr/0035-numbered-schema-migrations.md)). Install the newer release again, or restore the data directory or a backup made before that update. The database was not modified. |
 | Locked out after a TLS change | `sudo piworkerctl tls off`, then fix the configuration and `sudo piworkerctl tls on`. |
 | Login fails after enabling Secure cookies | `session_secure` is only for `[tls] mode = "off"` behind your own HTTPS proxy; it needs browser access through HTTPS. With native HTTPS, cookies are already Secure. |
 | GPIO/I2C permission denied | Enable the device/bus and give the `piworker` service user the appropriate groups for your OS, then restart it. |

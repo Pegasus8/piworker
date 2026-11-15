@@ -52,9 +52,10 @@ func NewSQLiteUserStoreWithDB(db *sql.DB) (*SQLiteUserStore, error) {
 	return store, nil
 }
 
-// initialize creates the users table if it doesn't exist.
-func (s *SQLiteUserStore) initialize() error {
-	schema := `
+// usersSchema is the accounts, sessions and one-use code tables. It is part
+// of the schema baseline (migrateBaseline); a user store opened on its own
+// database creates them itself.
+const usersSchema = `
 		CREATE TABLE IF NOT EXISTS users (
 			username TEXT PRIMARY KEY,
 			password_hash TEXT NOT NULL,
@@ -76,7 +77,9 @@ func (s *SQLiteUserStore) initialize() error {
         );
 	`
 
-	_, err := s.db.Exec(schema)
+// initialize creates the accounts tables if they don't exist.
+func (s *SQLiteUserStore) initialize() error {
+	_, err := s.db.Exec(usersSchema)
 	return err
 }
 
