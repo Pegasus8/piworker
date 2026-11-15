@@ -72,6 +72,11 @@ func (r *Registry) Register(info NodeTypeInfo, factory NodeFactory) error {
 	if _, exists := r.factories[info.Type]; exists {
 		return fmt.Errorf("node type %q already registered", info.Type)
 	}
+	for _, p := range info.Outputs {
+		if p.ID == types.ErrorPort {
+			return fmt.Errorf("node type %q declares an output %q: that ID is the runtime's error port", info.Type, types.ErrorPort)
+		}
+	}
 
 	// Derive the config schema from a probe instance when the info doesn't supply
 	// one, so a node's GetConfigSchema() is the single source of truth (the UI

@@ -246,7 +246,14 @@ func connectOp(f *Flow, op Op, reg *node.Registry) (string, string) {
 	if op.SourceNode == op.TargetNode {
 		return IssueSelfLoop, fmt.Sprintf("a node cannot be connected to itself (%s)", op.SourceNode)
 	}
-	if _, outputs := opPorts(src, reg); !hasPort(outputs, op.SourcePort) {
+	// The error port (ADR-0036) is on every node but the triggers, which
+	// the registered category decides (the stored one for an unknown type).
+	srcCategory := src.Category
+	if info, ok := reg.Get(src.Type); ok {
+		srcCategory = info.Category
+	}
+	errorPort := op.SourcePort == ErrorPort && srcCategory != NodeCategoryInput
+	if _, outputs := opPorts(src, reg); !errorPort && !hasPort(outputs, op.SourcePort) {
 		return IssueConnectionUnknownPort, fmt.Sprintf("node %s (%s) has no output port %q", src.ID, src.Type, op.SourcePort)
 	}
 	if inputs, _ := opPorts(dst, reg); !hasPort(inputs, op.TargetPort) {

@@ -88,6 +88,8 @@ export default {
   outputs: (names: string[]) => `Outputs: ${names.join(' · ')}`,
   inputPort: (name: string) => `Input: ${name}`,
   outputPort: (name: string) => `Output: ${name}`,
+  errorPort: 'On error: connect it to handle this node\'s failures',
+  errorPortName: 'On error',
   // Node settings
   nodeSettings: 'Node settings',
   closeSettings: 'Close node settings',

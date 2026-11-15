@@ -55,6 +55,12 @@ type Message struct {
 	SourcePort  string                 `json:"sourcePort"` // ID of the port that produced this message
 }
 
+// ErrorPort is the output port every node that processes messages has
+// besides the ones it declares (ADR-0036): when the node fails, the runtime
+// sends the failure out of it. A node type cannot declare an output with
+// this ID.
+const ErrorPort = "error"
+
 // NewMessage creates a new Message with a generated UUID and timestamp.
 func NewMessage(payload interface{}, payloadType DataType) *Message {
 	return &Message{

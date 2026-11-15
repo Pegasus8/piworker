@@ -133,6 +133,14 @@ type FlowRuntime struct {
 	queues     map[string]*nodeQueue
 	queueLimit int
 
+	// Admission (ADR-0037): inflight is how many messages the flow holds
+	// (queued or executing, every run); a trigger's message enters only
+	// while it is below maxInflight (-1: the queue limit; 0: no bound).
+	// room wakes a trigger that waits.
+	inflight    atomic.Int64
+	maxInflight int
+	room        chan struct{}
+
 	// droppedMessages counts messages discarded by this runtime (node queue
 	// overflow, router send timeouts, disabled/unknown targets).
 	droppedMessages atomic.Int64
@@ -221,6 +229,8 @@ func NewFlowRuntime(f *Flow, registry *node.Registry, opts ...RuntimeOption) (*F
 		retryConfig:    DefaultRetryConfig(),
 		maxConcurrency: DefaultMaxConcurrency,
 		queueLimit:     DefaultNodeQueueLimit,
+		maxInflight:    -1,
+		room:           make(chan struct{}, 1),
 		stopTimeout:    DefaultStopTimeout,
 		errors:         make(chan error, 100),
 		runInflight:    make(map[string]int),
@@ -399,6 +409,12 @@ func (r *FlowRuntime) startSeeder(nodeID string) chan *types.Message {
 				return
 			case msg, ok := <-seedChan:
 				if !ok {
+					return
+				}
+				// The flow takes the message only while it has room: until
+				// then this trigger's channel fills and the trigger refuses
+				// at its own door (a webhook answers busy, a timer skips).
+				if !r.admit(nodeID) {
 					return
 				}
 				corrID := r.ensureCorrelationID(msg)

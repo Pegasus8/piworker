@@ -105,6 +105,18 @@ func WithNodeQueueLimit(n int) RuntimeOption {
 	}
 }
 
+// WithMaxInflight bounds how many messages the flow holds before its
+// triggers wait (ADR-0037). Without it the bound is the node queue limit,
+// so a trigger alone never overflows a queue; 0 removes the bound (queues
+// then drop what does not fit). Negative values are ignored.
+func WithMaxInflight(n int) RuntimeOption {
+	return func(r *FlowRuntime) {
+		if n >= 0 {
+			r.maxInflight = n
+		}
+	}
+}
+
 // WithStopTimeout sets how long Stop waits for the flow's goroutines to exit.
 // Values <= 0 are ignored.
 func WithStopTimeout(d time.Duration) RuntimeOption {

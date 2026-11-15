@@ -1,5 +1,35 @@
 # Release notes
 
+## Unreleased
+
+### Added
+
+- **On error** port: every processing and action node has a red dot under
+  it. Connect it to what should happen when the node fails (a Notify, a
+  fallback, a Reply in error mode); the message carries the error text, the
+  node and the payload it failed on. The failure is still shown in
+  Activity → Runs ([ADR-0036](docs/adr/0036-error-port-on-every-node.md)).
+
+### Changed
+
+- When messages arrive faster than a flow finishes them, its triggers now
+  wait instead of starting runs that lose messages halfway: a Webhook
+  answers 503, a timer skips ticks. Before, the messages were dropped at the
+  slow node after the first nodes had already run
+  ([ADR-0037](docs/adr/0037-triggers-wait-for-room.md)).
+- The database records its schema version. Starting an older PiWorker on a
+  database a newer release migrated is refused with a clear error instead of
+  running on tables it does not know; restoring a backup from a newer
+  release is refused the same way
+  ([ADR-0035](docs/adr/0035-numbered-schema-migrations.md)).
+
+### Internal
+
+- One lifecycle service owns deploy, stop, restart and the restore at
+  startup ([ADR-0034](docs/adr/0034-lifecycle-service-owns-deploy-and-stop.md));
+  explicit composition root; the editor's response types are checked against
+  the server's.
+
 ## v1.0.0-beta.2 — 2026-11-15 (prerelease)
 
 A prerelease like beta.1: install it by tag (`v1.0.0-beta.2`). Updating a

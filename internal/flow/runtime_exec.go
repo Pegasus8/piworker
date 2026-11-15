@@ -227,7 +227,9 @@ func (r *FlowRuntime) executeNodeInSlot(routedMsg RoutedMessage, slot *semSlot) 
 				ev.Err = panicErr
 				r.observer(ev)
 			}
-			r.calls.nodeError(correlationID, routedMsg.TargetNode, flowNode.Type, panicErr)
+			if !r.routeError(routedMsg, flowNode, correlationID, panicErr) {
+				r.calls.nodeError(correlationID, routedMsg.TargetNode, flowNode.Type, panicErr)
+			}
 		}
 	}()
 
@@ -281,10 +283,16 @@ func (r *FlowRuntime) executeNodeInSlot(routedMsg RoutedMessage, slot *semSlot) 
 		if !r.noMetrics {
 			metrics.RecordNodeError(flowNode.Type)
 		}
-		r.calls.nodeError(correlationID, routedMsg.TargetNode, flowNode.Type, err)
+		// A failure the flow handles (the error port is connected) does not
+		// end a called run: the handler decides what the call answers.
+		handled := r.routeError(routedMsg, flowNode, correlationID, err)
+		if !handled {
+			r.calls.nodeError(correlationID, routedMsg.TargetNode, flowNode.Type, err)
+		}
 		logger.Error().
 			Err(err).
 			Dur("duration", duration).
+			Bool("handled", handled).
 			Msg("Node execution failed after all retries")
 
 		select {
@@ -463,12 +471,14 @@ func (r *FlowRuntime) runAdd(correlationID string, delta int) {
 	r.runMu.Lock()
 	r.runInflight[correlationID] += delta
 	r.runMu.Unlock()
+	r.inflight.Add(int64(delta))
 }
 
 // runDone decrements a run's counter by one (a message finished). When it reaches
 // zero the run has drained and a run-finished event is emitted exactly once.
 func (r *FlowRuntime) runDone(correlationID string) {
 	r.runMu.Lock()
+	counted := r.runInflight[correlationID] > 0
 	n := r.runInflight[correlationID] - 1
 	finished := n <= 0
 	if finished {
@@ -477,6 +487,14 @@ func (r *FlowRuntime) runDone(correlationID string) {
 		r.runInflight[correlationID] = n
 	}
 	r.runMu.Unlock()
+	if counted {
+		r.inflight.Add(-1)
+		// Wake a trigger that waits for room (admit).
+		select {
+		case r.room <- struct{}{}:
+		default:
+		}
+	}
 
 	if !finished {
 		return
@@ -490,4 +508,85 @@ func (r *FlowRuntime) runDone(correlationID string) {
 		})
 	}
 	r.calls.runFinished(correlationID)
+}
+
+// routeError sends the failure of a node execution out of the node's error
+// port (ADR-0036) and reports whether anything is connected there. The
+// message is a copy of the one the node failed on (its metadata, so the
+// same run) whose payload is {"message", "nodeId", "nodeType", "input"}:
+// the error text as it is logged, the node, and the payload it failed on.
+// The children are counted into the run before they are routed, so the run
+// ends after its handlers. The caller still reports the failure (the node's
+// error event, metrics, the log): handling it does not hide it.
+func (r *FlowRuntime) routeError(routedMsg RoutedMessage, flowNode *Node, correlationID string, err error) bool {
+	copies := r.targetCount(routedMsg.TargetNode, ErrorPort)
+	if copies == 0 {
+		return false
+	}
+	out := routedMsg.Message.Clone()
+	out.Payload = map[string]interface{}{
+		"message":  err.Error(),
+		"nodeId":   routedMsg.TargetNode,
+		"nodeType": flowNode.Type,
+		"input":    out.Payload,
+	}
+	out.PayloadType = DataTypeObject
+	out.Topic = "error"
+	out.SourceNode = routedMsg.TargetNode
+	out.SourcePort = ErrorPort
+	out.SetMeta("correlationID", correlationID)
+	if !r.routeAllowed(out, copies) {
+		return false
+	}
+	r.runAdd(correlationID, copies)
+	r.router.Route(routedMsg.TargetNode, out)
+	return true
+}
+
+// Inflight is how many messages the flow holds now: queued for a node or
+// executing, over all its runs.
+func (r *FlowRuntime) Inflight() int64 { return r.inflight.Load() }
+
+// inflightLimit is the admission bound: maxInflight, or the node queue
+// limit when it was not set; 0 means none.
+func (r *FlowRuntime) inflightLimit() int64 {
+	if r.maxInflight < 0 {
+		return int64(r.queueLimit)
+	}
+	return int64(r.maxInflight)
+}
+
+// admissionWarnAfter is how long a trigger waits for room before the log
+// says so (once per wait).
+const admissionWarnAfter = 10 * time.Second
+
+// admit waits until the flow has room for another message of trigger
+// nodeID (ADR-0037) and reports false when the flow stops first. The bound
+// is checked when a message enters, not held: a message that fans out can
+// take the flow above it, and what does not fit a node's queue then is
+// still dropped and counted (ADR-0005).
+func (r *FlowRuntime) admit(nodeID string) bool {
+	limit := r.inflightLimit()
+	if limit <= 0 || r.inflight.Load() < limit {
+		return r.ctx.Err() == nil
+	}
+	// Several triggers may wait on one wake-up: poll as well.
+	poll := time.NewTicker(50 * time.Millisecond)
+	defer poll.Stop()
+	since, warned := time.Now(), false
+	for r.inflight.Load() >= limit {
+		select {
+		case <-r.ctx.Done():
+			return false
+		case <-r.room:
+		case <-poll.C:
+		}
+		if !warned && time.Since(since) >= admissionWarnAfter {
+			warned = true
+			r.logger.Warn().Str("flowID", r.flow.ID).Str("nodeID", nodeID).
+				Int64("inflight", r.inflight.Load()).Int64("limit", limit).
+				Msg("Trigger is waiting: the flow is not finishing its messages as fast as they arrive")
+		}
+	}
+	return true
 }

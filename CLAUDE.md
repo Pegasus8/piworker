@@ -105,6 +105,18 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
   unless the error is wrapped with `node.Transient(err)`. Default (permanent)
   errors are never retried, so side-effecting actions aren't blindly re-run; mark
   only genuinely transient failures transient. Backoff config in `RetryConfig`.
+- **Failures are routable (ADR-0036)**: every node that is not a trigger has
+  the implicit output port `error` (`types.ErrorPort`; a node type cannot
+  declare one). When `Process` fails after its retries, or panics, and that
+  port is connected, `routeError` sends `{message, nodeId, nodeType, input}`
+  down it in the same run. The failure is still recorded; only a called
+  run's result is left to the handler. What leaves an error port counts as
+  protected data in `flow.Diff` (`data_read_changed`).
+- **Triggers wait for room (ADR-0037)**: the trigger seeder admits a message
+  only while `FlowRuntime.Inflight()` is below the bound (the node queue
+  limit; `WithMaxInflight`), so a trigger never overflows a node queue and
+  overload is refused at the trigger (webhook 503, skipped tick). Queues
+  still drop what multiplies inside a flow (ADR-0005).
 - **Multi-output routing is fail-loud**: in `executeNode`, an output with no
   `SourcePort` is auto-assigned only when the node has exactly one output port.
   With >1 output it is **dropped with a warning**. Switch/filter-style nodes must
@@ -295,7 +307,8 @@ server sends (node types, their docs and schemas, API errors) stays English.
    Resolve secrets per execution through the context, never in the factory.
    Factories and `Validate` must reject bad config (deploy maps that to 400).
 4. Multi-output nodes: declare each output port and set `SourcePort` on every
-   emitted message. Add a `_test.go` next to it.
+   emitted message. Do not declare an `error` output: return an error from
+   `Process` and the runtime routes it (ADR-0036). Add a `_test.go` next to it.
    Regenerate the user guide's node reference, which a test compares with the
    registry: `go test -run TestNodeReferenceDocIsCurrent ./internal/node/builtin -update`
    (`docs/guide/nodes.md`; the rest of the user guide in `docs/guide/` is

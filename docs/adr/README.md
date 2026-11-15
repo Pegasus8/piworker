@@ -46,7 +46,7 @@ node recipe, UI changes and documentation do **not** need an ADR.
 | [0002](0002-api-request-guard-without-auth-exceptions.md) | Guard every unsafe `/api` request, even without authentication | Accepted |
 | [0003](0003-webhooks-outside-api.md) | Serve webhooks outside `/api` | Accepted |
 | [0004](0004-configuration-fails-closed.md) | Configuration fails closed | Accepted |
-| [0005](0005-per-node-queues-and-fifo-delivery.md) | Per-node bounded queues and FIFO delivery | Accepted |
+| [0005](0005-per-node-queues-and-fifo-delivery.md) | Per-node bounded queues and FIFO delivery | Accepted (backpressure consequence superseded by ADR-0037) |
 | [0006](0006-all-or-nothing-deploy.md) | All-or-nothing deploy with network-tolerant triggers | Accepted |
 | [0007](0007-registry-based-flow-validation.md) | Validate flows against the registry and reject cycles | Accepted |
 | [0008](0008-node-closer-lifecycle-hook.md) | `node.Closer` lifecycle hook | Accepted |
@@ -77,3 +77,5 @@ node recipe, UI changes and documentation do **not** need an ADR.
 | [0033](0033-update-checks-and-requested-updates.md) | Update checks and requested updates | Proposed |
 | [0034](0034-lifecycle-service-owns-deploy-and-stop.md) | A lifecycle service owns deploy, stop and restore | Proposed |
 | [0035](0035-numbered-schema-migrations.md) | Numbered schema migrations recorded in the database | Proposed |
+| [0036](0036-error-port-on-every-node.md) | Every node has an error port | Proposed |
+| [0037](0037-triggers-wait-for-room.md) | Triggers wait for room in the flow | Proposed |

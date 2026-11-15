@@ -1,6 +1,6 @@
 # ADR-0005: Per-node bounded queues and FIFO delivery
 
-**Status:** Accepted
+**Status:** Accepted (backpressure consequence superseded by ADR-0037)
 **Date:** 2026-11-08
 **Deciders:** maintainer
 

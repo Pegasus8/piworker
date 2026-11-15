@@ -105,6 +105,16 @@ version; choose **Reload** and repeat your change.
    sends them out of **False**. Test the condition in the node's **Payload
    playground**.
 
+### Runs are missing during a burst
+
+When messages arrive faster than the flow finishes them, the trigger waits
+instead of starting runs that would lose messages halfway: a **Webhook**
+answers 503 (send the request again later), an **Interval
+Timer** skips ticks, an MQTT trigger drops what arrives meanwhile. The
+service log says `Trigger is waiting` with the flow and how many messages it
+holds. Look in **Activity → Runs** for the node that takes long (a slow
+request, a long **Delay**) and make it faster, or trigger less often.
+
 ### The flow list shows "Failed"
 
 The flow was running before a restart and could not be started again. Open it

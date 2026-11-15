@@ -35,6 +35,8 @@ worth knowing:
   **False**: connect each to the branch that should run in that case.
 - Actions have an output too, so you can chain them: after **HTTP Request**
   the message carries the response.
+- Processing and action nodes also have a red dot underneath, **On error**.
+  See [When a node fails](#when-a-node-fails).
 
 The [node reference](nodes.md) lists every node, and the **?** button in a
 node's settings opens its documentation with examples.
@@ -131,6 +133,36 @@ message out of **True** or **False**, for when both cases need handling.
 **Test before you deploy.** The settings of every processing node have a
 **Payload playground**: paste a sample message, choose **Test node**, and see
 the output or the error.
+
+## When a node fails
+
+A node fails when it cannot do its job: a request is refused, a sensor does
+not answer, an expression hits a value it cannot use. The run's branch stops
+at that node and the failure is shown in **Activity → Runs**.
+
+To react inside the flow, connect the node's **On error** port (the red dot
+under it) to what should happen then: a **Notify**, a fallback request, a
+**Reply** in error mode for a tool. The node you connect receives a message
+whose payload is:
+
+| Field | What it holds |
+|-------|---------------|
+| `payload.message` | The error text, as the run shows it. |
+| `payload.nodeId`, `payload.nodeType` | The node that failed. |
+| `payload.input` | The payload that node was working on. |
+
+For example, a Notify after an HTTP Request's **On error** with the message
+`Request failed: {{payload.message}}`.
+
+Things worth knowing:
+
+- The failure is still recorded: the run is marked as failed and shows the
+  node's error, whether or not something handled it.
+- Without a connection on **On error** nothing changes: the branch ends.
+- Triggers have no **On error** port: they start runs, they do not process a
+  message.
+- A handler can fail too, and can have its own **On error**. A connection
+  that would make a loop is refused, as everywhere else.
 
 ## Saving, deploying and stopping
 

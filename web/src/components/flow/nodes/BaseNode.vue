@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ports } from '@/lib/ports'
+import { ERROR_PORT, hasErrorPort, ports } from '@/lib/ports'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
 import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
@@ -52,6 +52,8 @@ const colors = computed(() => categoryColors[props.data.category])
 const types = useNodeTypesStore()
 const inputs = computed(() => ports(types.getById(props.data.nodeType)?.inputs))
 const outputs = computed(() => ports(types.getById(props.data.nodeType)?.outputs))
+// Every node that processes messages can hand its failures to the flow.
+const errorPort = computed(() => hasErrorPort(types.getById(props.data.nodeType)))
 // What the node is set to do, instead of its type id; empty required
 // settings are flagged so they are found before deploying.
 const summary = computed(() => nodeSummary(props.data.config || {}, types.getById(props.data.nodeType)?.configSchema ?? []))
@@ -158,11 +160,24 @@ const durationLabel = computed(() => {
         colors.handle
       )"
     />
+
+    <!-- Error port: at the bottom, apart from the outputs -->
+    <Handle
+      v-if="errorPort"
+      :id="ERROR_PORT" :title="m.editor.errorPort"
+      type="source"
+      :position="Position.Bottom"
+      class="error-port w-3 h-3 rounded-full border-2 border-background"
+    />
   </div>
 </template>
 
 <style scoped>
 .vue-flow__handle {
   background-color: inherit;
+}
+/* The error port stands apart from the outputs whatever the node's colour. */
+.vue-flow__handle.error-port {
+  background-color: rgb(239 68 68);
 }
 </style>

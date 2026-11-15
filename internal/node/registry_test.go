@@ -626,3 +626,17 @@ func TestNodeTypeInfo(t *testing.T) {
 		assert.Equal(t, "timer", info.Icon)
 	})
 }
+
+// "error" is the runtime's error port (ADR-0036): a node type cannot use the
+// ID for an output of its own.
+func TestRegisterRefusesAnOutputNamedLikeTheErrorPort(t *testing.T) {
+	reg := NewRegistry()
+	err := reg.Register(NodeTypeInfo{
+		Type: "clash", Category: types.NodeCategoryProcessing,
+		Outputs: []types.Port{{ID: "output"}, {ID: types.ErrorPort}},
+	}, func(map[string]interface{}) (Node, error) { return nil, nil })
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "error")
+	_, ok := reg.Get("clash")
+	assert.False(t, ok)
+}
