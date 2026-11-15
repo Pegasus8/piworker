@@ -92,7 +92,7 @@ solely to break the import cycle between `flow` and `node`.
   `GetConfigSchema()` when `Info.Config` is nil — so a node's schema is its single
   source of truth and the frontend renders the settings form automatically.
 
-### Flow runtime (`internal/flow/runtime.go`, `router.go`)
+### Flow runtime (`internal/flow`: `runtime.go`, `runtime_exec.go`, `runtime_options.go`, `manager.go`, `router.go`)
 Each deployed flow gets a `FlowRuntime`. Execution model:
 - One **serial executor goroutine per node** (preserves message order for
   stateful nodes) draining a per-node channel, gated by a shared **semaphore**
@@ -129,6 +129,11 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
   (`secrets.FromContext`, `vars.FromContext`/`vars.Scoped`), never in a factory, and start
   goroutines with `node.Go`: that is what lets a dry-run swap in empty stores
   and a `node.Sandbox` (ADR-0020).
+- Builtin nodes import `internal/node`, never `internal/flow` (a test
+  enforces it): what a node needs from the runtime is a contract in `node`
+  resolved through its context (`node.ReplierFromContext`, `node.Go`).
+- `internal/api` handlers take the storage they use as the narrow interfaces
+  of `internal/api/stores.go`, not `*storage.SQLiteStore`.
 - The tool-name registry (`builtin/tool_names.go`) — a `trigger-tool` claims its
   `toolName` on `Start` (duplicate → `node.ErrResourceConflict` → 409) and
   releases it on `Stop`.
@@ -237,7 +242,12 @@ download, fingerprint, per-OS instructions).
 API calls go through
 `composables/useApi.ts` (axios, baseURL `/api`, HttpOnly session cookie and CSRF request header,
 401 → redirect to login). Responses use a `{ success, data }` envelope, hence the
-`data.data` unwrapping in the composable. Flow editing state is the
+`data.data` unwrapping in the composable. The types in `types/index.ts` that
+mirror a server response are checked against the Go structs they come from:
+`types/wire.gen.ts` is generated (`go test -run TestWireTypesAreCurrent
+./internal/api -update`, a test fails while it is stale) and
+`types/wire.check.ts` makes `vue-tsc` fail when a hand-written type no
+longer has the same fields. Add new response types to both. Flow editing state is the
 `stores/flows.ts` Pinia store; the canvas is `components/flow/FlowCanvas.vue`.
 Agent access (`/agents`, `/agents/approvals`, `/agents/audit`) uses
 `stores/agent.ts`, the drafts pages (`/agents/drafts`, `/agents/drafts/:id`)

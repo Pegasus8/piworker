@@ -121,6 +121,8 @@ export interface VersionList {
 }
 
 // --- Observability ---
+// The types below that mirror a server response are checked against the
+// Go structs they come from (wire.gen.ts, wire.check.ts).
 
 export type NodePhase = 'running' | 'success' | 'error' | 'debug'
 
@@ -128,7 +130,8 @@ export type NodePhase = 'running' | 'success' | 'error' | 'debug'
 export interface FlowEvent {
   flowId: string
   nodeId: string
-  nodeType: string
+  /** The server omits it when empty. */
+  nodeType?: string
   phase: NodePhase
   msgId?: string
   corrId?: string
@@ -148,7 +151,8 @@ export interface FlowRun {
   nodeCount: number
   errorCount: number
   /** Who started it: "editor", "token:<name>", or absent when the trigger fired (see lib/runActor). */
-  actor?: string
+  actor?: string  /** The stored version of the definition the run ran (absent: unknown). */
+  flowVersion?: number
 }
 
 // NodeEventRecord is one persisted node-execution event within a run.

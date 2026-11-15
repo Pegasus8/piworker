@@ -18,7 +18,7 @@ import (
 
 // NodeTypesHandler handles HTTP requests for node type operations.
 type NodeTypesHandler struct {
-	store    *storage.SQLiteStore
+	store    FlowReader
 	registry *node.Registry
 	logger   zerolog.Logger
 	// globals and flowVars are the variables a node test previews (copies:
@@ -35,8 +35,9 @@ func (h *NodeTypesHandler) WithVariables(globals *flowvars.Store, flowVars *flow
 }
 
 // NewNodeTypesHandler creates a new NodeTypesHandler.
-func NewNodeTypesHandler(registry *node.Registry, logger zerolog.Logger, stores ...*storage.SQLiteStore) *NodeTypesHandler {
-	var store *storage.SQLiteStore
+// stores, when given, is the store a node test checks its flow in.
+func NewNodeTypesHandler(registry *node.Registry, logger zerolog.Logger, stores ...FlowReader) *NodeTypesHandler {
+	var store FlowReader
 	if len(stores) > 0 {
 		store = stores[0]
 	}

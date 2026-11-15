@@ -31,7 +31,7 @@ type FlowsHandler struct {
 	// definition and lifecycle mutations so storage and runtime agree, and
 	// every deploy and stop goes through it.
 	lifecycle *service.Lifecycle
-	store     *storage.SQLiteStore
+	store     FlowStore
 	registry  *node.Registry
 	logger    zerolog.Logger
 	// flowVars are the per-flow variable stores the runtimes share.
@@ -40,7 +40,7 @@ type FlowsHandler struct {
 
 // NewFlowsHandler creates the editor's flow routes over the lifecycle path.
 // flowVars are the per-flow variable stores of the runtimes lifecycle deploys.
-func NewFlowsHandler(store *storage.SQLiteStore, lifecycle *service.Lifecycle, registry *node.Registry, logger zerolog.Logger, flowVars *flowvars.FlowStores) *FlowsHandler {
+func NewFlowsHandler(store FlowStore, lifecycle *service.Lifecycle, registry *node.Registry, logger zerolog.Logger, flowVars *flowvars.FlowStores) *FlowsHandler {
 	return &FlowsHandler{
 		lifecycle: lifecycle,
 		store:     store,
@@ -629,11 +629,11 @@ func (h *FlowsHandler) InjectNode(w http.ResponseWriter, r *http.Request) {
 
 // HealthHandler handles health check requests.
 type HealthHandler struct {
-	store *storage.SQLiteStore
+	store HealthStore
 }
 
 // NewHealthHandler creates a new HealthHandler.
-func NewHealthHandler(store *storage.SQLiteStore) *HealthHandler {
+func NewHealthHandler(store HealthStore) *HealthHandler {
 	return &HealthHandler{store: store}
 }
 

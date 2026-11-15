@@ -21,12 +21,12 @@ const sseKeepalive = 10 * time.Second
 // persisted run/event history.
 type EventsHandler struct {
 	hub    *events.Hub
-	store  *storage.SQLiteStore
+	store  HistoryReader
 	logger zerolog.Logger
 }
 
 // NewEventsHandler creates a new EventsHandler.
-func NewEventsHandler(hub *events.Hub, store *storage.SQLiteStore, logger zerolog.Logger) *EventsHandler {
+func NewEventsHandler(hub *events.Hub, store HistoryReader, logger zerolog.Logger) *EventsHandler {
 	return &EventsHandler{hub: hub, store: store, logger: logger}
 }
 
