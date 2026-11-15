@@ -86,6 +86,8 @@ const es: typeof en = {
   outputs: (names: string[]) => `Salidas: ${names.join(' · ')}`,
   inputPort: (name: string) => `Entrada: ${name}`,
   outputPort: (name: string) => `Salida: ${name}`,
+  errorPort: 'Si falla: conéctalo para manejar los errores de este nodo',
+  errorPortName: 'Si falla',
   nodeSettings: 'Ajustes del nodo',
   closeSettings: 'Cerrar los ajustes del nodo',
   autoApply: 'Los cambios se aplican al flujo mientras escribes. Guarda el flujo para conservarlos.',

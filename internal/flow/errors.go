@@ -20,7 +20,7 @@ var (
 	ErrFlowAlreadyRunning = errors.New("flow is already running")
 
 	// ErrFlowNotRunning indicates an attempt to stop a flow that isn't running.
-	ErrFlowNotRunning = errors.New("flow is not running")
+	ErrFlowNotRunning = node.ErrNotRunning
 
 	// ErrNodeNotFound indicates the requested node does not exist.
 	ErrNodeNotFound = errors.New("node not found")

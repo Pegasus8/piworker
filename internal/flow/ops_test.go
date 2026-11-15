@@ -132,6 +132,18 @@ func TestApplyOpsConnectAndDisconnect(t *testing.T) {
 	assert.Empty(t, flow.Lint(mustApply(t, base, `[{"op":"add_node","node":{"id":"dbg","type":"process-debug"}},{"op":"connect","sourceNode":"log","sourcePort":"output","targetNode":"dbg","targetPort":"input"}]`), node.DefaultRegistry))
 }
 
+// Every node that processes messages has the error port (ADR-0036); a
+// trigger has none.
+func TestApplyOpsConnectTheErrorPort(t *testing.T) {
+	next := mustApply(t, opsBase(), `[
+		{"op":"add_node","node":{"id":"dbg","type":"process-debug"}},
+		{"op":"connect","sourceNode":"log","sourcePort":"error","targetNode":"dbg","targetPort":"input"}
+	]`)
+	require.Len(t, next.Connections, 2)
+	assert.Equal(t, "error", next.Connections[1].SourcePort)
+	assert.Empty(t, flow.Lint(next, node.DefaultRegistry))
+}
+
 func mustApply(t *testing.T, base *flow.Flow, raw string) *flow.Flow {
 	t.Helper()
 	next, issues := flow.ApplyOps(base, decodeOps(t, raw), node.DefaultRegistry)
@@ -157,6 +169,7 @@ func TestApplyOpsErrors(t *testing.T) {
 		{"connect missing field", `[{"op":"connect","sourceNode":"t","sourcePort":"output","targetNode":"log"}]`, flow.IssueInvalidOp},
 		{"connect unknown node", `[{"op":"connect","sourceNode":"t","sourcePort":"output","targetNode":"ghost","targetPort":"input"}]`, flow.IssueNodeNotFound},
 		{"connect unknown port", `[{"op":"connect","sourceNode":"t","sourcePort":"nope","targetNode":"log","targetPort":"input"}]`, flow.IssueConnectionUnknownPort},
+		{"connect a trigger's error port", `[{"op":"connect","sourceNode":"t","sourcePort":"error","targetNode":"log","targetPort":"input"}]`, flow.IssueConnectionUnknownPort},
 		{"connect to itself", `[{"op":"connect","sourceNode":"log","sourcePort":"output","targetNode":"log","targetPort":"input"}]`, flow.IssueSelfLoop},
 		{"connect twice", `[{"op":"connect","sourceNode":"t","sourcePort":"output","targetNode":"log","targetPort":"input"}]`, flow.IssueConnectionExists},
 		{"disconnect unknown id", `[{"op":"disconnect","connectionId":"ghost"}]`, flow.IssueConnectionNotFound},

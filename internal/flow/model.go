@@ -47,6 +47,10 @@ const (
 	NodeCategoryInput      = types.NodeCategoryInput
 	NodeCategoryProcessing = types.NodeCategoryProcessing
 	NodeCategoryOutput     = types.NodeCategoryOutput
+
+	// ErrorPort is the output every node that processes messages has
+	// besides its declared ones: its failures leave through it (ADR-0036).
+	ErrorPort = types.ErrorPort
 )
 
 // NewMessage is a convenience wrapper around types.NewMessage.

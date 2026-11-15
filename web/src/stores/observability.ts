@@ -53,7 +53,7 @@ export const useObservabilityStore = defineStore('observability', () => {
     if (e.phase === 'debug') {
       debugLog.value.unshift({
         nodeId: e.nodeId,
-        nodeType: e.nodeType,
+        nodeType: e.nodeType ?? '',
         corrId: e.corrId,
         debug: e.debug,
         ts: e.ts ?? Date.now()

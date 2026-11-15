@@ -2173,14 +2173,14 @@ func TestMCPUndefinedSecretsBlockDeploys(t *testing.T) {
 }
 
 // waitForLifecycleWaiter waits until a goroutine is blocked on the
-// lifecycle lock (FlowsHandler.WithLock).
+// lifecycle lock (Lifecycle.WithLock).
 func waitForLifecycleWaiter(t *testing.T) {
 	t.Helper()
 	require.Eventually(t, func() bool {
 		buf := make([]byte, 4<<20)
 		buf = buf[:runtime.Stack(buf, true)]
 		for g := range strings.SplitSeq(string(buf), "\n\n") {
-			if strings.Contains(g, "(*FlowsHandler).WithLock") && strings.Contains(g, "Mutex).lockSlow") {
+			if strings.Contains(g, "(*Lifecycle).WithLock") && strings.Contains(g, "Mutex).lockSlow") {
 				return true
 			}
 		}

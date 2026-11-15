@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
+	"github.com/Pegasus8/piworker/internal/service"
 	"github.com/Pegasus8/piworker/internal/storage"
 	flowvars "github.com/Pegasus8/piworker/internal/vars"
 	"github.com/gorilla/mux"
@@ -19,14 +20,16 @@ func TestFlowVariablesAPIAndPreviewIsolation(t *testing.T) {
 	db, err := storage.NewSQLiteStore(filepath.Join(t.TempDir(), "flows.db"))
 	require.NoError(t, err)
 	defer db.Close()
-	old := flowvars.DefaultFlows
-	flowvars.DefaultFlows = &flowvars.FlowStores{Factory: db.FlowVariables}
-	defer func() { flowvars.DefaultFlows = old }()
+	// The handlers use the stores they are given, never the process-wide
+	// ones.
+	flowStores := &flowvars.FlowStores{Factory: db.FlowVariables}
+	globals := flowvars.NewStore()
+	require.NoError(t, globals.Set("greeting", "hola"))
 	f := flow.NewFlow("local")
 	require.NoError(t, db.CreateFlow(f))
 	r := mux.NewRouter()
-	NewFlowsHandler(db, flow.NewRuntimeManager(node.DefaultRegistry, zerolog.Nop()), node.DefaultRegistry, zerolog.Nop()).RegisterRoutes(r)
-	NewNodeTypesHandler(node.DefaultRegistry, zerolog.Nop(), db).RegisterRoutes(r)
+	NewFlowsHandler(db, service.NewLifecycle(db, flow.NewRuntimeManager(node.DefaultRegistry, zerolog.Nop()), zerolog.Nop()), node.DefaultRegistry, zerolog.Nop(), flowStores).RegisterRoutes(r)
+	NewNodeTypesHandler(node.DefaultRegistry, zerolog.Nop(), db).WithVariables(globals, flowStores).RegisterRoutes(r)
 	request := func(method, path, body string) *httptest.ResponseRecorder {
 		rr := httptest.NewRecorder()
 		r.ServeHTTP(rr, httptest.NewRequest(method, path, strings.NewReader(body)))
@@ -48,6 +51,10 @@ func TestFlowVariablesAPIAndPreviewIsolation(t *testing.T) {
 	rr = request("POST", "/api/nodes/process-transform/test", string(raw))
 	require.Equal(t, 200, rr.Code)
 	require.Contains(t, rr.Body.String(), `"payload":7`)
+	raw, _ = json.Marshal(map[string]interface{}{"config": map[string]interface{}{"expression": "vars.greeting"}})
+	rr = request("POST", "/api/nodes/process-transform/test", string(raw))
+	require.Equal(t, 200, rr.Code)
+	require.Contains(t, rr.Body.String(), `"payload":"hola"`)
 	require.Equal(t, 404, request("PUT", "/api/flows/missing/variables/count", `{"value":1}`).Code)
 	require.Equal(t, 200, request("DELETE", path+"/count", "").Code)
 	require.NotContains(t, request("GET", path, "").Body.String(), `"count"`)

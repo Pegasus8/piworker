@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/rs/zerolog/log"
@@ -54,7 +53,7 @@ func (a *ReplyAction) Process(ctx context.Context, msg *types.Message) ([]*types
 	if v, ok := msg.GetMeta("correlationID"); ok {
 		corrID, _ = v.(string)
 	}
-	if !flow.ReplyFromContext(ctx).Reply(corrID, msg.Payload, a.isError) {
+	if !node.ReplierFromContext(ctx).Reply(corrID, msg.Payload, a.isError) {
 		log.Debug().
 			Str("correlationID", corrID).
 			Msg("action-reply: reply not delivered (the run was not started by a call, the call already has a result, or the payload is not serializable or too large)")

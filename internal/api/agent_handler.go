@@ -54,7 +54,7 @@ type AgentHandlerOptions struct {
 
 // AgentHandler serves /api/agent/*.
 type AgentHandler struct {
-	store         *storage.SQLiteStore
+	store         AgentStore
 	auth          *AuthHandler
 	tokens        *agentauth.TokenVerifier
 	authorEnabled bool
@@ -68,7 +68,7 @@ type AgentHandler struct {
 // NewAgentHandler returns the agent administration handler. auth provides the
 // password step-up and its limiter; tokens applies revocations and grant
 // changes to the verifier cache immediately.
-func NewAgentHandler(store *storage.SQLiteStore, auth *AuthHandler, tokens *agentauth.TokenVerifier, opts AgentHandlerOptions) *AgentHandler {
+func NewAgentHandler(store AgentStore, auth *AuthHandler, tokens *agentauth.TokenVerifier, opts AgentHandlerOptions) *AgentHandler {
 	h := &AgentHandler{
 		store:         store,
 		auth:          auth,

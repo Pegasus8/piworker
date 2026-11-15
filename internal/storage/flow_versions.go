@@ -139,9 +139,10 @@ const flowVersionsSchema = `
 
 // migrateFlowVersions adds flows.version, the version and deployment tables,
 // and seeds every flow without a stored version with its current definition
-// (editor, admin-approved; without its run state). Every step is idempotent.
-func migrateFlowVersions(db *sql.DB) error {
-	has, err := historyHasColumn(db, "flows", "version")
+// (editor, admin-approved; without its run state). Every step is idempotent
+// (part of migrateBaseline).
+func migrateFlowVersions(db *sql.Tx) error {
+	has, err := hasColumn(db, "flows", "version")
 	if err != nil {
 		return err
 	}

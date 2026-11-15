@@ -82,6 +82,16 @@ func TestDiffAlertsDataReads(t *testing.T) {
 		{name: "a credentialed response wired into a node", next: readsFlow(func(f *flow.Flow) {
 			f.Connections = append(f.Connections, lintConn("c6", "call", "output", "log", "input"))
 		}), nodes: []string{"log"}},
+		// A failure's message quotes the failed node's settings (a URL, a
+		// path): what leaves an error port is the admin's too (ADR-0036).
+		{name: "a handler on a node's error port", next: readsFlow(func(f *flow.Flow) {
+			n := lintNode("peek", "process-transform", map[string]any{"expression": "payload.message"})
+			f.Nodes = append(f.Nodes, n)
+			f.Connections = append(f.Connections, lintConn("ce", "log", "error", "peek", "input"))
+		}), nodes: []string{"peek"}},
+		{name: "a node after an error handler", next: readsFlow(func(f *flow.Flow) {
+			f.Connections = append(f.Connections, lintConn("ce", "log", "error", "setpoint", "input"))
+		}), nodes: []string{"setpoint"}},
 		{name: "an approved variable read left alone", next: readsFlow(func(f *flow.Flow) {
 			diffNodeOf(f, "log").Config["message"] = "tock"
 		})},

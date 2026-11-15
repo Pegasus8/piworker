@@ -376,6 +376,9 @@ func authorFlowText(goal string) string {
 		"request does, how often a flow fires) are what the admin reviews most closely, so change only those the goal " +
 		"needs.\n" +
 		"2. Write the flow: nodes {id, type, config} and connections {id, sourceNode, sourcePort, targetNode, targetPort}. " +
+		"Besides the output ports its type lists, every processing and action node has the port \"error\": when the node " +
+		"fails, a message {message, nodeId, nodeType, input} leaves through it, so connect it to handle the failure " +
+		"(without a connection the run's branch ends there). " +
 		"To change an existing flow, read it with pw_get_flow (scope read) and send its flowId, with baseVersion set to the " +
 		"version pw_get_flow showed, and ops (add_node, update_node, remove_node, connect, disconnect) or the whole flow, " +
 		"whose \"<redacted>\" settings keep the current values. If the flow changed since, the draft is refused with " +

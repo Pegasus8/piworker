@@ -607,7 +607,10 @@ func structureFindings(f *Flow, isTrigger func(i int) bool, ports portsFunc) []f
 			structural(-1, ci, IssueSelfLoop, NewValidationError("connection %s connects node %s to itself", conn.ID, conn.SourceNode))
 			continue
 		}
-		if _, outputs, known := ports(si); known && !hasPort(outputs, conn.SourcePort) {
+		// Every node that processes messages also has the error port
+		// (ADR-0036); a trigger never fails on a message, so it has none.
+		errorPort := conn.SourcePort == ErrorPort && !isTrigger(si)
+		if _, outputs, known := ports(si); known && !errorPort && !hasPort(outputs, conn.SourcePort) {
 			structural(-1, ci, IssueConnectionUnknownPort, NewValidationError("connection %s references non-existent source port %s", conn.ID, conn.SourcePort))
 			continue
 		}

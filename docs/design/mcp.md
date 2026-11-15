@@ -1437,9 +1437,9 @@ Implemented in `authoring.go` (agent authoring), `authoring_proposal.go`
 (resolving and checking a proposal), `authoring_audit.go` (who may call
 what, the audit), `drafts.go` (the editor's side) and `deploy.go` (the
 policy, rollback, versions, marks); the lifecycle path is
-`internal/api/flows_lifecycle.go` and the editor REST
-`internal/api/agent_drafts.go`. `main.go` builds the service over the
-`FlowsHandler` (`appServices.authoring`).
+`internal/service/lifecycle.go` (`service.Lifecycle`, ADR-0034) and the
+editor REST `internal/api/agent_drafts.go`. `main.go` builds the service
+over the `Lifecycle` (`appServices.authoring`).
 
 **Construction.** `service.NewAuthoring(service.AuthoringOptions{Store,
 Lifecycle, Registry, Secrets, Audit, AuthorEnabled, Now, Logger})
@@ -1449,7 +1449,7 @@ Lifecycle, Registry, Secrets, Audit, AuthorEnabled, Now, Logger})
   `ListFlowVersions`, `LastAdminApprovedVersion`, `GetDeployment`,
   `CreateFlowDraft`, `GetFlowDraft`, `ListFlowDrafts`, `DecideFlowDraft`,
   `GetAPIToken`, `AgentDeployLevel` (storage's signatures).
-- `Lifecycle service.FlowLifecycle`: internal/api's `FlowsHandler` (below);
+- `Lifecycle service.FlowLifecycle`: the `service.Lifecycle` (below);
   without it `ApproveDraft`, `Rollback`, `Deploy` and `Stop` are
   `unavailable`.
 - `Registry *node.Registry` (default `node.DefaultRegistry`); `Secrets
@@ -1490,7 +1490,7 @@ false, "error": "…", "data": {"code": "…", "issues"?: […], "flowIssues"?:
 "retryAfterMs"?: N}}`.
 
 **Lifecycle.** `FlowLifecycle.WithLock(ctx, fn func(LockedLifecycle) error)
-error` runs `fn` under `FlowsHandler.lifecycleMu` (not reentrant), so what
+error` runs `fn` under the `Lifecycle` lock (not reentrant), so what
 `fn` checked still holds when it deploys; `FlowLifecycle.Running(flowID)`
 reads without the lock, for views (`GetDraftDetail`'s `running`: an advisory
 value that `ApproveDraft` reads again under the lock, so reading a draft
@@ -1523,10 +1523,9 @@ deploy records the marker, the editor's (`changeRunning`, toggle) as actor
 flows at startup keeps a marker that names the restored version, and
 replaces one that names another version (a redeploy that failed after a
 save — an agent's draft — left the running intent on the newer version)
-with that version's author from its `VersionMeta` (`markRestored` in
-`main.go`), so the marker and the versions dialog say what runs. The editor's own requests and
-the interface share one implementation (`startLocked`/`stopLocked` in
-`internal/api/flows_lifecycle.go`): `changeRunning` is a thin wrapper, so
+with that version's author from its `VersionMeta` (`Lifecycle.markRestored`), so the marker and the versions dialog say what runs. The editor's own requests and
+the interface share one implementation (`HeldLifecycle.Start`/`Halt` in
+`internal/service/lifecycle.go`): the editor's `changeRunning` is a thin wrapper, so
 there is no second lifecycle. A marker that cannot be recorded undoes the
 deployment it would describe (500), so what runs is always attributed;
 toggling a running flow on records nothing (it deploys nothing). A
@@ -1897,7 +1896,7 @@ the registry (no service state) and, like `author_flow`, is audited by the
 endpoint. `mountMCP` registers the author and deploy tools, the prompt and
 `DeployLevel` (the store) from `mcpBuiltins.authoring`: `buildApp` passes
 the same authoring service the editor's drafts pages use, built over the
-`FlowsHandler` lifecycle path; a deploy tool without `DeployLevel` is a
+`service.Lifecycle` path; a deploy tool without `DeployLevel` is a
 startup error. `main_mcp_test.go` drives the whole path end to end (the
 real router over TLS with the SDK client, and the editor REST), and checks
 the endpoint's raw `tools/list` for an author+deploy token against the

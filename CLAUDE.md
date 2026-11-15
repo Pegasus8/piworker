@@ -92,7 +92,7 @@ solely to break the import cycle between `flow` and `node`.
   `GetConfigSchema()` when `Info.Config` is nil — so a node's schema is its single
   source of truth and the frontend renders the settings form automatically.
 
-### Flow runtime (`internal/flow/runtime.go`, `router.go`)
+### Flow runtime (`internal/flow`: `runtime.go`, `runtime_exec.go`, `runtime_options.go`, `manager.go`, `router.go`)
 Each deployed flow gets a `FlowRuntime`. Execution model:
 - One **serial executor goroutine per node** (preserves message order for
   stateful nodes) draining a per-node channel, gated by a shared **semaphore**
@@ -105,12 +105,27 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
   unless the error is wrapped with `node.Transient(err)`. Default (permanent)
   errors are never retried, so side-effecting actions aren't blindly re-run; mark
   only genuinely transient failures transient. Backoff config in `RetryConfig`.
+- **Failures are routable (ADR-0036)**: every node that is not a trigger has
+  the implicit output port `error` (`types.ErrorPort`; a node type cannot
+  declare one). When `Process` fails after its retries, or panics, and that
+  port is connected, `routeError` sends `{message, nodeId, nodeType, input}`
+  down it in the same run. The failure is still recorded; only a called
+  run's result is left to the handler. What leaves an error port counts as
+  protected data in `flow.Diff` (`data_read_changed`).
+- **Triggers wait for room (ADR-0037)**: the trigger seeder admits a message
+  only while `FlowRuntime.Inflight()` is below the bound (the node queue
+  limit; `WithMaxInflight`), so a trigger never overflows a node queue and
+  overload is refused at the trigger (webhook 503, skipped tick). Queues
+  still drop what multiplies inside a flow (ADR-0005).
 - **Multi-output routing is fail-loud**: in `executeNode`, an output with no
   `SourcePort` is auto-assigned only when the node has exactly one output port.
   With >1 output it is **dropped with a warning**. Switch/filter-style nodes must
   set `msg.SourcePort` on every emitted message.
-- `RuntimeManager.Deploy/Undeploy` own the lifecycle; flows that were running are
-  restored on startup (`restoreRunningFlows` in `main.go`).
+- `RuntimeManager.Deploy/Undeploy` run and stop a flow's instance, but nothing
+  calls them directly: every deploy, stop, restart and the restore at startup
+  goes through `service.Lifecycle` (`internal/service/lifecycle.go`, ADR-0034),
+  which holds the one lifecycle lock, persists the restart intent and records
+  the deployment marker. Handlers take the lock with `Hold()`/`WithLock`.
 
 ### Shared process-wide singletons
 - `webhook.DefaultHub` — webhook trigger nodes register a path on `Start`; the
@@ -126,6 +141,11 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
   (`secrets.FromContext`, `vars.FromContext`/`vars.Scoped`), never in a factory, and start
   goroutines with `node.Go`: that is what lets a dry-run swap in empty stores
   and a `node.Sandbox` (ADR-0020).
+- Builtin nodes import `internal/node`, never `internal/flow` (a test
+  enforces it): what a node needs from the runtime is a contract in `node`
+  resolved through its context (`node.ReplierFromContext`, `node.Go`).
+- `internal/api` handlers take the storage they use as the narrow interfaces
+  of `internal/api/stores.go`, not `*storage.SQLiteStore`.
 - The tool-name registry (`builtin/tool_names.go`) — a `trigger-tool` claims its
   `toolName` on `Start` (duplicate → `node.ErrResourceConflict` → 409) and
   releases it on `Stop`.
@@ -154,7 +174,7 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
   write deadline → Bearer (own failure limiter) → per-token bucket → scope.
   Unknown and hidden tool names both go to the service (same `not_found`).
   Author tools are listed only with `mcp.author_enabled`, deploy tools only
-  while `agent_deploy` is above `off`. `mountMCP` (`main.go`) registers it
+  while `agent_deploy` is above `off`. `mountMCP` (`app.go`) registers it
   before the UI catch-all; with `mcp.enabled = false` it answers a JSON 404.
   Raw JSON-RPC exchanges per protocol version are goldens in `testdata/`
   (`TestMCPProtocolGolden`), the author/deploy tool listing one in
@@ -179,7 +199,7 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
   give field diffs plus the alerts whose kinds `agent_deploy = low` refuses
   (`service.LowDeployRefusedAlerts`, `internal/service/deploy.go`; ADR-0019,
   ADR-0022). Agent deploys go through the editor's lifecycle path
-  (`FlowsHandler.WithLock`, one lifecycle) and record the deployment marker
+  (`service.Lifecycle.WithLock`, one lifecycle) and record the deployment marker
   (`flow_deployments`). Runs record the version they ran
   (`flow_runs.flow_version`); agents see run errors only of admin-approved
   versions (ADR-0023). `flow.DryRun` runs in a private runtime from
@@ -193,7 +213,11 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
 
 ### Storage, auth, config
 - `internal/storage`: SQLite tuned in `buildDSN` (WAL, `busy_timeout`,
-  `_txlock=immediate`) with `SetMaxOpenConns(1)` (single writer). Flows are
+  `_txlock=immediate`) with `SetMaxOpenConns(1)` (single writer). The schema
+  is a numbered list of migrations (`migrations.go`, ADR-0035) recorded in
+  `PRAGMA user_version`: to change it, **append** a migration and bump
+  `SchemaVersion`; never edit a released one or add `IF NOT EXISTS` checks
+  elsewhere. A database from a newer version is refused. Flows are
   stored as a JSON blob in the `data` column with a `version`, each definition
   also in `flow_versions` (newest 50 plus the last admin-approved); the
   `settings` key/value table holds `agent_deploy` and `tokens_epoch`. The
@@ -230,7 +254,12 @@ download, fingerprint, per-OS instructions).
 API calls go through
 `composables/useApi.ts` (axios, baseURL `/api`, HttpOnly session cookie and CSRF request header,
 401 → redirect to login). Responses use a `{ success, data }` envelope, hence the
-`data.data` unwrapping in the composable. Flow editing state is the
+`data.data` unwrapping in the composable. The types in `types/index.ts` that
+mirror a server response are checked against the Go structs they come from:
+`types/wire.gen.ts` is generated (`go test -run TestWireTypesAreCurrent
+./internal/api -update`, a test fails while it is stale) and
+`types/wire.check.ts` makes `vue-tsc` fail when a hand-written type no
+longer has the same fields. Add new response types to both. Flow editing state is the
 `stores/flows.ts` Pinia store; the canvas is `components/flow/FlowCanvas.vue`.
 Agent access (`/agents`, `/agents/approvals`, `/agents/audit`) uses
 `stores/agent.ts`, the drafts pages (`/agents/drafts`, `/agents/drafts/:id`)
@@ -278,7 +307,8 @@ server sends (node types, their docs and schemas, API errors) stays English.
    Resolve secrets per execution through the context, never in the factory.
    Factories and `Validate` must reject bad config (deploy maps that to 400).
 4. Multi-output nodes: declare each output port and set `SourcePort` on every
-   emitted message. Add a `_test.go` next to it.
+   emitted message. Do not declare an `error` output: return an error from
+   `Process` and the runtime routes it (ADR-0036). Add a `_test.go` next to it.
    Regenerate the user guide's node reference, which a test compares with the
    registry: `go test -run TestNodeReferenceDocIsCurrent ./internal/node/builtin -update`
    (`docs/guide/nodes.md`; the rest of the user guide in `docs/guide/` is
@@ -293,10 +323,15 @@ Categories are `input` (triggers), `processing`, `output` (actions). Node-type i
 convention: `trigger-*`, `process-*`, `action-*`, plus `set-var`/`get-var`.
 
 ## Notes
-- `main.go` wires the router/middleware directly; the `api.Server` struct +
-  `SetupMiddleware`/`corsMiddleware` in `internal/api/server.go` are legacy and
-  not on the live path — the real CORS allowlist is `makeCorsMiddleware` in
-  `main.go`.
+- Package `main` is the composition root: `main.go` (flags, startup and
+  shutdown order), `app.go` (`appDeps`, `openDeps`, `buildApp`, `mountMCP`,
+  `makeCorsMiddleware`: the real CORS allowlist), `main_server.go`,
+  `main_commands.go` (offline commands), `main_tls.go`. Stores and hubs
+  reach handlers and services through `appDeps`; `processDeps` is the only
+  place that names the process-wide defaults (`secrets.DefaultStore`, ...).
+  Do not read a `Default*` singleton from `internal/api` or `buildApp`: take
+  it as a parameter. `api.Server`/`NewServer` exist only in the api tests
+  (`server_scaffold_test.go`).
 - The stray `./piworker` binary and `./piworker.db` at the repo root are old
   artifacts; the build output is `build/piworker`.
 - Main branch is `master`; active work is on `revival`.

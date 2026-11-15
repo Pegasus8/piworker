@@ -92,9 +92,11 @@ func TestSlowNodeDoesNotBlockSiblingBranch(t *testing.T) {
 
 // TestNodeQueueOverflowDropsAndFinishesRuns caps a node's queue: overflow is
 // dropped (and counted) rather than blocking, and every run still finishes.
+// Admission (ADR-0037) keeps a trigger from overflowing a queue, so it is
+// off here: this is what happens when messages multiply inside the flow.
 func TestNodeQueueOverflowDropsAndFinishesRuns(t *testing.T) {
 	const emits = 20
-	rt, slow, fast, read := fanOutSlowFast(t, emits, WithNodeQueueLimit(3))
+	rt, slow, fast, read := fanOutSlowFast(t, emits, WithNodeQueueLimit(3), WithMaxInflight(0))
 	require.NoError(t, rt.Start(context.Background()))
 	defer func() { _ = rt.Stop() }()
 

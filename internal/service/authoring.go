@@ -87,8 +87,8 @@ type AuthoringOptions struct {
 	// Store holds flows, versions, drafts, tokens and the agent deploy
 	// level (required).
 	Store AuthoringStore
-	// Lifecycle is the editor's lifecycle path (internal/api's
-	// FlowsHandler). ApproveDraft, Rollback, Deploy and Stop save and
+	// Lifecycle is the lifecycle path (Lifecycle, ADR-0034).
+	// ApproveDraft, Rollback, Deploy and Stop save and
 	// deploy under its lock; without it they are unavailable.
 	Lifecycle FlowLifecycle
 	// Registry describes and builds node types for Lint, Risk, Diff,

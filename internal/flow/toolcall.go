@@ -102,17 +102,8 @@ type CallRequest struct {
 	Timeout       time.Duration
 }
 
-// Replier delivers the reply of a called run. Reply reports whether the
-// payload became the call's result: only the first reply of a run that is
-// still waiting wins; replies for unknown or finished correlation IDs (e.g. a
-// run not started by Call) return false. The payload is serialized inside the
-// call, so the caller may keep mutating it afterwards. A payload that cannot
-// be serialized, or whose JSON exceeds the runtime's maximum result size, is
-// not a result: Reply returns false and, unless a later reply wins, the call
-// ends as an error explaining why.
-type Replier interface {
-	Reply(correlationID string, payload any, isError bool) bool
-}
+// Replier delivers the reply of a called run (node.Replier).
+type Replier = node.Replier
 
 // Call starts a run on a callable trigger (one implementing node.Emitter, such
 // as trigger-tool) and waits for its reply, the end of the run, the timeout, or
@@ -240,29 +231,19 @@ func (r *FlowRuntime) ValidateCallTriggers() error {
 	return firstError(callTriggerFindings(r.flow, r.nodes, func(id string) bool { return r.ActiveTargets(id) > 0 }))
 }
 
-type callRegistryKey struct{}
-
-// withCallRegistry stores the runtime's waiter registry on ctx, the way
-// flowvars.WithFlowStore stores the flow variables.
+// withCallRegistry stores the runtime's waiter registry on ctx as the
+// node.Replier reply nodes find (node.ReplierFromContext). A nil registry
+// stores none.
 func withCallRegistry(ctx context.Context, reg *callRegistry) context.Context {
-	return context.WithValue(ctx, callRegistryKey{}, reg)
-}
-
-// ReplyFromContext returns the Replier of the flow runtime that owns ctx (the
-// context nodes receive in Process). It is never nil: outside a runtime it
-// returns a Replier whose Reply always reports false.
-func ReplyFromContext(ctx context.Context) Replier {
-	if ctx != nil {
-		if reg, ok := ctx.Value(callRegistryKey{}).(*callRegistry); ok && reg != nil {
-			return reg
-		}
+	if reg == nil {
+		return ctx
 	}
-	return noReplier{}
+	return node.WithReplier(ctx, reg)
 }
 
-type noReplier struct{}
-
-func (noReplier) Reply(string, any, bool) bool { return false }
+// ReplyFromContext returns the Replier of the flow runtime that owns ctx
+// (node.ReplierFromContext). It is never nil.
+func ReplyFromContext(ctx context.Context) Replier { return node.ReplierFromContext(ctx) }
 
 // closedChan is returned by RunDone for runs that are not (or no longer)
 // tracked.

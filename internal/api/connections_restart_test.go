@@ -40,7 +40,7 @@ func (n *connTrigger) Start(ctx context.Context, _ chan<- *types.Message) error 
 func connectionsEnv(t *testing.T) (*Server, *mux.Router, *brokers.Store, *[]string) {
 	t.Helper()
 	server, _ := createTestServer(t)
-	t.Cleanup(server.handler.manager.StopAll)
+	t.Cleanup(server.handler.lifecycle.Runtimes().StopAll)
 	started := &[]string{}
 	require.NoError(t, server.handler.registry.Register(node.NodeTypeInfo{
 		Type: "mock-conn", Name: "Conn", Category: flow.NodeCategoryInput, Risk: node.RiskExternal,
@@ -54,7 +54,7 @@ func connectionsEnv(t *testing.T) (*Server, *mux.Router, *brokers.Store, *[]stri
 	require.NoError(t, conns.Set(brokers.Connection{Name: "pw_test_other", Broker: "tcp://10.0.0.9:1883"}))
 	t.Cleanup(func() { _ = conns.Delete("pw_test_home"); _ = conns.Delete("pw_test_other") })
 	r := mux.NewRouter()
-	NewConnectionsHandler(conns, &fakeTester{}, zerolog.Nop()).WithFlows(server.handler).RegisterRoutes(r)
+	NewConnectionsHandler(conns, &fakeTester{}, zerolog.Nop()).WithFlows(server.handler.lifecycle).RegisterRoutes(r)
 	return server, r, conns, started
 }
 
@@ -90,8 +90,8 @@ func TestChangingAConnectionRestartsTheRunningFlowsThatUseIt(t *testing.T) {
 	assert.Equal(t, []any{map[string]any{"id": user.ID, "name": "user"}}, data["restarted"])
 	assert.Equal(t, []any{}, data["failed"])
 	assert.Equal(t, []string{"tcp://10.0.0.1:1883", "tcp://10.0.0.9:1883", "tcp://10.0.0.2:1883"}, *started, "only the running user restarted, with the new broker")
-	assert.True(t, server.handler.Running(user.ID))
-	assert.False(t, server.handler.Running(stopped.ID))
+	assert.True(t, server.handler.lifecycle.Running(user.ID))
+	assert.False(t, server.handler.lifecycle.Running(stopped.ID))
 	stored, err := server.handler.store.GetFlow(user.ID)
 	require.NoError(t, err)
 	assert.Equal(t, flow.FlowStateRunning, stored.State)

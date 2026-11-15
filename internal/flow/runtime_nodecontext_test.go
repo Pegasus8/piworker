@@ -8,6 +8,7 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/node"
 	flowvars "github.com/Pegasus8/piworker/internal/vars"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -98,7 +99,7 @@ func TestWithNodeContextWrapsStartAndProcess(t *testing.T) {
 	rec.mu.Unlock()
 	for _, ctx := range []context.Context{startCtx, rec.processCtxs()[0]} {
 		assert.Equal(t, "wrapped", ctx.Value(nodeCtxKey{}))
-		assert.NotNil(t, ctx.Value(callRegistryKey{}), "the runtime's own values stay")
+		assert.IsType(t, &callRegistry{}, ReplyFromContext(ctx), "the runtime's own values stay")
 		assert.NotNil(t, flowvars.FlowFromContext(ctx), "a flow store is always present")
 	}
 	require.NoError(t, rt.Stop())
@@ -155,4 +156,43 @@ func TestWithNodeContextFlowStoreSkipsPersistentStore(t *testing.T) {
 	require.NoError(t, rt2.Start(context.Background()))
 	require.NoError(t, rt2.Stop())
 	assert.Equal(t, 1, loadsOf(f2.ID))
+}
+
+// TestWithFlowVariablesSuppliesTheFlowsStore: the nodes get the flow's store
+// from the stores the runtime was given, not the process-wide ones.
+func TestWithFlowVariablesSuppliesTheFlowsStore(t *testing.T) {
+	rec := &ctxRecorder{}
+	f, _ := chainFlow("ctx-trigger", "ctx-process")
+	stores := &flowvars.FlowStores{}
+	own, err := stores.Get(f.ID)
+	require.NoError(t, err)
+	shared, err := flowvars.DefaultFlows.Get(f.ID)
+	require.NoError(t, err)
+	t.Cleanup(func() { flowvars.DefaultFlows.Forget(f.ID) })
+
+	rt, err := NewFlowRuntime(f, ctxRegistry(t, rec), WithFlowVariables(stores))
+	require.NoError(t, err)
+	require.NoError(t, rt.Start(context.Background()))
+	defer func() { _ = rt.Stop() }()
+	rec.mu.Lock()
+	got := flowvars.FlowFromContext(rec.startCtx)
+	rec.mu.Unlock()
+	assert.Same(t, own, got)
+	assert.NotSame(t, shared, got)
+}
+
+// The manager hands its flow variable stores to every runtime it deploys.
+func TestManagerFlowVariablesReachDeployedRuntimes(t *testing.T) {
+	rec := &ctxRecorder{}
+	f, _ := chainFlow("ctx-trigger", "ctx-process")
+	stores := &flowvars.FlowStores{}
+	own, err := stores.Get(f.ID)
+	require.NoError(t, err)
+	m := NewRuntimeManager(ctxRegistry(t, rec), zerolog.Nop(), WithRuntimeOptions(WithFlowVariables(stores)))
+	t.Cleanup(m.StopAll)
+	require.NoError(t, m.Deploy(context.Background(), f))
+	rec.mu.Lock()
+	got := flowvars.FlowFromContext(rec.startCtx)
+	rec.mu.Unlock()
+	assert.Same(t, own, got)
 }

@@ -8,7 +8,8 @@ import "fmt"
 // nodes before it record their settings: an HTTP URL, an expression, a
 // topic), or what a node that uses a credential or reads variables
 // produced (it runs downstream of one, through connections or flow
-// variables). Runs of a flow are visible to agents (pw_list_runs,
+// variables), or the failures of a node, which leave its error port quoting
+// its settings (ADR-0036). Runs of a flow are visible to agents (pw_list_runs,
 // pw_get_run): such a node could hand that data back through an error it
 // raises on purpose, or through which nodes run. One alert per node.
 const AlertDataReadChanged = "data_read_changed"
@@ -27,6 +28,21 @@ func dataReadAlerts(g *varGraph, nextOrder []*diffNode, add func(order int, a Al
 		for _, u := range g.downstream(s) {
 			if fedBy[u] == nil {
 				fedBy[u] = s
+			}
+		}
+	}
+	// failuresOf maps a running node to the first node whose failures reach
+	// it through an error port (ADR-0036): the failure's message quotes the
+	// failed node's settings.
+	failuresOf := map[*diffNode]*diffNode{}
+	for _, c := range g.conns {
+		src, dst := g.running[c.SourceNode], g.running[c.TargetNode]
+		if c.SourcePort != ErrorPort || src == nil || dst == nil {
+			continue
+		}
+		for _, u := range append([]*diffNode{dst}, g.downstream(dst)...) {
+			if failuresOf[u] == nil {
+				failuresOf[u] = src
 			}
 		}
 	}
@@ -49,6 +65,9 @@ func dataReadAlerts(g *varGraph, nextOrder []*diffNode, add func(order int, a Al
 		case src != nil:
 			msg = fmt.Sprintf("node %s (%s) %s and receives what node %s (%s), which uses a credential or reads variables, produced",
 				d.n.ID, d.n.Type, change, src.n.ID, src.n.Type)
+		case failuresOf[d] != nil:
+			msg = fmt.Sprintf("node %s (%s) %s and receives the failures of node %s (%s), whose messages quote its settings",
+				d.n.ID, d.n.Type, change, failuresOf[d].n.ID, failuresOf[d].n.Type)
 		default:
 			continue
 		}

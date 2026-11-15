@@ -35,9 +35,9 @@ type RunStart struct {
 }
 
 // migrateHistory brings the history tables of databases created by older
-// versions up to date. It is idempotent.
-func migrateHistory(db *sql.DB) error {
-	has, err := historyHasColumn(db, "flow_runs", "actor")
+// versions up to date (part of migrateBaseline). It is idempotent.
+func migrateHistory(db *sql.Tx) error {
+	has, err := hasColumn(db, "flow_runs", "actor")
 	if err != nil {
 		return err
 	}
@@ -46,7 +46,7 @@ func migrateHistory(db *sql.DB) error {
 			return fmt.Errorf("failed to add flow_runs.actor: %w", err)
 		}
 	}
-	has, err = historyHasColumn(db, "flow_runs", "flow_version")
+	has, err = hasColumn(db, "flow_runs", "flow_version")
 	if err != nil {
 		return err
 	}
@@ -56,25 +56,6 @@ func migrateHistory(db *sql.DB) error {
 		}
 	}
 	return nil
-}
-
-// historyHasColumn reports whether table has the named column.
-func historyHasColumn(db *sql.DB, table, column string) (bool, error) {
-	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
-	if err != nil {
-		return false, fmt.Errorf("failed to inspect %s: %w", table, err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return false, fmt.Errorf("failed to inspect %s: %w", table, err)
-		}
-		if name == column {
-			return true, nil
-		}
-	}
-	return false, rows.Err()
 }
 
 // NodeEventRecord is one persisted node-execution observation belonging to a run.
