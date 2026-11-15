@@ -156,11 +156,22 @@ func (h *ConnectionsHandler) Put(w http.ResponseWriter, r *http.Request) {
 // their next deploy (undefined_connection).
 func (h *ConnectionsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
-	if _, ok := h.store.Get(name); !ok {
+	_, exists := h.store.Get(name)
+	deleteConnection(w, h.logger, "broker connection", name, exists, h.flows.UnlessRunningFlowsUse, h.store.Delete)
+}
+
+// deleteConnection answers the deletion of the connection name (a broker
+// or an LLM connection, what): 404 when it does not exist; else del runs
+// through unlessUsed (the lifecycle path), and while running flows use the
+// connection the answer is 409 with those flows in data.flows (the editor
+// reads it for both kinds of connection).
+func deleteConnection(w http.ResponseWriter, logger zerolog.Logger, what, name string, exists bool,
+	unlessUsed func(name string, fn func() error) ([]FlowRef, error), del func(name string) error) {
+	if !exists {
 		writeError(w, http.StatusNotFound, "Connection not found")
 		return
 	}
-	users, err := h.flows.UnlessRunningFlowsUse(name, func() error { return h.store.Delete(name) })
+	users, err := unlessUsed(name, func() error { return del(name) })
 	if len(users) > 0 {
 		names := make([]string, 0, len(users))
 		for _, f := range users {
@@ -172,7 +183,7 @@ func (h *ConnectionsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.logger.Error().Err(err).Str("name", name).Msg("Failed to delete broker connection")
+		logger.Error().Err(err).Str("name", name).Msg("Failed to delete " + what)
 		writeError(w, http.StatusInternalServerError, "Failed to delete the connection")
 		return
 	}

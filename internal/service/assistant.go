@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -42,8 +41,6 @@ const (
 	AssistantRepairRounds = 2
 	// MaxAssistantDescriptionChars bounds the admin's description.
 	MaxAssistantDescriptionChars = 4000
-	// maxAssistantModelChars bounds a requested model name.
-	maxAssistantModelChars = 256
 	// maxAssistantNotesChars and maxAssistantFlowDescriptionChars bound what
 	// the answer may carry besides the flow (longer texts are cut).
 	maxAssistantNotesChars           = 4000
@@ -179,7 +176,7 @@ func (a *Assistant) ProposeFlow(ctx context.Context, req AssistantFlowRequest) (
 		if err != nil {
 			return AssistantFlowResult{}, fmt.Errorf("%w: %w", ErrAssistantModel, err)
 		}
-		usage = addUsage(usage, resp.Usage)
+		usage = usage.Add(resp.Usage)
 
 		var feedback string
 		answer, problem := decodeAnswer(resp.JSON)
@@ -247,14 +244,10 @@ func (a *Assistant) checkRequest(req *AssistantFlowRequest) (llm.Connection, str
 	switch {
 	case model == "":
 		return llm.Connection{}, "", invalid("no model: choose one, or set a default model on LLM connection %q", name)
-	case utf8.RuneCountInString(model) > maxAssistantModelChars || strings.ContainsAny(model, "\x00\r\n"):
-		return llm.Connection{}, "", invalid("invalid model name (at most %d characters, one line)", maxAssistantModelChars)
+	case utf8.RuneCountInString(model) > llm.MaxModelLength || strings.ContainsAny(model, "\x00\r\n"):
+		return llm.Connection{}, "", invalid("invalid model name (at most %d characters, one line)", llm.MaxModelLength)
 	}
 	return conn, model, nil
-}
-
-func addUsage(a, b llm.Usage) llm.Usage {
-	return llm.Usage{InputTokens: a.InputTokens + b.InputTokens, OutputTokens: a.OutputTokens + b.OutputTokens, Requests: a.Requests + b.Requests}
 }
 
 // --- The prompt ---
@@ -522,13 +515,11 @@ func repairPrompt(f *flow.Flow, issues []flow.Issue) string {
 // compactJSON encodes v without HTML escaping ("<redacted>" stays
 // readable); v is always encodable here.
 func compactJSON(v any) string {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
+	b, err := marshalNoEscape(v)
+	if err != nil {
 		return "null"
 	}
-	return strings.TrimSuffix(buf.String(), "\n")
+	return string(b)
 }
 
 // --- The answer ---
@@ -645,12 +636,10 @@ func truncateRunes(s string, n int) string {
 // other nodes are enabled unless the answer says otherwise; a kept node
 // without a position keeps its current one, the others are laid out.
 func (a *Assistant) buildFlow(p assistantAnswer, current *AssistantFlow, withheld map[string]withheldNode) *flow.Flow {
-	positions := map[string]flow.Position{}
-	kept := map[string]flow.Node{}
+	kept := map[string]flow.Node{} // of nodes sharing an ID, the first
 	if current != nil {
 		for _, n := range current.Nodes {
-			if _, dup := positions[n.ID]; !dup {
-				positions[n.ID] = n.Position
+			if _, dup := kept[n.ID]; !dup {
 				kept[n.ID] = n
 			}
 		}
@@ -687,8 +676,8 @@ func (a *Assistant) buildFlow(p assistantAnswer, current *AssistantFlow, withhel
 		case pn.Position != nil && *pn.Position != (flow.Position{}) && flow.ValidPosition(*pn.Position):
 			n.Position = *pn.Position
 		default:
-			if pos, kept := positions[n.ID]; kept && pos != (flow.Position{}) {
-				n.Position = pos
+			if cur, ok := kept[n.ID]; ok && cur.Position != (flow.Position{}) {
+				n.Position = cur.Position
 			} else {
 				unplaced = append(unplaced, n.ID)
 			}

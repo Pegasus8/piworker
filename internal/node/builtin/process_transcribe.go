@@ -100,8 +100,7 @@ func (p *TranscribeProcess) Process(ctx context.Context, msg *types.Message) ([]
 		if err != nil {
 			return err
 		}
-		out = msg.Clone()
-		llm.SetResult(out, p.resultField, text)
+		out = llmResult(msg, p.resultField, text)
 		// Transcription spends no tokens: one request (llm.Client).
 		out.SetMeta("llm", map[string]any{"connection": s.conn.Name, "model": s.model, "requests": int64(1)})
 		out.SourcePort = "output"
@@ -208,7 +207,7 @@ func fetchAudio(ctx context.Context, client *http.Client, rawURL string, maxByte
 	if resp.ContentLength > maxBytes {
 		return llm.Media{}, tooLarge
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	data, err := readAllSized(io.LimitReader(resp.Body, maxBytes+1), resp.ContentLength)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return llm.Media{}, fmt.Errorf("fetching the audio: %w", ctxErr)
@@ -222,6 +221,30 @@ func fetchAudio(ctx context.Context, client *http.Client, rawURL string, maxByte
 		return llm.Media{}, errors.New("the audio URL answered no content")
 	}
 	return llm.Media{MediaType: audioMediaType(resp.Header.Get("Content-Type"), req.URL, data), Data: data}, nil
+}
+
+// readAllSized is io.ReadAll starting with room for size bytes (a declared
+// Content-Length; -1: unknown), so a large body is read into one buffer
+// rather than grown through repeated reallocation.
+func readAllSized(r io.Reader, size int64) ([]byte, error) {
+	if size < 0 {
+		return io.ReadAll(r)
+	}
+	// One byte more: the end of the body is seen without growing.
+	b := make([]byte, 0, size+1)
+	for {
+		n, err := r.Read(b[len(b):cap(b)])
+		b = b[:len(b)+n]
+		if err != nil {
+			if err == io.EOF {
+				err = nil
+			}
+			return b, err
+		}
+		if len(b) == cap(b) {
+			b = append(b, 0)[:len(b)]
+		}
+	}
 }
 
 // audioMediaType is the media type of downloaded audio: the declared one

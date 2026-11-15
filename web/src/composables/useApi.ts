@@ -358,7 +358,7 @@ export function useApi() {
     const flow = result.flow ?? {}
     return {
       flow: { name: flow.name ?? '', description: flow.description ?? '', nodes: flow.nodes ?? [], connections: flow.connections ?? [] },
-      notes: Array.isArray(result.notes) ? result.notes.join('\n') : result.notes ?? '',
+      notes: result.notes ?? '',
       issues: result.issues ?? [],
       usage: result.usage ?? { inputTokens: 0, outputTokens: 0, requests: 0 }
     }

@@ -108,7 +108,7 @@ func index(key string, n int) (int, bool) {
 func SetResult(msg *types.Message, field string, value any) {
 	if field == "" {
 		msg.Payload = value
-		msg.PayloadType = dataTypeOf(value)
+		msg.PayloadType = types.InferDataType(value)
 		return
 	}
 	root, ok := msg.Payload.(map[string]any)
@@ -140,22 +140,4 @@ func copyMap(m map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
-}
-
-// dataTypeOf is the payload type hint of v.
-func dataTypeOf(v any) types.DataType {
-	switch v.(type) {
-	case string:
-		return types.DataTypeString
-	case int, int64, float64, float32:
-		return types.DataTypeNumber
-	case bool:
-		return types.DataTypeBoolean
-	case []any:
-		return types.DataTypeArray
-	case map[string]any:
-		return types.DataTypeObject
-	default:
-		return types.DataTypeAny
-	}
 }

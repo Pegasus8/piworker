@@ -2,7 +2,6 @@ package builtin
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -64,23 +63,12 @@ func NewKnowledgeSearchProcess(config map[string]interface{}) (node.Node, error)
 
 // scoreSetting reads a similarity score between 0 and 1 (0 when absent).
 func scoreSetting(cfg map[string]any, key string) (float64, error) {
-	var f float64
-	switch v := cfg[key].(type) {
-	case nil:
+	v := cfg[key]
+	if v == nil {
 		return 0, nil
-	case float64:
-		f = v
-	case int:
-		f = float64(v)
-	case int64:
-		f = float64(v)
-	case json.Number:
-		parsed, err := v.Float64()
-		if err != nil {
-			return 0, fmt.Errorf("%s must be a number between 0 and 1", key)
-		}
-		f = parsed
-	default:
+	}
+	f, ok := numberValue(v)
+	if !ok {
 		return 0, fmt.Errorf("%s must be a number between 0 and 1", key)
 	}
 	if math.IsNaN(f) || f < 0 || f > 1 {
@@ -117,12 +105,11 @@ func (p *KnowledgeSearchProcess) Process(ctx context.Context, msg *types.Message
 		var usage llm.Usage
 		if found {
 			// An empty collection has nothing to compare with: no tokens.
-			if hits, usage, err = p.search(ctx, s, kb, query); err != nil {
+			if hits, usage, err = p.search(ctx, s, kb, info, query); err != nil {
 				return err
 			}
 		}
-		out = msg.Clone()
-		llm.SetResult(out, p.resultField, searchResult(query, hits))
+		out = llmResult(msg, p.resultField, searchResult(query, hits))
 		out.SetMeta("knowledge", map[string]any{
 			"connection":  s.conn.Name,
 			"model":       s.model,
@@ -138,9 +125,10 @@ func (p *KnowledgeSearchProcess) Process(ctx context.Context, msg *types.Message
 	return []*types.Message{out}, nil
 }
 
-// search embeds the query and returns the collection's best documents.
-func (p *KnowledgeSearchProcess) search(ctx context.Context, s llmSession, kb *llm.Knowledge, query string) ([]llm.Hit, llm.Usage, error) {
-	if err := checkCollectionModel(kb, p.collection, s.model); err != nil {
+// search embeds the query and returns the best documents of the collection
+// (info, as looked up for this message).
+func (p *KnowledgeSearchProcess) search(ctx context.Context, s llmSession, kb *llm.Knowledge, info llm.CollectionInfo, query string) ([]llm.Hit, llm.Usage, error) {
+	if err := collectionModelMismatch(info, s.model); err != nil {
 		return nil, llm.Usage{}, err
 	}
 	embs, usage, err := s.client.Embed(ctx, s.model, []string{query})

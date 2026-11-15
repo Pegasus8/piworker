@@ -335,6 +335,9 @@ func (c *openAIClient) transcribe(ctx context.Context, model string, audio Media
 		}
 	}
 	var buf bytes.Buffer
+	// Room for the audio and the multipart framing around it, so a large
+	// file is copied once rather than through repeated growth.
+	buf.Grow(len(audio.Data) + len(model) + len(language) + 4096)
 	w := multipart.NewWriter(&buf)
 	header := make(textproto.MIMEHeader)
 	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename=%q`, audioFileName(mediaType)))

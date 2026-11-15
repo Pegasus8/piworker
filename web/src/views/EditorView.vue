@@ -331,7 +331,7 @@ function updateFlowDescription(value: string | number) {
     <VariablesDialog v-model:open="showVariables" :flow-id="flowsStore.currentFlow?.id || undefined" />
     <ManualRunDialog v-model:open="showManualRun" />
     <ConnectionsDialog v-model:open="showConnections" />
-    <AssistantDialog v-model:open="showAssistant" can-manage-connections @applied="assistantApplied" @manage-connections="manageLLMConnections" />
+    <AssistantDialog v-model:open="showAssistant" @applied="assistantApplied" @manage-connections="manageLLMConnections" />
     <LLMConnectionsDialog v-model:open="showLLMConnections" />
     <VersionHistoryDialog
       v-if="flowId && flowsStore.currentFlow"

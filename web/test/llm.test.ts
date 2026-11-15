@@ -4,13 +4,13 @@ import {
   DEFAULT_OPENAI_URL,
   LLM_PRESETS,
   conflictFlows,
-  errorMessage,
   llmConnectionRequest,
   llmEndpoint,
   presetFor,
   validLLMName,
   type LLMConnectionForm
 } from '../src/lib/llm'
+import { apiErrorMessage } from '../src/lib/apiError'
 
 const form: LLMConnectionForm = { name: 'ollama', provider: 'openai', baseUrl: ' http://localhost:11434/v1/ ', apiKey: '', clearApiKey: false, model: ' llama3.2 ', dailyTokenLimit: undefined }
 
@@ -55,7 +55,7 @@ test('a delete refused for running flows names them', () => {
 })
 
 test('errors read as the server message, or the fallback', () => {
-  expect(errorMessage({ response: { data: { success: false, error: 'invalid x-api-key' } } }, 'failed')).toBe('invalid x-api-key')
-  expect(errorMessage({ response: { data: { error: '' } } }, 'failed')).toBe('failed')
-  expect(errorMessage(new Error('Network Error'), 'failed')).toBe('failed')
+  expect(apiErrorMessage({ response: { data: { success: false, error: 'invalid x-api-key' } } }, 'failed')).toBe('invalid x-api-key')
+  expect(apiErrorMessage({ response: { data: { error: '' } } }, 'failed')).toBe('failed')
+  expect(apiErrorMessage(new Error('Network Error'), 'failed')).toBe('failed')
 })

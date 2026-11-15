@@ -126,12 +126,11 @@ func (p *LLMProcess) Process(ctx context.Context, msg *types.Message) ([]*types.
 		}
 		p.memory.remember(ctx, conv, req.Messages[len(req.Messages)-1].Text, resp.Text)
 
-		out = msg.Clone()
 		var result any = resp.Text
 		if p.output == "json" {
 			result = resp.JSON
 		}
-		llm.SetResult(out, p.resultField, result)
+		out = llmResult(msg, p.resultField, result)
 		out.SetMeta("llm", llmMeta(s.conn.Name, resp.Model, resp.Usage, resp.Stop))
 		out.SourcePort = "output"
 		return nil

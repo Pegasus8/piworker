@@ -3,10 +3,10 @@
 // dialogs, the node settings' suggestions and the flow assistant share these
 // lists. Admin session only; API keys never reach the browser.
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { useApi } from '@/composables/useApi'
 import { msg } from '@/i18n'
-import { errorMessage } from '@/lib/llm'
+import { apiErrorMessage, apiStatus } from '@/lib/apiError'
 import type { AgentTool } from '@/lib/agentAccess'
 import type {
   KnowledgeCollection,
@@ -24,8 +24,6 @@ function without<T>(record: Record<string, T>, key: string): Record<string, T> {
   delete copy[key]
   return copy
 }
-
-const status = (e: unknown) => (e as { response?: { status?: number } })?.response?.status
 
 /** What a form's suggestions need: lists, and the models of one connection. */
 export interface LLMSuggestionNeeds {
@@ -52,7 +50,6 @@ export const useLLMStore = defineStore('llm', () => {
   const collectionsLoaded = ref(false)
   const tools = ref<AgentTool[]>([])
   const toolsLoaded = ref(false)
-  const toolNames = computed(() => [...new Set(tools.value.map(t => t.toolName))])
 
   async function fetchConnections() {
     connections.value = await api.getLLMConnections()
@@ -125,7 +122,7 @@ export const useLLMStore = defineStore('llm', () => {
         return list
       } catch (e) {
         if (!current()) return []
-        modelErrors.value = { ...modelErrors.value, [name]: errorMessage(e, msg().editor.llm.modelsUnavailable) }
+        modelErrors.value = { ...modelErrors.value, [name]: apiErrorMessage(e, msg().editor.llm.modelsUnavailable) }
         return []
       }
     })()
@@ -158,7 +155,7 @@ export const useLLMStore = defineStore('llm', () => {
     collectionsLoaded.value = true
   }
 
-  function fetchDocuments(collection: string, offset = 0, limit = 50): Promise<KnowledgeDocumentPage> {
+  function fetchDocuments(collection: string, offset: number, limit: number): Promise<KnowledgeDocumentPage> {
     return api.getKnowledgeDocuments(collection, offset, limit)
   }
 
@@ -180,7 +177,7 @@ export const useLLMStore = defineStore('llm', () => {
     try {
       tools.value = (await api.getAgentTools()).tools
     } catch (e) {
-      if (status(e) !== 404) throw e
+      if (apiStatus(e) !== 404) throw e
       tools.value = []
     }
     toolsLoaded.value = true
@@ -194,13 +191,15 @@ export const useLLMStore = defineStore('llm', () => {
    * listed).
    */
   async function loadSuggestions(need: LLMSuggestionNeeds): Promise<boolean> {
-    const reads: Promise<unknown>[] = []
-    if (need.llmConnections && (need.force || !connectionsLoaded.value)) reads.push(fetchConnections())
+    const conns = need.llmConnections && (need.force || !connectionsLoaded.value) ? fetchConnections() : undefined
+    const reads: Promise<unknown>[] = conns ? [conns] : []
     if (need.tools && (need.force || !toolsLoaded.value)) reads.push(fetchTools())
     if (need.collections && (need.force || !collectionsLoaded.value)) reads.push(fetchCollections())
-    const results = await Promise.allSettled(reads)
-    // Only a defined connection has models to list (a name being typed has none).
-    if (need.models && connections.value.some(c => c.name === need.models)) await loadModels(need.models)
+    // Only a defined connection has models to list (a name being typed has
+    // none); they wait for the connections, not for the other lists.
+    const name = need.models
+    const listModels = () => name && connections.value.some(c => c.name === name) ? loadModels(name) : undefined
+    const [results] = await Promise.all([Promise.allSettled(reads), (conns ?? Promise.resolve()).then(listModels, listModels)])
     return results.every(r => r.status === 'fulfilled')
   }
 
@@ -214,7 +213,6 @@ export const useLLMStore = defineStore('llm', () => {
     collectionsLoaded,
     tools,
     toolsLoaded,
-    toolNames,
     fetchConnections,
     saveConnection,
     deleteConnection,

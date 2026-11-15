@@ -342,12 +342,7 @@ func secretFindings(f *Flow, instances map[int]node.Node, store *secrets.Store, 
 // (node.ConnectionRequirer) names and store does not define, in node ID
 // order, then property; the err is the *ValidationError deploy returns.
 func requiredConnectionFindings(f *Flow, instances map[int]node.Node, store *brokers.Store) []finding {
-	return namedConnectionFindings(f, instances, func(in node.Node) map[string]string {
-		if req, ok := in.(node.ConnectionRequirer); ok {
-			return req.RequiredConnections()
-		}
-		return nil
-	}, func(name string) bool {
+	return namedConnectionFindings(f, instances, brokerConnectionsOf, func(name string) bool {
 		_, ok := store.Get(name)
 		return ok
 	}, "broker connection", IssueUndefinedConnection)
@@ -358,12 +353,7 @@ func requiredConnectionFindings(f *Flow, instances map[int]node.Node, store *bro
 // in requiredConnectionFindings' order; the err is the *ValidationError
 // deploy returns.
 func requiredLLMConnectionFindings(f *Flow, instances map[int]node.Node, store *llm.Store) []finding {
-	return namedConnectionFindings(f, instances, func(in node.Node) map[string]string {
-		if req, ok := in.(node.LLMConnectionRequirer); ok {
-			return req.RequiredLLMConnections()
-		}
-		return nil
-	}, func(name string) bool {
+	return namedConnectionFindings(f, instances, llmConnectionsOf, func(name string) bool {
 		_, ok := store.Get(name)
 		return ok
 	}, "LLM connection", IssueUndefinedLLMConnection)
@@ -815,12 +805,9 @@ func LintContext(ctx context.Context, f *Flow, reg *node.Registry) []Issue {
 	_, tools := analyzeTools(f, reg, specs)
 	all = append(all, tools...)
 
-	// Secrets the strict settings cannot work without and the broker and
-	// LLM connections nodes name (deploy's last checks).
-	all = append(all, requiredSecretFindings(f, instances, secrets.FromContext(ctx))...)
-	all = append(all, unresolvedSecretFindings(f, instances, secrets.FromContext(ctx))...)
-	all = append(all, requiredConnectionFindings(f, instances, brokers.FromContext(ctx))...)
-	all = append(all, requiredLLMConnectionFindings(f, instances, llm.FromContext(ctx))...)
+	// The secrets and the broker and LLM connections nodes need (deploy's
+	// last check, from the same list).
+	all = append(all, environmentFindings(ctx, f, instances)...)
 
 	all = append(all, positionFindings(f)...)
 	return lintIssues(f, reg, all)

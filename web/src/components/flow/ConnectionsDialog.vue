@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ERROR_PORT, ports, sourcePorts as sourcePortsOf, validConnection } from '@/lib/ports'
+import { ERROR_PORT, portSettings, ports, sourcePorts as sourcePortsOf, validConnection } from '@/lib/ports'
 import { ref, computed, watch } from 'vue'
 import { useFlowsStore } from '@/stores/flows'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
@@ -17,7 +17,7 @@ const confirmation = ref<InstanceType<typeof ConfirmDialog>>()
 // settings) or the error port.
 const options = (direction: 'inputs' | 'outputs') => store.nodes.flatMap((node, index) => {
   const type = types.getById(node.data.nodeType)
-  const count = direction === 'outputs' ? sourcePortsOf(type, node.data.config).length : type?.inputs?.length
+  const count = direction === 'outputs' ? sourcePortsOf(type, portSettings(type, node)).length : type?.inputs?.length
   return count ? [{ value: node.id, label: `${node.data.label} (${index + 1})` }] : []
 })
 const sources = computed(() => options('outputs'))

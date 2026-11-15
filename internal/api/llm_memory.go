@@ -3,7 +3,6 @@ package api
 import (
 	"fmt"
 	"net/http"
-	"slices"
 	"strconv"
 	"unicode/utf8"
 
@@ -140,7 +139,7 @@ func (h *LLMMemoryHandler) collection(w http.ResponseWriter, r *http.Request) (s
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid collection name (1 to %d letters, digits, '_' or '-')", llm.MaxNameLength))
 		return "", false
 	}
-	if !slices.ContainsFunc(h.knowledge.Collections(), func(c llm.CollectionInfo) bool { return c.Name == name }) {
+	if _, ok := h.knowledge.Collection(name); !ok {
 		writeError(w, http.StatusNotFound, "Collection not found")
 		return "", false
 	}

@@ -174,7 +174,8 @@ Errors:
 `Chat`:
 
 - `Schema` set: the client sends it as structured output (below), parses the
-  answer and validates it (`ValidateOutput`); a mismatch is
+  answer and validates it by `ValidateOutput`'s rule, against the schema
+  prepared and compiled once per request; a mismatch is
   `ErrInvalidAnswer` (permanent). A `StopMaxTokens` answer with a schema or
   `JSON` is `ErrInvalidAnswer` ("the answer was cut at maxTokens (N)"). A
   tool-use step with no text is not parsed (the JSON answer comes at the end
@@ -349,6 +350,8 @@ string, query Embedding, k int, minScore float64) ([]Hit, error)`
 `Delete`, `DeleteMatching(collection, match func(id) bool) (int, error)`
 (removes the documents whose ID `match` accepts, reading only the IDs),
 `DeleteCollection`, `Collections() []CollectionInfo`,
+`Collection(name) (CollectionInfo, bool)` (one collection, without listing
+the others),
 `Documents(collection, offset, limit int) ([]Document, int)` (oldest first,
 then by ID, without embeddings). Limits: collection names as connection
 names; ID 1–200 characters; text ≤ 32 KiB; ≤ 20 000 documents per

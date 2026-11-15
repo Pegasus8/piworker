@@ -72,6 +72,11 @@ type Usage struct {
 // Total is the tokens a budget counts: input plus output.
 func (u Usage) Total() int64 { return u.InputTokens + u.OutputTokens }
 
+// Add returns the sum of u and v, counter by counter.
+func (u Usage) Add(v Usage) Usage {
+	return Usage{InputTokens: u.InputTokens + v.InputTokens, OutputTokens: u.OutputTokens + v.OutputTokens, Requests: u.Requests + v.Requests}
+}
+
 // Role is the author of a conversation message.
 type Role string
 
@@ -151,15 +156,18 @@ type Request struct {
 	// JSON asks for a JSON object answer without a schema: the client
 	// instructs the model and parses the answer (ParseJSONAnswer).
 	JSON bool
-	// Effort is "", "low", "medium", "high", "xhigh" or "max": Anthropic's
-	// output_config.effort; OpenAI's reasoning_effort (xhigh and max are
-	// sent as high). "" leaves the model's default.
+	// Effort is one of Efforts ("", "low", "medium", "high", "xhigh" or
+	// "max"): Anthropic's output_config.effort; OpenAI's reasoning_effort
+	// (xhigh and max are sent as high). "" leaves the model's default.
 	Effort string
 	// Cache asks Anthropic to cache the request's prefix (automatic prompt
 	// caching): set for tool loops and conversations with memory, which send
 	// the same prefix again. Ignored by OpenAI-compatible servers.
 	Cache bool
 }
+
+// Efforts are the values of Request.Effort ("": the model's default).
+var Efforts = []string{"", "low", "medium", "high", "xhigh", "max"}
 
 // Response is a chat answer.
 type Response struct {

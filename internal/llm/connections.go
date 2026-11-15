@@ -18,8 +18,11 @@ import (
 const (
 	maxBaseURLLength = 2048
 	maxAPIKeyLength  = 4096
-	maxModelLength   = 256
 )
+
+// MaxModelLength bounds a model name, wherever one is set (a connection's
+// default, a node's model, the flow assistant's request).
+const MaxModelLength = 256
 
 var nameRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
@@ -59,8 +62,8 @@ func (c Connection) Validate() error {
 	if c.Provider == ProviderAnthropic && c.APIKey == "" {
 		return fmt.Errorf("an Anthropic connection needs an API key")
 	}
-	if len(c.Model) > maxModelLength || strings.ContainsAny(c.Model, "\x00\r\n") {
-		return fmt.Errorf("invalid model name (at most %d characters, one line)", maxModelLength)
+	if len(c.Model) > MaxModelLength || strings.ContainsAny(c.Model, "\x00\r\n") {
+		return fmt.Errorf("invalid model name (at most %d characters, one line)", MaxModelLength)
 	}
 	if c.DailyTokenLimit < 0 {
 		return fmt.Errorf("the daily token limit cannot be negative (0: no limit)")
@@ -298,9 +301,7 @@ func (s *Store) RecordUsage(name string, u Usage) error {
 	// An unloaded entry is not counted in memory: its load (later) reads
 	// the persisted counters, which already hold u when the save worked.
 	if e.loaded {
-		e.u.InputTokens += u.InputTokens
-		e.u.OutputTokens += u.OutputTokens
-		e.u.Requests += u.Requests
+		e.u = e.u.Add(u)
 	}
 	if saveErr != nil {
 		return fmt.Errorf("failed to record the usage of LLM connection %q: %w", name, saveErr)

@@ -13,7 +13,6 @@ export default {
   connectionsFailed: 'Could not load the LLM connections.',
   noConnections: 'No LLM connection yet',
   noConnectionsBody: 'The assistant asks a model through an LLM connection: Anthropic, OpenAI, or a local model through Ollama or LM Studio.',
-  noConnectionsWhere: 'Add one in LLM connections, in the navigation menu of the flows page, then come back here.',
   manageConnections: 'Open LLM connections',
   connection: 'LLM connection',
   chooseConnection: 'Choose a connection',
@@ -30,7 +29,6 @@ export default {
   generating: 'Asking the model…',
   elapsed: (seconds: number) => `${seconds} s`,
   progressHint: 'This can take up to 3 minutes: the proposal is checked and, when it has problems, sent back to the model to fix them.',
-  cancel: 'Cancel',
   cancelled: 'Cancelled. Nothing was changed.',
   failed: 'The flow assistant could not propose a flow. Try again.',
   unreachable: 'Could not reach PiWorker. Check your connection and try again.',
@@ -67,7 +65,6 @@ export default {
   nothingToApply: 'The proposal has no node of a type this editor knows, so there is nothing to place.',
   nodeTypesUnavailable: 'The node types could not be loaded, so the proposal cannot be placed. Reload the page and try again.',
   edit: 'Change the description',
-  close: 'Close',
   applied: (nodes: number, connections: number) => `Placed ${plural(nodes, 'node', 'nodes')} and ${plural(connections, 'connection', 'connections')}. Review their settings, then save.`,
   appliedSkipped: (nodes: number, connections: number, types: string[]) => `Placed ${plural(nodes, 'node', 'nodes')} and ${plural(connections, 'connection', 'connections')}; left out the unknown node types ${types.join(', ')}. Review the flow, then save.`
 }

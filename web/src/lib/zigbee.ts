@@ -118,6 +118,7 @@ export function networkList(data: unknown): ZigbeeNetwork[] {
 
 export const DEFAULT_BASE_TOPIC = 'zigbee2mqtt'
 const NAME = /^[A-Za-z0-9_-]+$/
+const MAX_NAME = 64
 const BROKER = /^(tcp|mqtt|ssl|mqtts|ws|wss):\/\/\S+$/i
 
 export interface ConnectionForm {
@@ -151,12 +152,17 @@ export function connectionRequest(form: ConnectionForm): ConnectionRequest {
   return body
 }
 
+/** Connection names: 1-64 letters, digits, _ and - (the LLM connections and knowledge collections use the same rule). */
+export function validConnectionName(name: string): boolean {
+  return name.length <= MAX_NAME && NAME.test(name)
+}
+
 /** What is wrong with the form before it is sent ('' when nothing); the server checks again. */
 export function connectionFormError(form: ConnectionForm): string {
   const t = msg().zigbee.form
   const name = form.name.trim()
   if (!name) return t.nameRequired
-  if (name.length > 64) return t.nameTooLong
+  if (name.length > MAX_NAME) return t.nameTooLong
   if (!NAME.test(name)) return t.nameChars
   const broker = form.broker.trim()
   if (!broker) return t.brokerRequired
@@ -288,7 +294,8 @@ export interface ConnectionRestarts {
   failed: (FlowRef & { error: string })[]
 }
 
-function flowRef(raw: unknown): FlowRef | null {
+/** A flow the server names ({id, name}); null when it names none. */
+export function flowRef(raw: unknown): FlowRef | null {
   const r = (raw ?? {}) as { id?: unknown; name?: unknown }
   return typeof r.id === 'string' ? { id: r.id, name: typeof r.name === 'string' ? r.name : r.id } : null
 }

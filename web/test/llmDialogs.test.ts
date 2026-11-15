@@ -9,12 +9,12 @@ import {
   blankConnectionForm,
   connectionFormError,
   connectionFormFrom,
-  connectionKind,
   isSecretReference,
   modelSuggestions,
   usageSummary,
   type ConnectionFormState
 } from '../src/components/llm/connections'
+import { connectionKind } from '../src/lib/llm'
 import { DOCUMENT_PAGE, EXAMPLE_MEMORY_KEY, filterConversations, focusCandidates, focusRowAfter, metadataText, offsetAfterDelete, pageInfo, rowControlId, textPreview } from '../src/components/llm/memory'
 import { useShellStore } from '../src/stores/shell'
 import type { LLMConnection } from '../src/types'
@@ -163,12 +163,11 @@ test('documents preview on one line, and their metadata as JSON', () => {
 
 // --- Shell and catalogs --------------------------------------------------------
 
-test('the shell opens the LLM dialogs and counts connection changes', () => {
+test('the shell opens the LLM dialogs', () => {
   setActivePinia(createPinia())
   const shell = useShellStore()
   expect(shell.showLLMConnections).toBe(false)
   expect(shell.showAIMemory).toBe(false)
-  expect(shell.llmChanged).toBe(0)
 })
 
 test('the dialogs keep the names the editor’s hints use', () => {

@@ -138,8 +138,7 @@ const item = 'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-m
   <VariablesDialog v-model:open="shell.showVariables" />
   <SecretsDialog v-model:open="shell.showSecrets" @changed="shell.secretsChanged++" />
   <BrokerConnectionsDialog v-model:open="shell.showBrokers" @changed="shell.brokersChanged++" />
-  <LLMConnectionsDialog v-model:open="shell.showLLMConnections" @changed="shell.llmChanged++" />
+  <LLMConnectionsDialog v-model:open="shell.showLLMConnections" />
   <AIMemoryDialog v-model:open="shell.showAIMemory" />
-  <!-- An import also brings LLM connections (docs/design/llm.md §2). -->
-  <StoresBackupDialog v-model:open="shell.showBackup" @changed="shell.secretsChanged++; shell.brokersChanged++; shell.llmChanged++" />
+  <StoresBackupDialog v-model:open="shell.showBackup" @changed="shell.secretsChanged++; shell.brokersChanged++" />
 </template>

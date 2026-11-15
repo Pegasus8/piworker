@@ -68,23 +68,9 @@ func (p *GetVarProcess) Process(ctx context.Context, msg *types.Message) ([]*typ
 	return []*types.Message{out}, nil
 }
 
-// inferDataType maps a Go value to a DataType.
-func inferDataType(v interface{}) types.DataType {
-	switch v.(type) {
-	case string:
-		return types.DataTypeString
-	case int, int64, float64, float32:
-		return types.DataTypeNumber
-	case bool:
-		return types.DataTypeBoolean
-	case []interface{}:
-		return types.DataTypeArray
-	case map[string]interface{}:
-		return types.DataTypeObject
-	default:
-		return types.DataTypeAny
-	}
-}
+// inferDataType maps a Go value to a DataType (types.InferDataType, which
+// llm.SetResult uses too).
+func inferDataType(v interface{}) types.DataType { return types.InferDataType(v) }
 
 // Ports returns the port definitions.
 func (p *GetVarProcess) Ports() (inputs []types.Port, outputs []types.Port) {

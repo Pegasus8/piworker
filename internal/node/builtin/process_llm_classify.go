@@ -68,7 +68,11 @@ func NewLLMClassifyProcess(config map[string]interface{}) (node.Node, error) {
 		return nil, err
 	}
 	p.schema = classifySchema(p.categories)
-	p.outputs = node.ConfigOutputs(LLMClassifyProcessInfo(), map[string]any{llmCategoriesSetting: p.categories})
+	// The ports as node.ConfigOutputs gives them for the registered type,
+	// from its static outputs and OutputsFrom only (the whole Info, schema
+	// and documentation included, is not built per instance).
+	p.outputs = node.ConfigOutputs(node.NodeTypeInfo{Outputs: llmClassifyOutputs, OutputsFrom: llmCategoriesSetting},
+		map[string]any{llmCategoriesSetting: p.categories})
 	return p, nil
 }
 

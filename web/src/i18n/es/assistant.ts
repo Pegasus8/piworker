@@ -11,7 +11,6 @@ const es: typeof en = {
   connectionsFailed: 'No se pudieron cargar las conexiones LLM.',
   noConnections: 'Todavía no hay conexiones LLM',
   noConnectionsBody: 'El asistente consulta un modelo a través de una conexión LLM: Anthropic, OpenAI o un modelo local con Ollama o LM Studio.',
-  noConnectionsWhere: 'Añade una en Conexiones LLM, en el menú de navegación de la página de flujos, y vuelve aquí.',
   manageConnections: 'Abrir Conexiones LLM',
   connection: 'Conexión LLM',
   chooseConnection: 'Elige una conexión',
@@ -28,7 +27,6 @@ const es: typeof en = {
   generating: 'Consultando al modelo…',
   elapsed: (seconds: number) => `${seconds} s`,
   progressHint: 'Puede tardar hasta 3 minutos: la propuesta se comprueba y, si tiene problemas, se devuelve al modelo para que los corrija.',
-  cancel: 'Cancelar',
   cancelled: 'Cancelado. No se cambió nada.',
   failed: 'El asistente de flujos no pudo proponer un flujo. Inténtalo de nuevo.',
   unreachable: 'No se pudo conectar con PiWorker. Comprueba tu conexión e inténtalo de nuevo.',
@@ -63,7 +61,6 @@ const es: typeof en = {
   nothingToApply: 'La propuesta no tiene ningún nodo de un tipo que este editor conozca, así que no hay nada que colocar.',
   nodeTypesUnavailable: 'No se pudieron cargar los tipos de nodo, así que la propuesta no se puede colocar. Recarga la página e inténtalo de nuevo.',
   edit: 'Cambiar la descripción',
-  close: 'Cerrar',
   applied: (nodes: number, connections: number) => `Se colocaron ${plural(nodes, 'nodo', 'nodos')} y ${plural(connections, 'conexión', 'conexiones')}. Revisa su configuración y guarda.`,
   appliedSkipped: (nodes: number, connections: number, types: string[]) => `Se colocaron ${plural(nodes, 'nodo', 'nodos')} y ${plural(connections, 'conexión', 'conexiones')}; se dejaron fuera los tipos de nodo desconocidos ${types.join(', ')}. Revisa el flujo y guarda.`
 }

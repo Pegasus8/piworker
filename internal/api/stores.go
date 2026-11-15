@@ -80,6 +80,7 @@ type LLMConversations interface {
 // prunes.
 type KnowledgeBase interface {
 	Collections() []llm.CollectionInfo
+	Collection(name string) (llm.CollectionInfo, bool)
 	Documents(collection string, offset, limit int) ([]llm.Document, int)
 	Delete(collection, id string) error
 	DeleteCollection(collection string) error

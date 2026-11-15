@@ -14,19 +14,18 @@ import { useFeedback } from '@/composables/useFeedback'
 import { useApi } from '@/composables/useApi'
 import { useLLMStore } from '@/stores/llm'
 import { messages as m, formatNumber } from '@/i18n'
-import { LLM_PRESETS, conflictFlows, errorMessage, llmConnectionRequest, llmEndpoint } from '@/lib/llm'
+import { LLM_PRESETS, conflictFlows, connectionKind, llmConnectionRequest, llmEndpoint } from '@/lib/llm'
+import { apiErrorMessage } from '@/lib/apiError'
+import { modelSuggestion } from '@/lib/suggestions'
 import type { FlowRef } from '@/lib/zigbee'
 import type { LLMConnection, LLMConnectionTest, LLMProvider } from '@/types'
 import {
-  applyPreset, blankConnectionForm, connectionFormError, connectionFormFrom, connectionKind, modelSuggestions, usageSummary,
+  applyPreset, blankConnectionForm, connectionFormError, connectionFormFrom, modelSuggestions, usageSummary,
   type ConnectionFormState, type PresetChoice, type UsageLevel
 } from '@/components/llm/connections'
 
-// newName: prefills the name of a new connection (an editor hint about an
-// undefined one).
-const props = defineProps<{ open: boolean; newName?: string }>()
-// changed: a connection was saved or deleted.
-const emit = defineEmits<{ 'update:open': [boolean]; changed: [] }>()
+const props = defineProps<{ open: boolean }>()
+const emit = defineEmits<{ 'update:open': [boolean] }>()
 
 const store = useLLMStore()
 const api = useApi()
@@ -75,7 +74,7 @@ const keyPlaceholder = computed(() => {
   return !preset.value || !preset.value.needsKey ? t.keyOptional : ''
 })
 // What the model field suggests: the last test's models, then the stored connection's.
-const models = computed(() => modelSuggestions(testResult.value?.models, editing.value ? store.models[editing.value.name] : undefined))
+const models = computed(() => modelSuggestions(testResult.value?.models, editing.value ? store.models[editing.value.name] : undefined).map(modelSuggestion))
 const testModels = computed(() => testResult.value?.ok ? testResult.value.models ?? [] : [])
 
 async function load() {
@@ -84,7 +83,7 @@ async function load() {
   try {
     await store.fetchConnections()
   } catch (e) {
-    error.value = errorMessage(e, m.value.llm.connections.loadFailed)
+    error.value = apiErrorMessage(e, m.value.llm.connections.loadFailed)
   } finally {
     loading.value = false
   }
@@ -98,8 +97,8 @@ async function loadSecrets() {
   }
 }
 
-function reset(name = '') {
-  form.value = { ...blankConnectionForm(), name }
+function reset() {
+  form.value = blankConnectionForm()
   editing.value = null
   attempted.value = false
   testResult.value = null
@@ -107,7 +106,7 @@ function reset(name = '') {
 
 watch(() => props.open, open => {
   if (!open) return
-  reset(props.newName ?? '')
+  reset()
   feedback.value = null
   blocked.value = []
   void load()
@@ -150,11 +149,8 @@ async function save() {
   const name = form.value.name.trim()
   const t = m.value.llm.connections
   blocked.value = []
-  const ok = await run(() => store.saveConnection(name, llmConnectionRequest(form.value)), t.saved(name), e => errorMessage(e, t.saveFailed))
-  if (ok) {
-    emit('changed')
-    reset()
-  }
+  const ok = await run(() => store.saveConnection(name, llmConnectionRequest(form.value)), t.saved(name), e => apiErrorMessage(e, t.saveFailed))
+  if (ok) reset()
 }
 
 async function test() {
@@ -167,7 +163,7 @@ async function test() {
   try {
     result = await store.testConnection(form.value.name.trim(), llmConnectionRequest(form.value))
   } catch (e) {
-    result = { ok: false, error: errorMessage(e, m.value.editor.llm.testFailed) }
+    result = { ok: false, error: apiErrorMessage(e, m.value.editor.llm.testFailed) }
   }
   if (current !== testRun) return
   testResult.value = result
@@ -181,14 +177,10 @@ async function remove(name: string) {
   let refused: FlowRef[] = []
   const ok = await run(() => store.deleteConnection(name), t.deleted, e => {
     refused = conflictFlows(e)
-    return errorMessage(e, t.deleteFailed)
+    return apiErrorMessage(e, t.deleteFailed)
   })
-  if (ok) {
-    emit('changed')
-    if (editing.value?.name === name) reset()
-  } else {
-    blocked.value = refused
-  }
+  if (!ok) blocked.value = refused
+  else if (editing.value?.name === name) reset()
 }
 
 function setLimit(value: string | number) {
@@ -308,7 +300,7 @@ const providerOf = (value: string) => value as LLMProvider
               <Input id="llm-conn-model" v-model="form.model" :disabled="pending" :placeholder="m.llm.connections.modelPlaceholder" class="mt-1" autocomplete="off" spellcheck="false"
                 list="llm-conn-models" aria-describedby="llm-conn-model-help" />
               <datalist id="llm-conn-models">
-                <option v-for="model in models" :key="model.id" :value="model.id" :label="model.name && model.name !== model.id ? model.name : undefined" />
+                <option v-for="s in models" :key="s.value" :value="s.value" :label="s.label" />
               </datalist>
               <p id="llm-conn-model-help" class="mt-1 text-xs text-muted-foreground">{{ m.llm.connections.modelHint }}</p>
             </div>

@@ -4,7 +4,8 @@
 // helpers; the requests live in stores/llm.ts.
 import { msg } from '@/i18n'
 import type { LLMConnection, LLMConnectionRequest, LLMProvider } from '@/types'
-import type { FlowRef } from '@/lib/zigbee'
+import { flowRef, validConnectionName, type FlowRef } from '@/lib/zigbee'
+import { apiStatus } from '@/lib/apiError'
 
 /** The endpoints a connection without a base URL uses (llm.DefaultAnthropicURL, llm.DefaultOpenAIURL). */
 export const DEFAULT_ANTHROPIC_URL = 'https://api.anthropic.com'
@@ -15,9 +16,13 @@ export function llmEndpoint(c: Pick<LLMConnection, 'provider' | 'baseUrl'>): str
 }
 
 /** Connection (and knowledge collection) names: as broker connection names. */
-const NAME = /^[A-Za-z0-9_-]{1,64}$/
 export function validLLMName(name: string): boolean {
-  return NAME.test(name)
+  return validConnectionName(name)
+}
+
+/** A base URL as it is checked and sent: trimmed, without trailing slashes. */
+export function normalizeBaseUrl(raw: string): string {
+  return raw.trim().replace(/\/+$/, '')
 }
 
 export type LLMPresetId = 'anthropic' | 'openai' | 'ollama' | 'lmstudio' | 'openrouter'
@@ -52,6 +57,11 @@ export function connectionKind(c: Pick<LLMConnection, 'provider' | 'baseUrl'>): 
   return preset?.label ?? msg().editor.llm.providers[c.provider] ?? c.provider
 }
 
+/** A connection in a list: how it is named and its default model ("Ollama · llama3.2"). */
+export function connectionLabel(c: Pick<LLMConnection, 'provider' | 'baseUrl' | 'model'>): string {
+  return [connectionKind(c), c.model].filter(Boolean).join(' · ')
+}
+
 export interface LLMConnectionForm {
   name: string
   provider: LLMProvider
@@ -70,7 +80,7 @@ export function llmConnectionRequest(form: LLMConnectionForm): LLMConnectionRequ
   const limit = form.dailyTokenLimit
   const body: LLMConnectionRequest = {
     provider: form.provider,
-    baseUrl: form.baseUrl.trim().replace(/\/+$/, ''),
+    baseUrl: normalizeBaseUrl(form.baseUrl),
     model: form.model.trim(),
     dailyTokenLimit: typeof limit === 'number' && Number.isFinite(limit) && limit > 0 ? Math.trunc(limit) : 0
   }
@@ -79,19 +89,13 @@ export function llmConnectionRequest(form: LLMConnectionForm): LLMConnectionRequ
   return body
 }
 
-/** The running flows a refused delete (409, data.flows) names; none for any other error. */
+/** The running flows a refused delete (409, data.flows) names, a flow without a name by its ID; none for any other error. */
 export function conflictFlows(e: unknown): FlowRef[] {
-  const response = (e as { response?: { status?: number; data?: { data?: { flows?: unknown } } } })?.response
-  const flows = response?.status === 409 ? response.data?.data?.flows : undefined
+  if (apiStatus(e) !== 409) return []
+  const flows = (e as { response: { data?: { data?: { flows?: unknown } } } }).response.data?.data?.flows
   if (!Array.isArray(flows)) return []
   return flows.flatMap(f => {
-    const ref = (f ?? {}) as { id?: unknown; name?: unknown }
-    return typeof ref.id === 'string' ? [{ id: ref.id, name: typeof ref.name === 'string' && ref.name ? ref.name : ref.id }] : []
+    const ref = flowRef(f)
+    return ref ? [{ id: ref.id, name: ref.name || ref.id }] : []
   })
-}
-
-/** The server's error message (the API envelope's error), or fallback. */
-export function errorMessage(e: unknown, fallback: string): string {
-  const message = (e as { response?: { data?: { error?: unknown } } })?.response?.data?.error
-  return typeof message === 'string' && message ? message : fallback
 }

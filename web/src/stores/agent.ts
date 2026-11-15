@@ -9,6 +9,7 @@ import { apiClient, useApi } from '@/composables/useApi'
 import { createVisibilityPoller, type Poller, type PollerOptions } from '@/lib/poller'
 import { shortSecretsSummary, type SecretList } from '@/lib/secrets'
 import { msg } from '@/i18n'
+import { apiErrorMessage, apiStatus as status } from '@/lib/apiError'
 import {
   auditParams,
   buildCreateTokenRequest,
@@ -50,15 +51,8 @@ export interface GrantChange {
   password?: string
 }
 
-/** The server's error message, or fallback. */
-export function apiErrorMessage(e: unknown, fallback: string): string {
-  const message = (e as { response?: { data?: { error?: unknown } } })?.response?.data?.error
-  return typeof message === 'string' && message ? message : fallback
-}
-
-function status(e: unknown): number | undefined {
-  return (e as { response?: { status?: number } })?.response?.status
-}
+// The server's error message, or fallback (lib/apiError.ts), where the pages import it.
+export { apiErrorMessage }
 
 const path = (id: string) => encodeURIComponent(id)
 

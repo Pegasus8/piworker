@@ -27,22 +27,29 @@ const jsonInstruction = "Answer with one JSON object and nothing else."
 // ("type": "object"), the encoded schema at most MaxSchemaBytes, and the
 // schema must resolve (JSON Schema 2020-12, local references only).
 func PrepareSchema(schema map[string]any) (map[string]any, error) {
+	out, _, err := prepareSchema(schema)
+	return out, err
+}
+
+// prepareSchema is PrepareSchema, also returning the prepared schema
+// compiled for validation (what ValidateOutput would compile from it).
+func prepareSchema(schema map[string]any) (map[string]any, *jsonschema.Resolved, error) {
 	if len(schema) == 0 {
-		return nil, errors.New("the schema is empty")
+		return nil, nil, errors.New("the schema is empty")
 	}
 	if schema["type"] != "object" {
-		return nil, errors.New(`the schema's root must be an object schema ("type": "object")`)
+		return nil, nil, errors.New(`the schema's root must be an object schema ("type": "object")`)
 	}
 	raw, err := json.Marshal(schema)
 	if err != nil {
-		return nil, fmt.Errorf("the schema cannot be encoded: %w", err)
+		return nil, nil, fmt.Errorf("the schema cannot be encoded: %w", err)
 	}
 	if len(raw) > MaxSchemaBytes {
-		return nil, fmt.Errorf("the schema is too large (at most %d KiB)", MaxSchemaBytes>>10)
+		return nil, nil, fmt.Errorf("the schema is too large (at most %d KiB)", MaxSchemaBytes>>10)
 	}
 	var out map[string]any
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, fmt.Errorf("the schema cannot be decoded: %w", err)
+		return nil, nil, fmt.Errorf("the schema cannot be decoded: %w", err)
 	}
 	walkSchemas(out, func(s map[string]any) {
 		if isObjectSchema(s) {
@@ -51,10 +58,11 @@ func PrepareSchema(schema map[string]any) (map[string]any, error) {
 			}
 		}
 	})
-	if _, err := resolveSchema(out); err != nil {
-		return nil, err
+	resolved, err := resolveSchema(out)
+	if err != nil {
+		return nil, nil, err
 	}
-	return out, nil
+	return out, resolved, nil
 }
 
 // resolveSchema compiles schema for validation.
@@ -81,7 +89,12 @@ func ValidateOutput(schema map[string]any, value any) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidAnswer, err)
 	}
-	if err := resolved.Validate(value); err != nil {
+	return validateResolved(resolved, value)
+}
+
+// validateResolved is ValidateOutput with the schema already compiled.
+func validateResolved(schema *jsonschema.Resolved, value any) error {
+	if err := schema.Validate(value); err != nil {
 		return fmt.Errorf("%w: %s", ErrInvalidAnswer, quote(err.Error()))
 	}
 	return nil

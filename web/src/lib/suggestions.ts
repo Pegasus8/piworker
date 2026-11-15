@@ -7,7 +7,7 @@ import { msg } from '@/i18n'
 import * as zigbee from '@/lib/zigbee'
 import type { AgentTool } from '@/lib/agentAccess'
 import type { KnowledgeCollection, LLMConnection, LLMModel } from '@/types'
-import { connectionKind, llmEndpoint } from '@/lib/llm'
+import { connectionKind, connectionLabel, llmEndpoint } from '@/lib/llm'
 
 const LLM_SOURCES = ['llm-connections', 'llm-models', 'tools', 'knowledge-collections'] as const
 export type LLMSuggestSource = typeof LLM_SOURCES[number]
@@ -23,6 +23,11 @@ function isZigbeeSource(source: SuggestSource): source is zigbee.SuggestSource {
 
 /** One suggestion: the value typed in, and what the list shows beside it. */
 export interface Suggestion { value: string; label?: string }
+
+/** A model as a suggestion: its ID, with its name when that says more. */
+export function modelSuggestion(m: LLMModel): Suggestion {
+  return { value: m.id, ...(m.name && m.name !== m.id ? { label: m.name } : {}) }
+}
 
 export interface SuggestionContext extends zigbee.SuggestionContext {
   llmConnections: LLMConnection[]
@@ -80,9 +85,9 @@ export function suggestions(source: SuggestSource, ctx: SuggestionContext): Sugg
   const t = msg().editor.llm
   switch (source) {
     case 'llm-connections':
-      return unique(ctx.llmConnections.map(c => ({ value: c.name, label: [connectionKind(c), c.model].filter(Boolean).join(' · ') })))
+      return unique(ctx.llmConnections.map(c => ({ value: c.name, label: connectionLabel(c) })))
     case 'llm-models':
-      return unique((ctx.models[text(ctx.config.connection)] ?? []).map(m => ({ value: m.id, ...(m.name && m.name !== m.id ? { label: m.name } : {}) })))
+      return unique((ctx.models[text(ctx.config.connection)] ?? []).map(modelSuggestion))
     case 'tools':
       return unique(ctx.tools.filter(tool => callable(tool, ctx.flowId)).map(tool => ({ value: tool.toolName, label: tool.title ? `${tool.title} (${tool.flowName})` : tool.flowName })))
     case 'knowledge-collections':

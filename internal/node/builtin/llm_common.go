@@ -35,8 +35,8 @@ import (
 //     with settings.open: through the context, never in the factory, so a
 //     changed connection applies to the next message and a sandboxed run
 //     (dry-run, node test) never reaches a provider;
-//  5. records llmMeta (meta.llm) on the message it emits, and stores its
-//     result with llm.SetResult(out, resultField, value).
+//  5. emits llmResult(msg, resultField, value) (the result stored as
+//     llm.SetResult does) with llmMeta (meta.llm) on it.
 //
 // Errors are returned as llm gives them: transient ones (network errors,
 // 429, 5xx) stay wrapped with node.Transient so the runtime's opt-in
@@ -57,14 +57,9 @@ const (
 	llmMinMemoryTurns     = 2
 	llmMaxMemoryTurns     = llm.MaxTurns
 	llmDefaultMemoryTurns = 20
-	// llmMaxModelLength bounds a model name (as llm.Connection does).
-	llmMaxModelLength = 256
 	// llmMaxResultField bounds resultField.
 	llmMaxResultField = 128
 )
-
-// llmEfforts are the values of an effort setting ("" = the model's default).
-var llmEfforts = []string{"", "low", "medium", "high", "xhigh", "max"}
 
 // Ports of the single-output LLM nodes.
 var (
@@ -111,7 +106,7 @@ func llmSchemaMaxTokens(def int) node.ConfigProperty {
 func llmSchemaEffort() node.ConfigProperty {
 	return node.ConfigProperty{Type: "string", Title: "Effort",
 		Description: "How much the model thinks before answering, only for models that support it: others may reject the request (empty: the model's default)",
-		Default:     "", Enum: llmEfforts, AgentVisible: true}
+		Default:     "", Enum: llm.Efforts, AgentVisible: true}
 }
 
 // llmSchemaMemoryKey is the memoryKey setting. It is a Destination: the
@@ -172,8 +167,8 @@ func parseLLMSettings(base *node.BaseNode, defTimeout int) (llmSettings, error) 
 		return llmSettings{}, err
 	}
 	model = strings.TrimSpace(model)
-	if utf8.RuneCountInString(model) > llmMaxModelLength || strings.ContainsAny(model, "\x00\r\n") {
-		return llmSettings{}, fmt.Errorf("model must be one line of at most %d characters", llmMaxModelLength)
+	if utf8.RuneCountInString(model) > llm.MaxModelLength || strings.ContainsAny(model, "\x00\r\n") {
+		return llmSettings{}, fmt.Errorf("model must be one line of at most %d characters", llm.MaxModelLength)
 	}
 	seconds, err := intSetting(cfg, "timeout", defTimeout, 1, llmMaxTimeout, "seconds")
 	if err != nil {
@@ -254,13 +249,13 @@ func parseLLMMaxTokens(base *node.BaseNode, def int) (int, error) {
 	return intSetting(base.GetConfig(), "maxTokens", def, 1, llmMaxTokensLimit, "tokens")
 }
 
-// parseLLMEffort reads effort: one of llmEfforts.
+// parseLLMEffort reads effort: one of llm.Efforts.
 func parseLLMEffort(base *node.BaseNode) (string, error) {
 	effort, err := textSetting(base.GetConfig(), "effort")
 	if err != nil {
 		return "", err
 	}
-	if !containsString(llmEfforts, effort) {
+	if !containsString(llm.Efforts, effort) {
 		return "", errors.New("effort must be low, medium, high, xhigh or max (or empty for the model's default)")
 	}
 	return effort, nil
@@ -456,6 +451,22 @@ func renderMemoryKey(ctx context.Context, tmpl string, msg *types.Message) (stri
 // ---------------------------------------------------------------------------
 // Results.
 
+// llmResult returns the message a node emits for msg: a clone of msg with
+// value stored as its result (llm.SetResult with field). With field "" the
+// result replaces the payload, so the payload (a webhook body, an audio
+// file) is not copied first.
+func llmResult(msg *types.Message, field string, value any) *types.Message {
+	src := msg
+	if field == "" {
+		shallow := *msg
+		shallow.Payload = nil
+		src = &shallow
+	}
+	out := src.Clone()
+	llm.SetResult(out, field, value)
+	return out
+}
+
 // llmMeta is the meta.llm of an answer: the connection, the model that
 // answered (as the provider reports it), the tokens and requests spent and
 // why the model stopped. Nodes add their own keys (category, steps, …).
@@ -468,11 +479,6 @@ func llmMeta(connection, model string, u llm.Usage, stop llm.StopReason) map[str
 		"requests":     u.Requests,
 		"stop":         string(stop),
 	}
-}
-
-// addUsage sums two usages.
-func addUsage(a, b llm.Usage) llm.Usage {
-	return llm.Usage{InputTokens: a.InputTokens + b.InputTokens, OutputTokens: a.OutputTokens + b.OutputTokens, Requests: a.Requests + b.Requests}
 }
 
 // ---------------------------------------------------------------------------
@@ -526,12 +532,8 @@ func parseKnowledgeCollection(base *node.BaseNode) (string, error) {
 // knowledgeCollection returns the summary of the collection name of kb;
 // false when it holds no document.
 func knowledgeCollection(kb *llm.Knowledge, name string) (llm.CollectionInfo, bool) {
-	for _, c := range kb.Collections() {
-		if c.Name == name {
-			return c, c.Documents > 0
-		}
-	}
-	return llm.CollectionInfo{}, false
+	info, ok := kb.Collection(name)
+	return info, ok && info.Documents > 0
 }
 
 // checkCollectionModel refuses, before any token is spent, embeddings of
@@ -541,9 +543,18 @@ func knowledgeCollection(kb *llm.Knowledge, name string) (llm.CollectionInfo, bo
 // searched.
 func checkCollectionModel(kb *llm.Knowledge, name, model string) error {
 	info, ok := knowledgeCollection(kb, name)
-	if !ok || info.Model == model {
+	if !ok {
+		return nil
+	}
+	return collectionModelMismatch(info, model)
+}
+
+// collectionModelMismatch is checkCollectionModel for a collection already
+// looked up (info, which holds documents).
+func collectionModelMismatch(info llm.CollectionInfo, model string) error {
+	if info.Model == model {
 		return nil
 	}
 	return fmt.Errorf("%w: collection %q holds embeddings of %q, not %q (set the node's model to %q, or delete the collection under AI memory to rebuild it)",
-		llm.ErrModelMismatch, name, info.Model, model, info.Model)
+		llm.ErrModelMismatch, info.Name, info.Model, model, info.Model)
 }

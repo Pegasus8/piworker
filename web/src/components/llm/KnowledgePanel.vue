@@ -15,10 +15,10 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import OperationFeedback from '@/components/ui/OperationFeedback.vue'
 import { useFeedback } from '@/composables/useFeedback'
 import { useLLMStore } from '@/stores/llm'
-import { errorMessage } from '@/lib/llm'
+import { apiErrorMessage } from '@/lib/apiError'
 import { visibleText } from '@/lib/agentAccess'
 import { messages as m, formatDateTime, formatNumber, formatRelative } from '@/i18n'
-import { DOCUMENT_PAGE, focusCandidates, metadataText, offsetAfterDelete, pageInfo, rowControlId, textPreview } from './memory'
+import { DOCUMENT_PAGE, metadataText, offsetAfterDelete, pageInfo, restoreFocus, rowControlId, textPreview } from './memory'
 import type { KnowledgeCollection, KnowledgeDocumentPage } from '@/types'
 
 // open: the dialog is open (each opening reads the collections again).
@@ -50,20 +50,6 @@ const HEADING_ID = 'ai-memory-collection'
 const collectionNames = () => store.collections.map(c => c.name)
 const documentIds = () => page.value.documents.map(d => d.id)
 
-// The focused control went with the view or its row: the focus goes to
-// the row of key (or the one that took its place), else to the fallbacks.
-// before: the rows listed before the change, after reads them once drawn.
-async function refocus(key: string | null, before: readonly string[], after: () => readonly string[], rowPrefix: string, fallbacks: string[]) {
-  await nextTick()
-  for (const id of focusCandidates(key, before, after(), rowPrefix, fallbacks)) {
-    const target = document.getElementById(id)
-    if (target) {
-      target.focus()
-      return
-    }
-  }
-}
-
 async function load() {
   loading.value = true
   error.value = ''
@@ -71,7 +57,7 @@ async function load() {
   try {
     await store.fetchCollections()
   } catch (e) {
-    error.value = errorMessage(e, t.value.loadFailed)
+    error.value = apiErrorMessage(e, t.value.loadFailed)
   } finally {
     loading.value = false
   }
@@ -95,7 +81,7 @@ async function loadDocuments() {
     const result = await store.fetchDocuments(name, offset.value, DOCUMENT_PAGE)
     if (request === docsRequest) page.value = result
   } catch (e) {
-    if (request === docsRequest) docsError.value = errorMessage(e, t.value.documentsFailed)
+    if (request === docsRequest) docsError.value = apiErrorMessage(e, t.value.documentsFailed)
   } finally {
     if (request === docsRequest) docsLoading.value = false
   }
@@ -124,7 +110,7 @@ function back() {
 function leave(before = collectionNames()) {
   const name = browsing.value
   back()
-  void refocus(name, before, collectionNames, BROWSE_ID, [REFRESH_ID])
+  void restoreFocus(name, before, collectionNames, BROWSE_ID, [REFRESH_ID])
 }
 
 function go(pages: number) {
@@ -138,7 +124,7 @@ async function deleteDocument(id: string) {
   if (!name || pending.value || !await confirmation.value?.ask(text.deleteDocumentTitle, text.deleteDocumentText(visibleText(id)), text.deleteDocumentConfirm)) return
   const collections = collectionNames()
   const documents = documentIds()
-  const ok = await run(() => store.deleteDocument(name, id), text.documentDeleted, e => errorMessage(e, text.deleteDocumentFailed))
+  const ok = await run(() => store.deleteDocument(name, id), text.documentDeleted, e => apiErrorMessage(e, text.deleteDocumentFailed))
   if (!ok || browsing.value !== name) return
   // The last document took the collection with it.
   if (!store.collections.some(c => c.name === name)) {
@@ -148,19 +134,23 @@ async function deleteDocument(id: string) {
   offset.value = offsetAfterDelete(offset.value, page.value.total - 1)
   await loadDocuments()
   // Its delete button went with it: the next document's, else the heading.
-  if (browsing.value === name) await refocus(id, documents, documentIds, DELETE_DOCUMENT_ID, [HEADING_ID])
+  if (browsing.value === name) await restoreFocus(id, documents, documentIds, DELETE_DOCUMENT_ID, [HEADING_ID])
 }
 
 async function deleteCollection(c: KnowledgeCollection) {
   const text = t.value
   if (pending.value || !await confirmation.value?.ask(text.deleteCollectionTitle, text.deleteCollectionText(c.name, c.documents, formatNumber(c.documents)), text.deleteCollectionConfirm)) return
   const before = collectionNames()
-  const ok = await run(() => store.deleteCollection(c.name), text.collectionDeleted, e => errorMessage(e, text.deleteCollectionFailed))
+  const ok = await run(() => store.deleteCollection(c.name), text.collectionDeleted, e => apiErrorMessage(e, text.deleteCollectionFailed))
   if (!ok) return
   // Its view, or its row in the list, is gone with the button that deleted it.
   if (browsing.value === c.name) leave(before)
-  else if (!browsing.value) await refocus(c.name, before, collectionNames, BROWSE_ID, [REFRESH_ID])
+  else if (!browsing.value) await restoreFocus(c.name, before, collectionNames, BROWSE_ID, [REFRESH_ID])
 }
+
+// Each document with its preview and metadata, worked out once per page
+// (not on every redraw: a text can be long).
+const rows = computed(() => page.value.documents.map(d => ({ d, preview: textPreview(d.text), metadata: metadataText(d.metadata) })))
 
 const summary = (c: KnowledgeCollection) => `${t.value.documents(c.documents, formatNumber(c.documents))} · ${t.value.embedding(c.model, formatNumber(c.dimensions))}`
 </script>
@@ -186,18 +176,18 @@ const summary = (c: KnowledgeCollection) => `${t.value.documents(c.documents, fo
       <p v-else-if="docsLoading && !page.documents.length" class="p-3 text-center text-sm text-muted-foreground">{{ m.common.loading }}</p>
       <p v-else-if="!page.documents.length" class="p-3 text-center text-sm text-muted-foreground">{{ t.noDocuments }}</p>
       <ul v-else class="max-h-[50vh] divide-y overflow-auto rounded border" :aria-label="t.documentsLabel" :aria-busy="docsLoading">
-        <li v-for="d in page.documents" :key="d.id" class="flex items-start gap-2 px-3 py-2 text-sm">
+        <li v-for="{ d, preview, metadata } in rows" :key="d.id" class="flex items-start gap-2 px-3 py-2 text-sm">
           <!-- A preview line; the whole text and metadata on demand. -->
           <details class="group min-w-0 flex-1">
             <summary class="cursor-pointer">
               <span class="break-all font-mono text-xs font-medium"><AgentText :text="d.id" /></span>
               <span class="ml-2 text-xs text-muted-foreground"><time :datetime="d.createdAt" :title="formatDateTime(d.createdAt)">{{ t.added(formatRelative(d.createdAt, now)) }}</time></span>
-              <span class="mt-0.5 block break-words text-muted-foreground group-open:hidden"><AgentText :text="textPreview(d.text)" /></span>
+              <span class="mt-0.5 block break-words text-muted-foreground group-open:hidden"><AgentText :text="preview" /></span>
             </summary>
             <div class="mt-2 space-y-2">
               <p class="whitespace-pre-wrap break-words rounded bg-muted/60 p-2"><AgentText :text="d.text" /></p>
-              <p v-if="metadataText(d.metadata)" class="break-all text-xs">
-                <span class="font-semibold">{{ t.metadata }}:</span> <code><AgentText :text="metadataText(d.metadata)" /></code>
+              <p v-if="metadata" class="break-all text-xs">
+                <span class="font-semibold">{{ t.metadata }}:</span> <code><AgentText :text="metadata" /></code>
               </p>
             </div>
           </details>

@@ -19,6 +19,7 @@ import AgentNav from '@/components/agent/AgentNav.vue'
 import AgentText from '@/components/agent/AgentText.vue'
 import DraftAlerts from '@/components/agent/DraftAlerts.vue'
 import DraftDiff from '@/components/agent/DraftDiff.vue'
+import FlowIssueItem from '@/components/agent/FlowIssueItem.vue'
 import RiskBadge from '@/components/agent/RiskBadge.vue'
 import type { Feedback } from '@/composables/useFeedback'
 import { DraftActionError, useDraftsStore } from '@/stores/drafts'
@@ -28,7 +29,7 @@ import { messages as m } from '@/i18n'
 import { countHidden, formatDateTime, formatRelative, jsonText, visibleText } from '@/lib/agentAccess'
 import {
   applyOutcome, approvalBlock, approveConfirmText, diffBasis, draftIcon, draftState, draftVersionText, fieldPaths,
-  issueCountsLabel, issueCounts, nodeNames, proposedSettings, riskChange, severityInfo, textChanges, type ApplyResult,
+  issueCountsLabel, issueCounts, nodeNames, proposedSettings, riskChange, textChanges, type ApplyResult,
   type FlowIssue
 } from '@/lib/drafts'
 
@@ -288,14 +289,7 @@ async function reject() {
           <section aria-labelledby="issues-heading" class="space-y-2">
             <h3 id="issues-heading" class="text-sm font-semibold">{{ m.drafts.review.issues(issueCountsLabel(counts)) }}</h3>
             <ul v-if="extraIssues.length || issues.length" class="space-y-1 text-sm">
-              <li v-for="(i, n) in [...extraIssues, ...issues]" :key="`${n}-${i.path}-${i.code}`" class="flex items-start gap-2 rounded-md border p-2"
-                :class="i.severity === 'error' ? 'border-destructive/40' : 'border-amber-500/40'">
-                <component :is="draftIcon(severityInfo(i.severity).icon)" class="mt-0.5 h-4 w-4 shrink-0" :class="i.severity === 'error' ? 'text-destructive' : 'text-amber-700 dark:text-amber-400'" aria-hidden="true" />
-                <div class="min-w-0">
-                  <p><span class="font-semibold">{{ severityInfo(i.severity).label }}</span> <span class="break-all font-mono text-xs text-muted-foreground"><AgentText :text="issueWhere(i)" /> · {{ i.code }}</span></p>
-                  <p class="whitespace-pre-wrap break-words"><AgentText :text="i.message" /></p>
-                </div>
-              </li>
+              <FlowIssueItem v-for="(i, n) in [...extraIssues, ...issues]" :key="`${n}-${i.path}-${i.code}`" :issue="i" :where="issueWhere(i)" bordered />
             </ul>
             <p v-else class="text-sm text-muted-foreground">{{ m.drafts.review.noIssues }}</p>
           </section>

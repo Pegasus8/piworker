@@ -64,6 +64,15 @@ export function nodeMinHeight(inputs: number, outputs: number): number {
   return (Math.max(inputs, outputs) + 1) * HANDLE_SPACING
 }
 
+/**
+ * The settings that give a node ports, read only for a type whose settings
+ * do (outputsFrom): a computed over every node then does not run again on
+ * each change of another node's settings.
+ */
+export function portSettings(type: PortsOf | undefined, node: Pick<FlowNode, 'data'>): Record<string, unknown> | undefined {
+  return type?.outputsFrom ? node.data.config : undefined
+}
+
 /** The ports a connection can start from: the node's outputs, then the error port. */
 export function sourcePorts(type: NodeTypeConfig | undefined, config?: Record<string, unknown>): Port[] {
   if (!type) return []
@@ -76,29 +85,23 @@ export function validConnection(connection: Pick<FlowEdge, 'source' | 'target' |
   if (!source || !target || source === target) return false
   const from = nodes.find(n => n.id === source), to = nodes.find(n => n.id === target)
   if (!from || !to) return false
-  const output = sourcePorts(getType(from.data.nodeType), from.data.config).find(p => p.id === sourceHandle)
+  const fromType = getType(from.data.nodeType)
+  const output = sourcePorts(fromType, portSettings(fromType, from)).find(p => p.id === sourceHandle)
   const input = ports(getType(to.data.nodeType)?.inputs).find(p => p.id === targetHandle)
   if (!output || !input) return false
   // An edge never duplicates itself: Vue Flow re-validates existing edges.
   return !edges.some(e => (connection.id === undefined || e.id !== connection.id) && e.source === source && e.target === target && e.sourceHandle === sourceHandle && e.targetHandle === targetHandle)
 }
 
-/**
- * The edges after a node's settings change from before to after: the edges
- * leaving a port the node no longer has are removed, and when one item was
- * renamed in place (typed over in its row) the edges leaving it follow the
- * new name, so fixing a category's spelling keeps its connections. Returns
- * edges itself when nothing changes.
- */
-export function edgesAfterConfig<E extends EdgeLike>(nodeId: string, type: NodeTypeConfig | undefined, before: Record<string, unknown>, after: Record<string, unknown>, edges: E[]): E[] {
-  return followPorts(nodeId, type, before, after, edges).edges
-}
-
 type EdgeLike = Pick<FlowEdge, 'source' | 'sourceHandle' | 'target' | 'targetHandle'>
 
 /**
- * edgesAfterConfig as the editor runs it while a list setting is typed
- * (ADR-0040): renames are what ListInput reported about the items (lib/
+ * The edges after a node's settings change from before to after, as the
+ * editor runs it while a list setting is typed (ADR-0040): the edges
+ * leaving a port the node no longer has are taken off, and when one item
+ * was renamed in place (typed over in its row) the edges leaving it follow
+ * the new name, so fixing a category's spelling keeps its connections.
+ * renames are what ListInput reported about the items (lib/
  * configValues.ts followRows), oldest first, and parked are the edges
  * kept aside for this node. The edges leaving a port that is gone are
  * parked instead of dropped: its row may be blank or repeat another for a
@@ -114,9 +117,10 @@ export function followPorts<E extends EdgeLike>(
 ): { edges: E[]; parked: E[] } {
   if (!type?.outputsFrom) return { edges, parked: [...parked] }
   const declared = ports(type.outputs)
-  const now = new Set(sourcePorts(type, after).map(p => p.id))
   const itemsBefore = new Set(settingPorts(type, declared, before).map(p => p.id))
   const itemsAfter = new Set(settingPorts(type, declared, after).map(p => p.id))
+  // The node's source ports after the change (sourcePorts).
+  const now = new Set([...declared.map(p => p.id), ...itemsAfter, ...(hasErrorPort(type) ? [ERROR_PORT] : [])])
   // Where the rows say an item went (undefined: they said nothing of it).
   const follow = (port: string): string | null | undefined => {
     let at: string | null | undefined

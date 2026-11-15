@@ -189,7 +189,6 @@ test('published tools are listed; a server without them lists none', async () =>
   const store = useLLMStore()
   await store.fetchTools()
   expect(store.tools.map(t => t.toolName)).toEqual(['lights_on'])
-  expect(store.toolNames).toEqual(['lights_on'])
   expect(store.toolsLoaded).toBe(true)
   delete handlers.getAgentTools
   await store.fetchTools()

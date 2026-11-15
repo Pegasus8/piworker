@@ -62,15 +62,25 @@ func TestTestNodeLeavesTheConversationsAlone(t *testing.T) {
 // LLM node types get a longer bound than the rest (a model can take a
 // minute), and the answer's write deadline outlasts it.
 func TestTestNodeTimeoutOfLLMTypes(t *testing.T) {
-	for _, typ := range []string{"process-llm", "process-llm-classify", "process-llm-agent", "process-transcribe", "process-knowledge-search"} {
-		info, ok := node.DefaultRegistry.Get(typ)
-		require.True(t, ok, typ)
-		assert.Equalf(t, llmTestNodeTimeout, testNodeTimeoutFor(info), "%s", typ)
+	for typ, cfg := range map[string]map[string]any{
+		"process-llm":              {"connection": "c"},
+		"process-llm-classify":     {"connection": "c", "categories": []any{"a", "b"}},
+		"process-llm-agent":        {"connection": "c"},
+		"process-transcribe":       {"connection": "c"},
+		"process-knowledge-search": {"connection": "c", "collection": "docs"},
+	} {
+		inst, err := node.DefaultRegistry.Create(typ, cfg)
+		require.NoError(t, err, typ)
+		assert.Equalf(t, llmTestNodeTimeout, testNodeTimeoutFor(inst), "%s", typ)
 	}
-	for _, typ := range []string{"process-transform", "process-template", "process-delay"} {
-		info, ok := node.DefaultRegistry.Get(typ)
-		require.True(t, ok, typ)
-		assert.Equalf(t, testNodeTimeout, testNodeTimeoutFor(info), "%s", typ)
+	for typ, cfg := range map[string]map[string]any{
+		"process-transform": {"expression": "payload"},
+		"process-template":  {"template": "x"},
+		"process-delay":     {},
+	} {
+		inst, err := node.DefaultRegistry.Create(typ, cfg)
+		require.NoError(t, err, typ)
+		assert.Equalf(t, testNodeTimeout, testNodeTimeoutFor(inst), "%s", typ)
 	}
 	assert.Greater(t, llmTestNodeTimeout, testNodeTimeout)
 	assert.Greater(t, testNodeWriteDeadline, llmTestNodeTimeout)

@@ -4,14 +4,8 @@ import type { NodeTypeConfig, NodeCategory } from '@/types'
 import { useApi } from '@/composables/useApi'
 import { configFieldsFromSchema } from '@/lib/configValues'
 import { lucideIconName } from '@/lib/nodeIcons'
+import { EDITOR_CATEGORY } from '@/lib/flowShape'
 import { msg } from '@/i18n'
-
-// Map backend categories to frontend categories
-const categoryMap: Record<string, NodeCategory> = {
-  input: 'trigger',
-  processing: 'process',
-  output: 'action'
-}
 
 export const useNodeTypesStore = defineStore('nodeTypes', () => {
   const api = useApi()
@@ -41,7 +35,7 @@ export const useNodeTypesStore = defineStore('nodeTypes', () => {
           name: node.name,
           description: node.description,
           documentation: node.documentation || '',
-          category: categoryMap[node.category] || node.category,
+          category: EDITOR_CATEGORY[node.category] || node.category,
           icon: lucideIconName(node.icon ?? ''),
           risk: typeof node.risk === 'string' ? node.risk : undefined,
           riskCanRise: node.riskCanRise === true,

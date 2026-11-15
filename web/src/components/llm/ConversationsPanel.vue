@@ -13,10 +13,10 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 import OperationFeedback from '@/components/ui/OperationFeedback.vue'
 import { useFeedback } from '@/composables/useFeedback'
 import { useLLMStore } from '@/stores/llm'
-import { errorMessage } from '@/lib/llm'
+import { apiErrorMessage } from '@/lib/apiError'
 import { visibleText } from '@/lib/agentAccess'
 import { messages as m, formatDateTime, formatNumber, formatRelative } from '@/i18n'
-import { EXAMPLE_MEMORY_KEY, filterConversations, focusCandidates, rowControlId } from './memory'
+import { EXAMPLE_MEMORY_KEY, filterConversations, restoreFocus, rowControlId } from './memory'
 import type { LLMConversation, LLMTurn } from '@/types'
 
 // open: the dialog is open (each opening reads the list again).
@@ -52,7 +52,7 @@ async function load() {
     await store.fetchConversations()
     loaded.value = true
   } catch (e) {
-    error.value = errorMessage(e, t.value.loadFailed)
+    error.value = apiErrorMessage(e, t.value.loadFailed)
   } finally {
     loading.value = false
   }
@@ -85,15 +85,8 @@ async function openConversation(key: string) {
 // The focused control went with the view or the row: the focus goes to
 // key's row in the list, the row that took its place, or the list's own
 // controls. before: the keys listed before the change.
-async function focusList(key: string | null, before: readonly string[]) {
-  await nextTick()
-  for (const id of focusCandidates(key, before, listedKeys(), OPEN_ID, [FILTER_ID, REFRESH_ID])) {
-    const target = document.getElementById(id)
-    if (target) {
-      target.focus()
-      return
-    }
-  }
+function focusList(key: string | null, before: readonly string[]) {
+  return restoreFocus(key, before, listedKeys, OPEN_ID, [FILTER_ID, REFRESH_ID])
 }
 
 function back() {
@@ -106,7 +99,7 @@ async function clear(key: string) {
   const text = t.value
   if (pending.value || !await confirmation.value?.ask(text.clearTitle, text.clearText(visibleText(key)), text.clearConfirm)) return
   const before = listedKeys()
-  const ok = await run(() => store.clearConversation(key), text.cleared, e => errorMessage(e, text.clearFailed))
+  const ok = await run(() => store.clearConversation(key), text.cleared, e => apiErrorMessage(e, text.clearFailed))
   if (!ok) return
   // Its row (or its view, when open) is gone with the button that cleared it.
   if (selected.value?.key === key) selected.value = null

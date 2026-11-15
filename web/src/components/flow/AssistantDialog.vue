@@ -13,27 +13,29 @@ import { Button, Dialog, Label, Select, Switch, Textarea, Input } from '@/compon
 import OperationFeedback from '@/components/ui/OperationFeedback.vue'
 import RiskBadge from '@/components/agent/RiskBadge.vue'
 import AgentText from '@/components/agent/AgentText.vue'
+import FlowIssueItem from '@/components/agent/FlowIssueItem.vue'
+import FieldHint from './FieldHint.vue'
 import { Cable, Loader2, Sparkles } from 'lucide-vue-next'
 import type { Feedback } from '@/composables/useFeedback'
 import { useApi } from '@/composables/useApi'
+import { useSuggestionContext } from '@/composables/useSuggestionContext'
 import { useFlowsStore } from '@/stores/flows'
 import { useLLMStore } from '@/stores/llm'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
 import {
-  MAX_DESCRIPTION_CHARS, applyMode, assistantError, canvasFingerprint, changeSummary, currentDefinition, descriptionLength, issueLocation, proposalView
+  MAX_DESCRIPTION_CHARS, applyMode, assistantError, canvasFingerprint, changeSummary, currentDefinition, descriptionLength, issueLocation, proposalView, sentFingerprint
 } from '@/lib/assistant'
-import { suggestionHint, suggestions, type SuggestionContext } from '@/lib/suggestions'
-import { connectionKind } from '@/lib/llm'
-import { draftIcon, issueCounts, issueCountsLabel, severityInfo } from '@/lib/drafts'
+import { suggestionHint, suggestions } from '@/lib/suggestions'
+import { connectionLabel } from '@/lib/llm'
+import { issueCounts, issueCountsLabel } from '@/lib/drafts'
 import { nodeIcon } from '@/lib/nodeIcons'
 import { nodeRisk } from '@/lib/nodeRisk'
 import { visibleText } from '@/lib/agentAccess'
 import type { AssistantFlowRequest, AssistantFlowResult } from '@/types'
 import { formatNumber, messages as m } from '@/i18n'
 
-// canManageConnections: the parent can open the LLM connections dialog
-// (manage-connections); without it the dialog says where to add one.
-const props = defineProps<{ open: boolean; canManageConnections?: boolean }>()
+// manage-connections: open the LLM connections dialog (none is defined yet).
+const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ 'update:open': [boolean]; applied: [Feedback]; 'manage-connections': [] }>()
 
 const api = useApi()
@@ -70,19 +72,12 @@ watch(connection, (name, previous) => {
 const noConnections = computed(() => llm.connectionsLoaded && !llm.connections.length)
 const connectionOptions = computed(() => llm.connections.map(c => ({
   value: c.name,
-  label: t.value.connectionOption(c.name, [connectionKind(c), c.model].filter(Boolean).join(' · '))
+  label: t.value.connectionOption(c.name, connectionLabel(c))
 })))
 const selected = computed(() => llm.connections.find(c => c.name === connection.value))
 
 // The model field's suggestions and hint, as the node settings show them.
-const suggestionContext = computed((): SuggestionContext => ({
-  connections: [], networks: [],
-  llmConnections: llm.connections, models: llm.models, modelErrors: llm.modelErrors,
-  tools: [], collections: [],
-  loaded: { llmConnections: llm.connectionsLoaded, tools: false, collections: false },
-  flowId: flows.currentFlow?.id ?? '',
-  config: { connection: connection.value }
-}))
+const suggestionContext = useSuggestionContext(() => ({ connection: connection.value }))
 const modelSuggestions = computed(() => suggestions('llm-models', suggestionContext.value))
 const modelHint = computed(() => suggestionHint('llm-models', suggestionContext.value, model.value))
 
@@ -131,7 +126,7 @@ async function generate() {
   const body: AssistantFlowRequest = { connection: connection.value, description: description.value.trim() }
   if (model.value.trim()) body.model = model.value.trim()
   if (changesCurrent) body.flow = currentDefinition(flows.currentFlow, flows.nodes, flows.edges)
-  const sent = changesCurrent ? canvasFingerprint(flows.nodes, flows.edges) : ''
+  const sent = body.flow ? sentFingerprint(body.flow) : ''
   const request = new AbortController()
   controller = request
   running.value = true
@@ -185,7 +180,9 @@ const applyHint = computed(() => !flows.nodes.length ? t.value.applyHints.replac
 // model built from it as it was sent: once the canvas changed (the dialog
 // was closed and nodes edited, or another flow opened), applying it would
 // silently undo those edits, so it is refused and can be proposed again.
-const stale = computed(() => !!result.value && resultChanges.value && canvasFingerprint(flows.nodes, flows.edges) !== sentCanvas.value)
+// Checked while the dialog is open (closed, it keeps its content mounted:
+// the canvas is not compared on every edit).
+const stale = computed(() => props.open && !!result.value && resultChanges.value && canvasFingerprint(flows.nodes, flows.edges) !== sentCanvas.value)
 const canApply = computed(() => !!view.value && nodeTypes.initialized && view.value.nodes.some(n => n.known) && !stale.value)
 
 function apply() {
@@ -267,13 +264,7 @@ function edit() {
           <template v-else>
             <p class="mb-2 text-xs text-muted-foreground">{{ t.issuesHint }}</p>
             <ul class="max-h-48 space-y-1 overflow-auto text-sm">
-              <li v-for="(issue, i) in result.issues" :key="`${i}-${issue.path}-${issue.code}`" class="flex items-start gap-2 rounded-md border p-2">
-                <component :is="draftIcon(severityInfo(issue.severity).icon)" class="mt-0.5 h-4 w-4 shrink-0" :class="issue.severity === 'error' ? 'text-destructive' : 'text-amber-700 dark:text-amber-400'" aria-hidden="true" />
-                <div class="min-w-0">
-                  <p><span class="font-semibold">{{ severityInfo(issue.severity).label }}</span> <span class="break-all font-mono text-xs text-muted-foreground"><AgentText :text="issueLocation(issue, result.flow, nodeTypes.getById)" /> · {{ issue.code }}</span></p>
-                  <p class="whitespace-pre-wrap break-words"><AgentText :text="issue.message" /></p>
-                </div>
-              </li>
+              <FlowIssueItem v-for="(issue, i) in result.issues" :key="`${i}-${issue.path}-${issue.code}`" :issue="issue" :where="issueLocation(issue, result.flow, nodeTypes.getById)" />
             </ul>
           </template>
         </div>
@@ -286,7 +277,7 @@ function edit() {
         <p v-else class="text-sm text-muted-foreground">{{ applyHint }} {{ t.undoHint }}</p>
 
         <div class="flex flex-wrap justify-end gap-2">
-          <Button variant="outline" @click="setOpen(false)">{{ t.close }}</Button>
+          <Button variant="outline" @click="setOpen(false)">{{ m.common.close }}</Button>
           <Button variant="outline" @click="edit">{{ t.edit }}</Button>
           <Button v-if="stale" :disabled="!canGenerate" @click="generate"><Sparkles class="mr-2 h-4 w-4" aria-hidden="true" />{{ t.proposeAgain }}</Button>
           <Button v-else :disabled="!canApply" @click="apply">{{ applyLabel }}</Button>
@@ -304,8 +295,7 @@ function edit() {
         <div v-else-if="noConnections" class="space-y-2 rounded-lg border border-dashed p-4 text-sm" role="status">
           <p class="font-medium">{{ t.noConnections }}</p>
           <p class="text-muted-foreground">{{ t.noConnectionsBody }}</p>
-          <p v-if="!canManageConnections" class="text-muted-foreground">{{ t.noConnectionsWhere }}</p>
-          <Button v-if="canManageConnections" size="sm" variant="outline" @click="emit('manage-connections')"><Cable class="mr-2 h-4 w-4" aria-hidden="true" />{{ t.manageConnections }}</Button>
+          <Button size="sm" variant="outline" @click="emit('manage-connections')"><Cable class="mr-2 h-4 w-4" aria-hidden="true" />{{ t.manageConnections }}</Button>
         </div>
 
         <form v-else class="space-y-4" @submit.prevent="generate">
@@ -323,7 +313,7 @@ function edit() {
                 <datalist id="assistant-models">
                   <option v-for="s in modelSuggestions" :key="s.value" :value="s.value" :label="s.label" />
                 </datalist>
-                <p v-if="modelHint.text" id="assistant-model-hint" class="mt-1 break-words text-xs" :class="modelHint.warning ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'">{{ modelHint.text }}</p>
+                <FieldHint id="assistant-model-hint" :hint="modelHint" info-class="text-muted-foreground" />
               </div>
             </div>
 
@@ -355,11 +345,11 @@ function edit() {
               <p class="font-medium">{{ t.generating }} <span class="font-normal text-muted-foreground" aria-hidden="true">{{ t.elapsed(elapsed) }}</span></p>
               <p class="text-xs text-muted-foreground">{{ t.progressHint }}</p>
             </div>
-            <Button type="button" size="sm" variant="outline" @click="cancel">{{ t.cancel }}</Button>
+            <Button type="button" size="sm" variant="outline" @click="cancel">{{ m.common.cancel }}</Button>
           </div>
 
           <div class="flex flex-wrap justify-end gap-2">
-            <Button type="button" variant="outline" @click="setOpen(false)">{{ t.close }}</Button>
+            <Button type="button" variant="outline" @click="setOpen(false)">{{ m.common.close }}</Button>
             <Button type="submit" :disabled="!canGenerate || running">
               <Loader2 v-if="running" class="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
               <Sparkles v-else class="mr-2 h-4 w-4" aria-hidden="true" />

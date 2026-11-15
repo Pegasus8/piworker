@@ -1,7 +1,9 @@
 // The AI memory dialog's lists (docs/design/llm.md §8): pages of a
-// collection's documents, the conversations a filter keeps, and short
-// previews. Texts come from messages that reached the flows: the panels
-// show them through AgentText (hidden characters escaped), never as HTML.
+// collection's documents, the conversations a filter keeps, short previews,
+// and where the focus goes when a row goes. Texts come from messages that
+// reached the flows: the panels show them through AgentText (hidden
+// characters escaped), never as HTML.
+import { nextTick } from 'vue'
 import type { LLMConversationInfo } from '@/types'
 
 /** Documents per page (GET /api/llm/knowledge/{collection} answers at most 100). */
@@ -42,11 +44,32 @@ export function filterConversations(list: readonly LLMConversationInfo[], query:
   return { items: matches.slice(0, limit), more: Math.max(0, matches.length - limit) }
 }
 
-/** A text on one line (whitespace collapsed), cut at max characters. */
+const SPACE = /\s/
+
+/**
+ * A text on one line (whitespace collapsed), cut at max characters. Reads
+ * the text only up to the cut: a document can be a whole book.
+ */
 export function textPreview(text: string, max = 160): string {
-  const line = text.replace(/\s+/g, ' ').trim()
-  const chars = [...line]
-  return chars.length > max ? `${chars.slice(0, max).join('')}…` : line
+  let line = ''
+  let count = 0
+  let space = false
+  for (const char of text) {
+    if (SPACE.test(char)) {
+      space = count > 0
+      continue
+    }
+    if (space) {
+      if (count === max) return `${line}…`
+      line += ' '
+      count++
+      space = false
+    }
+    if (count === max) return `${line}…`
+    line += char
+    count++
+  }
+  return line
 }
 
 /** A document's metadata as compact JSON ('' when it has none). */
@@ -88,6 +111,22 @@ export function rowControlId(prefix: string, key: string): string {
 export function focusCandidates(key: string | null, before: readonly string[], after: readonly string[], rowPrefix: string, fallbacks: readonly string[]): string[] {
   const row = focusRowAfter(key, before, after)
   return [...(row === null ? [] : [rowControlId(rowPrefix, row)]), ...fallbacks]
+}
+
+/**
+ * Puts the focus back once the view of key is left or key's row is gone
+ * (its control went with it): on the first of focusCandidates present
+ * once the list is drawn. after reads the keys listed then.
+ */
+export async function restoreFocus(key: string | null, before: readonly string[], after: () => readonly string[], rowPrefix: string, fallbacks: readonly string[]): Promise<void> {
+  await nextTick()
+  for (const id of focusCandidates(key, before, after(), rowPrefix, fallbacks)) {
+    const target = document.getElementById(id)
+    if (target) {
+      target.focus()
+      return
+    }
+  }
 }
 
 /**

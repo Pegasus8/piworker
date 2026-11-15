@@ -5,6 +5,7 @@ import type { ApplyResult } from '@/lib/drafts'
 import type { DeployWarning } from '@/lib/deployWarnings'
 import { useApi, type DeployOutcome } from '@/composables/useApi'
 import { followPorts, outputPorts, ports, validConnection } from '@/lib/ports'
+import { EDITOR_CATEGORY, STORED_CATEGORY, storedConnection } from '@/lib/flowShape'
 import type { ItemRenames } from '@/lib/configValues'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
 import { autoEdge, nextPosition } from '@/lib/autoConnect'
@@ -12,20 +13,6 @@ import { prepareProposal, type ApplyMode } from '@/lib/assistant'
 import { visibleText } from '@/lib/agentAccess'
 import type { AssistantFlow } from '@/types'
 import { msg } from '@/i18n'
-
-// Map backend categories to frontend categories
-const backendCategoryMap: Record<string, NodeCategory> = {
-  input: 'trigger',
-  processing: 'process',
-  output: 'action'
-}
-
-// Map frontend categories back to backend categories
-const frontendCategoryMap: Record<string, string> = {
-  trigger: 'input',
-  process: 'processing',
-  action: 'output'
-}
 
 /** A save or deploy refused because the flow was saved elsewhere (an
  * approved agent draft, another tab) after the editor loaded it. Nothing was
@@ -117,7 +104,8 @@ export const useFlowsStore = defineStore('flows', () => {
     parkedEdges.clear()
   }
 
-  const invalidConnections = computed(() => edges.value.filter(edge => !validConnection(edge, nodes.value, edges.value.filter(other => other.id !== edge.id), nodeTypesStore.getById)))
+  // validConnection leaves out the edge itself (by ID) when it looks for a duplicate.
+  const invalidConnections = computed(() => edges.value.filter(edge => !validConnection(edge, nodes.value, edges.value, nodeTypesStore.getById)))
 
   const selectedNode = computed(() => {
     if (!selectedNodeId.value) return null
@@ -179,7 +167,7 @@ export const useFlowsStore = defineStore('flows', () => {
       const nodeType = nodeTypesStore.getById(node.type)
 
       // Map backend category to frontend category
-      const category = backendCategoryMap[node.category] || node.category as NodeCategory
+      const category = EDITOR_CATEGORY[node.category] || node.category as NodeCategory
 
       return {
         id: node.id,
@@ -214,7 +202,7 @@ export const useFlowsStore = defineStore('flows', () => {
     return frontendNodes.map(node => ({
       id: node.id,
       type: node.data.nodeType,
-      category: frontendCategoryMap[node.data.category] || node.data.category,
+      category: STORED_CATEGORY[node.data.category] || node.data.category,
       position: node.position,
       config: node.data.config || {},
       enabled: node.data.enabled ?? true,
@@ -226,13 +214,7 @@ export const useFlowsStore = defineStore('flows', () => {
 
   // Reverse transform: frontend edges → backend connections format
   function reverseTransformEdges(frontendEdges: FlowEdge[]): any[] {
-    return frontendEdges.map(edge => ({
-      id: edge.id,
-      sourceNode: edge.source,
-      sourcePort: edge.sourceHandle ?? 'output',
-      targetNode: edge.target,
-      targetPort: edge.targetHandle ?? 'input'
-    }))
+    return frontendEdges.map(storedConnection)
   }
 
   async function createFlow(name: string, description?: string) {

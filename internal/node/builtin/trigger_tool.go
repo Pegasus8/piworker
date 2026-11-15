@@ -210,30 +210,32 @@ func intSetting(cfg map[string]any, key string, def, min, max int, unit string) 
 	if !present || v == nil || v == "" {
 		return def, nil
 	}
-	var f float64
-	switch n := v.(type) {
-	case float64:
-		f = n
-	case int:
-		f = float64(n)
-	case int64:
-		f = float64(n)
-	case json.Number:
-		parsed, err := n.Float64()
-		if err != nil {
-			return 0, fmt.Errorf("%s must be a whole number of %s", key, unit)
-		}
-		f = parsed
-	default:
-		return 0, fmt.Errorf("%s must be a whole number of %s", key, unit)
-	}
-	if math.IsNaN(f) || f != math.Trunc(f) {
+	f, ok := numberValue(v)
+	if !ok || math.IsNaN(f) || f != math.Trunc(f) {
 		return 0, fmt.Errorf("%s must be a whole number of %s", key, unit)
 	}
 	if f < float64(min) || f > float64(max) {
 		return 0, fmt.Errorf("%s must be between %d and %d %s", key, min, max, unit)
 	}
 	return int(f), nil
+}
+
+// numberValue decodes a number setting's value as the editor, the API and
+// tests send it (float64, int, int64 or json.Number); false for anything
+// else.
+func numberValue(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil
+	}
+	return 0, false
 }
 
 func containsString(list []string, s string) bool {

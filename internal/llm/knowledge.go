@@ -35,9 +35,10 @@ const (
 var ErrModelMismatch = errors.New("the embedding model does not match the collection")
 
 // KnowledgePersister persists the knowledge base and provides the initial
-// load. The SQLite store implements it. ReplaceLLMDocuments saves and
-// removes documents of one collection in one transaction: all of it or
-// nothing.
+// load. The SQLite store implements it. The documents LoadLLMDocuments
+// returns belong to the knowledge base from then on (Attach normalizes
+// their embeddings in place). ReplaceLLMDocuments saves and removes
+// documents of one collection in one transaction: all of it or nothing.
 type KnowledgePersister interface {
 	LoadLLMDocuments() (map[string][]Document, error)
 	SaveLLMDocument(collection string, d Document) error
@@ -51,8 +52,12 @@ type KnowledgePersister interface {
 func ChunkID(base string, n int) string { return base + "#" + strconv.Itoa(n) }
 
 // IsChunkOf reports whether id is a chunk ID of base ("<base>#<n>").
-func IsChunkOf(id, base string) bool {
-	n, ok := strings.CutPrefix(id, base+"#")
+func IsChunkOf(id, base string) bool { return hasChunkPrefix(id, base+"#") }
+
+// hasChunkPrefix is IsChunkOf with base+"#" already built (prefix), for
+// the loops that test many IDs against one base.
+func hasChunkPrefix(id, prefix string) bool {
+	n, ok := strings.CutPrefix(id, prefix)
 	return ok && allDigits(n)
 }
 
@@ -110,10 +115,12 @@ func (k *Knowledge) Attach(p KnowledgePersister) error {
 	cols := map[string]*collection{}
 	for name, docs := range loaded {
 		for _, d := range docs {
-			unit, err := normalize(d.Embedding)
-			if err != nil {
+			// The loaded embedding is the knowledge base's: normalized in
+			// place, not copied (one allocation per document at start).
+			if err := normalizeInPlace(d.Embedding); err != nil {
 				continue // a stored zero vector can never match
 			}
+			unit := d.Embedding
 			c := cols[name]
 			if c == nil {
 				c = &collection{docs: map[string]*Document{}, model: d.Model, dims: len(unit)}
@@ -123,7 +130,6 @@ func (k *Knowledge) Attach(p KnowledgePersister) error {
 				continue
 			}
 			doc := d
-			doc.Embedding = unit
 			c.docs[d.ID] = &doc
 			if d.CreatedAt.After(c.updated) {
 				c.updated = d.CreatedAt
@@ -170,25 +176,47 @@ func validDocument(collectionName string, d Document) error {
 }
 
 // normalize returns a unit-length copy of e (an error for a zero vector or
-// a non-finite value).
+// a non-finite value). The caller's e is left as it is.
 func normalize(e Embedding) (Embedding, error) {
-	var sum float64
-	for _, v := range e {
-		f := float64(v)
-		if math.IsNaN(f) || math.IsInf(f, 0) {
-			return nil, errors.New("the embedding has a value that is not a number")
-		}
-		sum += f * f
+	norm, err := euclideanNorm(e)
+	if err != nil {
+		return nil, err
 	}
-	if sum == 0 {
-		return nil, errors.New("the embedding is a zero vector")
-	}
-	norm := math.Sqrt(sum)
 	out := make(Embedding, len(e))
 	for i, v := range e {
 		out[i] = float32(float64(v) / norm)
 	}
 	return out, nil
+}
+
+// normalizeInPlace scales e to unit length, as normalize does, in e itself
+// (which the caller owns); on an error e is unchanged.
+func normalizeInPlace(e Embedding) error {
+	norm, err := euclideanNorm(e)
+	if err != nil {
+		return err
+	}
+	for i, v := range e {
+		e[i] = float32(float64(v) / norm)
+	}
+	return nil
+}
+
+// euclideanNorm is e's length (an error for a zero vector or a non-finite
+// value).
+func euclideanNorm(e Embedding) (float64, error) {
+	var sum float64
+	for _, v := range e {
+		f := float64(v)
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return 0, errors.New("the embedding has a value that is not a number")
+		}
+		sum += f * f
+	}
+	if sum == 0 {
+		return 0, errors.New("the embedding is a zero vector")
+	}
+	return math.Sqrt(sum), nil
 }
 
 // Add stores d in collection, replacing the document with the same ID,
@@ -258,10 +286,11 @@ func (k *Knowledge) Replace(collectionName, base string, docs []Document) error 
 		return fmt.Errorf("invalid collection name (1 to %d letters, digits, '_' or '-')", MaxNameLength)
 	}
 	now := time.Now()
+	chunkPrefix := base + "#"
 	prepared := make([]Document, 0, len(docs))
 	keep := make(map[string]bool, len(docs))
 	for _, d := range docs {
-		if d.ID != base && !IsChunkOf(d.ID, base) {
+		if d.ID != base && !hasChunkPrefix(d.ID, chunkPrefix) {
 			return fmt.Errorf("document %q is neither %q nor one of its chunks", d.ID, base)
 		}
 		if keep[d.ID] {
@@ -294,7 +323,7 @@ func (k *Knowledge) Replace(collectionName, base string, docs []Document) error 
 		for id := range c.docs {
 			switch {
 			case keep[id]:
-			case id == base || IsChunkOf(id, base):
+			case id == base || hasChunkPrefix(id, chunkPrefix):
 				remove = append(remove, id)
 			default:
 				others++
@@ -361,7 +390,10 @@ func (k *Knowledge) Search(collectionName, model string, query Embedding, topK i
 		return nil, fmt.Errorf("%w: collection %q holds %d-dimension embeddings of %q, the query is a %d-dimension embedding of %q",
 			ErrModelMismatch, collectionName, c.dims, c.model, len(q), model)
 	}
-	hits := make([]Hit, 0, min(topK*4, len(c.docs)))
+	// best holds the topK best matches so far, best first (higher score,
+	// then lower ID): a bounded selection, so a large collection is not
+	// copied and sorted to return a few hits.
+	best := make([]scoredDocument, 0, min(topK, len(c.docs)))
 	for _, d := range c.docs {
 		var dot float64
 		for i, v := range d.Embedding {
@@ -370,20 +402,39 @@ func (k *Knowledge) Search(collectionName, model string, query Embedding, topK i
 		if dot < minScore {
 			continue
 		}
-		h := Hit{Document: *d, Score: dot}
-		h.Embedding = nil
-		hits = append(hits, h)
-	}
-	sort.Slice(hits, func(i, j int) bool {
-		if hits[i].Score != hits[j].Score {
-			return hits[i].Score > hits[j].Score
+		sd := scoredDocument{score: dot, doc: d}
+		if len(best) == topK {
+			if !sd.before(best[topK-1]) {
+				continue
+			}
+			best = best[:topK-1]
 		}
-		return hits[i].ID < hits[j].ID
-	})
-	if len(hits) > topK {
-		hits = hits[:topK]
+		i := sort.Search(len(best), func(i int) bool { return sd.before(best[i]) })
+		best = append(best, scoredDocument{})
+		copy(best[i+1:], best[i:])
+		best[i] = sd
+	}
+	hits := make([]Hit, len(best))
+	for i, sd := range best {
+		hits[i] = Hit{Document: *sd.doc, Score: sd.score}
+		hits[i].Embedding = nil
 	}
 	return hits, nil
+}
+
+// scoredDocument is a search match: a stored document and its score.
+type scoredDocument struct {
+	score float64
+	doc   *Document
+}
+
+// before reports whether a ranks before b: a higher score, then a lower ID
+// (IDs are unique in a collection, so the order is total).
+func (a scoredDocument) before(b scoredDocument) bool {
+	if a.score != b.score {
+		return a.score > b.score
+	}
+	return a.doc.ID < b.doc.ID
 }
 
 // Delete removes one document after its persistent deletion succeeds.
@@ -469,6 +520,19 @@ func (k *Knowledge) Collections() []CollectionInfo {
 	return out
 }
 
+// Collection returns the summary of the collection named name; false when
+// there is none. A collection never stays empty: it is removed with its
+// last document.
+func (k *Knowledge) Collection(name string) (CollectionInfo, bool) {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	c := k.cols[name]
+	if c == nil {
+		return CollectionInfo{}, false
+	}
+	return CollectionInfo{Name: name, Documents: len(c.docs), Model: c.model, Dimensions: c.dims, UpdatedAt: c.updated}, true
+}
+
 // Documents returns a page of a collection's documents (oldest first, then
 // by ID) without their embeddings, and the collection's document count.
 func (k *Knowledge) Documents(collectionName string, offset, limit int) ([]Document, int) {
@@ -478,11 +542,11 @@ func (k *Knowledge) Documents(collectionName string, offset, limit int) ([]Docum
 		k.mu.RUnlock()
 		return nil, 0
 	}
-	all := make([]Document, 0, len(c.docs))
+	// Stored documents are never changed (a write stores a new one), so
+	// their pointers are sorted outside the lock and only the page copied.
+	all := make([]*Document, 0, len(c.docs))
 	for _, d := range c.docs {
-		doc := *d
-		doc.Embedding = nil
-		all = append(all, doc)
+		all = append(all, d)
 	}
 	k.mu.RUnlock()
 	sort.Slice(all, func(i, j int) bool {
@@ -499,7 +563,13 @@ func (k *Knowledge) Documents(collectionName string, offset, limit int) ([]Docum
 		return []Document{}, total
 	}
 	end := min(offset+limit, total)
-	return all[offset:end], total
+	page := make([]Document, 0, end-offset)
+	for _, d := range all[offset:end] {
+		doc := *d
+		doc.Embedding = nil
+		page = append(page, doc)
+	}
+	return page, total
 }
 
 // DefaultKnowledge is the process-wide knowledge base the nodes use.

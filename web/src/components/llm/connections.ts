@@ -4,7 +4,7 @@
 // today's usage against the limit. Endpoints, presets and the request body
 // are lib/llm.ts's.
 import { formatNumber, msg } from '@/i18n'
-import { LLM_PRESETS, connectionKind, presetFor, validLLMName, type LLMConnectionForm, type LLMPresetId } from '@/lib/llm'
+import { LLM_PRESETS, normalizeBaseUrl, presetFor, validLLMName, type LLMConnectionForm, type LLMPresetId } from '@/lib/llm'
 import type { LLMConnection, LLMModel } from '@/types'
 
 /** A named preset, or another server ('custom': the provider and address are typed). */
@@ -42,7 +42,7 @@ export function connectionFormFrom(c: LLMConnection): ConnectionFormState {
 /** What is wrong with a base URL ('' when nothing or empty), as the server checks it. */
 export function baseUrlError(raw: string): string {
   const t = msg().llm.connections.form
-  const value = raw.trim().replace(/\/+$/, '')
+  const value = normalizeBaseUrl(raw)
   if (!value) return ''
   let url: URL
   try { url = new URL(value) } catch { return t.baseUrlFormat }
@@ -87,9 +87,6 @@ export function modelSuggestions(...lists: (readonly LLMModel[] | undefined)[]):
   }
   return merged
 }
-
-/** How a listed connection is named (lib/llm.ts). */
-export { connectionKind }
 
 export type UsageLevel = 'unlimited' | 'ok' | 'high' | 'exhausted'
 

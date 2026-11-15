@@ -152,6 +152,9 @@ type FlowRuntime struct {
 	// Context for cancellation
 	ctx    context.Context
 	cancel context.CancelFunc
+	// nodeCtxs holds each node's context (nodeCtx), built once per Start
+	// from ctx: not once per message.
+	nodeCtxs map[string]context.Context
 
 	// State management. stopping is set while Stop shuts the runtime down
 	// (running stays true until it is done), so a second Stop, from another
@@ -343,6 +346,10 @@ func (r *FlowRuntime) Start(ctx context.Context) error {
 		nodeCtx = flowvars.WithFlowStore(nodeCtx, local)
 	}
 	r.ctx, r.cancel = context.WithCancel(nodeCtx)
+	r.nodeCtxs = make(map[string]context.Context, len(r.nodes))
+	for nodeID := range r.nodes {
+		r.nodeCtxs[nodeID] = node.WithNodeInfo(r.ctx, node.NodeInfo{FlowID: r.flow.ID, NodeID: nodeID})
+	}
 	r.calls.start()
 	r.drained = make(chan struct{})
 	r.running = true
@@ -407,6 +414,9 @@ func (r *FlowRuntime) Start(ctx context.Context) error {
 // runtime's, which Stop cancels, naming the node and its flow
 // (node.NodeInfoFromContext).
 func (r *FlowRuntime) nodeCtx(nodeID string) context.Context {
+	if ctx, ok := r.nodeCtxs[nodeID]; ok {
+		return ctx
+	}
 	return node.WithNodeInfo(r.ctx, node.NodeInfo{FlowID: r.flow.ID, NodeID: nodeID})
 }
 

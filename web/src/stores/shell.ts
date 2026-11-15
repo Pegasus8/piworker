@@ -16,6 +16,5 @@ export const useShellStore = defineStore('shell', () => {
   // Bumped when the secrets dialog changed a secret, for pages that show them.
   const secretsChanged = ref(0)
   const brokersChanged = ref(0)
-  const llmChanged = ref(0)
-  return { showVariables, showSecrets, showBrokers, showLLMConnections, showAIMemory, showBackup, drawerOpen, secretsChanged, brokersChanged, llmChanged }
+  return { showVariables, showSecrets, showBrokers, showLLMConnections, showAIMemory, showBackup, drawerOpen, secretsChanged, brokersChanged }
 })

@@ -263,7 +263,7 @@ func embedDocuments(ctx context.Context, client llm.Client, model string, docs [
 			inputs = append(inputs, d.Text)
 		}
 		embs, usage, err := client.Embed(ctx, model, inputs)
-		total = addUsage(total, usage)
+		total = total.Add(usage)
 		if err != nil {
 			return total, err
 		}

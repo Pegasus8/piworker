@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/Pegasus8/piworker/internal/llm"
 	"github.com/Pegasus8/piworker/internal/secrets"
@@ -178,27 +177,8 @@ func (h *LLMConnectionsHandler) Put(w http.ResponseWriter, r *http.Request) {
 // that name it are refused at their next deploy (undefined_llm_connection).
 func (h *LLMConnectionsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
-	if _, ok := h.store.Get(name); !ok {
-		writeError(w, http.StatusNotFound, "Connection not found")
-		return
-	}
-	users, err := h.flows.UnlessRunningFlowsUseLLMConnection(name, func() error { return h.store.Delete(name) })
-	if len(users) > 0 {
-		names := make([]string, 0, len(users))
-		for _, f := range users {
-			names = append(names, fmt.Sprintf("%q", f.Name))
-		}
-		writeErrorData(w, http.StatusConflict,
-			"The connection is used by running flows: "+strings.Join(names, ", ")+". Stop them, or change their nodes to another connection, first.",
-			map[string]any{"flows": users})
-		return
-	}
-	if err != nil {
-		h.logger.Error().Err(err).Str("name", name).Msg("Failed to delete LLM connection")
-		writeError(w, http.StatusInternalServerError, "Failed to delete the connection")
-		return
-	}
-	writeSuccess(w, http.StatusOK, nil, "Connection deleted")
+	_, exists := h.store.Get(name)
+	deleteConnection(w, h.logger, "LLM connection", name, exists, h.flows.UnlessRunningFlowsUseLLMConnection, h.store.Delete)
 }
 
 // listModels lists c's models within connectionTestTimeout. Listing spends

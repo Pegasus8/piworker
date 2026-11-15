@@ -12,9 +12,11 @@ import ReferenceInput from './ReferenceInput.vue'
 import KeyValueInput from './KeyValueInput.vue'
 import JsonInput from './JsonInput.vue'
 import ListInput from './ListInput.vue'
+import FieldHint from './FieldHint.vue'
 import { integerFromInput, selectView, setConfigValue, type ItemRenames } from '@/lib/configValues'
 import { multilineField, referenceMode, referenceOptions } from '@/lib/references'
 import { useApi } from '@/composables/useApi'
+import { useSuggestionContext } from '@/composables/useSuggestionContext'
 import RiskBadge from '@/components/agent/RiskBadge.vue'
 import { nodeRisk } from '@/lib/nodeRisk'
 import NodeDocumentation from './NodeDocumentation.vue'
@@ -24,7 +26,7 @@ import type { ConfigField, NodeTestDraft } from '@/types'
 import { useZigbeeStore } from '@/stores/zigbee'
 import { useLLMStore } from '@/stores/llm'
 import { findNetwork } from '@/lib/zigbee'
-import { suggestionHint, suggestionNeeds, suggestions, type Suggestion, type SuggestionContext, type SuggestionHint } from '@/lib/suggestions'
+import { suggestionHint, suggestionNeeds, suggestions, type Suggestion, type SuggestionHint } from '@/lib/suggestions'
 
 const flowsStore = useFlowsStore()
 const nodeTypesStore = useNodeTypesStore()
@@ -138,25 +140,20 @@ watch(() => localConfig.value.connection, connection => {
  triedConnections.add(connection)
  void loadSuggestions(true)
 })
-const suggestionContext = computed((): SuggestionContext => ({
- connections: zigbeeStore.connections,
- networks: zigbeeStore.networks,
- llmConnections: llmStore.connections,
- models: llmStore.models,
- modelErrors: llmStore.modelErrors,
- tools: llmStore.tools,
- collections: llmStore.collections,
- loaded: { llmConnections: llmStore.connectionsLoaded, tools: llmStore.toolsLoaded, collections: llmStore.collectionsLoaded },
- flowId: flowsStore.currentFlow?.id ?? '',
- config: localConfig.value
-}))
-function fieldSuggestions(field: ConfigField): Suggestion[] {
- return field.suggest ? suggestions(field.suggest, suggestionContext.value) : []
-}
-const noHint: SuggestionHint = { text: '', warning: false }
-function suggestHint(field: ConfigField): SuggestionHint {
- return field.suggest ? suggestionHint(field.suggest, suggestionContext.value, localConfig.value[field.key]) : noHint
-}
+const suggestionContext = useSuggestionContext(() => localConfig.value)
+// Each suggested setting's suggestions and hint, worked out once per change
+// (the template reads them several times per field).
+interface FieldView { list: Suggestion[]; hint: SuggestionHint }
+const noView: FieldView = { list: [], hint: { text: '', warning: false } }
+const fieldViews = computed(() => {
+ const ctx = suggestionContext.value
+ const views = new Map<string, FieldView>()
+ for (const f of suggestFields.value) {
+  if (f.suggest) views.set(f.key, { list: suggestions(f.suggest, ctx), hint: suggestionHint(f.suggest, ctx, localConfig.value[f.key]) })
+ }
+ return views
+})
+const fieldView = (field: ConfigField) => fieldViews.value.get(field.key) ?? noView
 
 // undefined removes the setting, so the node uses its default.
 function updateField(key: string, value: any) {
@@ -249,14 +246,13 @@ const duration = (field: ConfigField) => (field.type === 'number' || field.type 
               :mode="referenceMode(selectedNode.data.nodeType, field.key)"
               :options="fieldReferences(field.key)"
               :list="field.suggest ? `${field.key}-suggestions` : undefined"
-              :describedby="suggestHint(field).text ? `${field.key}-hint` : undefined"
+              :describedby="fieldView(field).hint.text ? `${field.key}-hint` : undefined"
               @update:model-value="v => updateField(field.key, v)"
             />
-            <!-- Suggestions (free text stays allowed) and what is known of the choice. -->
+            <!-- Suggestions (free text stays allowed). -->
             <datalist v-if="field.suggest" :id="`${field.key}-suggestions`">
-              <option v-for="s in fieldSuggestions(field)" :key="s.value" :value="s.value" :label="s.label" />
+              <option v-for="s in fieldView(field).list" :key="s.value" :value="s.value" :label="s.label" />
             </datalist>
-            <p v-if="suggestHint(field).text" :id="`${field.key}-hint`" class="mt-1 break-words text-xs" :class="suggestHint(field).warning ? 'text-amber-600 dark:text-amber-400' : 'text-primary'">{{ suggestHint(field).text }}</p>
           </template>
 
           <!-- A list of strings (the classifier's categories, an agent's
@@ -266,12 +262,11 @@ const duration = (field: ConfigField) => (field.type === 'number' || field.type 
               :id="field.key"
               :label="field.label"
               :model-value="localConfig[field.key]"
-              :suggestions="fieldSuggestions(field)"
-              :describedby="suggestHint(field).text ? `${field.key}-hint` : undefined"
+              :suggestions="fieldView(field).list"
+              :describedby="fieldView(field).hint.text ? `${field.key}-hint` : undefined"
               @update:model-value="v => updateField(field.key, v)"
               @renamed="changes => itemsRenamed(field.key, changes)"
             />
-            <p v-if="suggestHint(field).text" :id="`${field.key}-hint`" class="mt-1 break-words text-xs" :class="suggestHint(field).warning ? 'text-amber-600 dark:text-amber-400' : 'text-primary'">{{ suggestHint(field).text }}</p>
           </template>
 
           <!-- Time settings: typed in a friendly unit, stored in the node's. -->
@@ -336,8 +331,7 @@ const duration = (field: ConfigField) => (field.type === 'number' || field.type 
             :id="field.key"
             :aria-required="field.required"
             :model-value="localConfig[field.key] ?? ''"
-            :options="selectView(field, { empty: m.editor.selectDefault, choose: m.editor.selectPlaceholder }).options"
-            :placeholder="selectView(field, { empty: m.editor.selectDefault, choose: m.editor.selectPlaceholder }).placeholder"
+            v-bind="selectView(field, { empty: m.editor.selectDefault, choose: m.editor.selectPlaceholder })"
             @update:model-value="(v) => updateField(field.key, v)"
           />
 
@@ -345,6 +339,8 @@ const duration = (field: ConfigField) => (field.type === 'number' || field.type 
           <div v-else-if="field.type === 'boolean'" class="flex items-center justify-between">
             <Switch :id="field.key" :aria-required="field.required" :model-value="!!localConfig[field.key]" @update:model-value="(v) => updateField(field.key, v)" />
           </div>
+          <!-- What is known of a suggested setting's value (only text and list settings have suggestions). -->
+          <FieldHint v-if="field.suggest" :id="`${field.key}-hint`" :hint="fieldView(field).hint" info-class="text-primary" />
           <p v-if="field.placeholder" class="mt-2 break-words text-xs text-muted-foreground">{{ field.placeholder }}</p>
           <div v-if="examples[field.key]" class="mt-2 space-y-1">
             <Button variant="ghost" size="sm" :aria-label="m.editor.useExampleFor(field.label)" @click="updateField(field.key, examples[field.key])">{{ m.editor.useExample }}</Button>

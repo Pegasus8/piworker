@@ -67,26 +67,14 @@ const (
 	testNodeWriteDeadline = llmTestNodeTimeout + 15*time.Second
 )
 
-// testNodeTimeoutFor is the bound of a node test of type info.
-func testNodeTimeoutFor(info node.NodeTypeInfo) time.Duration {
-	if usesLLMConnection(info) {
+// testNodeTimeoutFor is the bound of a test of the node inst: the longer
+// one when it names an LLM connection (node.LLMConnectionRequirer, what
+// deploy, Lint and the lifecycle go by).
+func testNodeTimeoutFor(inst node.Node) time.Duration {
+	if _, ok := inst.(node.LLMConnectionRequirer); ok {
 		return llmTestNodeTimeout
 	}
 	return testNodeTimeout
-}
-
-// usesLLMConnection reports whether a setting of info names an LLM
-// connection (its options are the LLM connections).
-func usesLLMConnection(info node.NodeTypeInfo) bool {
-	if info.Config == nil {
-		return false
-	}
-	for _, p := range info.Config.Properties {
-		if p.Options == node.OptionsLLMConnections {
-			return true
-		}
-	}
-	return false
 }
 
 // TestNodeRequest is the body of a test-node request: the candidate config and a
@@ -151,7 +139,7 @@ func (h *NodeTypesHandler) TestNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	timeout := testNodeTimeoutFor(info)
+	timeout := testNodeTimeoutFor(inst)
 	if timeout > testNodeTimeout {
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(testNodeWriteDeadline))
 	}

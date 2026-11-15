@@ -178,11 +178,10 @@ func (a *LLMAgentProcess) Process(ctx context.Context, msg *types.Message) ([]*t
 			if err != nil {
 				return err
 			}
-			usage = addUsage(usage, resp.Usage)
+			usage = usage.Add(resp.Usage)
 			if len(resp.ToolCalls) == 0 {
 				a.memory.remember(ctx, conv, prompt, resp.Text)
-				out = msg.Clone()
-				llm.SetResult(out, a.resultField, resp.Text)
+				out = llmResult(msg, a.resultField, resp.Text)
 				meta := llmMeta(s.conn.Name, resp.Model, usage, resp.Stop)
 				meta["steps"] = steps
 				out.SetMeta("llm", meta)

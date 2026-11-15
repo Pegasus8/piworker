@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { ERROR_PORT, HANDLE_SPACING, edgesAfterConfig, followPorts, nodeMinHeight, outputPorts, sourcePorts, validConnection } from '../src/lib/ports'
+import { ERROR_PORT, HANDLE_SPACING, followPorts, nodeMinHeight, outputPorts, sourcePorts, validConnection } from '../src/lib/ports'
 import { followRows, listFromRows, rowItems, type ItemRenames, type RowItem } from '../src/lib/configValues'
 import type { FlowNode, NodeTypeConfig } from '../src/types'
 
@@ -90,19 +90,19 @@ test('edges follow the ports when the setting changes', () => {
   ]
   const before = { categories: ['bug', 'question'] }
   // Removed: its edge goes, the others stay (also edges of other nodes).
-  expect(edgesAfterConfig('c', classify, before, { categories: ['question'] }, edges).map(e => e.id)).toEqual(['e2', 'e3', 'e4', 'e5'])
+  expect(followPorts('c', classify, before, { categories: ['question'] }, edges).edges.map(e => e.id)).toEqual(['e2', 'e3', 'e4', 'e5'])
   // Renamed in place: the edge follows the new name.
-  const renamed = edgesAfterConfig('c', classify, before, { categories: ['bugs', 'question'] }, edges)
+  const renamed = followPorts('c', classify, before, { categories: ['bugs', 'question'] }, edges).edges
   expect(renamed.find(e => e.id === 'e1')?.sourceHandle).toBe('bugs')
   expect(renamed).toHaveLength(5)
   // Reordered: every port is still there.
-  expect(edgesAfterConfig('c', classify, before, { categories: ['question', 'bug'] }, edges)).toBe(edges)
+  expect(followPorts('c', classify, before, { categories: ['question', 'bug'] }, edges).edges).toBe(edges)
   // Unchanged ports: the same array (nothing to record or sync).
-  expect(edgesAfterConfig('c', classify, before, { ...before, instructions: 'x' }, edges)).toBe(edges)
+  expect(followPorts('c', classify, before, { ...before, instructions: 'x' }, edges).edges).toBe(edges)
   // A renamed item that now repeats another one is a removal.
-  expect(edgesAfterConfig('c', classify, before, { categories: ['question', 'question'] }, edges).map(e => e.id)).toEqual(['e2', 'e3', 'e4', 'e5'])
+  expect(followPorts('c', classify, before, { categories: ['question', 'question'] }, edges).edges.map(e => e.id)).toEqual(['e2', 'e3', 'e4', 'e5'])
   // Types without outputsFrom keep their edges.
-  expect(edgesAfterConfig('c', types.log as NodeTypeConfig, before, {}, edges)).toBe(edges)
+  expect(followPorts('c', types.log as NodeTypeConfig, before, {}, edges).edges).toBe(edges)
 })
 
 // Typing in a category's row as the editor does: ListInput says which item
@@ -204,7 +204,7 @@ test('a category never takes over the static outputs or the error port', () => {
   expect(ed.port('e3')).toBe(ERROR_PORT)
   // Without the rows' reports, a rename to a static output is a removal too.
   const edges = [edgeFrom('e1', 'othe'), edgeFrom('e2', 'other', 'm')]
-  expect(edgesAfterConfig('c', classify, { categories: ['othe'] }, { categories: ['other'] }, edges).map(e => [e.id, e.sourceHandle])).toEqual([['e2', 'other']])
+  expect(followPorts('c', classify, { categories: ['othe'] }, { categories: ['other'] }, edges).edges.map(e => [e.id, e.sourceHandle])).toEqual([['e2', 'other']])
 })
 
 test('a connection that comes back never repeats one drawn meanwhile', () => {

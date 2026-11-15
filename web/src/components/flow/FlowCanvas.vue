@@ -137,8 +137,7 @@ async function addNodeType(nodeTypeId: string) {
   addNodes([node])
   flowsStore.selectNode(node.id)
   // The settings panel opens beside the canvas: fit once it has its width.
-  await nextTick()
-  requestAnimationFrame(() => requestAnimationFrame(() => fitView({ padding: 0.3, maxZoom: 1 })))
+  await fit()
 }
 function buildNode(nodeTypeId: string, position: { x: number; y: number }): FlowNode | undefined {
   const nodeType = nodeTypesStore.getById(nodeTypeId)
@@ -169,7 +168,7 @@ function buildNode(nodeTypeId: string, position: { x: number; y: number }): Flow
   return newNode
 }
 // Shows the whole graph once Vue Flow has the nodes the store just got (a
-// proposal placed by the flow assistant).
+// proposal placed by the flow assistant) and the canvas its size.
 async function fit() {
   await nextTick()
   requestAnimationFrame(() => requestAnimationFrame(() => fitView({ padding: 0.3, maxZoom: 1 })))

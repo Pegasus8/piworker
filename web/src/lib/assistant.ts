@@ -5,9 +5,10 @@
 // there). Pure helpers: the request is useApi().assistFlow, placing the
 // proposal is the flows store's applyProposal (one undo step).
 import { msg } from '@/i18n'
-import { errorMessage } from '@/lib/llm'
+import { apiErrorMessage } from '@/lib/apiError'
+import { STORED_CATEGORY, storedConnection } from '@/lib/flowShape'
 import { riskInfo, type FlowIssue } from '@/lib/drafts'
-import type { AssistantFlow, Flow, FlowEdge, FlowNode, NodeCategory, NodeTypeConfig, StoredFlowConnection, StoredFlowNode } from '@/types'
+import type { AssistantFlow, Flow, FlowEdge, FlowNode, NodeTypeConfig, StoredFlowConnection, StoredFlowNode } from '@/types'
 
 type GetType = (id: string) => NodeTypeConfig | undefined
 
@@ -18,9 +19,6 @@ export const MAX_DESCRIPTION_CHARS = 4000
 export function descriptionLength(text: string): number {
   return [...text.trim()].length
 }
-
-// The editor's node categories and the stored ones (flow.Node.Category).
-const STORED_CATEGORY: Record<NodeCategory, string> = { trigger: 'input', process: 'processing', action: 'output' }
 
 /**
  * How a proposal reaches the canvas: it replaces the nodes of an empty
@@ -41,26 +39,24 @@ export function applyMode(canvasNodes: number, changesCurrent: boolean): ApplyMo
  * settings and whether a node is enabled.
  */
 export function currentDefinition(flow: Pick<Flow, 'name' | 'description'> | null, nodes: readonly FlowNode[], edges: readonly FlowEdge[]): AssistantFlow {
+  return { name: flow?.name ?? '', description: flow?.description ?? '', ...storedCanvas(nodes, edges, clone) }
+}
+
+// The canvas's nodes and connections as currentDefinition sends them;
+// config gives each node's settings (a copy for a request).
+function storedCanvas(nodes: readonly FlowNode[], edges: readonly FlowEdge[], config: <T>(settings: T) => T): Pick<AssistantFlow, 'nodes' | 'connections'> {
   return {
-    name: flow?.name ?? '',
-    description: flow?.description ?? '',
     nodes: nodes.map(n => ({
       id: n.id,
       type: n.data.nodeType,
       category: STORED_CATEGORY[n.data.category] ?? n.data.category,
       position: { x: n.position.x, y: n.position.y },
-      config: clone(n.data.config ?? {}),
+      config: config(n.data.config ?? {}),
       enabled: n.data.enabled ?? true,
       inputs: [],
       outputs: []
     })),
-    connections: edges.map(e => ({
-      id: e.id,
-      sourceNode: e.source,
-      sourcePort: e.sourceHandle ?? 'output',
-      targetNode: e.target,
-      targetPort: e.targetHandle ?? 'input'
-    }))
+    connections: edges.map(storedConnection)
   }
 }
 
@@ -73,8 +69,13 @@ export function currentDefinition(flow: Pick<Flow, 'name' | 'description'> | nul
  * are left out: placing a proposal never renames a saved flow.
  */
 export function canvasFingerprint(nodes: readonly FlowNode[], edges: readonly FlowEdge[]): string {
-  const { nodes: sentNodes, connections } = currentDefinition(null, nodes, edges)
-  return JSON.stringify({ nodes: sentNodes, connections })
+  // The settings as they are: copying them first gives the same text.
+  return sentFingerprint(storedCanvas(nodes, edges, settings => settings))
+}
+
+/** canvasFingerprint of the canvas a request sent (its currentDefinition). */
+export function sentFingerprint(flow: Pick<AssistantFlow, 'nodes' | 'connections'>): string {
+  return JSON.stringify({ nodes: flow.nodes, connections: flow.connections })
 }
 
 /** A node of the proposal as the dialog lists it. */
@@ -212,8 +213,9 @@ export function prepareProposal(
       position: n.position ? { x: n.position.x, y: n.position.y } : { x: 0, y: 0 },
       config: clone(n.config ?? {}),
       enabled: n.enabled !== false,
-      inputs: clone(n.inputs ?? []),
-      outputs: clone(n.outputs ?? [])
+      // The store gives the nodes their ports from their types.
+      inputs: [],
+      outputs: []
     })
   }
 
@@ -278,7 +280,7 @@ export function assistantError(e: unknown, aborted: boolean): string {
   const t = msg().assistant
   if (aborted) return t.cancelled
   const answered = !!(e as { response?: unknown })?.response
-  return errorMessage(e, answered ? t.failed : t.unreachable)
+  return apiErrorMessage(e, answered ? t.failed : t.unreachable)
 }
 
 function clone<T>(value: T): T {

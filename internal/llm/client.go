@@ -7,9 +7,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/rs/zerolog/log"
 
 	"github.com/Pegasus8/piworker/internal/node"
@@ -108,17 +110,18 @@ func (m *meteredClient) Chat(ctx context.Context, req Request) (*Response, error
 	if req.MaxTokens <= 0 {
 		return nil, errors.New("maxTokens must be greater than 0")
 	}
-	switch req.Effort {
-	case "", "low", "medium", "high", "xhigh", "max":
-	default:
+	if !slices.Contains(Efforts, req.Effort) {
 		return nil, fmt.Errorf("invalid effort %q (low, medium, high, xhigh or max)", req.Effort)
 	}
+	// The prepared schema is compiled once: for the check here and the
+	// answer's validation (finishAnswer).
+	var schema *jsonschema.Resolved
 	if req.Schema != nil {
-		prepared, err := PrepareSchema(req.Schema)
+		prepared, resolved, err := prepareSchema(req.Schema)
 		if err != nil {
 			return nil, err
 		}
-		req.Schema = prepared
+		req.Schema, schema = prepared, resolved
 	} else if req.JSON {
 		if req.System == "" {
 			req.System = jsonInstruction
@@ -141,14 +144,15 @@ func (m *meteredClient) Chat(ctx context.Context, req Request) (*Response, error
 	if err != nil {
 		return nil, err
 	}
-	if err := finishAnswer(req, resp); err != nil {
+	if err := finishAnswer(req, schema, resp); err != nil {
 		return nil, err
 	}
 	return resp, nil
 }
 
-// finishAnswer parses and validates the JSON answer a request asked for.
-func finishAnswer(req Request, resp *Response) error {
+// finishAnswer parses and validates the JSON answer a request asked for;
+// schema is req.Schema compiled (ValidateOutput's rule).
+func finishAnswer(req Request, schema *jsonschema.Resolved, resp *Response) error {
 	if req.Schema == nil && !req.JSON {
 		return nil
 	}
@@ -163,7 +167,7 @@ func finishAnswer(req Request, resp *Response) error {
 		return err
 	}
 	if req.Schema != nil {
-		if err := ValidateOutput(req.Schema, v); err != nil {
+		if err := validateResolved(schema, v); err != nil {
 			return err
 		}
 	}
