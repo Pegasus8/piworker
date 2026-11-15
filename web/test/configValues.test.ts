@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { configFieldsFromSchema, integerFromInput, jsonText, listDuplicates, listFromRows, listRows, moveItem, numberFromInput, objectFromRows, objectRows, parseJsonObject, setConfigValue, unreadableList } from '../src/lib/configValues'
+import { configFieldsFromSchema, integerFromInput, selectView, jsonText, listDuplicates, listFromRows, listRows, moveItem, numberFromInput, objectFromRows, objectRows, parseJsonObject, setConfigValue, unreadableList } from '../src/lib/configValues'
 
 test('a cleared number input is unset, not 0', () => {
   expect(numberFromInput('')).toBeUndefined()
@@ -182,4 +182,22 @@ test('moving an item returns the reordered list', () => {
   // Out of range: unchanged.
   expect(moveItem(list, 0, -1)).toEqual(['a', 'b', 'c'])
   expect(moveItem(list, 2, 3)).toEqual(['a', 'b', 'c'])
+})
+
+// An enum with an empty value (effort: the model's default; Telegram's
+// parse mode: none) shows that value as an option of its own, and no
+// placeholder: the placeholder would stand for the same value, showing the
+// setting's long description in the closed select.
+test('a select with an empty value names it and needs no placeholder', () => {
+  const [effort, mode] = configFieldsFromSchema({ properties: {
+    effort: { type: 'string', enum: ['', 'low', 'high'], description: 'How much the model thinks before answering' },
+    mode: { type: 'string', enum: ['a', 'b'], description: 'Mode' }
+  } })
+  const labels = { empty: '(default)', choose: 'Select…' }
+  expect(selectView(effort, labels)).toEqual({
+    options: [{ label: '(default)', value: '' }, { label: 'low', value: 'low' }, { label: 'high', value: 'high' }],
+    placeholder: ''
+  })
+  expect(selectView(mode, labels)).toEqual({ options: [{ label: 'a', value: 'a' }, { label: 'b', value: 'b' }], placeholder: 'Mode' })
+  expect(selectView({ options: undefined, placeholder: '' }, labels)).toEqual({ options: [], placeholder: 'Select…' })
 })

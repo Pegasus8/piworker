@@ -140,7 +140,9 @@ func TestStoreUsageAndDailyLimit(t *testing.T) {
 	if err := s.CheckBudget(c); err != nil {
 		t.Fatalf("fresh budget: %v", err)
 	}
-	s.RecordUsage("gpt", Usage{InputTokens: 60, OutputTokens: 50, Requests: 1})
+	if err := s.RecordUsage("gpt", Usage{InputTokens: 60, OutputTokens: 50, Requests: 1}); err != nil {
+		t.Fatal(err)
+	}
 	if u := s.UsageToday("gpt"); u.InputTokens != 60 || u.OutputTokens != 50 || u.Requests != 1 {
 		t.Fatalf("usage %+v", u)
 	}

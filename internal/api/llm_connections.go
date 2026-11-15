@@ -1,12 +1,10 @@
 package api
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"slices"
 	"strings"
 
 	"github.com/Pegasus8/piworker/internal/llm"
@@ -44,36 +42,9 @@ func (noLLMUsers) UnlessRunningFlowsUseLLMConnection(_ string, fn func() error) 
 	return nil, fn()
 }
 
-// LLMConnectionUsersOf is the lifecycle path's LLMConnectionUsers: it asks
-// the running instances (FlowRuntime.LLMConnectionsUsed, the definition
-// that runs) while it holds the lifecycle lock, so no deploy starts a user
-// between the check and the deletion (ADR-0034).
-func LLMConnectionUsersOf(lifecycle *service.Lifecycle) LLMConnectionUsers {
-	return lifecycleLLMUsers{lifecycle}
-}
-
-type lifecycleLLMUsers struct{ l *service.Lifecycle }
-
-func (u lifecycleLLMUsers) UnlessRunningFlowsUseLLMConnection(name string, fn func() error) ([]FlowRef, error) {
-	var users []FlowRef
-	err := u.l.WithLock(context.Background(), func(service.LockedLifecycle) error {
-		manager := u.l.Runtimes()
-		for _, id := range manager.ListRunning() {
-			rt, ok := manager.GetRuntime(id)
-			if !ok || !slices.Contains(rt.LLMConnectionsUsed(), name) {
-				continue
-			}
-			f := rt.Flow()
-			users = append(users, FlowRef{ID: f.ID, Name: f.Name})
-		}
-		if len(users) > 0 {
-			return nil
-		}
-		return fn()
-	})
-	slices.SortFunc(users, func(a, b FlowRef) int { return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.ID, b.ID)) })
-	return users, err
-}
+// The lifecycle path (service.Lifecycle) decides under its lock (ADR-0034),
+// so no deploy starts a user between the check and the deletion.
+var _ LLMConnectionUsers = (*service.Lifecycle)(nil)
 
 // NewLLMConnectionsHandler creates an LLMConnectionsHandler over the
 // connections in store, resolving secret references in keys through
@@ -82,8 +53,8 @@ func NewLLMConnectionsHandler(store *llm.Store, secretStore *secrets.Store, logg
 	return &LLMConnectionsHandler{store: store, secrets: secretStore, logger: logger, flows: noLLMUsers{}}
 }
 
-// WithFlows refuses deleting a connection a running flow uses
-// (LLMConnectionUsersOf the lifecycle).
+// WithFlows refuses deleting a connection a running flow uses (the
+// lifecycle path, service.Lifecycle).
 func (h *LLMConnectionsHandler) WithFlows(flows LLMConnectionUsers) *LLMConnectionsHandler {
 	h.flows = flows
 	return h

@@ -344,6 +344,8 @@ func TestKnownDestinationPropertiesAreMarked(t *testing.T) {
 		"action-knowledge-add.connection",
 		"action-knowledge-add.collection", // where the text is stored
 		"process-knowledge-search.connection",
+		// Which documents can reach the flow's output (a tool's reply).
+		"process-knowledge-search.collection",
 	} {
 		typ, prop, _ := strings.Cut(id, ".")
 		info, ok := node.DefaultRegistry.Get(typ)

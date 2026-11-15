@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/flow"
+	"github.com/Pegasus8/piworker/internal/llm"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/gorilla/mux"
@@ -55,8 +56,38 @@ func (h *NodeTypesHandler) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/nodes/{type}/test", h.TestNode).Methods(http.MethodPost)
 }
 
-// testNodeTimeout bounds a single one-shot node execution from the editor.
-const testNodeTimeout = 10 * time.Second
+// testNodeTimeout bounds a single one-shot node execution from the editor;
+// llmTestNodeTimeout that of an LLM node type (one that names an LLM
+// connection: a model can take a minute to answer), whose own timeout
+// setting may be shorter. testNodeWriteDeadline outlasts both: the
+// server's WriteTimeout (15 s) would cut an LLM node's answer.
+const (
+	testNodeTimeout       = 10 * time.Second
+	llmTestNodeTimeout    = 120 * time.Second
+	testNodeWriteDeadline = llmTestNodeTimeout + 15*time.Second
+)
+
+// testNodeTimeoutFor is the bound of a node test of type info.
+func testNodeTimeoutFor(info node.NodeTypeInfo) time.Duration {
+	if usesLLMConnection(info) {
+		return llmTestNodeTimeout
+	}
+	return testNodeTimeout
+}
+
+// usesLLMConnection reports whether a setting of info names an LLM
+// connection (its options are the LLM connections).
+func usesLLMConnection(info node.NodeTypeInfo) bool {
+	if info.Config == nil {
+		return false
+	}
+	for _, p := range info.Config.Properties {
+		if p.Options == node.OptionsLLMConnections {
+			return true
+		}
+	}
+	return false
+}
 
 // TestNodeRequest is the body of a test-node request: the candidate config and a
 // sample input payload.
@@ -120,7 +151,11 @@ func (h *NodeTypesHandler) TestNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, panicked := h.runOnce(r.Context(), inst, req)
+	timeout := testNodeTimeoutFor(info)
+	if timeout > testNodeTimeout {
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(testNodeWriteDeadline))
+	}
+	result, panicked := h.runOnce(r.Context(), inst, req, timeout)
 	if panicked {
 		// A node that panics is a server-side fault, distinct from a node that
 		// returns a normal error (which is reported as 200 with an error field).
@@ -133,10 +168,14 @@ func (h *NodeTypesHandler) TestNode(w http.ResponseWriter, r *http.Request) {
 // runOnce executes a node a single time with a timeout, recovering panics so a
 // misbehaving node returns an error instead of crashing the server. It reports
 // whether the node panicked so the caller can distinguish a crash from a normal
-// node error.
-func (h *NodeTypesHandler) runOnce(parent context.Context, inst node.Node, sample TestNodeRequest) (result TestNodeResult, panicked bool) {
-	ctx, cancel := context.WithTimeout(parent, testNodeTimeout)
+// node error. Like the variables, which it previews from copies, the LLM
+// nodes' conversations are never written: the node gets an empty memory, so
+// the test runs as a fresh conversation (the knowledge base is only read
+// there; the LLM connections are the real ones and the provider is called).
+func (h *NodeTypesHandler) runOnce(parent context.Context, inst node.Node, sample TestNodeRequest, timeout time.Duration) (result TestNodeResult, panicked bool) {
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
+	ctx = llm.WithMemory(ctx, llm.NewMemory())
 
 	msg := types.NewMessage(sample.Payload, types.DataTypeAny)
 	msg.Topic = sample.Topic

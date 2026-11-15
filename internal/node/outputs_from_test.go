@@ -103,6 +103,7 @@ func TestConfigOutputs(t *testing.T) {
 		if i > 0 {
 			assert.Equal(t, p.ID, p.Name)
 			assert.Equal(t, types.DataTypeAny, p.DataType)
+			assert.True(t, p.Multiple, "like the static outputs, a port may feed several nodes")
 		}
 	}
 	assert.Equal(t, []string{"other", "bug", "question", "praise"}, ids)

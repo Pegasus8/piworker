@@ -70,24 +70,3 @@ func TestLLMForgetClearsTheConversation(t *testing.T) {
 	_, err = n2.Process(ctx, types.NewMessage(map[string]any{"chat": strings.Repeat("x", 201)}, types.DataTypeObject))
 	assert.ErrorContains(t, err, "memoryKey")
 }
-
-// A sandboxed run (a dry-run or a node test) never changes the process-wide
-// memory: it clears only a memory its context carries.
-func TestLLMForgetInASandbox(t *testing.T) {
-	require.NoError(t, llm.DefaultMemory.Append("sandbox-test", 0, llm.Turn{Role: llm.RoleUser, Text: "keep"}))
-	t.Cleanup(func() { _ = llm.DefaultMemory.Clear("sandbox-test") })
-	n, err := NewLLMForgetAction(map[string]any{"memoryKey": "sandbox-test"})
-	require.NoError(t, err)
-
-	sandboxed := node.WithSandbox(context.Background(), node.NewSandbox(1<<20, 1<<20))
-	outs, err := n.Process(sandboxed, types.NewMessage("x", types.DataTypeString))
-	require.NoError(t, err)
-	assert.Len(t, outs, 1)
-	assert.Len(t, llm.DefaultMemory.Turns("sandbox-test"), 1, "the process-wide memory is untouched")
-
-	isolated := llm.NewMemory()
-	require.NoError(t, isolated.Append("sandbox-test", 0, llm.Turn{Role: llm.RoleUser, Text: "x"}))
-	_, err = n.Process(llm.WithMemory(sandboxed, isolated), types.NewMessage("x", types.DataTypeString))
-	require.NoError(t, err)
-	assert.Empty(t, isolated.Turns("sandbox-test"), "the sandbox's own memory is cleared")
-}

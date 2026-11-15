@@ -271,6 +271,43 @@ func (k *Knowledge) Delete(collectionName, id string) error {
 	return nil
 }
 
+// DeleteMatching removes the documents of a collection whose ID match
+// accepts, each after its persistent deletion succeeds, and returns how
+// many it removed (those before a failed deletion stay removed). It reads
+// only the IDs: no document is copied.
+func (k *Knowledge) DeleteMatching(collectionName string, match func(id string) bool) (int, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	c := k.cols[collectionName]
+	if c == nil {
+		return 0, nil
+	}
+	var ids []string
+	for id := range c.docs {
+		if match(id) {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	removed := 0
+	var err error
+	for _, id := range ids {
+		if k.persist != nil {
+			if err = k.persist.DeleteLLMDocument(collectionName, id); err != nil {
+				break
+			}
+		}
+		delete(c.docs, id)
+		removed++
+	}
+	if len(c.docs) == 0 {
+		delete(k.cols, collectionName)
+	} else if removed > 0 {
+		c.updated = time.Now()
+	}
+	return removed, err
+}
+
 // DeleteCollection removes a collection after its persistent deletion
 // succeeds.
 func (k *Knowledge) DeleteCollection(collectionName string) error {

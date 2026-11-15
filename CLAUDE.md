@@ -211,6 +211,45 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
   hidden content whole. Test new agent-facing paths by sending a secret's value
   and expecting it back unchanged.
 
+### LLM nodes (ADR-0038…0041, `docs/design/llm.md`)
+- `internal/llm` holds the LLM connections (`Store`: provider `anthropic`
+  through the official SDK `anthropic-sdk-go/v2`, or `openai` for every
+  OpenAI-compatible server, over `net/http`), the clients, the conversation
+  `Memory` and the `Knowledge` base. It imports `node`, `secrets` and `types`
+  only. The nodes (`builtin/process_llm*.go`, `action_llm_forget.go`,
+  `process_transcribe.go`, `*knowledge*.go`, shared settings in
+  `llm_common.go`) resolve the three stores **through their context**
+  (`llm.FromContext`/`Lookup`, `MemoryFromContext`, `KnowledgeFromContext`)
+  per call, never in a factory; `llm.With*(ctx, nil)` is an empty store
+  (the dry-run sandbox gets empty ones; the payload playground an empty
+  memory).
+- Build clients only with `llm.NewClient(ctx, conn)`: it resolves the key's
+  `{{secret.NAME}}` strictly, refuses a sandbox (`ErrSandboxed`), checks
+  the connection's **daily token budget** before every token-spending call
+  and records usage after it (also on a failed answer; `Models` is never
+  budgeted). Keys are redacted from errors; the SDK runs with
+  `WithoutEnvironmentDefaults` and no retries (retries stay `node.Transient`).
+- Nodes naming a connection implement `node.LLMConnectionRequirer`: deploy
+  refuses an undefined one, Lint reports `undefined_llm_connection` (an
+  environment issue). Changing a connection restarts nothing; deleting one a
+  running flow uses is refused (`Lifecycle.UnlessRunningFlowsUseLLMConnection`).
+- The AI Agent calls tools only through `node.ToolCallerFromContext`, which
+  `service.Tools` implements (actor `agent-node`, ADR-0039: listed tools
+  only, never its own flow's, `confirm: none` only, privileged only with the
+  `allowPrivileged` RiskSwitch, results redacted as for agents, no MCP audit
+  row). The composition root calls `RuntimeManager.SetToolCaller` before
+  any deploy or restore; sandboxes never get a caller.
+- `NodeTypeInfo.OutputsFrom` (ADR-0040) names an `array` setting whose items
+  become output ports; every reader of a node's outputs uses
+  `node.ConfigOutputs(info, cfg)` (and `web/src/lib/ports.ts` in the editor).
+- Storage is migration 2 (`llm_connections`, `llm_usage`,
+  `llm_conversations`, `llm_documents`); `app.go` attaches `llm.Default*`.
+  REST is `internal/api/llm_*.go` (editor only, never MCP); its responses
+  are in the generated wire types (`TestWireTypesAreCurrent`). The flow
+  assistant (`service.Assistant`, `POST /api/llm/assistant/flow`) proposes
+  a flow checked with `flow.LintContext`; it never saves, deploys or sees
+  credentials.
+
 ### Storage, auth, config
 - `internal/storage`: SQLite tuned in `buildDSN` (WAL, `busy_timeout`,
   `_txlock=immediate`) with `SetMaxOpenConns(1)` (single writer). The schema
@@ -266,6 +305,11 @@ Agent access (`/agents`, `/agents/approvals`, `/agents/audit`) uses
 `stores/drafts.ts` with presentation rules in `lib/drafts.ts`; flow markers
 and version history/rollback are `components/agent/FlowMarks.vue` and
 `components/flow/VersionHistoryDialog.vue` over `stores/flows.ts`.
+The LLM connections and AI memory dialogs (`LLMConnectionsDialog.vue`,
+`AIMemoryDialog.vue`, helpers in `components/llm/`, `lib/llm.ts`,
+`stores/llm.ts`) sit in the shell; the editor's flow assistant is
+`components/flow/AssistantDialog.vue` + `lib/assistant.ts`, placed by
+`flows.applyProposal` as one undo step.
 Background polling goes through `lib/poller.ts` (pauses while the tab is
 hidden).
 Every page but the editor and sign-in sits in the navigation shell
@@ -308,7 +352,11 @@ server sends (node types, their docs and schemas, API errors) stays English.
    Factories and `Validate` must reject bad config (deploy maps that to 400).
 4. Multi-output nodes: declare each output port and set `SourcePort` on every
    emitted message. Do not declare an `error` output: return an error from
-   `Process` and the runtime routes it (ADR-0036). Add a `_test.go` next to it.
+   `Process` and the runtime routes it (ADR-0036). Ports the admin names (one
+   per item of a list setting) come from `NodeTypeInfo.OutputsFrom` and
+   `node.ConfigOutputs`, after the static ones (ADR-0040). Nodes calling a
+   model reuse `llm_common.go` (connection, model, timeout, memory,
+   `meta.llm`). Add a `_test.go` next to it.
    Regenerate the user guide's node reference, which a test compares with the
    registry: `go test -run TestNodeReferenceDocIsCurrent ./internal/node/builtin -update`
    (`docs/guide/nodes.md`; the rest of the user guide in `docs/guide/` is

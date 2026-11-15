@@ -14,11 +14,12 @@ import (
 
 // ConfigOutputs returns the output ports a node of type info has with cfg:
 // info.Outputs, then one port per item of the OutputsFrom setting (ID and
-// name = the item, any data type), in order. Items that could not be a port
-// of their own are skipped: anything but a non-empty string, a repeated
-// item, the ID of a static output and the runtime's error port (the node's
-// Validate refuses such items; ConfigOutputs never fails). The result is
-// never nil and never shares info.Outputs' array.
+// name = the item, any data type, Multiple like a static output), in
+// order. Items that could not be a port of their own are skipped: anything
+// but a non-empty string, a repeated item, the ID of a static output and
+// the runtime's error port (the node's Validate refuses such items;
+// ConfigOutputs never fails). The result is never nil and never shares
+// info.Outputs' array.
 func ConfigOutputs(info NodeTypeInfo, cfg map[string]any) []types.Port {
 	outputs := append([]types.Port{}, info.Outputs...)
 	if info.OutputsFrom == "" {
@@ -33,7 +34,7 @@ func ConfigOutputs(info NodeTypeInfo, cfg map[string]any) []types.Port {
 			continue
 		}
 		seen[item] = true
-		outputs = append(outputs, types.Port{ID: item, Name: item, DataType: types.DataTypeAny})
+		outputs = append(outputs, types.Port{ID: item, Name: item, DataType: types.DataTypeAny, Multiple: true})
 	}
 	return outputs
 }

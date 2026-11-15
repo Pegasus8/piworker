@@ -276,14 +276,11 @@ func removeStale(kb *llm.Knowledge, collection, base string, docs []llm.Document
 	for _, d := range docs {
 		keep[d.ID] = true
 	}
-	stored, _ := kb.Documents(collection, 0, llm.MaxDocuments)
-	for _, d := range stored {
-		if keep[d.ID] || !(d.ID == base || isChunkOf(d.ID, base)) {
-			continue
-		}
-		if err := kb.Delete(collection, d.ID); err != nil {
-			return fmt.Errorf("cannot remove the document's old chunks from collection %q: %w", collection, err)
-		}
+	_, err := kb.DeleteMatching(collection, func(id string) bool {
+		return !keep[id] && (id == base || isChunkOf(id, base))
+	})
+	if err != nil {
+		return fmt.Errorf("cannot remove the document's old chunks from collection %q: %w", collection, err)
 	}
 	return nil
 }
@@ -313,7 +310,6 @@ func (a *KnowledgeAddAction) Validate() error { return nil }
 func knowledgeAddConfigSchema() node.ConfigSchema {
 	zero, max := float64(0), float64(knowledgeMaxChunk)
 	collection := llmSchemaCollection("Collection to store the text in, e.g. manuals (created on the first document)")
-	collection.Destination = true
 	return node.ConfigSchema{
 		Properties: map[string]node.ConfigProperty{
 			"connection": llmSchemaConnection(),

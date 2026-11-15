@@ -9,8 +9,56 @@
   fallback, a Reply in error mode); the message carries the error text, the
   node and the payload it failed on. The failure is still shown in
   Activity → Runs ([ADR-0036](docs/adr/0036-error-port-on-every-node.md)).
+- **AI in flows** ([guide](docs/guide/ai.md)):
+  - **LLM connections** (in the navigation, under Settings): a provider
+    defined once, Claude through the official Anthropic Go SDK, or OpenAI and
+    any OpenAI-compatible server such as Ollama, LM Studio or OpenRouter
+    (a base URL for a model on your own network). The API key is write-only
+    and may be a `{{secret.NAME}}` reference; an optional daily token limit
+    stops the connection's calls until midnight once reached; the dialog
+    shows today's usage and **Test connection** lists the models without
+    spending tokens. Deploy refuses a node naming a connection that does
+    not exist (`undefined_llm_connection`)
+    ([ADR-0038](docs/adr/0038-llm-connections-and-the-anthropic-go-sdk.md)).
+  - New nodes: **LLM Prompt** (text or JSON answers with an optional
+    schema, images, conversation memory), **LLM Classify** (one output port
+    per category you type, plus `other`;
+    [ADR-0040](docs/adr/0040-node-outputs-from-a-setting.md)), **AI Agent**
+    (a model that calls the tool flows you list, through the same checks as
+    MCP agents: never its own flow's tools or tools that need confirmation,
+    privileged ones only with **Allow privileged tools**;
+    [ADR-0039](docs/adr/0039-agent-nodes-call-flow-tools-through-the-tool-service.md)),
+    **Forget Conversation**, **Transcribe Audio**, **Add to Knowledge Base**
+    and **Search Knowledge Base** (a local knowledge base: embeddings in
+    PiWorker's database, searched on the device).
+  - **AI memory** (in the navigation, under Settings) shows and clears the
+    remembered conversations and the knowledge base.
+  - **Create with AI** in the editor: describe a flow (or a change to the
+    current one) and a model proposes it, checked like a deploy; you review
+    it and place it on the canvas as one undo step. Nothing is saved or
+    deployed, and credentials are never sent
+    ([ADR-0041](docs/adr/0041-local-memory-knowledge-base-and-the-flow-assistant.md)).
+  - List settings in the node settings panel, and suggestions for LLM
+    connections, models, published tools and knowledge collections.
+  - Recipes: a Telegram chat bot with memory, routing support e-mails, an
+    agent that switches lights, answers from your documents.
 
 ### Changed
+
+- The database moves to schema version 2 (new tables for LLM connections,
+  their daily usage, conversations and the knowledge base). An older
+  PiWorker refuses to open it; restore the backup made before the update to
+  go back ([ADR-0035](docs/adr/0035-numbered-schema-migrations.md)).
+- **Export and restore** also carries the LLM connections, their API keys
+  only inside the passphrase-sealed part. A restored LLM connection keeps
+  this installation's key only when the file leaves its provider and
+  address unchanged; otherwise the result names it so you can set the key.
+  The Secrets dialog lists LLM connections that use a secret.
+- Backups also hold the conversations, the knowledge base and today's token
+  usage. An installation whose LLM nodes run every day rarely skips a
+  backup as unchanged.
+- New dependency: `github.com/anthropics/anthropic-sdk-go/v2`
+  ([audit](docs/dependency-audit.md)).
 
 - When messages arrive faster than a flow finishes them, its triggers now
   wait instead of starting runs that lose messages halfway: a Webhook

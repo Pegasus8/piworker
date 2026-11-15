@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/flow"
+	"github.com/Pegasus8/piworker/internal/llm"
 	"github.com/Pegasus8/piworker/internal/node"
 	_ "github.com/Pegasus8/piworker/internal/node/builtin"
 	"github.com/Pegasus8/piworker/internal/secrets"
@@ -535,4 +536,23 @@ func TestDryRunCallerCancel(t *testing.T) {
 	defer cancel()
 	_, err := flow.DryRun(ctx, f, node.DefaultRegistry, flow.DryRunInput{TriggerNodeID: "trig"})
 	require.True(t, errors.Is(err, context.DeadlineExceeded), "got %v", err)
+}
+
+// A dry-run of Forget Conversation (a safe node, so it runs for real)
+// never clears a conversation of the process-wide memory: the sandbox has
+// its own, empty one.
+func TestDryRunNeverForgetsARealConversation(t *testing.T) {
+	require.NoError(t, llm.DefaultMemory.Append("pw_test:dry-forget", 0, llm.Turn{Role: llm.RoleUser, Text: "keep"}))
+	t.Cleanup(func() { _ = llm.DefaultMemory.Clear("pw_test:dry-forget") })
+	f := dryFlow([]dn{
+		{"trig", "trigger-manual", nil},
+		{"forget", "action-llm-forget", map[string]any{"memoryKey": "pw_test:{{payload}}"}},
+	}, "trig>forget")
+
+	res, err := flow.DryRun(context.Background(), f, node.DefaultRegistry, flow.DryRunInput{TriggerNodeID: "trig", Payload: "dry-forget"})
+	require.NoError(t, err)
+	step, ok := stepOf(res, "forget")
+	require.True(t, ok, "the node ran")
+	assert.Empty(t, step.Error)
+	assert.Len(t, llm.DefaultMemory.Turns("pw_test:dry-forget"), 1, "the process-wide memory is untouched")
 }

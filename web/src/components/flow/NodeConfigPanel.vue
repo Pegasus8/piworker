@@ -12,7 +12,7 @@ import ReferenceInput from './ReferenceInput.vue'
 import KeyValueInput from './KeyValueInput.vue'
 import JsonInput from './JsonInput.vue'
 import ListInput from './ListInput.vue'
-import { integerFromInput, setConfigValue } from '@/lib/configValues'
+import { integerFromInput, selectView, setConfigValue } from '@/lib/configValues'
 import { multilineField, referenceMode, referenceOptions } from '@/lib/references'
 import { useApi } from '@/composables/useApi'
 import RiskBadge from '@/components/agent/RiskBadge.vue'
@@ -322,8 +322,8 @@ const duration = (field: ConfigField) => (field.type === 'number' || field.type 
             :id="field.key"
             :aria-required="field.required"
             :model-value="localConfig[field.key] ?? ''"
-            :options="field.options || []"
-            :placeholder="field.placeholder || m.editor.selectPlaceholder"
+            :options="selectView(field, { empty: m.editor.selectDefault, choose: m.editor.selectPlaceholder }).options"
+            :placeholder="selectView(field, { empty: m.editor.selectDefault, choose: m.editor.selectPlaceholder }).placeholder"
             @update:model-value="(v) => updateField(field.key, v)"
           />
 

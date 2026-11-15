@@ -177,6 +177,22 @@ argument, because the program would read it as an option. Put fixed text in
 front of the placeholder (`--value={{payload}}`), or see
 [Command](../../README.md#actions-output) for the opt-in.
 
+## AI in flows
+
+The nodes that call a language model are described in
+[AI in flows](ai.md), whose [troubleshooting](ai.md#troubleshooting) table
+lists their error messages. The most common:
+
+| Symptom | Check |
+|---------|-------|
+| Deploy refused: *names LLM connection "…", which is not defined* | Create it under **LLM connections** with exactly that name, or pick another connection in the node. |
+| **Test connection** fails | A wrong API key (401), or a server PiWorker cannot reach: `localhost` is the PiWorker device itself, and Ollama accepts requests from other computers only when started with `OLLAMA_HOST=0.0.0.0`. Keep `/v1` at the end of an Ollama, LM Studio or OpenRouter base URL. |
+| Nodes fail with *the connection's daily token limit is spent* | The connection's daily limit is reached until midnight (local time). Raise it in **LLM connections**, or wait. |
+| *the answer was cut at maxTokens* | Raise the node's **Max tokens** or lower its **Effort**. |
+| A local model ignores its instructions, or **Create with AI** fails with it | Its context window is too small for the prompt and the server cuts it silently. Give the model at least 16 000 to 32 000 tokens of context (Ollama: `OLLAMA_CONTEXT_LENGTH=32768`). |
+| **Test node** on an LLM node times out | A test in the Payload playground stops after 2 minutes. The deployed flow uses the node's own **Timeout (s)** (up to 10 minutes). |
+| The AI Agent does not call its tools | The tool's flow must be running and separate from the agent's, with **Confirmation** `none`; privileged tools need **Allow privileged tools**. The hints under the node's **Tools** say which apply. |
+
 ## AI agents
 
 | Symptom | Check |

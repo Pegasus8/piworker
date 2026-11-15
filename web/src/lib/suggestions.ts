@@ -7,7 +7,7 @@ import { msg } from '@/i18n'
 import * as zigbee from '@/lib/zigbee'
 import type { AgentTool } from '@/lib/agentAccess'
 import type { KnowledgeCollection, LLMConnection, LLMModel } from '@/types'
-import { llmEndpoint } from '@/lib/llm'
+import { connectionKind, llmEndpoint } from '@/lib/llm'
 
 const LLM_SOURCES = ['llm-connections', 'llm-models', 'tools', 'knowledge-collections'] as const
 export type LLMSuggestSource = typeof LLM_SOURCES[number]
@@ -74,18 +74,13 @@ function unique(list: Suggestion[]): Suggestion[] {
   return list.filter(s => s.value && !seen.has(s.value) && seen.add(s.value))
 }
 
-function providerLabel(provider: string): string {
-  const names = msg().editor.llm.providers
-  return provider === 'anthropic' || provider === 'openai' ? names[provider] : provider
-}
-
 /** The suggestions of a setting with this source, for the node being edited. */
 export function suggestions(source: SuggestSource, ctx: SuggestionContext): Suggestion[] {
   if (isZigbeeSource(source)) return zigbee.suggestions(source, ctx).map(value => ({ value }))
   const t = msg().editor.llm
   switch (source) {
     case 'llm-connections':
-      return unique(ctx.llmConnections.map(c => ({ value: c.name, label: [providerLabel(c.provider), c.model].filter(Boolean).join(' · ') })))
+      return unique(ctx.llmConnections.map(c => ({ value: c.name, label: [connectionKind(c), c.model].filter(Boolean).join(' · ') })))
     case 'llm-models':
       return unique((ctx.models[text(ctx.config.connection)] ?? []).map(m => ({ value: m.id, ...(m.name && m.name !== m.id ? { label: m.name } : {}) })))
     case 'tools':
@@ -114,7 +109,7 @@ export function suggestionHint(source: SuggestSource, ctx: SuggestionContext, va
       const name = text(value).trim()
       if (!name) return info('')
       const c = ctx.llmConnections.find(c => c.name === name)
-      if (c) return info(t.connectionHint(providerLabel(c.provider), llmEndpoint(c), c.model))
+      if (c) return info(t.connectionHint(connectionKind(c), llmEndpoint(c), c.model))
       return warn(ctx.loaded.llmConnections ? t.undefinedConnection(name) : '')
     }
     case 'llm-models': {

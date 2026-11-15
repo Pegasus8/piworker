@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/llm"
@@ -266,7 +265,7 @@ func TestDeletingAnLLMConnectionARunningFlowUsesIsRefused(t *testing.T) {
 	t.Cleanup(func() { _ = conns.Delete("pw_test_llm"); _ = conns.Delete("pw_test_llm_other") })
 	r := mux.NewRouter()
 	NewLLMConnectionsHandler(conns, secrets.NewStore(), zerolog.Nop()).
-		WithFlows(LLMConnectionUsersOf(server.handler.lifecycle)).RegisterRoutes(r)
+		WithFlows(server.handler.lifecycle).RegisterRoutes(r)
 
 	user := flow.NewFlow("assistant flow")
 	n := flow.NewNode("mock-llm", flow.NodeCategoryInput)
@@ -293,29 +292,4 @@ func TestDeletingAnLLMConnectionARunningFlowUsesIsRefused(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 	_, ok = conns.Get("pw_test_llm")
 	assert.False(t, ok)
-}
-
-// The lifecycle adapter runs the deletion under the lifecycle lock: it
-// waits for a lifecycle change in progress.
-func TestLLMConnectionUsersTakesTheLifecycleLock(t *testing.T) {
-	server, _ := createTestServer(t)
-	users := LLMConnectionUsersOf(server.handler.lifecycle)
-	held := server.handler.lifecycle.Hold()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		refs, err := users.UnlessRunningFlowsUseLLMConnection("x", func() error { return nil })
-		assert.NoError(t, err)
-		assert.Empty(t, refs)
-	}()
-	assert.Never(t, func() bool {
-		select {
-		case <-done:
-			return true
-		default:
-			return false
-		}
-	}, 100*time.Millisecond, 10*time.Millisecond, "ran while the lifecycle lock was held")
-	held.Release()
-	<-done
 }

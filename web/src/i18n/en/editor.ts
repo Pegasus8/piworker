@@ -101,6 +101,8 @@ export default {
   retrySuggestions: 'Retry suggestions',
   defaultValue: (value: string) => `Default: ${value}`,
   selectPlaceholder: 'Select…',
+  // The empty value of a choice: the setting's default.
+  selectDefault: '(default)',
   useExample: 'Use temperature example',
   useExampleFor: (label: string) => `Use example for ${label}`,
   useExampleHint: 'Replaces this field. Use the sample payload in the playground to try it.',

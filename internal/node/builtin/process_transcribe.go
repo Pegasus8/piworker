@@ -167,13 +167,6 @@ var audioExtensionTypes = map[string]string{
 	".webm": "audio/webm", ".flac": "audio/flac",
 }
 
-// blockedAddress is the text of newGuardedHTTPClient's refusal of a
-// private or loopback address (its allowPrivate hint does not apply here).
-const (
-	blockedAddress     = "non-public address"
-	allowPrivateAdvice = " (set allowPrivate to allow)"
-)
-
 // fetchAudio downloads the audio at rawURL with client, reading at most
 // maxBytes. Its errors never quote the URL (a chat's file URL may carry a
 // bot token): HTTP statuses, network errors with the URL replaced by its
@@ -190,12 +183,14 @@ func fetchAudio(ctx context.Context, client *http.Client, rawURL string, maxByte
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return llm.Media{}, fmt.Errorf("fetching the audio: %w", ctxErr)
 		}
-		err = redactURLError(err, rawURL, displayURL(rawURL))
-		text := strings.Replace(err.Error(), allowPrivateAdvice, "", 1)
-		if strings.Contains(text, blockedAddress) {
-			return llm.Media{}, fmt.Errorf("fetching the audio failed: %s: audio URLs must be public addresses", text)
+		// The guarded client's refusal names the HTTP Request node's
+		// allowPrivate, which this node does not have.
+		var blocked *BlockedAddressError
+		if errors.As(err, &blocked) {
+			return llm.Media{}, fmt.Errorf("fetching the audio failed: %s %s: audio URLs must be public addresses", ErrBlockedAddress, blocked.IP)
 		}
-		return llm.Media{}, node.Transient(fmt.Errorf("fetching the audio failed: %s", text))
+		err = redactURLError(err, rawURL, displayURL(rawURL))
+		return llm.Media{}, node.Transient(fmt.Errorf("fetching the audio failed: %s", err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {

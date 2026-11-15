@@ -11,7 +11,7 @@ import { msg } from '@/i18n'
 
 /**
  * One place a secret is referenced ({{secret.NAME}}): a node setting of a
- * flow, or a broker connection's credential.
+ * flow, a broker connection's credential or an LLM connection's API key.
  */
 export interface SecretUse {
   flowId?: string
@@ -23,6 +23,8 @@ export interface SecretUse {
   /** The node is disabled: it does not run. */
   nodeDisabled?: boolean
   connection?: string
+  /** An LLM connection whose API key references the secret (setting "apiKey"). */
+  llmConnection?: string
   setting: string
 }
 
@@ -55,7 +57,7 @@ export function secretUse(raw: unknown): SecretUse | null {
   const u = (raw ?? {}) as Record<string, unknown>
   if (typeof u.setting !== 'string') return null
   const use: SecretUse = { setting: u.setting }
-  for (const key of ['flowId', 'flowName', 'nodeId', 'nodeType', 'connection'] as const) {
+  for (const key of ['flowId', 'flowName', 'nodeId', 'nodeType', 'connection', 'llmConnection'] as const) {
     if (typeof u[key] === 'string') use[key] = u[key] as string
   }
   if (u.flowRunning === true) use.flowRunning = true
@@ -89,6 +91,7 @@ export function secretList(data: unknown): SecretList {
 export function secretUseText(u: SecretUse): string {
   const t = msg().settings.secrets
   if (u.connection) return t.useConnection(u.connection, u.setting)
+  if (u.llmConnection) return t.useLLMConnection(u.llmConnection, u.setting)
   const parts = [t.useFlow(u.flowName || u.flowId || '?'), t.useNode(u.nodeId ?? '?', u.nodeType ?? ''), u.setting]
   if (u.nodeDisabled) parts.push(t.useDisabled)
   else if (u.flowRunning) parts.push(t.useRunning)
@@ -99,7 +102,8 @@ export function secretUseText(u: SecretUse): string {
 export function secretUsesSummary(uses: SecretUse[]): string {
   const t = msg().settings.secrets
   if (!uses.length) return t.unused
-  const running = uses.filter(u => u.connection || (u.flowRunning && !u.nodeDisabled)).length
+  // Connections are always in use: a node resolves them, and their secrets, when it runs.
+  const running = uses.filter(u => u.connection || u.llmConnection || (u.flowRunning && !u.nodeDisabled)).length
   return t.usedIn(uses.length, running)
 }
 

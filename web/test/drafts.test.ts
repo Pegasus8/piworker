@@ -7,6 +7,7 @@ import {
   alertsByNode,
   applyOutcome,
   approvalBlock,
+  ENVIRONMENT_ISSUE_CODES,
   approveConfirmText,
   connectionText,
   diffBasis,
@@ -369,6 +370,13 @@ test('approving is blocked, with the reason, when the server would refuse it', (
   expect(approvalBlock(detail({ issues: [secret] }), true)).toContain('Secrets')
   // A running flow is always redeployed.
   expect(approvalBlock(detail({ issues: [secret], running: true }), false)).toContain('running')
+  // Undefined broker and LLM connections are environment issues too.
+  for (const code of ['undefined_connection', 'undefined_llm_connection']) {
+    const conn = { path: '/nodes/a/config/connection', code, severity: 'error' as const, message: 'm' }
+    expect(approvalBlock(detail({ issues: [conn] }), false)).toBe('')
+    expect(approvalBlock(detail({ issues: [conn] }), true)).toContain('connections')
+  }
+  expect(ENVIRONMENT_ISSUE_CODES).toContain('undefined_llm_connection')
 })
 
 test('the approval confirmation repeats the risk and the alerts first', () => {

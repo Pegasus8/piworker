@@ -79,3 +79,7 @@ node recipe, UI changes and documentation do **not** need an ADR.
 | [0035](0035-numbered-schema-migrations.md) | Numbered schema migrations recorded in the database | Proposed |
 | [0036](0036-error-port-on-every-node.md) | Every node has an error port | Proposed |
 | [0037](0037-triggers-wait-for-room.md) | Triggers wait for room in the flow | Proposed |
+| [0038](0038-llm-connections-and-the-anthropic-go-sdk.md) | LLM connections, providers and the official Anthropic Go SDK | Accepted |
+| [0039](0039-agent-nodes-call-flow-tools-through-the-tool-service.md) | Agent nodes call flow tools through the tool service | Accepted |
+| [0040](0040-node-outputs-from-a-setting.md) | Node outputs from a setting | Accepted |
+| [0041](0041-local-memory-knowledge-base-and-the-flow-assistant.md) | Local conversation memory, knowledge base and the flow assistant | Accepted |

@@ -491,11 +491,14 @@ export function severityInfo(severity: string): { icon: string; label: string } 
 }
 
 /**
- * Lint's codes that depend on the secrets and broker connections defined
- * rather than on the definition (flow.EnvironmentIssue): the errors block a
- * deploy, not saving a draft; unresolved_secret is only a warning.
+ * Lint's codes that depend on the secrets, broker connections and LLM
+ * connections defined rather than on the definition (flow.EnvironmentIssue):
+ * the errors block a deploy, not saving a draft; unresolved_secret is only a
+ * warning.
  */
-export const ENVIRONMENT_ISSUE_CODES: readonly string[] = ['undefined_secret', 'unresolved_secret', 'undefined_connection']
+export const ENVIRONMENT_ISSUE_CODES: readonly string[] = [
+  'undefined_secret', 'unresolved_secret', 'undefined_connection', 'undefined_llm_connection'
+]
 
 // --- Drafts ----------------------------------------------------------------
 

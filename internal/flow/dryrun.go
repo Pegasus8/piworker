@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Pegasus8/piworker/internal/llm"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/secrets"
 	"github.com/Pegasus8/piworker/internal/types"
@@ -103,9 +104,10 @@ func acquireSandbox() (release func(), err error) {
 }
 
 // sandboxContext gives ctx the isolated stores of a sandboxed execution: the
-// global and flow variable stores and an empty secret store, so the nodes
-// never see (or change) the real ones and every {{secret.NAME}} is missing;
-// and the sandbox, which bounds the data the nodes generate and tracks the
+// global and flow variable stores, an empty secret store and empty LLM
+// stores (connections, conversations, knowledge base), so the nodes never
+// see (or change) the real ones and every {{secret.NAME}} is missing; and
+// the sandbox, which bounds the data the nodes generate and tracks the
 // goroutines they leave running (node.Sandbox). The nodes get no tool caller
 // (agent nodes call no tools there) and no node identity but the one the
 // runtime gives them, whatever the caller's context carries.
@@ -115,6 +117,7 @@ func sandboxContext(ctx context.Context, globals, locals *flowvars.Store, sb *no
 	ctx = flowvars.WithStore(ctx, globals)
 	ctx = flowvars.WithFlowStore(ctx, locals)
 	ctx = node.WithSandbox(ctx, sb)
+	ctx = llm.WithKnowledge(llm.WithMemory(llm.WithStore(ctx, nil), nil), nil)
 	return secrets.WithStore(ctx, secrets.NewStore())
 }
 

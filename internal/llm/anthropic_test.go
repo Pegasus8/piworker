@@ -105,7 +105,7 @@ func (f *fakeAnthropic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		model = "claude-test"
 	}
 	event := func(name, data string) {
-		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, data)
+		_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, data)
 	}
 	event("message_start", fmt.Sprintf(`{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":%q,"content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":%d,"output_tokens":1}}}`, model, m.inputTokens))
 	if m.midError != "" {

@@ -35,18 +35,15 @@ func NewLLMForgetAction(config map[string]interface{}) (node.Node, error) {
 
 // Process clears the conversation from the memory of its context
 // (llm.MemoryFromContext) and passes the message on. A sandboxed run (a
-// dry-run or a node test) never changes the process-wide memory: it clears
-// only a memory its context carries.
+// dry-run or a node test) has an empty memory of its own there, so it never
+// changes the process-wide one.
 func (f *LLMForgetAction) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
 	key, err := renderMemoryKey(ctx, f.memoryKey, msg)
 	if err != nil {
 		return nil, err
 	}
-	mem := llm.MemoryFromContext(ctx)
-	if !node.InSandbox(ctx) || mem != llm.DefaultMemory {
-		if err := mem.Clear(key); err != nil {
-			return nil, fmt.Errorf("cannot forget the conversation: %w", err)
-		}
+	if err := llm.MemoryFromContext(ctx).Clear(key); err != nil {
+		return nil, fmt.Errorf("cannot forget the conversation: %w", err)
 	}
 	out := msg.Clone()
 	out.SourcePort = "output"

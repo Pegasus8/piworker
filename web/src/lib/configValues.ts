@@ -147,3 +147,23 @@ export function configFieldsFromSchema(schema: any): ConfigField[] {
     }
   })
 }
+
+export interface SelectView {
+  options: { label: string; value: string }[]
+  /** '' when no placeholder is shown. */
+  placeholder: string
+}
+
+/**
+ * A select field as the panel shows it. An empty enum value (the setting's
+ * default, e.g. the model's own effort) is an option of its own labelled
+ * labels.empty, and then there is no placeholder: a disabled placeholder
+ * would stand for the same empty value and show the setting's description
+ * in the closed select. Otherwise the placeholder is the description, or
+ * labels.choose.
+ */
+export function selectView(field: Pick<ConfigField, 'options' | 'placeholder'>, labels: { empty: string; choose: string }): SelectView {
+  const options = (field.options ?? []).map(o => (o.value === '' ? { label: labels.empty, value: '' } : o))
+  const hasEmpty = options.some(o => o.value === '')
+  return { options, placeholder: hasEmpty ? '' : field.placeholder || labels.choose }
+}

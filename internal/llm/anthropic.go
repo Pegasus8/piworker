@@ -170,7 +170,7 @@ func (c *anthropicClient) chat(ctx context.Context, req Request) (*Response, Usa
 	}
 	// Streaming: large max_tokens values would otherwise hit HTTP timeouts.
 	stream := c.api.Messages.NewStreaming(ctx, params, limitBody(maxChatBody))
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	var msg anthropic.Message
 	started, stopped := false, false
 	var streamErr error

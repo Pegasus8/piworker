@@ -234,3 +234,38 @@ func TestChunk(t *testing.T) {
 		}
 	}
 }
+
+// DeleteMatching removes the documents whose ID the function accepts,
+// written through, and an emptied collection with them.
+func TestKnowledgeDeleteMatching(t *testing.T) {
+	p := &memKnowledgePersister{docs: map[string]map[string]Document{}}
+	k := NewKnowledge()
+	if err := k.Attach(p); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"manual", "manual#1", "manual#2", "manual#3", "other#1"} {
+		if err := k.Add("docs", Document{ID: id, Text: id, Model: "emb", Embedding: Embedding{1, 0}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, err := k.DeleteMatching("docs", func(id string) bool { return id == "manual" || id == "manual#3" })
+	if err != nil || n != 2 {
+		t.Fatalf("DeleteMatching: %d %v", n, err)
+	}
+	docs, total := k.Documents("docs", 0, 10)
+	if total != 3 || docs[0].ID != "manual#1" || docs[1].ID != "manual#2" || docs[2].ID != "other#1" {
+		t.Fatalf("left: %+v", docs)
+	}
+	if _, ok := p.docs["docs"]["manual#3"]; ok {
+		t.Fatal("not written through")
+	}
+	if n, err := k.DeleteMatching("none", func(string) bool { return true }); err != nil || n != 0 {
+		t.Fatalf("unknown collection: %d %v", n, err)
+	}
+	if n, err := k.DeleteMatching("docs", func(string) bool { return true }); err != nil || n != 3 {
+		t.Fatalf("all: %d %v", n, err)
+	}
+	if len(k.Collections()) != 0 {
+		t.Fatal("an emptied collection is removed")
+	}
+}

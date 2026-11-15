@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Pegasus8/piworker/internal/flow"
+	"github.com/Pegasus8/piworker/internal/llm"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/Pegasus8/piworker/internal/types"
@@ -31,6 +33,16 @@ func (lifeNode) Validate() error                                    { return nil
 func (lifeNode) Start(context.Context, chan<- *types.Message) error { return nil }
 func (lifeNode) Stop() error                                        { return nil }
 
+// llmLifeNode is a trigger naming the LLM connection conn.
+type llmLifeNode struct {
+	lifeNode
+	conn string
+}
+
+func (n llmLifeNode) RequiredLLMConnections() map[string]string {
+	return map[string]string{"connection": n.conn}
+}
+
 // lifecycleEnv is a Lifecycle over a real store and runtime manager with a
 // "mock-trigger" node type.
 func lifecycleEnv(t *testing.T) (*Lifecycle, *storage.SQLiteStore) {
@@ -43,6 +55,13 @@ func lifecycleEnv(t *testing.T) (*Lifecycle, *storage.SQLiteStore) {
 		Type: "mock-trigger", Name: "Mock Trigger", Category: flow.NodeCategoryInput,
 		Outputs: []flow.Port{{ID: "output", Name: "Output", DataType: flow.DataTypeAny}},
 	}, func(map[string]interface{}) (node.Node, error) { return lifeNode{}, nil }))
+	require.NoError(t, registry.Register(node.NodeTypeInfo{
+		Type: "mock-llm-trigger", Name: "Mock LLM Trigger", Category: flow.NodeCategoryInput,
+		Outputs: []flow.Port{{ID: "output", Name: "Output", DataType: flow.DataTypeAny}},
+	}, func(cfg map[string]interface{}) (node.Node, error) {
+		name, _ := cfg["connection"].(string)
+		return llmLifeNode{conn: name}, nil
+	}))
 	manager := flow.NewRuntimeManager(registry, zerolog.Nop())
 	t.Cleanup(manager.StopAll)
 	return NewLifecycle(store, manager, zerolog.Nop()), store
@@ -379,4 +398,62 @@ func TestRestoreRunning(t *testing.T) {
 	h.BeginShutdown()
 	restored, failed = h.RestoreRunning(context.Background())
 	assert.Zero(t, restored+failed, "nothing starts after shutdown began")
+}
+
+// UnlessRunningFlowsUseLLMConnection runs the deletion of an LLM
+// connection under the lifecycle lock unless a running flow names it;
+// then it answers those flows (by name) and the deletion does not run.
+func TestUnlessRunningFlowsUseLLMConnection(t *testing.T) {
+	h, store := lifecycleEnv(t)
+	conns := llm.NewStore()
+	for _, name := range []string{"claude", "local"} {
+		require.NoError(t, conns.Set(llm.Connection{Name: name, Provider: llm.ProviderOpenAI}))
+	}
+	ctx := llm.WithStore(context.Background(), conns)
+	deploy := func(name, conn string) *flow.Flow {
+		f := flow.NewFlow(name)
+		n := flow.NewNode("mock-llm-trigger", flow.NodeCategoryInput)
+		n.Config = map[string]any{"connection": conn}
+		n.Outputs = []flow.Port{{ID: "output", Name: "Output", DataType: flow.DataTypeAny}}
+		f.AddNode(*n)
+		require.NoError(t, store.CreateFlow(f))
+		require.NoError(t, h.WithLock(ctx, func(l LockedLifecycle) error {
+			_, err := l.Deploy(ctx, f.ID, agentDeployer, false)
+			return err
+		}))
+		return f
+	}
+	b := deploy("b summaries", "claude")
+	a := deploy("a replies", "claude")
+	deploy("local", "local")
+
+	ran := false
+	refs, err := h.UnlessRunningFlowsUseLLMConnection("claude", func() error { ran = true; return nil })
+	require.NoError(t, err)
+	assert.False(t, ran, "in use: not deleted")
+	assert.Equal(t, []FlowRef{{ID: a.ID, Name: a.Name}, {ID: b.ID, Name: b.Name}}, refs)
+
+	refs, err = h.UnlessRunningFlowsUseLLMConnection("unused", func() error { ran = true; return nil })
+	require.NoError(t, err)
+	assert.Empty(t, refs)
+	assert.True(t, ran)
+
+	sentinel := errors.New("delete failed")
+	_, err = h.UnlessRunningFlowsUseLLMConnection("unused", func() error { return sentinel })
+	assert.ErrorIs(t, err, sentinel)
+
+	// It waits for a lifecycle change in progress.
+	held := h.Hold()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = h.UnlessRunningFlowsUseLLMConnection("unused", func() error { return nil })
+	}()
+	select {
+	case <-done:
+		t.Fatal("ran while the lifecycle lock was held")
+	case <-time.After(50 * time.Millisecond):
+	}
+	held.Release()
+	<-done
 }

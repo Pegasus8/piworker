@@ -51,6 +51,14 @@ test('LLM connections are suggested with their provider and model', () => {
   expect(values(list)).toEqual(['claude', 'ollama'])
   expect(list[0].label).toContain('Anthropic')
   expect(list[0].label).toContain('claude-opus-4-5')
+  // Named as the LLM connections dialog names them: the preset (OpenAI,
+  // Ollama…), else the API.
+  expect(list[1].label).toBe('Ollama')
+  const openai: LLMConnection = { ...ollama, name: 'gpt', baseUrl: '', model: 'gpt-x' }
+  const other: LLMConnection = { ...ollama, name: 'vllm', baseUrl: 'http://10.0.0.5:8000/v1' }
+  const labels = suggestions('llm-connections', ctx({}, { llmConnections: [openai, other] })).map(s => s.label)
+  expect(labels).toEqual(['OpenAI · gpt-x', 'OpenAI-compatible'])
+  expect(suggestionHint('llm-connections', ctx({}, { llmConnections: [openai] }), 'gpt')).toContain('OpenAI ')
 })
 
 test('models are those of the node connection', () => {

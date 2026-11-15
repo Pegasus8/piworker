@@ -2,6 +2,7 @@
 // endpoints, the provider presets of the connections form, the request
 // body of a save or test and the flows a refused delete names. Pure
 // helpers; the requests live in stores/llm.ts.
+import { msg } from '@/i18n'
 import type { LLMConnection, LLMConnectionRequest, LLMProvider } from '@/types'
 import type { FlowRef } from '@/lib/zigbee'
 
@@ -43,6 +44,12 @@ export const LLM_PRESETS: readonly LLMPreset[] = [
 /** The preset a stored connection matches, or 'custom' (another server). */
 export function presetFor(provider: string, baseUrl: string): LLMPresetId | 'custom' {
   return LLM_PRESETS.find(p => p.provider === provider && p.baseUrl === baseUrl)?.id ?? 'custom'
+}
+
+/** How a connection is named: its preset (OpenAI, Ollama, OpenRouter…), else its API. */
+export function connectionKind(c: Pick<LLMConnection, 'provider' | 'baseUrl'>): string {
+  const preset = LLM_PRESETS.find(p => p.id === presetFor(c.provider, c.baseUrl))
+  return preset?.label ?? msg().editor.llm.providers[c.provider] ?? c.provider
 }
 
 export interface LLMConnectionForm {

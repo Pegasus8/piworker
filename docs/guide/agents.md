@@ -9,6 +9,10 @@ The idea is simple: **an agent can only use the flows you publish as tools.**
 It sends the data a tool asks for; the flow decides what happens. Agents get
 no access to commands, files, pins or your secrets.
 
+To use a language model inside a flow instead (a chat bot, sorting
+messages, an **AI Agent** node that calls these same tools), see
+[AI in flows](ai.md).
+
 - [What an agent can do](#what-an-agent-can-do)
 - [Step 1: turn MCP on](#step-1-turn-mcp-on)
 - [Step 2: publish a flow as a tool](#step-2-publish-a-flow-as-a-tool)

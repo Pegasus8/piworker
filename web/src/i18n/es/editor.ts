@@ -98,6 +98,7 @@ const es: typeof en = {
   retrySuggestions: 'Reintentar sugerencias',
   defaultValue: (value: string) => `Predeterminado: ${value}`,
   selectPlaceholder: 'Selecciona…',
+  selectDefault: '(predeterminado)',
   useExample: 'Usar el ejemplo de temperatura',
   useExampleFor: (label: string) => `Usar un ejemplo para ${label}`,
   useExampleHint: 'Reemplaza este campo. Usa el mensaje de ejemplo del banco de pruebas para probarlo.',

@@ -353,18 +353,19 @@ func cloneVariables(v map[string]any) map[string]any {
 
 // normalizeNodes fills, as ApplyOps does for the nodes it adds, the
 // category and ports of nodes of registered types (an agent's whole flow
-// may omit them), gives a node without config an empty one and a
+// may omit them; the outputs include those a setting gives the node,
+// node.ConfigOutputs), gives a node without config an empty one and a
 // connection without an ID a generated one.
 func (a *Authoring) normalizeNodes(f *flow.Flow) {
 	for i := range f.Nodes {
 		n := &f.Nodes[i]
+		if n.Config == nil {
+			n.Config = map[string]any{}
+		}
 		if info, ok := a.registry.Get(n.Type); ok {
 			n.Category = info.Category
 			n.Inputs = append([]flow.Port{}, info.Inputs...)
-			n.Outputs = append([]flow.Port{}, info.Outputs...)
-		}
-		if n.Config == nil {
-			n.Config = map[string]any{}
+			n.Outputs = node.ConfigOutputs(info, n.Config)
 		}
 	}
 	if f.Nodes == nil {

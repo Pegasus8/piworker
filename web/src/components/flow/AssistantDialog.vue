@@ -21,6 +21,7 @@ import {
   MAX_DESCRIPTION_CHARS, applyMode, assistantError, changeSummary, currentDefinition, descriptionLength, issueLocation, proposalView
 } from '@/lib/assistant'
 import { suggestionHint, suggestions, type SuggestionContext } from '@/lib/suggestions'
+import { connectionKind } from '@/lib/llm'
 import { draftIcon, issueCounts, issueCountsLabel, severityInfo } from '@/lib/drafts'
 import { nodeIcon } from '@/lib/nodeIcons'
 import { nodeRisk } from '@/lib/nodeRisk'
@@ -67,7 +68,7 @@ watch(connection, (name, previous) => {
 const noConnections = computed(() => llm.connectionsLoaded && !llm.connections.length)
 const connectionOptions = computed(() => llm.connections.map(c => ({
   value: c.name,
-  label: t.value.connectionOption(c.name, [m.value.editor.llm.providers[c.provider] ?? c.provider, c.model].filter(Boolean).join(' · '))
+  label: t.value.connectionOption(c.name, [connectionKind(c), c.model].filter(Boolean).join(' · '))
 })))
 const selected = computed(() => llm.connections.find(c => c.name === connection.value))
 

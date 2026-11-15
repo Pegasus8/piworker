@@ -94,12 +94,6 @@ func (r *actorRecorder) observe(ev flow.NodeEvent) {
 	}
 }
 
-func (r *actorRecorder) actor(runID string) string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.actors[runID]
-}
-
 // A listed tool runs with the arguments; the run's actor names the agent
 // node, and no MCP audit row is written (there is no token: the run is in
 // the flow's activity).

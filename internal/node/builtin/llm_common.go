@@ -473,10 +473,12 @@ func unsupportedOnAnthropic(conn llm.Connection, feature, alternatives string) e
 const llmEmbeddingProviders = "OpenAI or Ollama"
 
 // llmSchemaCollection is a knowledge collection setting (description says
-// what the node does with it).
+// what the node does with it). It is a Destination: it says where text is
+// stored or which documents a search can bring into the flow (and so into
+// a tool's reply).
 func llmSchemaCollection(description string) node.ConfigProperty {
 	return node.ConfigProperty{Type: "string", Title: "Collection", Description: description,
-		AgentVisible: true, Options: node.OptionsKnowledgeCollections}
+		AgentVisible: true, Destination: true, Options: node.OptionsKnowledgeCollections}
 }
 
 // parseKnowledgeCollection reads collection (required): a collection name
