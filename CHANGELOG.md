@@ -1,10 +1,37 @@
 # Release notes
 
-## v1.0.0-beta.1 — revival (prerelease, not yet published)
+## v1.0.0-beta.2 — 2026-11-15 (prerelease)
+
+A prerelease like beta.1: install it by tag (`v1.0.0-beta.2`). Updating a
+beta.1 installation: `sudo piworkerctl update v1.0.0-beta.2`.
+
+### Changed
+
+- Smooth motion: the node settings panel slides in from the edge (and rises
+  into place on phones), dialogs and menus fade in and out, the activity
+  panel and the phone navigation drawer animate open and closed. All of it
+  follows the system's "reduce motion" setting.
+
+### Fixed
+
+- Creating the first account or resetting the password when the database
+  cannot be written (for example a full disk) answered "Cannot update
+  account" without logging why. The cause is now in the service log
+  (`journalctl -u piworker`); the setup or recovery code stays valid for a
+  retry once the cause is fixed.
+- Agents see in `pw_get_draft` what they wrote in their own draft (for
+  example a Transform expression) instead of `"<redacted>"`; only the
+  settings they kept of the current version and may not read stay hidden
+  (ADR-0021).
+- A call to a tool the token is not served (unknown, hidden, or a deploy
+  tool while agent deploy is off) is refused with "No tool … is available to
+  this token" instead of a message about a missing `call` scope.
+
+## v1.0.0-beta.1 — 2026-11-15 (prerelease)
 
 The first release of the revived implementation, published as a **prerelease**
 (tag `v1.0.0-beta.1`): install it by tag, it never becomes GitHub's latest
-release or the image's `latest`. The release date is set when it is published.
+release or the image's `latest`.
 
 ### Included
 
@@ -72,10 +99,6 @@ release or the image's `latest`. The release date is set when it is published.
 - The flow list shows each flow's run status, has an overflow menu, names a flow
   when it is created and offers **Start from an example** with example flows
   that need no hardware.
-- Smooth motion: the node settings panel slides in from the edge (and rises
-  into place on phones), dialogs and menus fade in and out, the activity
-  panel and the phone navigation drawer animate open and closed. All of it
-  follows the system's "reduce motion" setting.
 - The node list marks `external` and `privileged` node types, and the settings
   panel explains a node's risk level and when a setting can raise it
   (`GET /api/node-types` now returns `risk`).

@@ -54,8 +54,8 @@ ARM64. The ARMv7 and x86_64 builds are published and expected to work but have
 not been tested on real devices yet; please report what you find.
 Install `curl` and CA certificates first if your OS does not include them.
 
-**Release availability:** the first release of the revival is the prerelease
-`v1.0.0-beta.1`, installed by tag as shown below. The `latest` download command
+**Release availability:** the revival is published as prereleases (the
+newest is `v1.0.0-beta.2`), installed by tag as shown below. The `latest` download command
 works from the first stable release on. Older releases are not compatible with
 this installer.
 
@@ -83,11 +83,11 @@ You can select a release explicitly with `sudo piworkerctl update vX.Y.Z`
 never "latest", so they are always installed by tag:
 
 ```bash
-curl -fL https://github.com/Pegasus8/piworker/releases/download/v1.0.0-beta.1/piworkerctl -o piworkerctl && sudo bash ./piworkerctl install v1.0.0-beta.1
+curl -fL https://github.com/Pegasus8/piworker/releases/download/v1.0.0-beta.2/piworkerctl -o piworkerctl && sudo bash ./piworkerctl install v1.0.0-beta.2
 ```
 
 With Docker, use the image tag of the prerelease instead of `latest`
-(`ghcr.io/pegasus8/piworker:v1.0.0-beta.1`). Updates also replace
+(`ghcr.io/pegasus8/piworker:v1.0.0-beta.2`). Updates also replace
 the manager with the version included in the verified release archive.
 Before the first compatible release, contributors can run the lifecycle tests
 with `make test-installer`; running the installer still requires published assets.
@@ -148,7 +148,7 @@ does not read the old tasks or database. Install it separately and recreate
 your automations as flows.
 
 This README describes the revival branch, including changes not yet released.
-Until a stable release exists, use the `v1.0.0-beta.1` tag instead of `latest`
+Until a stable release exists, use the `v1.0.0-beta.2` tag instead of `latest`
 for images and downloads; `latest` may still point to the previous
 implementation. Check the release notes of what you install.
 

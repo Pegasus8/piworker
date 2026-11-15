@@ -251,3 +251,19 @@ Observations from the agent smoke test, resolved the same day:
 Not covered here: browser setup and editing on the Pi, hardware nodes, the
 draft release's own assets, public downloads, GHCR publication and anonymous
 pulls, ARMv7 and x86_64 on real devices.
+
+## v1.0.0-beta.1 publication and Pi install — 2026-11-15
+
+`v1.0.0-beta.1` (tag at `bf31481`, CI run 57 green) was published as a
+prerelease with its 11 assets; `piworkerctl`'s SHA-256 matched the local
+candidate build. The owner installed it on the Raspberry Pi 4 (ARM64) with
+the documented by-tag command, the real GitHub download path, and created
+the administrator in the browser. Two findings:
+
+- The first attempt failed with "Cannot update account": the Pi's disk was
+  full (4 KB free). Nothing in the log said so; beta.2 logs the cause and
+  keeps the code valid for a retry. PiWorker had not filled the disk.
+- A 404 before publication was expected: draft assets are not public.
+
+Still open on the Pi: trusting the CA, editing and deploying a flow in the
+browser, and a reboot with the published package.

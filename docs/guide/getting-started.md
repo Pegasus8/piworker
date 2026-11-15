@@ -52,15 +52,15 @@ find them out by itself. The address is then `https://<that name>:8443`.
 See [Build from source](../../README.md#option-3-build-from-source).
 
 > **Prepublication notice.** The commands above install the latest *stable*
-> release. While PiWorker is only published as the prerelease
-> `v1.0.0-beta.1`, install it by tag:
+> release. While PiWorker is only published as prereleases (the newest is
+> `v1.0.0-beta.2`), install it by tag:
 >
 > ```bash
-> curl -fL https://github.com/Pegasus8/piworker/releases/download/v1.0.0-beta.1/piworkerctl -o piworkerctl
-> sudo bash ./piworkerctl install v1.0.0-beta.1
+> curl -fL https://github.com/Pegasus8/piworker/releases/download/v1.0.0-beta.2/piworkerctl -o piworkerctl
+> sudo bash ./piworkerctl install v1.0.0-beta.2
 > ```
 >
-> and use `ghcr.io/pegasus8/piworker:v1.0.0-beta.1` instead of `:latest` for
+> and use `ghcr.io/pegasus8/piworker:v1.0.0-beta.2` instead of `:latest` for
 > the Docker image.
 
 > **Used the 2020 version of PiWorker?** This is a new program. It does not
