@@ -561,7 +561,7 @@ test('the audit log filters, pages and counts rejections', async ({ page }) => {
 
   await page.getByLabel('Tool').fill('garage_open')
   await page.getByLabel('Outcome').fill('error')
-  await page.getByLabel('Token').selectOption({ label: 'laptop ' + XSS })
+  await page.getByLabel('Token', { exact: true }).selectOption({ label: 'laptop ' + XSS })
   await page.getByRole('button', { name: 'Apply filters' }).click()
   await expect.poll(() => {
     const q = lastEntries(requests)?.query
