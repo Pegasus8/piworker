@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { HelpCircle, Reply, Wrench } from 'lucide-vue-next'
+import { AudioLines, BookOpen, BookPlus, Bot, Eraser, HelpCircle, Reply, Sparkles, Tags, Wrench } from 'lucide-vue-next'
 import { lucideIconName, nodeIcon } from '../src/lib/nodeIcons'
 
 // The icon each builtin node declares in Go (NodeTypeInfo.Icon).
@@ -18,6 +18,12 @@ function goIcons(): Map<string, string> {
 test('agent tool nodes show their own icons', () => {
   expect(nodeIcon(lucideIconName('wrench'))).toBe(Wrench)
   expect(nodeIcon(lucideIconName('reply'))).toBe(Reply)
+})
+
+// The LLM nodes (docs/design/llm.md §3).
+test('LLM and knowledge nodes show their own icons', () => {
+  const expected = { sparkles: Sparkles, tags: Tags, bot: Bot, eraser: Eraser, 'audio-lines': AudioLines, 'book-plus': BookPlus, 'book-open': BookOpen }
+  for (const [name, component] of Object.entries(expected)) expect(nodeIcon(lucideIconName(name))).toBe(component)
 })
 
 test('every builtin node icon is shown on the canvas and in the palette', () => {

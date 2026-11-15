@@ -15,7 +15,7 @@ func TestConnectionValidate(t *testing.T) {
 		{Name: "claude", Provider: ProviderAnthropic, APIKey: "{{secret.ANTHROPIC}}", Model: "claude-opus-5-5"},
 		{Name: "gpt", Provider: ProviderOpenAI, APIKey: "sk-x"},
 		{Name: "ollama", Provider: ProviderOpenAI, BaseURL: "http://192.168.1.20:11434/v1"},
-		{Name: "a_b-1", Provider: ProviderAnthropic, BaseURL: "https://proxy.example.com/anthropic", DailyTokenLimit: 1000},
+		{Name: "a_b-1", Provider: ProviderAnthropic, APIKey: "k", BaseURL: "https://proxy.example.com/anthropic", DailyTokenLimit: 1000},
 	}
 	for _, c := range ok {
 		c.Normalize()

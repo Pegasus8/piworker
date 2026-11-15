@@ -47,6 +47,8 @@ export const useNodeTypesStore = defineStore('nodeTypes', () => {
           riskCanRise: node.riskCanRise === true,
           inputs: node.inputs || [],
           outputs: node.outputs || [],
+          // The list setting whose items are extra outputs (ADR-0040).
+          outputsFrom: typeof node.outputsFrom === 'string' && node.outputsFrom ? node.outputsFrom : undefined,
           configSchema: buildConfigSchema(node)
         }))
 

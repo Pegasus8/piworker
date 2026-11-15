@@ -11,8 +11,9 @@ import { nodeIcon } from '@/lib/nodeIcons'
 import ReferenceInput from './ReferenceInput.vue'
 import KeyValueInput from './KeyValueInput.vue'
 import JsonInput from './JsonInput.vue'
+import ListInput from './ListInput.vue'
 import { integerFromInput, setConfigValue } from '@/lib/configValues'
-import { referenceMode, referenceOptions } from '@/lib/references'
+import { multilineField, referenceMode, referenceOptions } from '@/lib/references'
 import { useApi } from '@/composables/useApi'
 import RiskBadge from '@/components/agent/RiskBadge.vue'
 import { nodeRisk } from '@/lib/nodeRisk'
@@ -21,7 +22,9 @@ import NodePlayground from './NodePlayground.vue'
 import TestTool from './TestTool.vue'
 import type { ConfigField, NodeTestDraft } from '@/types'
 import { useZigbeeStore } from '@/stores/zigbee'
-import { fieldHint, findNetwork, suggestions, type SuggestionContext } from '@/lib/zigbee'
+import { useLLMStore } from '@/stores/llm'
+import { findNetwork } from '@/lib/zigbee'
+import { suggestionHint, suggestionNeeds, suggestions, type Suggestion, type SuggestionContext, type SuggestionHint } from '@/lib/suggestions'
 
 const flowsStore = useFlowsStore()
 const nodeTypesStore = useNodeTypesStore()
@@ -86,21 +89,28 @@ watch(
   { immediate: true, deep: true }
 )
 
-// Suggestions of settings with a source (broker connections, Zigbee devices
-// and their properties): read when the panel opens, again when it names a
-// connection the networks do not know yet. A failure leaves the fields free text.
+// Suggestions of settings with a source (lib/suggestions.ts): broker
+// connections, Zigbee devices and their properties; LLM connections, the
+// models of the node's LLM connection, published tools and knowledge
+// collections. Read when the panel opens; the Zigbee networks again when it
+// names a connection they do not know yet, the models when it names another
+// LLM connection. A failure leaves the fields free text.
 const zigbeeStore = useZigbeeStore()
+const llmStore = useLLMStore()
 const suggestionsNotice = ref('')
 const suggestFields = computed(() => (nodeTypeConfig.value?.configSchema ?? []).filter(f => f.suggest))
+const needs = computed(() => suggestionNeeds(suggestFields.value.map(f => f.suggest)))
 const triedConnections = new Set<string>()
+const configConnection = () => typeof localConfig.value.connection === 'string' ? localConfig.value.connection : ''
 async function loadSuggestions(force = false) {
- const fields = suggestFields.value
- if (!fields.length) return
- const ok = await zigbeeStore.loadSuggestions({
-  connections: fields.some(f => f.suggest === 'connections'),
-  networks: fields.some(f => f.suggest !== 'connections'),
-  force
- })
+ const need = needs.value
+ const reads: Promise<boolean>[] = []
+ if (need.connections || need.networks) reads.push(zigbeeStore.loadSuggestions({ connections: need.connections, networks: need.networks, force }))
+ if (need.llmConnections || need.tools || need.collections) {
+  reads.push(llmStore.loadSuggestions({ llmConnections: need.llmConnections, tools: need.tools, collections: need.collections, models: need.models ? configConnection() : undefined, force }))
+ }
+ if (!reads.length) return
+ const ok = (await Promise.all(reads)).every(Boolean)
  suggestionsNotice.value = ok ? '' : m.value.editor.suggestionsError
 }
 // Also when the node types arrive after the panel opened.
@@ -110,17 +120,32 @@ watch(() => [selectedNode.value?.id, suggestFields.value.length] as const, ([id]
  if (id) void loadSuggestions(true)
 }, { immediate: true })
 watch(() => localConfig.value.connection, connection => {
- if (typeof connection !== 'string' || !zigbeeStore.networksLoaded || triedConnections.has(connection)) return
+ if (typeof connection !== 'string') return
+ // The models of an LLM connection, once the setting names a defined one (cached per connection).
+ if (needs.value.models && llmStore.connections.some(c => c.name === connection)) void llmStore.loadModels(connection)
+ if (!needs.value.networks || !zigbeeStore.networksLoaded || triedConnections.has(connection)) return
  if (findNetwork(zigbeeStore.networks, connection) || !zigbeeStore.connections.some(c => c.name === connection)) return
  triedConnections.add(connection)
  void loadSuggestions(true)
 })
-const suggestionContext = computed((): SuggestionContext => ({ connections: zigbeeStore.connections, networks: zigbeeStore.networks, config: localConfig.value }))
-function fieldSuggestions(field: ConfigField): string[] {
+const suggestionContext = computed((): SuggestionContext => ({
+ connections: zigbeeStore.connections,
+ networks: zigbeeStore.networks,
+ llmConnections: llmStore.connections,
+ models: llmStore.models,
+ modelErrors: llmStore.modelErrors,
+ tools: llmStore.tools,
+ collections: llmStore.collections,
+ loaded: { llmConnections: llmStore.connectionsLoaded, tools: llmStore.toolsLoaded, collections: llmStore.collectionsLoaded },
+ flowId: flowsStore.currentFlow?.id ?? '',
+ config: localConfig.value
+}))
+function fieldSuggestions(field: ConfigField): Suggestion[] {
  return field.suggest ? suggestions(field.suggest, suggestionContext.value) : []
 }
-function suggestHint(field: ConfigField): string {
- return field.suggest ? fieldHint(field.suggest, suggestionContext.value) : ''
+const noHint: SuggestionHint = { text: '', warning: false }
+function suggestHint(field: ConfigField): SuggestionHint {
+ return field.suggest ? suggestionHint(field.suggest, suggestionContext.value, localConfig.value[field.key]) : noHint
 }
 
 // undefined removes the setting, so the node uses its default.
@@ -202,23 +227,38 @@ const duration = (field: ConfigField) => (field.type === 'number' || field.type 
             <span v-if="field.required" aria-hidden="true" class="text-destructive">*</span>
           </Label>
 
-          <ReferenceInput
-            v-if="['text','textarea','cron'].includes(field.type)"
-            :id="field.key" :required="field.required"
-            :model-value="String(localConfig[field.key] ?? '')"
-            :placeholder="field.placeholder"
-            :multiline="field.type === 'textarea' || field.type === 'cron' || ['expression','condition','template'].includes(field.key) || (selectedNode.data.nodeType === 'set-var' && field.key === 'value')"
-            :mode="referenceMode(selectedNode.data.nodeType, field.key)"
-            :options="fieldReferences(field.key)"
-            :list="field.suggest ? `${field.key}-suggestions` : undefined"
-            :describedby="suggestHint(field) ? `${field.key}-hint` : undefined"
-            @update:model-value="v => updateField(field.key, v)"
-          />
-          <!-- Suggestions (free text stays allowed) and what is known of the choice. -->
-          <datalist v-if="field.suggest" :id="`${field.key}-suggestions`">
-            <option v-for="value in fieldSuggestions(field)" :key="value" :value="value" />
-          </datalist>
-          <p v-if="suggestHint(field)" :id="`${field.key}-hint`" class="mt-1 break-words text-xs text-primary">{{ suggestHint(field) }}</p>
+          <template v-if="['text','textarea','cron'].includes(field.type)">
+            <ReferenceInput
+              :id="field.key" :required="field.required"
+              :model-value="String(localConfig[field.key] ?? '')"
+              :placeholder="field.placeholder"
+              :multiline="field.type === 'textarea' || field.type === 'cron' || multilineField(selectedNode.data.nodeType, field.key)"
+              :mode="referenceMode(selectedNode.data.nodeType, field.key)"
+              :options="fieldReferences(field.key)"
+              :list="field.suggest ? `${field.key}-suggestions` : undefined"
+              :describedby="suggestHint(field).text ? `${field.key}-hint` : undefined"
+              @update:model-value="v => updateField(field.key, v)"
+            />
+            <!-- Suggestions (free text stays allowed) and what is known of the choice. -->
+            <datalist v-if="field.suggest" :id="`${field.key}-suggestions`">
+              <option v-for="s in fieldSuggestions(field)" :key="s.value" :value="s.value" :label="s.label" />
+            </datalist>
+            <p v-if="suggestHint(field).text" :id="`${field.key}-hint`" class="mt-1 break-words text-xs" :class="suggestHint(field).warning ? 'text-amber-600 dark:text-amber-400' : 'text-primary'">{{ suggestHint(field).text }}</p>
+          </template>
+
+          <!-- A list of strings (the classifier's categories, an agent's
+               tools): rows, each with the field's suggestions. -->
+          <template v-else-if="field.type === 'list'">
+            <ListInput
+              :id="field.key"
+              :label="field.label"
+              :model-value="localConfig[field.key]"
+              :suggestions="fieldSuggestions(field)"
+              :describedby="suggestHint(field).text ? `${field.key}-hint` : undefined"
+              @update:model-value="v => updateField(field.key, v)"
+            />
+            <p v-if="suggestHint(field).text" :id="`${field.key}-hint`" class="mt-1 break-words text-xs" :class="suggestHint(field).warning ? 'text-amber-600 dark:text-amber-400' : 'text-primary'">{{ suggestHint(field).text }}</p>
+          </template>
 
           <!-- Time settings: typed in a friendly unit, stored in the node's. -->
           <DurationInput

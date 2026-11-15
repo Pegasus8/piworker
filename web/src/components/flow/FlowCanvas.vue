@@ -144,7 +144,8 @@ function buildNode(nodeTypeId: string, position: { x: number; y: number }): Flow
   const config: Record<string, any> = {}
   nodeType.configSchema.forEach(field => {
     if (field.default !== undefined) {
-      config[field.key] = field.default
+      // A copy: a list or object default is never shared between nodes.
+      config[field.key] = typeof field.default === 'object' && field.default !== null ? JSON.parse(JSON.stringify(field.default)) : field.default
     }
   })
 

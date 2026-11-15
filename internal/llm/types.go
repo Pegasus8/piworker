@@ -183,9 +183,11 @@ type ModelInfo struct {
 // Embedding is one embedded input.
 type Embedding []float32
 
-// Client talks to one connection's provider. Every method spends from the
+// Client talks to one connection's provider. Built with NewClient, every
+// method that spends tokens (Chat, Embed, Transcribe) checks the
 // connection's daily budget first (CheckBudget) and records what it used
-// (Store.RecordUsage) when built with NewClient.
+// (Store.RecordUsage); Models spends none and is neither checked nor
+// recorded, so a connection can be tested with its budget spent.
 type Client interface {
 	// Chat sends one chat request.
 	Chat(ctx context.Context, req Request) (*Response, error)

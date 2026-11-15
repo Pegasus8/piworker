@@ -4,7 +4,7 @@ import type { Flow, FlowNode, FlowEdge, FlowListItem, NodeCategory, VersionList 
 import type { ApplyResult } from '@/lib/drafts'
 import type { DeployWarning } from '@/lib/deployWarnings'
 import { useApi, type DeployOutcome } from '@/composables/useApi'
-import { ports, validConnection } from '@/lib/ports'
+import { edgesAfterConfig, outputPorts, ports, validConnection } from '@/lib/ports'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
 import { autoEdge, nextPosition } from '@/lib/autoConnect'
 import { msg } from '@/i18n'
@@ -207,7 +207,8 @@ export const useFlowsStore = defineStore('flows', () => {
       config: node.data.config || {},
       enabled: node.data.enabled ?? true,
       inputs: ports(nodeTypesStore.getById(node.data.nodeType)?.inputs),
-      outputs: ports(nodeTypesStore.getById(node.data.nodeType)?.outputs)
+      // With the ports its settings give it (ADR-0040), as the server stores them.
+      outputs: outputPorts(nodeTypesStore.getById(node.data.nodeType), node.data.config)
     }))
   }
 
@@ -502,11 +503,17 @@ export const useFlowsStore = defineStore('flows', () => {
     }
   }
 
+  // A setting that gives the node its outputs (the classifier's categories,
+  // ADR-0040) takes the edges leaving a port it removes along, in the same
+  // undo step; an item renamed in place keeps them (edgesAfterConfig).
   function updateNodeConfig(id: string, config: Record<string, any>) {
     const idx = nodes.value.findIndex(n => n.id === id)
     if (idx !== -1) {
       record(`config:${id}`)
-      nodes.value[idx].data.config = config
+      const node = nodes.value[idx]
+      const following = edgesAfterConfig(id, nodeTypesStore.getById(node.data.nodeType), node.data.config || {}, config, edges.value)
+      node.data.config = config
+      if (following !== edges.value) edges.value = following
       isDirty.value = true
     }
   }

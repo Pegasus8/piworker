@@ -148,6 +148,10 @@ func applyOp(f *Flow, op Op, reg *node.Registry, unplaced *[]string) (string, st
 				n.Config = map[string]any{}
 			}
 			mergePatch(n.Config, op.Config)
+			if info, ok := reg.Get(n.Type); ok && info.OutputsFrom != "" {
+				// The stored outputs follow the setting they come from.
+				n.Outputs = node.ConfigOutputs(info, n.Config)
+			}
 		}
 		if op.Enabled != nil {
 			n.Enabled = *op.Enabled
@@ -203,7 +207,6 @@ func addNodeOp(f *Flow, op Op, reg *node.Registry, unplaced *[]string) (string, 
 		Category: info.Category,
 		Config:   map[string]any{},
 		Inputs:   append([]Port{}, info.Inputs...),
-		Outputs:  append([]Port{}, info.Outputs...),
 		Enabled:  true,
 	}
 	for k, v := range spec.Config {
@@ -211,6 +214,7 @@ func addNodeOp(f *Flow, op Op, reg *node.Registry, unplaced *[]string) (string, 
 			n.Config[k] = cloneValue(v)
 		}
 	}
+	n.Outputs = node.ConfigOutputs(info, n.Config)
 	if spec.Enabled != nil {
 		n.Enabled = *spec.Enabled
 	}
@@ -223,11 +227,12 @@ func addNodeOp(f *Flow, op Op, reg *node.Registry, unplaced *[]string) (string, 
 	return "", ""
 }
 
-// opPorts returns a node's ports: its registered type's, or the stored ones
-// for an unregistered type.
+// opPorts returns a node's ports: its registered type's (with the outputs
+// its config gives it, node.ConfigOutputs), or the stored ones for an
+// unregistered type.
 func opPorts(n *Node, reg *node.Registry) (inputs, outputs []Port) {
 	if info, ok := reg.Get(n.Type); ok {
-		return info.Inputs, info.Outputs
+		return info.Inputs, node.ConfigOutputs(info, n.Config)
 	}
 	return n.Inputs, n.Outputs
 }

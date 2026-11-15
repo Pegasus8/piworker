@@ -106,8 +106,12 @@ func acquireSandbox() (release func(), err error) {
 // global and flow variable stores and an empty secret store, so the nodes
 // never see (or change) the real ones and every {{secret.NAME}} is missing;
 // and the sandbox, which bounds the data the nodes generate and tracks the
-// goroutines they leave running (node.Sandbox).
+// goroutines they leave running (node.Sandbox). The nodes get no tool caller
+// (agent nodes call no tools there) and no node identity but the one the
+// runtime gives them, whatever the caller's context carries.
 func sandboxContext(ctx context.Context, globals, locals *flowvars.Store, sb *node.Sandbox) context.Context {
+	ctx = node.WithToolCaller(ctx, nil)
+	ctx = node.WithNodeInfo(ctx, node.NodeInfo{})
 	ctx = flowvars.WithStore(ctx, globals)
 	ctx = flowvars.WithFlowStore(ctx, locals)
 	ctx = node.WithSandbox(ctx, sb)
@@ -492,9 +496,11 @@ func dryRunOverride(orig *node.Registry) func(node.NodeTypeInfo, node.NodeFactor
 	return func(info node.NodeTypeInfo, factory node.NodeFactory) node.NodeFactory {
 		return func(cfg map[string]any) (node.Node, error) {
 			if hidden, _ := cfg[hiddenStubKey].(bool); hidden {
-				// Never built from its settings: the type's ports and
-				// risk (an instance risk would read hidden values).
-				w := &dryRunNode{typ: info.Type, risk: info.Risk, inputs: info.Inputs, outputs: info.Outputs, stub: true}
+				// Never built from its settings: the type's ports (with
+				// those a setting gives it, node.ConfigOutputs: a redacted
+				// one gives none) and risk (an instance risk would read
+				// hidden values).
+				w := &dryRunNode{typ: info.Type, risk: info.Risk, inputs: info.Inputs, outputs: node.ConfigOutputs(info, cfg), stub: true}
 				if info.Category == NodeCategoryInput {
 					return &dryRunTrigger{dryRunNode: w}, nil
 				}

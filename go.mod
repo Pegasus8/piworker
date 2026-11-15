@@ -5,6 +5,7 @@ go 1.27.4
 require (
 	filippo.io/age v1.3.2
 	github.com/BurntSushi/toml v1.6.0
+	github.com/anthropics/anthropic-sdk-go/v2 v2.9.0
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/expr-lang/expr v1.17.7
 	github.com/go-sql-driver/mysql v1.10.0
@@ -33,7 +34,6 @@ require (
 	filippo.io/hpke v0.4.0 // indirect
 	github.com/PuerkitoBio/goquery v1.8.0 // indirect
 	github.com/andybalholm/cascadia v1.3.1 // indirect
-	github.com/anthropics/anthropic-sdk-go/v2 v2.9.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect

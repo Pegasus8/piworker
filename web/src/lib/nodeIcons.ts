@@ -3,9 +3,9 @@
 // nodes, which map to the components the palette and the canvas render.
 import type { Component } from 'vue'
 import {
-  Activity, Bell, Braces, Bug, Clock, Code, Cpu, Database, FileText, Filter, Gauge, GitBranch, Globe, HelpCircle,
-  Hourglass, Layers, Mail, Merge, Play, Power, Radio, Reply, Rss, Send, Sunset, Terminal, Thermometer, Timer, ToggleLeft,
-  ToggleRight, Type, Variable, Wand2, Webhook, Wrench, Zap
+  Activity, AudioLines, Bell, BookOpen, BookPlus, Bot, Braces, Bug, Clock, Code, Cpu, Database, Eraser, FileText, Filter, Gauge,
+  GitBranch, Globe, HelpCircle, Hourglass, Layers, Mail, Merge, Play, Power, Radio, Reply, Rss, Send, Sparkles, Sunset, Tags,
+  Terminal, Thermometer, Timer, ToggleLeft, ToggleRight, Type, Variable, Wand2, Webhook, Wrench, Zap
 } from 'lucide-vue-next'
 
 // Backend icon names whose lucide name differs from their PascalCase form.
@@ -15,9 +15,9 @@ const ALIASES: Record<string, string> = {
 }
 
 const COMPONENTS: Record<string, Component> = {
-  Activity, Bell, Braces, Bug, Clock, Code, Cpu, Database, FileText, Filter, Gauge, GitBranch, Globe, HelpCircle,
-  Hourglass, Layers, Mail, Merge, Play, Power, Radio, Reply, Rss, Send, Sunset, Terminal, Thermometer, Timer, ToggleLeft,
-  ToggleRight, Type, Variable, Wand2, Webhook, Wrench, Zap
+  Activity, AudioLines, Bell, BookOpen, BookPlus, Bot, Braces, Bug, Clock, Code, Cpu, Database, Eraser, FileText, Filter, Gauge,
+  GitBranch, Globe, HelpCircle, Hourglass, Layers, Mail, Merge, Play, Power, Radio, Reply, Rss, Send, Sparkles, Sunset, Tags,
+  Terminal, Thermometer, Timer, ToggleLeft, ToggleRight, Type, Variable, Wand2, Webhook, Wrench, Zap
 }
 
 function pascal(name: string): string {

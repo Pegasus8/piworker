@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -61,7 +62,11 @@ func (s *slots) acquire(tool string, maxConcurrent int, cooldown time.Duration, 
 	case s.maxGlobal > 0 && s.global >= s.maxGlobal:
 		return nil, toolError(ErrBusy, "too many tool calls are running; retry when one finishes")
 	case tokenKey != "" && s.maxPerToken > 0 && s.perToken[tokenKey] >= s.maxPerToken:
-		return nil, toolError(ErrBusy, fmt.Sprintf("this token already runs %d call(s), its limit; retry when one finishes", s.perToken[tokenKey]))
+		who := "this token"
+		if strings.HasPrefix(tokenKey, agentNodeKeyPrefix) {
+			who = "this agent node"
+		}
+		return nil, toolError(ErrBusy, fmt.Sprintf("%s already runs %d call(s), its limit; retry when one finishes", who, s.perToken[tokenKey]))
 	}
 	ts.inflight++
 	s.global++

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ERROR_PORT, hasErrorPort, ports } from '@/lib/ports'
+import { ERROR_PORT, hasErrorPort, outputPorts, ports } from '@/lib/ports'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
-import { computed } from 'vue'
-import { Handle, Position } from '@vue-flow/core'
+import { computed, nextTick, watch } from 'vue'
+import { Handle, Position, useVueFlow } from '@vue-flow/core'
 import { cn } from '@/lib/utils'
 import { useObservabilityStore } from '@/stores/observability'
 import type { NodeCategory } from '@/types'
@@ -50,13 +50,22 @@ const categoryColors = {
 const colors = computed(() => categoryColors[props.data.category])
 
 const types = useNodeTypesStore()
-const inputs = computed(() => ports(types.getById(props.data.nodeType)?.inputs))
-const outputs = computed(() => ports(types.getById(props.data.nodeType)?.outputs))
+const nodeType = computed(() => types.getById(props.data.nodeType))
+const inputs = computed(() => ports(nodeType.value?.inputs))
+// The declared outputs, then those the settings give (ADR-0040: the
+// classifier's categories), so the ports follow the settings as typed.
+const outputs = computed(() => outputPorts(nodeType.value, props.data.config))
 // Every node that processes messages can hand its failures to the flow.
-const errorPort = computed(() => hasErrorPort(types.getById(props.data.nodeType)))
+const errorPort = computed(() => hasErrorPort(nodeType.value))
 // What the node is set to do, instead of its type id; empty required
 // settings are flagged so they are found before deploying.
-const summary = computed(() => nodeSummary(props.data.config || {}, types.getById(props.data.nodeType)?.configSchema ?? []))
+const summary = computed(() => nodeSummary(props.data.config || {}, nodeType.value?.configSchema ?? []))
+
+// Vue Flow measures a node's handles when it renders; ports added or
+// removed by a setting are measured again, or edges would attach to where
+// the old handles were.
+const { updateNodeInternals } = useVueFlow()
+watch(() => outputs.value.map(p => p.id).join('\n'), () => nextTick(() => updateNodeInternals([props.id])))
 
 // Live execution state, streamed from the backend via the observability store.
 const obs = useObservabilityStore()

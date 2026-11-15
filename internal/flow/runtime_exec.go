@@ -360,9 +360,10 @@ func (r *FlowRuntime) executeNodeWithRetry(nodeInstance node.Node, routedMsg Rou
 	// A negative MaxRetries would skip the loop entirely and report success
 	// without ever running the node; clamp so the node always runs once.
 	maxRetries := max(r.retryConfig.MaxRetries, 0)
+	ctx := r.nodeCtx(routedMsg.TargetNode)
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		outputs, err := nodeInstance.Process(r.ctx, routedMsg.Message)
+		outputs, err := nodeInstance.Process(ctx, routedMsg.Message)
 
 		if err == nil {
 			if attempt > 0 {

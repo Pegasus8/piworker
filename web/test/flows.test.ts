@@ -1,8 +1,10 @@
 import { expect, mock, test } from 'bun:test'
 import { createPinia, setActivePinia } from 'pinia'
 import { watchSyncEffect } from 'vue'
+// The node types the store sees (none unless a test sets some).
+let nodeTypes: Record<string, unknown> = {}
 mock.module('../src/stores/nodeTypes', () => ({
-  useNodeTypesStore: () => ({ fetchNodeTypes: async () => {}, getById: () => undefined })
+  useNodeTypesStore: () => ({ fetchNodeTypes: async () => {}, getById: (id: string) => nodeTypes[id] })
 }))
 const apiMock: {
   getFlow: (id: string) => Promise<unknown>
@@ -437,4 +439,54 @@ test('deploying returns the warnings the server answered', async () => {
   apiMock.toggleFlow = async () => ({ running: true, warnings: [warning] })
   expect(await store.deployFlow('x')).toEqual([warning])
   expect(await store.toggleFlow('x', true)).toEqual([warning])
+})
+
+// Outputs from a setting (ADR-0040): the classifier's ports follow its
+// categories, and an edit that removes a port removes the edges leaving it
+// in the same undo step.
+const classifyType = { id: 'classify', category: 'process', inputs: [{ id: 'input', name: 'Input' }], outputs: [{ id: 'other', name: 'Other' }], outputsFrom: 'categories' }
+const logType = { id: 'log', category: 'action', inputs: [{ id: 'input', name: 'Input' }], outputs: [] }
+const typedNode = (id: string, nodeType: string, config: Record<string, unknown> = {}) => ({ id, type: 'process', position: { x: 0, y: 0 }, data: { label: id, nodeType, category: 'process', icon: '', config } }) as any
+
+test('removing a category removes the edges leaving its port, undone together', () => {
+  setActivePinia(createPinia())
+  nodeTypes = { classify: classifyType, log: logType }
+  try {
+    const store = useFlowsStore()
+    store.initNewFlow()
+    store.addNode(typedNode('c', 'classify', { categories: ['bug', 'question'] }))
+    store.addNode(typedNode('l', 'log'))
+    store.addEdge({ id: 'bug', source: 'c', target: 'l', sourceHandle: 'bug', targetHandle: 'input' })
+    store.addEdge({ id: 'other', source: 'c', target: 'l', sourceHandle: 'other', targetHandle: 'input' })
+    store.addEdge({ id: 'question', source: 'c', target: 'l', sourceHandle: 'question', targetHandle: 'input' })
+
+    store.updateNodeConfig('c', { categories: ['question'] })
+    expect(store.edges.map(e => e.id)).toEqual(['other', 'question'])
+    expect(store.invalidConnections).toEqual([])
+    // Renaming a category in place keeps its edges on the new name.
+    store.updateNodeConfig('c', { categories: ['questions'] })
+    expect(store.edges.find(e => e.id === 'question')?.sourceHandle).toBe('questions')
+
+    store.undo()
+    expect(store.nodes[0].data.config).toEqual({ categories: ['bug', 'question'] })
+    expect(store.edges.map(e => [e.id, e.sourceHandle])).toEqual([['bug', 'bug'], ['other', 'other'], ['question', 'question']])
+  } finally {
+    nodeTypes = {}
+  }
+})
+
+test('a saved node carries the outputs its settings give it', async () => {
+  setActivePinia(createPinia())
+  nodeTypes = { classify: classifyType }
+  try {
+    const store = useFlowsStore()
+    apiMock.getFlow = async () => ({ ...backendFlow('a'), nodes: [{ id: 'c', type: 'classify', category: 'processing', position: { x: 0, y: 0 }, config: { categories: ['bug'] } }] })
+    let sent: any
+    apiMock.updateFlow = async (_id, flow) => { sent = flow; return flow }
+    await store.fetchFlow('a')
+    await store.saveFlow()
+    expect(sent.nodes[0].outputs.map((p: { id: string }) => p.id)).toEqual(['other', 'bug'])
+  } finally {
+    nodeTypes = {}
+  }
 })

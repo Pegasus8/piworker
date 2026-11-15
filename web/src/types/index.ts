@@ -1,5 +1,6 @@
 import type { Node, Edge } from '@vue-flow/core'
-import type { SuggestSource } from '@/lib/zigbee'
+import type { SuggestSource } from '@/lib/suggestions'
+import type { FlowIssue } from '@/lib/drafts'
 
 export type NodeCategory = 'trigger' | 'process' | 'action'
 
@@ -19,13 +20,20 @@ export interface NodeTypeConfig {
   riskCanRise?: boolean
   inputs?: unknown[]
   outputs?: unknown[]
+  /**
+   * The list setting whose items are extra output ports after outputs
+   * (ADR-0040, the classifier's categories); read the ports of a node with
+   * outputPorts / sourcePorts (lib/ports.ts), never outputs alone.
+   */
+  outputsFrom?: string
   configSchema: ConfigField[]
 }
 
 export interface ConfigField {
   key: string
   label: string
-  type: 'text' | 'number' | 'integer' | 'select' | 'boolean' | 'textarea' | 'cron' | 'keyvalue' | 'json'
+  /** list: a list of strings (ConfigProperty type "array"), edited as rows. */
+  type: 'text' | 'number' | 'integer' | 'select' | 'boolean' | 'textarea' | 'cron' | 'keyvalue' | 'json' | 'list'
   required?: boolean
   default?: any
   options?: { label: string; value: string }[]
@@ -34,7 +42,7 @@ export interface ConfigField {
   unit?: string
   /** A credential: never shown outside its field. */
   sensitive?: boolean
-  /** Where a free-text setting finds suggestions (the value stays free text). */
+  /** Where a free-text setting (or each item of a list) finds suggestions; the value stays free text. */
   suggest?: SuggestSource
 }
 
@@ -209,4 +217,146 @@ export interface TLSInfo {
   httpPort: number | null
   /** Set when the local CA is close to (or past) its expiry. */
   warning?: string
+}
+
+// --- LLM connections, memory, knowledge base and the flow assistant ---
+// (docs/design/llm.md §6). Admin session only; none of it is on MCP.
+
+export type LLMProvider = 'anthropic' | 'openai'
+
+/** What a connection used (today, for the connections list). */
+export interface LLMUsage {
+  inputTokens: number
+  outputTokens: number
+  requests: number
+}
+
+/** An LLM connection as listed: the API key is write-only, only whether one is stored. */
+export interface LLMConnection {
+  name: string
+  provider: LLMProvider
+  /** '' uses the provider's default endpoint. */
+  baseUrl: string
+  hasApiKey: boolean
+  /** The default model of the nodes that name none ('' when unset). */
+  model: string
+  /** Input plus output tokens per local day (0: no limit). */
+  dailyTokenLimit: number
+  usageToday: LLMUsage
+}
+
+/** The body of PUT /api/llm/connections/{name} and of its test. */
+export interface LLMConnectionRequest {
+  provider: LLMProvider
+  baseUrl: string
+  /** Omitted: keep the stored key; '': clear it. May hold {{secret.NAME}} references. */
+  apiKey?: string
+  model: string
+  dailyTokenLimit: number
+}
+
+/** A model a connection offers (llm.ModelInfo). */
+export interface LLMModel {
+  id: string
+  /** The display name, when the provider has one. */
+  name?: string
+}
+
+/** POST /api/llm/connections/{name}/test: whether the models could be listed (spends no tokens). */
+export interface LLMConnectionTest {
+  ok: boolean
+  error?: string
+  models?: LLMModel[]
+}
+
+/** A stored conversation (llm.ConversationInfo). */
+export interface LLMConversationInfo {
+  key: string
+  turns: number
+  updatedAt: string
+}
+
+/** One message of a stored conversation (llm.Turn); text only. */
+export interface LLMTurn {
+  role: 'user' | 'assistant'
+  text: string
+  at: string
+}
+
+export interface LLMConversation {
+  key: string
+  turns: LLMTurn[]
+}
+
+/** A knowledge collection (llm.CollectionInfo). */
+export interface KnowledgeCollection {
+  name: string
+  documents: number
+  /** The embedding model every document of it was embedded with. */
+  model: string
+  dimensions: number
+  updatedAt: string
+}
+
+/** One document of a collection (llm.Document; the embedding is never sent). */
+export interface KnowledgeDocument {
+  id: string
+  text: string
+  metadata?: Record<string, unknown>
+  model: string
+  createdAt: string
+}
+
+/** GET /api/llm/knowledge/{collection}: a page of documents and how many there are. */
+export interface KnowledgeDocumentPage {
+  documents: KnowledgeDocument[]
+  total: number
+}
+
+/** A node of a flow as the server stores it (flow.Node): what the assistant proposes. */
+export interface StoredFlowNode {
+  id: string
+  type: string
+  category?: string
+  position?: { x: number; y: number }
+  config?: Record<string, unknown>
+  enabled?: boolean
+  inputs?: unknown[]
+  outputs?: unknown[]
+}
+
+/** A connection as the server stores it (flow.Connection). */
+export interface StoredFlowConnection {
+  id?: string
+  sourceNode: string
+  sourcePort: string
+  targetNode: string
+  targetPort: string
+}
+
+/** A flow definition the assistant reads (the canvas, unsaved) or proposes. */
+export interface AssistantFlow {
+  name: string
+  description: string
+  nodes: StoredFlowNode[]
+  connections: StoredFlowConnection[]
+}
+
+/** POST /api/llm/assistant/flow (docs/design/llm.md §7). */
+export interface AssistantFlowRequest {
+  connection: string
+  /** Empty or omitted: the connection's model. */
+  model?: string
+  description: string
+  /** The editor's current definition, for "change this flow". */
+  flow?: AssistantFlow
+}
+
+/** The assistant's proposal: nothing is saved, deployed or run. */
+export interface AssistantFlowResult {
+  flow: AssistantFlow
+  notes: string
+  /** What flow.Lint still finds in the proposal. */
+  issues: FlowIssue[]
+  usage: LLMUsage
 }

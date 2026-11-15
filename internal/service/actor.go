@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/Pegasus8/piworker/internal/agentauth"
+	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/storage"
 )
 
@@ -19,6 +20,10 @@ const (
 	ActorAgent ActorKind = "agent"
 	// ActorEditor is the admin in the editor (cookie session).
 	ActorEditor ActorKind = "editor"
+	// ActorAgentNode is an agent node of a running flow
+	// (process-llm-agent, ADR-0039). It has no token: it may call the
+	// tools its settings list (see agentNodeAccess).
+	ActorAgentNode ActorKind = "agent-node"
 )
 
 // Actor is the caller of a service operation. For agents it carries what
@@ -31,6 +36,21 @@ type Actor struct {
 	Privileged bool
 	Grants     []storage.TokenGrant
 	AllTools   bool
+	// FlowID and NodeID name an agent node (ActorAgentNode), Tools the tool
+	// names its settings list; its Privileged is allowPrivileged.
+	FlowID, NodeID string
+	Tools          []string
+}
+
+// AgentNodeActor is the actor of an agent node's tool calls.
+func AgentNodeActor(c node.AgentCaller) Actor {
+	return Actor{
+		Kind:       ActorAgentNode,
+		FlowID:     c.FlowID,
+		NodeID:     c.NodeID,
+		Tools:      slices.Clone(c.Tools),
+		Privileged: c.AllowPrivileged,
+	}
 }
 
 // AgentActor is the actor of a verified agent token.
@@ -62,26 +82,42 @@ func (a Actor) HasScope(scope string) bool { return slices.Contains(a.Scopes, sc
 
 func (a Actor) isAgent() bool { return a.Kind == ActorAgent }
 
+func (a Actor) isAgentNode() bool { return a.Kind == ActorAgentNode }
+
+// agentView reports whether the actor sees results as agents do (redacted,
+// errors of nodes with hidden settings withheld): MCP agents and agent
+// nodes, whose results go to a model.
+func (a Actor) agentView() bool { return a.isAgent() || a.isAgentNode() }
+
+// agentNodeKeyPrefix starts the key of an agent node.
+const agentNodeKeyPrefix = "agent-node:"
+
 // runActor is the "actor" meta of runs the actor starts.
 func (a Actor) runActor() string {
-	if a.isAgent() {
+	switch {
+	case a.isAgent():
 		return "token:" + a.TokenName
+	case a.isAgentNode():
+		return a.key()
 	}
 	return string(ActorEditor)
 }
 
 // key identifies the actor as the owner of a run.
 func (a Actor) key() string {
-	if a.isAgent() {
+	switch {
+	case a.isAgent():
 		return "token:" + a.TokenID
+	case a.isAgentNode():
+		return agentNodeKeyPrefix + a.FlowID + "/" + a.NodeID
 	}
 	return string(a.Kind)
 }
 
-// slotKey is the actor's per-token limit key ("" for the editor, which has
-// none).
+// slotKey is the actor's per-token limit key: a token's, or an agent
+// node's, which is limited like one ("" for the editor, which has none).
 func (a Actor) slotKey() string {
-	if a.isAgent() {
+	if a.isAgent() || a.isAgentNode() {
 		return a.key()
 	}
 	return ""

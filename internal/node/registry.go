@@ -22,6 +22,11 @@ type NodeTypeInfo struct {
 	Config        *ConfigSchema      `json:"config,omitempty"`        // Configuration schema
 	Icon          string             `json:"icon,omitempty"`          // Icon name for UI
 	Risk          Risk               `json:"risk"`                    // What the node can affect; every registered type declares it
+	// OutputsFrom names an array-of-strings setting whose items are extra
+	// output ports (ID and name = the item) after Outputs (ADR-0040; see
+	// ConfigOutputs). The registry refuses a name that is not an "array"
+	// setting of Config.
+	OutputsFrom string `json:"outputsFrom,omitempty"`
 }
 
 // Risk classifies what a node type can affect outside the flow. It drives the
@@ -87,6 +92,16 @@ func (r *Registry) Register(info NodeTypeInfo, factory NodeFactory) error {
 			if cn, ok := probe.(ConfigurableNode); ok {
 				schema := cn.GetConfigSchema()
 				info.Config = &schema
+			}
+		}
+	}
+	if err := checkOutputsFrom(info); err != nil {
+		return err
+	}
+	if info.Config != nil {
+		for name, p := range info.Config.Properties {
+			if !optionsSources[p.Options] {
+				return fmt.Errorf("node type %q: setting %q names an unknown suggestion source %q", info.Type, name, p.Options)
 			}
 		}
 	}

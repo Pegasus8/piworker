@@ -109,21 +109,42 @@ type ConfigProperty struct {
 	// with one added or removed, on a flow that reaches other services
 	// (rate_changed): how often it sends is the admin's to approve.
 	Rate bool `json:"rate,omitempty"`
-	// Options names where the editor finds suggestions for a string value
-	// (the value stays free text): OptionsConnections (the broker
-	// connections), OptionsZigbeeDevices (the devices of the node's
-	// connection), OptionsZigbeeProperties / OptionsZigbeeSettable (what
-	// the node's device publishes / can be set).
+	// Options names where the editor finds suggestions for a string value,
+	// or for each item of an array (the value stays free text):
+	// OptionsConnections (the broker connections), OptionsZigbeeDevices
+	// (the devices of the node's connection), OptionsZigbeeProperties /
+	// OptionsZigbeeSettable (what the node's device publishes / can be
+	// set), OptionsLLMConnections, OptionsLLMModels (the models of the
+	// node's LLM connection), OptionsTools (the published tool names) and
+	// OptionsKnowledgeCollections. The registry refuses any other source.
 	Options string `json:"options,omitempty"`
 }
 
 // Suggestion sources of ConfigProperty.Options.
 const (
-	OptionsConnections      = "connections"
-	OptionsZigbeeDevices    = "zigbee-devices"
-	OptionsZigbeeProperties = "zigbee-properties"
-	OptionsZigbeeSettable   = "zigbee-settable"
+	OptionsConnections          = "connections"
+	OptionsZigbeeDevices        = "zigbee-devices"
+	OptionsZigbeeProperties     = "zigbee-properties"
+	OptionsZigbeeSettable       = "zigbee-settable"
+	OptionsLLMConnections       = "llm-connections"
+	OptionsLLMModels            = "llm-models"
+	OptionsTools                = "tools"
+	OptionsKnowledgeCollections = "knowledge-collections"
 )
+
+// optionsSources are the values ConfigProperty.Options may take: the
+// sources the editor knows.
+var optionsSources = map[string]bool{
+	"":                          true,
+	OptionsConnections:          true,
+	OptionsZigbeeDevices:        true,
+	OptionsZigbeeProperties:     true,
+	OptionsZigbeeSettable:       true,
+	OptionsLLMConnections:       true,
+	OptionsLLMModels:            true,
+	OptionsTools:                true,
+	OptionsKnowledgeCollections: true,
+}
 
 // BaseNode provides a common implementation for simple nodes.
 // Embed this in your node implementations to get default behavior.

@@ -200,6 +200,10 @@ type FlowRuntime struct {
 	// gets (trigger Start and Process); see WithNodeContext.
 	nodeContext func(context.Context) context.Context
 
+	// toolCaller is put on every node's context (WithToolCaller); nil:
+	// none.
+	toolCaller node.ToolCaller
+
 	// flowVars are the per-flow variable stores the flow's own is taken
 	// from (WithFlowVariables; flowvars.DefaultFlows when not set).
 	flowVars *flowvars.FlowStores
@@ -312,6 +316,10 @@ func (r *FlowRuntime) Start(ctx context.Context) error {
 	// Use background context so the flow survives HTTP request completion.
 	// The parent ctx is only used for initial validation, not for runtime lifecycle.
 	nodeCtx := withCallRegistry(context.Background(), r.calls)
+	if r.toolCaller != nil {
+		// Before the wrapper, so a sandboxing one has the last word.
+		nodeCtx = node.WithToolCaller(nodeCtx, r.toolCaller)
+	}
 	if r.nodeContext != nil {
 		if wrapped := r.nodeContext(nodeCtx); wrapped != nil {
 			nodeCtx = wrapped
@@ -373,7 +381,7 @@ func (r *FlowRuntime) Start(ctx context.Context) error {
 			Str("nodeID", nodeID).
 			Msg("Starting trigger node")
 
-		if err := trigger.Start(r.ctx, seedChan); err != nil {
+		if err := trigger.Start(r.nodeCtx(nodeID), seedChan); err != nil {
 			nodeType := "trigger"
 			if def := r.nodeDefs[nodeID]; def != nil {
 				nodeType = def.Type
@@ -390,6 +398,13 @@ func (r *FlowRuntime) Start(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// nodeCtx is the context node nodeID runs with (trigger Start, Process): the
+// runtime's, which Stop cancels, naming the node and its flow
+// (node.NodeInfoFromContext).
+func (r *FlowRuntime) nodeCtx(nodeID string) context.Context {
+	return node.WithNodeInfo(r.ctx, node.NodeInfo{FlowID: r.flow.ID, NodeID: nodeID})
 }
 
 // startSeeder returns the channel a trigger emits into. A goroutine reads it,

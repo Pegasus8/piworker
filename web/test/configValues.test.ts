@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { configFieldsFromSchema, integerFromInput, jsonText, numberFromInput, objectFromRows, objectRows, parseJsonObject, setConfigValue } from '../src/lib/configValues'
+import { configFieldsFromSchema, integerFromInput, jsonText, listDuplicates, listFromRows, listRows, moveItem, numberFromInput, objectFromRows, objectRows, parseJsonObject, setConfigValue, unreadableList } from '../src/lib/configValues'
 
 test('a cleared number input is unset, not 0', () => {
   expect(numberFromInput('')).toBeUndefined()
@@ -120,4 +120,66 @@ test('a string setting with a suggestion source keeps it, unknown sources are ig
   expect(byKey.command.suggest).toBeUndefined()
   expect(byKey.command.options?.length).toBe(2)
   expect(byKey.other.suggest).toBeUndefined()
+})
+
+// List settings (ConfigProperty type "array", docs/design/llm.md §5): a list
+// of strings edited as rows, such as the classifier's categories or the
+// tools an agent node may call.
+test('an array setting is a list field, with its suggestions per item', () => {
+  const fields = configFieldsFromSchema({
+    required: ['categories'],
+    properties: {
+      categories: { type: 'array', title: 'Categories', description: 'One port per category' },
+      tools: { type: 'array', title: 'Tools', options: 'tools' },
+      connection: { type: 'string', title: 'Connection', options: 'llm-connections' },
+      model: { type: 'string', title: 'Model', options: 'llm-models' },
+      collection: { type: 'string', title: 'Collection', options: 'knowledge-collections' }
+    }
+  })
+  const byKey = Object.fromEntries(fields.map(f => [f.key, f]))
+  expect(byKey.categories.type).toBe('list')
+  expect(byKey.categories.required).toBe(true)
+  expect(byKey.categories.suggest).toBeUndefined()
+  expect(byKey.tools.type).toBe('list')
+  expect(byKey.tools.suggest).toBe('tools')
+  expect(byKey.connection.suggest).toBe('llm-connections')
+  expect(byKey.model.suggest).toBe('llm-models')
+  expect(byKey.collection.suggest).toBe('knowledge-collections')
+})
+
+test('a list is edited as rows and stored trimmed, without blank items', () => {
+  expect(listRows(['bug', 'question'])).toEqual(['bug', 'question'])
+  // Items that are not text are shown as text.
+  expect(listRows(['a', 3, true, null])).toEqual(['a', '3', 'true', ''])
+  // Anything but a list (text saved by hand) yields no rows.
+  expect(listRows('bug, question')).toEqual([])
+  expect(listRows(undefined)).toEqual([])
+  expect(listFromRows([' bug ', '', '   ', 'question'])).toEqual(['bug', 'question'])
+  // No item left: unset, so the node uses its default (or is flagged as missing).
+  expect(listFromRows(['', ' '])).toBeUndefined()
+  expect(listFromRows([])).toBeUndefined()
+})
+
+test('a list value that is not a list is reported, an unset one is not', () => {
+  expect(unreadableList('bug, question')).toBe(true)
+  expect(unreadableList({ a: 1 })).toBe(true)
+  expect(unreadableList(['bug'])).toBe(false)
+  expect(unreadableList(undefined)).toBe(false)
+  expect(unreadableList(null)).toBe(false)
+  expect(unreadableList('')).toBe(false)
+})
+
+test('repeated items are named once each', () => {
+  expect(listDuplicates(['bug', 'question', ' bug', 'question', 'praise', 'bug'])).toEqual(['bug', 'question'])
+  expect(listDuplicates(['bug', '', ''])).toEqual([])
+})
+
+test('moving an item returns the reordered list', () => {
+  const list = ['a', 'b', 'c']
+  expect(moveItem(list, 0, 1)).toEqual(['b', 'a', 'c'])
+  expect(moveItem(list, 2, 0)).toEqual(['c', 'a', 'b'])
+  expect(list).toEqual(['a', 'b', 'c'])
+  // Out of range: unchanged.
+  expect(moveItem(list, 0, -1)).toEqual(['a', 'b', 'c'])
+  expect(moveItem(list, 2, 3)).toEqual(['a', 'b', 'c'])
 })

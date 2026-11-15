@@ -200,6 +200,10 @@ type NodeTypeResponse struct {
 	// RiskCanRise: a setting can raise an instance above Risk
 	// (flow.RiskCanRise), so the editor can say so where it is true.
 	RiskCanRise bool `json:"riskCanRise"`
+	// OutputsFrom names the array setting whose items are extra output
+	// ports after Outputs (ADR-0040): the editor renders them from the
+	// node's config. Omitted for the other types.
+	OutputsFrom string `json:"outputsFrom,omitempty"`
 }
 
 // PortResponse represents a port in API responses.
@@ -253,6 +257,7 @@ func toNodeTypeResponse(info node.NodeTypeInfo) NodeTypeResponse {
 		Icon:          info.Icon,
 		Risk:          string(info.Risk),
 		RiskCanRise:   flow.RiskCanRise(info),
+		OutputsFrom:   info.OutputsFrom,
 	}
 }
 

@@ -212,16 +212,21 @@ func (t *Tools) call(ctx context.Context, actor Actor, ref ToolRef, args map[str
 		return flow.CallResult{}, callError(err)
 	}
 	done := rt.RunDone(res.RunID)
-	view := resultView{agent: actor.isAgent(), flow: rt.Flow()}
+	view := resultView{agent: actor.agentView(), flow: rt.Flow()}
 	res = t.finish(view, res)
 	running := res.Status == flow.CallStatusRunning
-	t.results.put(res.RunID, &callRecord{
-		owner:  actor.key(),
-		rt:     rt,
-		view:   view,
-		result: res,
-		final:  !running,
-	}, ti.Timeout)
+	if !actor.isAgentNode() {
+		// An agent node never reads a result again (node.ToolCaller has
+		// no Result): keeping it would only take the room other callers'
+		// results need.
+		t.results.put(res.RunID, &callRecord{
+			owner:  actor.key(),
+			rt:     rt,
+			view:   view,
+			result: res,
+			final:  !running,
+		}, ti.Timeout)
+	}
 	approvalID := ""
 	if approved != nil {
 		approvalID = approved.id
@@ -317,6 +322,8 @@ func access(actor Actor, info flow.ToolInfo) (changed bool, err error) {
 	switch actor.Kind {
 	case ActorEditor:
 		return false, nil
+	case ActorAgentNode:
+		return false, agentNodeAccess(actor, info)
 	case ActorAgent:
 	default:
 		return false, toolError(ErrPermissionDenied, "unknown caller")

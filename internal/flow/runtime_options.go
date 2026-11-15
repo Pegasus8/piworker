@@ -5,6 +5,7 @@ import (
 	flowvars "github.com/Pegasus8/piworker/internal/vars"
 	"time"
 
+	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/rs/zerolog"
 )
@@ -37,6 +38,17 @@ func WithObserver(hook NodeEventHook) RuntimeOption {
 func WithNodeContext(wrap func(context.Context) context.Context) RuntimeOption {
 	return func(r *FlowRuntime) {
 		r.nodeContext = wrap
+	}
+}
+
+// WithToolCaller gives the runtime's nodes tc as their tool caller
+// (node.ToolCallerFromContext): agent nodes call the admin's flow tools
+// through it (ADR-0039). Without it they get the one that lists nothing and
+// refuses every call; a sandboxed node context (the dry-run's) never
+// carries one.
+func WithToolCaller(tc node.ToolCaller) RuntimeOption {
+	return func(r *FlowRuntime) {
+		r.toolCaller = tc
 	}
 }
 

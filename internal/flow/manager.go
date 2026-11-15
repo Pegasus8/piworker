@@ -20,7 +20,10 @@ type RuntimeManager struct {
 	logger      zerolog.Logger
 	observer    NodeEventHook
 	runtimeOpts []RuntimeOption
-	mu          sync.RWMutex
+	// toolCaller (guarded by mu) is given to every flow deployed after
+	// SetToolCaller; nil: none.
+	toolCaller node.ToolCaller
+	mu         sync.RWMutex
 	// toolsVersion (guarded by mu) changes whenever the set of running flows,
 	// and so the published tools, may have changed (see Tools).
 	toolsVersion uint64
@@ -43,6 +46,17 @@ func WithRuntimeOptions(opts ...RuntimeOption) ManagerOption {
 	return func(m *RuntimeManager) {
 		m.runtimeOpts = append(m.runtimeOpts, opts...)
 	}
+}
+
+// SetToolCaller gives every flow deployed from now on tc as its nodes' tool
+// caller (WithToolCaller; nil: none). The composition root sets it once the
+// tool service exists, which needs the manager first, and before any flow
+// is deployed or restored; flows already running keep the caller they were
+// deployed with.
+func (m *RuntimeManager) SetToolCaller(tc node.ToolCaller) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.toolCaller = tc
 }
 
 // NewRuntimeManager creates a new RuntimeManager.
@@ -97,6 +111,9 @@ func (m *RuntimeManager) deploy(ctx context.Context, f *Flow, extra ...RuntimeOp
 	rtOpts = append(rtOpts, m.runtimeOpts...)
 	if m.observer != nil {
 		rtOpts = append(rtOpts, WithObserver(m.observer))
+	}
+	if m.toolCaller != nil {
+		rtOpts = append(rtOpts, WithToolCaller(m.toolCaller))
 	}
 	rtOpts = append(rtOpts, extra...)
 	rt, err := NewFlowRuntime(f, m.registry, rtOpts...)
