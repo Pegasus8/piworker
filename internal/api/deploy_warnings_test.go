@@ -37,7 +37,7 @@ func (n *optionalSecretNode) SecretReferences() map[string][]string {
 // deploy without warnings answers an empty list.
 func TestDeployAnswersItsWarnings(t *testing.T) {
 	server, store := createTestServer(t)
-	t.Cleanup(server.handler.manager.StopAll)
+	t.Cleanup(server.handler.lifecycle.Runtimes().StopAll)
 	require.NoError(t, server.handler.registry.Register(node.NodeTypeInfo{
 		Type: "mock-optional-secret", Name: "Optional secret", Category: flow.NodeCategoryOutput,
 		Inputs: []flow.Port{{ID: "input", Name: "Input", DataType: flow.DataTypeAny}},

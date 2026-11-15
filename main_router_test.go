@@ -12,6 +12,7 @@ import (
 	"github.com/Pegasus8/piworker/internal/config"
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
+	"github.com/Pegasus8/piworker/internal/service"
 	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/rs/zerolog"
@@ -20,7 +21,7 @@ import (
 
 type testApp struct {
 	handler http.Handler
-	flows   *api.FlowsHandler
+	flows   *service.Lifecycle
 	store   *storage.SQLiteStore
 	users   *storage.SQLiteUserStore
 	manager *flow.RuntimeManager

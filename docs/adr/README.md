@@ -75,3 +75,4 @@ node recipe, UI changes and documentation do **not** need an ADR.
 | [0031](0031-export-and-restore-of-variables-connections-and-secrets.md) | Export and restore of variables, connections and secrets | Accepted |
 | [0032](0032-automatic-backups-and-whole-state-restore.md) | Automatic backups and whole-state restore | Accepted |
 | [0033](0033-update-checks-and-requested-updates.md) | Update checks and requested updates | Proposed |
+| [0034](0034-lifecycle-service-owns-deploy-and-stop.md) | A lifecycle service owns deploy, stop and restore | Proposed |

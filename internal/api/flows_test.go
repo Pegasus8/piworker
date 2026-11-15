@@ -11,6 +11,7 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
+	"github.com/Pegasus8/piworker/internal/service"
 	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
@@ -608,7 +609,7 @@ func TestNewFlowsHandler(t *testing.T) {
 		logger := zerolog.Nop()
 		manager := flow.NewRuntimeManager(registry, logger)
 
-		handler := NewFlowsHandler(store, manager, registry, logger)
+		handler := NewFlowsHandler(store, service.NewLifecycle(store, manager, logger), registry, logger)
 
 		assert.NotNil(t, handler)
 	})

@@ -30,7 +30,7 @@ func TestRestoreKeepsPreviouslyAcceptedFlowsRunning(t *testing.T) {
 	marker := storage.Deployment{Version: 1, ActorKind: storage.VersionActorAgent, TokenID: "tok", TokenName: "claude"}
 	require.NoError(t, app.store.RecordDeployment(f.ID, marker))
 
-	restoreRunningFlows(app.store, app.manager)
+	app.flows.RestoreRunning(t.Context())
 
 	rt, ok := app.manager.GetRuntime(f.ID)
 	require.True(t, ok, "the flow must be restored")
@@ -70,7 +70,7 @@ func TestRestoreAttributesAVersionTheMarkerDoesNotName(t *testing.T) {
 	require.Equal(t, 2, v)
 	require.NoError(t, app.store.UpdateFlowState(f.ID, flow.FlowStateRunning))
 
-	restoreRunningFlows(app.store, app.manager)
+	app.flows.RestoreRunning(t.Context())
 
 	d, err := app.store.GetDeployment(f.ID)
 	require.NoError(t, err)

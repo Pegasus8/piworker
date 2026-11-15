@@ -21,8 +21,8 @@ import (
 // lifecycle path (FlowLifecycle): one lock, the restart intent, the
 // deployment marker and the editor's statuses.
 
-// FlowLifecycle is the editor's lifecycle path, implemented by internal/api's
-// FlowsHandler. WithLock runs fn holding the lifecycle lock (lifecycleMu): no
+// FlowLifecycle is the lifecycle path, implemented by Lifecycle (ADR-0034).
+// WithLock runs fn holding the lifecycle lock: no
 // editor save, deploy, stop, toggle or delete runs meanwhile, so a check fn
 // makes (the version it read, the token it re-read) still holds when fn
 // deploys. The LockedLifecycle is valid only during fn; fn must not call
@@ -35,7 +35,7 @@ type FlowLifecycle interface {
 }
 
 // LockedLifecycle is what the lifecycle path does under its lock, exactly as
-// the editor's deploy and stop requests do it (FlowsHandler.changeRunning).
+// the editor's deploy and stop requests do it (HeldLifecycle).
 // Its refusals are *LifecycleError with the editor's statuses; other
 // failures are plain errors (500).
 type LockedLifecycle interface {
@@ -71,7 +71,10 @@ type LockedLifecycle interface {
 type LifecycleError struct {
 	Status  int
 	Message string
-	Err     error
+	// CurrentVersion, when not 0, is the stored version a stale deploy
+	// (409) should have named.
+	CurrentVersion int
+	Err            error
 }
 
 func (e *LifecycleError) Error() string { return e.Message }

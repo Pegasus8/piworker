@@ -131,7 +131,7 @@ The server never replaces the database it has open.
    and `tls/`; the old ones move to `restore-previous/` until the next
    successful start.
 5. The restored state is the whole state: flows that were running start
-   again (`restoreRunningFlows`), accounts and tokens are those of the
+   again (`Lifecycle.RestoreRunning`), accounts and tokens are those of the
    backup, every session is revoked.
 
 The configuration file is not written by the editor restore: on managed

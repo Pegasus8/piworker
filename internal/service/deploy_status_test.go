@@ -1,4 +1,4 @@
-package api
+package service
 
 import (
 	"errors"
@@ -8,7 +8,6 @@ import (
 
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestDeployErrorStatus(t *testing.T) {
@@ -30,18 +29,7 @@ func TestDeployErrorStatus(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, deployErrorStatus(tc.err))
+			assert.Equal(t, tc.want, DeployErrorStatus(tc.err))
 		})
 	}
-}
-
-func TestDeployInvalidFlowReturnsBadRequest(t *testing.T) {
-	server, store := createTestServer(t)
-	f := createTestFlow("dup")
-	dup := f.Nodes[0]
-	f.Nodes = append(f.Nodes, dup) // duplicate node ID
-	require.NoError(t, store.CreateFlow(f))
-
-	rr := performRequest(server, "POST", "/api/flows/"+f.ID+"/deploy", nil)
-	assert.Equal(t, http.StatusBadRequest, rr.Code, rr.Body.String())
 }

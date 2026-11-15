@@ -2,6 +2,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -11,7 +12,6 @@ import (
 	"io"
 	"net/http"
 	"regexp"
-	"sync"
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/flow"
@@ -28,25 +28,40 @@ const MaxRequestBodySize = 1 << 20
 
 // FlowsHandler handles HTTP requests for flow operations.
 type FlowsHandler struct {
-	// Serialize definition and lifecycle mutations so storage and runtime agree.
-	lifecycleMu sync.Mutex
-	// shuttingDown (guarded by lifecycleMu) refuses new deployments once the
-	// process has begun stopping, so nothing starts after StopAll.
-	shuttingDown bool
-	store        *storage.SQLiteStore
-	manager      *flow.RuntimeManager
-	registry     *node.Registry
-	logger       zerolog.Logger
+	// lifecycle is the one lifecycle path (ADR-0034): its lock serializes
+	// definition and lifecycle mutations so storage and runtime agree, and
+	// every deploy and stop goes through it.
+	lifecycle *service.Lifecycle
+	store     *storage.SQLiteStore
+	registry  *node.Registry
+	logger    zerolog.Logger
 }
 
-// NewFlowsHandler creates a new FlowsHandler.
-func NewFlowsHandler(store *storage.SQLiteStore, manager *flow.RuntimeManager, registry *node.Registry, logger zerolog.Logger) *FlowsHandler {
+// NewFlowsHandler creates the editor's flow routes over the lifecycle path.
+func NewFlowsHandler(store *storage.SQLiteStore, lifecycle *service.Lifecycle, registry *node.Registry, logger zerolog.Logger) *FlowsHandler {
 	return &FlowsHandler{
-		store:    store,
-		manager:  manager,
-		registry: registry,
-		logger:   logger,
+		lifecycle: lifecycle,
+		store:     store,
+		registry:  registry,
+		logger:    logger,
 	}
+}
+
+// FlowRef names a flow in a response.
+type FlowRef = service.FlowRef
+
+// FlowRestartFailure is a flow that a restart stopped and could not deploy
+// again.
+type FlowRestartFailure = service.FlowRestartFailure
+
+// writeLifecycleError answers the editor's request with a refusal of the
+// lifecycle path.
+func writeLifecycleError(w http.ResponseWriter, le *service.LifecycleError) {
+	if le.CurrentVersion != 0 {
+		writeErrorData(w, le.Status, le.Message, VersionConflictData{CurrentVersion: le.CurrentVersion})
+		return
+	}
+	writeError(w, le.Status, le.Message)
 }
 
 // RegisterRoutes registers the flow routes on the given router.
@@ -153,8 +168,8 @@ func writeSuccess(w http.ResponseWriter, status int, data interface{}, message s
 // ListFlows returns all flows.
 // GET /api/flows
 func (h *FlowsHandler) ListFlows(w http.ResponseWriter, r *http.Request) {
-	h.lifecycleMu.Lock()
-	defer h.lifecycleMu.Unlock()
+	held := h.lifecycle.Hold()
+	defer held.Release()
 	h.logger.Debug().Msg("Listing flows")
 
 	flows, err := h.store.ListFlows(nil)
@@ -307,8 +322,8 @@ func (h *FlowsHandler) ImportFlow(w http.ResponseWriter, r *http.Request) {
 // GetFlow returns a specific flow by ID.
 // GET /api/flows/{id}
 func (h *FlowsHandler) GetFlow(w http.ResponseWriter, r *http.Request) {
-	h.lifecycleMu.Lock()
-	defer h.lifecycleMu.Unlock()
+	held := h.lifecycle.Hold()
+	defer held.Release()
 	vars := mux.Vars(r)
 	id := vars["id"]
 
@@ -330,7 +345,7 @@ func (h *FlowsHandler) GetFlow(w http.ResponseWriter, r *http.Request) {
 
 	// Check if running
 	running := false
-	if rt, ok := h.manager.GetRuntime(id); ok {
+	if rt, ok := h.lifecycle.Runtimes().GetRuntime(id); ok {
 		running = rt.IsRunning()
 	}
 	marked, err := h.withMarks(f)
@@ -349,8 +364,8 @@ func (h *FlowsHandler) GetFlow(w http.ResponseWriter, r *http.Request) {
 // UpdateFlow updates an existing flow.
 // PUT /api/flows/{id}
 func (h *FlowsHandler) UpdateFlow(w http.ResponseWriter, r *http.Request) {
-	h.lifecycleMu.Lock()
-	defer h.lifecycleMu.Unlock()
+	held := h.lifecycle.Hold()
+	defer held.Release()
 	vars := mux.Vars(r)
 	id := vars["id"]
 
@@ -362,7 +377,7 @@ func (h *FlowsHandler) UpdateFlow(w http.ResponseWriter, r *http.Request) {
 	// Refuse to edit a running flow: the live runtime keeps executing the old
 	// definition, so persisting a new one would silently desync storage/UI from
 	// what's actually running. Require an explicit stop first.
-	if rt, ok := h.manager.GetRuntime(id); ok && rt.IsRunning() {
+	if rt, ok := h.lifecycle.Runtimes().GetRuntime(id); ok && rt.IsRunning() {
 		writeError(w, http.StatusConflict, "Cannot update a running flow; stop it first")
 		return
 	}
@@ -428,8 +443,8 @@ func (h *FlowsHandler) UpdateFlow(w http.ResponseWriter, r *http.Request) {
 // DeleteFlow deletes a flow.
 // DELETE /api/flows/{id}
 func (h *FlowsHandler) DeleteFlow(w http.ResponseWriter, r *http.Request) {
-	h.lifecycleMu.Lock()
-	defer h.lifecycleMu.Unlock()
+	held := h.lifecycle.Hold()
+	defer held.Release()
 	vars := mux.Vars(r)
 	id := vars["id"]
 
@@ -439,11 +454,7 @@ func (h *FlowsHandler) DeleteFlow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Stop the flow if it's running
-	if rt, ok := h.manager.GetRuntime(id); ok && rt.IsRunning() {
-		if err := h.manager.Undeploy(id); err != nil {
-			h.logger.Warn().Err(err).Str("flowID", id).Msg("Failed to stop flow before deletion")
-		}
-	}
+	held.Discard(id)
 
 	if err := h.store.DeleteFlow(id); err != nil {
 		if err == storage.ErrFlowNotFound {
@@ -506,37 +517,30 @@ func (h *FlowsHandler) StopFlow(w http.ResponseWriter, r *http.Request) {
 	h.changeRunning(w, r, false, true, 0)
 }
 
-// BeginShutdown makes every later deploy/toggle-on request fail with 503. It
-// waits for any lifecycle change already in progress, so once it returns no new
-// flow can start.
-func (h *FlowsHandler) BeginShutdown() {
-	h.lifecycleMu.Lock()
-	defer h.lifecycleMu.Unlock()
-	h.shuttingDown = true
-}
-
 // changeRunning deploys (wantRunning) or stops the flow of the request.
 // expected, when not 0, is the definition version the client shows: a
 // deploy of another stored version is refused with 409 (stopping needs no
 // check).
 //
-// It is the lifecycle path agent deploys share (flows_lifecycle.go): a
+// It is the lifecycle path agent deploys share (service.Lifecycle): a
 // deployment it makes is recorded as the editor's.
 func (h *FlowsHandler) changeRunning(w http.ResponseWriter, r *http.Request, wantRunning, strict bool, expected int) {
-	h.lifecycleMu.Lock()
-	defer h.lifecycleMu.Unlock()
+	held := h.lifecycle.Hold()
+	defer held.Release()
 	id := mux.Vars(r)["id"]
 	var (
 		f   *flow.Flow
-		ref *lifecycleRefusal
+		ref *service.LifecycleError
 	)
 	if wantRunning {
-		f, ref = h.startLocked(r.Context(), id, expected, strict, false, editorDeployer)
+		f, ref = held.Start(r.Context(), id, service.StartOptions{
+			Expected: expected, Strict: strict, By: service.EditorActor().DeployActor(),
+		})
 	} else {
-		f, ref = h.stopLocked(id, strict)
+		f, ref = held.Halt(id, strict)
 	}
 	if ref != nil {
-		ref.write(w)
+		writeLifecycleError(w, ref)
 		return
 	}
 	resp := FlowStatusResponse{Flow: f, Running: wantRunning, Warnings: []flow.DeployWarning{}}
@@ -549,7 +553,7 @@ func (h *FlowsHandler) changeRunning(w http.ResponseWriter, r *http.Request, wan
 // deployWarnings returns, and logs, the warnings the running flow f
 // deployed with (FlowRuntime.Warnings). Never nil.
 func (h *FlowsHandler) deployWarnings(f *flow.Flow) []flow.DeployWarning {
-	rt, ok := h.manager.GetRuntime(f.ID)
+	rt, ok := h.lifecycle.Runtimes().GetRuntime(f.ID)
 	if !ok {
 		return []flow.DeployWarning{}
 	}
@@ -583,7 +587,7 @@ func (h *FlowsHandler) InjectNode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the runtime for this flow
-	runtime, exists := h.manager.GetRuntime(flowID)
+	runtime, exists := h.lifecycle.Runtimes().GetRuntime(flowID)
 	if !exists {
 		writeError(w, http.StatusNotFound, "Flow is not running")
 		return
@@ -675,7 +679,7 @@ type Server struct {
 // NewServer creates a new API server.
 func NewServer(store *storage.SQLiteStore, registry *node.Registry, logger zerolog.Logger) *Server {
 	manager := flow.NewRuntimeManager(registry, logger)
-	handler := NewFlowsHandler(store, manager, registry, logger)
+	handler := NewFlowsHandler(store, service.NewLifecycle(store, manager, logger), registry, logger)
 
 	router := mux.NewRouter()
 	handler.RegisterRoutes(router)
@@ -723,8 +727,8 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 
 // FlowVariables serializes management with flow deletion and validates ownership.
 func (h *FlowsHandler) FlowVariables(w http.ResponseWriter, r *http.Request) {
-	h.lifecycleMu.Lock()
-	defer h.lifecycleMu.Unlock()
+	held := h.lifecycle.Hold()
+	defer held.Release()
 	id := mux.Vars(r)["id"]
 	if _, err := h.store.GetFlow(id); err != nil {
 		if err == storage.ErrFlowNotFound {
@@ -750,23 +754,7 @@ func (h *FlowsHandler) FlowVariables(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// deployErrorStatus maps a runtime deploy error to an HTTP status: problems with
-// the flow definition are client errors (400), a previous instance that is still
-// stopping or already running is a conflict (409), anything else is a 500.
-func deployErrorStatus(err error) int {
-	var verr *flow.ValidationError
-	switch {
-	case errors.As(err, &verr),
-		errors.Is(err, flow.ErrNoTriggerNodes),
-		errors.Is(err, flow.ErrInvalidNodeType),
-		errors.Is(err, flow.ErrInvalidNodeConfig),
-		errors.Is(err, flow.ErrInvalidConnection):
-		return http.StatusBadRequest
-	case errors.Is(err, flow.ErrFlowStillStopping),
-		errors.Is(err, flow.ErrFlowAlreadyRunning),
-		errors.Is(err, flow.ErrResourceConflict):
-		return http.StatusConflict
-	default:
-		return http.StatusInternalServerError
-	}
+// compareFlowsByName orders flows by name, then ID (a total order).
+func compareFlowsByName(a, b *flow.Flow) int {
+	return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.ID, b.ID))
 }

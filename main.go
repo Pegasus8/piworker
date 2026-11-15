@@ -246,7 +246,7 @@ func main() {
 	}
 
 	tlsHandler := newTLSHandler(cfg.TLS.Mode, tlsSrc)
-	router, flowsHandler, services := buildApp(cfg, store, runtimeManager, registry, userStore, tlsRoutes(tlsHandler))
+	router, lifecycle, services := buildApp(cfg, store, runtimeManager, registry, userStore, tlsRoutes(tlsHandler))
 	// MCP audit retention (30 days, row cap): at start, then hourly.
 	go mcpserver.RunAuditRetention(appCtx, store, mcpserver.RetentionOptions{Logger: log.Logger})
 	// Scheduled backups (ADR-0032).
@@ -261,7 +261,7 @@ func main() {
 	tlsHandler.SetPorts(servers.ports())
 
 	// Restore previously running flows
-	restoreRunningFlows(store, runtimeManager)
+	lifecycle.RestoreRunning(appCtx)
 
 	// Setup signal handling
 	sigCh := make(chan os.Signal, 1)
@@ -286,7 +286,7 @@ func main() {
 	}
 
 	log.Info().Msg("Shutting down...")
-	if err := gracefulShutdown(servers.all(), flowsHandler, runtimeManager, 10*time.Second, services.audit.Close); err != nil {
+	if err := gracefulShutdown(servers.all(), lifecycle, runtimeManager, 10*time.Second, services.audit.Close); err != nil {
 		log.Error().Err(err).Msg("Error during server shutdown")
 	}
 
@@ -420,7 +420,7 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 // half-stopped runtime and nothing can be deployed after StopAll.
 // The flushers (the MCP audit writer) run last, once nothing can record
 // anything any more, while the store is still open.
-func gracefulShutdown(srvs []*http.Server, flows *api.FlowsHandler, manager *flow.RuntimeManager, timeout time.Duration, flushers ...func(context.Context) error) error {
+func gracefulShutdown(srvs []*http.Server, flows *service.Lifecycle, manager *flow.RuntimeManager, timeout time.Duration, flushers ...func(context.Context) error) error {
 	flows.BeginShutdown()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -457,13 +457,13 @@ type appServices struct {
 
 // buildRouter wires middleware and every HTTP route. users is nil when
 // authentication is disabled.
-func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flow.RuntimeManager, registry *node.Registry, users *storage.SQLiteUserStore, opts ...routerOption) (*mux.Router, *api.FlowsHandler) {
+func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flow.RuntimeManager, registry *node.Registry, users *storage.SQLiteUserStore, opts ...routerOption) (*mux.Router, *service.Lifecycle) {
 	router, flows, _ := buildApp(cfg, store, runtimeManager, registry, users, opts...)
 	return router, flows
 }
 
 // buildApp is buildRouter that also returns the services main shuts down.
-func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flow.RuntimeManager, registry *node.Registry, users *storage.SQLiteUserStore, opts ...routerOption) (*mux.Router, *api.FlowsHandler, appServices) {
+func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flow.RuntimeManager, registry *node.Registry, users *storage.SQLiteUserStore, opts ...routerOption) (*mux.Router, *service.Lifecycle, appServices) {
 	router := mux.NewRouter()
 
 	// CORS allowed origins (from config).
@@ -550,13 +550,14 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 	}
 
 	// Register handlers
-	flowsHandler := api.NewFlowsHandler(store, runtimeManager, registry, log.Logger)
-	flowsHandler.RegisterRoutes(router)
-	// Agent authoring and deploy save and deploy through the editor's
-	// lifecycle path (one lock, the restart intent, the deployment marker).
+	// The one lifecycle path (ADR-0034): the editor's requests, agent
+	// authoring and deploy, connection changes and the restore at startup
+	// share its lock, the restart intent and the deployment marker.
+	lifecycle := service.NewLifecycle(store, runtimeManager, log.Logger)
+	api.NewFlowsHandler(store, lifecycle, registry, log.Logger).RegisterRoutes(router)
 	services.authoring = service.NewAuthoring(service.AuthoringOptions{
 		Store:         store,
-		Lifecycle:     flowsHandler,
+		Lifecycle:     lifecycle,
 		Registry:      registry,
 		Secrets:       secrets.DefaultStore,
 		Audit:         services.audit,
@@ -588,7 +589,7 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 	secretsHandler.RegisterRoutes(router)
 	api.NewVariablesHandler(vars.DefaultStore).RegisterRoutes(router)
 	// Broker connections (passwords write-only).
-	api.NewConnectionsHandler(brokers.DefaultStore, brokers.Tester{}, log.Logger).WithFlows(flowsHandler).RegisterRoutes(router)
+	api.NewConnectionsHandler(brokers.DefaultStore, brokers.Tester{}, log.Logger).WithFlows(lifecycle).RegisterRoutes(router)
 	// Automatic backups and whole-state restore (ADR-0032).
 	services.backups = newBackupService(cfg, store)
 	api.NewBackupsHandler(api.BackupsOptions{
@@ -598,7 +599,7 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 	api.NewStoresBackupHandler(api.StoresBackupOptions{
 		Flows: store, Globals: vars.DefaultStore, FlowVariables: vars.DefaultFlows,
 		Secrets: secrets.DefaultStore, Connections: brokers.DefaultStore,
-		Auth: authHandler, Restarter: flowsHandler, Logger: log.Logger,
+		Auth: authHandler, Restarter: lifecycle, Logger: log.Logger,
 	}).RegisterRoutes(router)
 	networks := zigbee.Default
 	if networks == nil { // not started (tests): no network to show
@@ -641,7 +642,7 @@ func buildApp(cfg config.Config, store *storage.SQLiteStore, runtimeManager *flo
 	// Error handlers for API routes (these are overridden by the PathPrefix above for non-API)
 	router.NotFoundHandler = http.HandlerFunc(api.NotFoundHandler)
 	router.MethodNotAllowedHandler = http.HandlerFunc(api.MethodNotAllowedHandler)
-	return router, flowsHandler, services
+	return router, lifecycle, services
 }
 
 // mountMCP mounts the MCP endpoint (docs/design/mcp.md §8) at /mcp for every
@@ -791,100 +792,6 @@ func applyFlagOverrides(cfg *config.Config) {
 			cfg.AdminPass = *adminPass
 		}
 	})
-}
-
-// restoreRunningFlows attempts to restart flows that were running before the
-// server stopped. Settings that no longer pass the deploy-time schema check
-// (values saved before it existed) are logged, not fatal: the flow keeps
-// running as it did, and the next explicit deploy asks for a fix.
-func restoreRunningFlows(store *storage.SQLiteStore, manager *flow.RuntimeManager) {
-	runningFlows, err := store.GetRunningFlows()
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get previously running flows")
-		return
-	}
-
-	if len(runningFlows) == 0 {
-		log.Debug().Msg("No flows to restore")
-		return
-	}
-
-	log.Info().Int("count", len(runningFlows)).Msg("Restoring previously running flows")
-
-	ctx := context.Background()
-	restored := 0
-	failed := 0
-
-	for _, f := range runningFlows {
-		issues, err := manager.Restore(ctx, f)
-		for _, issue := range issues {
-			log.Warn().
-				Str("flowID", f.ID).
-				Str("flowName", f.Name).
-				Str("path", issue.Path).
-				Str("problem", issue.Message).
-				Msg("Restored flow has a setting that the next deploy will refuse; the node clamps or defaults it as before")
-		}
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("flowID", f.ID).
-				Str("flowName", f.Name).
-				Msg("Failed to restore flow")
-			failed++
-
-			// Update flow state to failed in storage
-			if updateErr := store.UpdateFlowState(f.ID, flow.FlowStateFailed); updateErr != nil {
-				log.Error().Err(updateErr).Str("flowID", f.ID).Msg("Failed to update flow state to failed")
-			}
-		} else {
-			log.Info().
-				Str("flowID", f.ID).
-				Str("flowName", f.Name).
-				Msg("Flow restored successfully")
-			restored++
-			// What an editor deploy would answer as warnings (an undefined
-			// secret an optional credential references, ...): logged, as
-			// nobody sees a response at startup.
-			var warnings []flow.DeployWarning
-			if rt, ok := manager.GetRuntime(f.ID); ok {
-				warnings = rt.Warnings()
-			}
-			for _, is := range warnings {
-				log.Warn().Str("flowID", f.ID).Str("flowName", f.Name).Str("code", is.Code).Str("path", is.Path).
-					Str("problem", is.Message).Msg("Restored flow has a warning")
-			}
-			if err := markRestored(store, f); err != nil {
-				log.Error().Err(err).Str("flowID", f.ID).Msg("Failed to record who deployed the restored version")
-			}
-		}
-	}
-
-	log.Info().
-		Int("restored", restored).
-		Int("failed", failed).
-		Msg("Flow restoration complete")
-}
-
-// markRestored keeps the deployment marker of a restored flow true (H6): a
-// restore is not a new deployment, so a marker that names the restored
-// version is kept; one that names another version (a redeploy that failed
-// after a save left the running intent on the newer version, such as an
-// agent's draft) is replaced by the version's own author, who saved it to
-// run. A flow without stored versions keeps its marker.
-func markRestored(store *storage.SQLiteStore, f *flow.Flow) error {
-	d, err := store.GetDeployment(f.ID)
-	if err != nil || (d != nil && d.Version == f.Version) {
-		return err
-	}
-	v, err := store.GetFlowVersion(f.ID, f.Version)
-	if errors.Is(err, storage.ErrFlowVersionNotFound) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	return store.RecordDeployment(f.ID, storage.Deployment{Version: f.Version, ActorKind: v.ActorKind, TokenID: v.TokenID, TokenName: v.TokenName})
 }
 
 // ensureDefaultAdmin optionally bootstraps the first user from explicit credentials.

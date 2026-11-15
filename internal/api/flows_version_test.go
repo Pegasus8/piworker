@@ -171,7 +171,7 @@ func TestDeployWithAStaleVersionConflicts(t *testing.T) {
 		rr := performRequest(server, step.method, "/api/flows/"+f.ID+step.path, step.body)
 		require.Equal(t, http.StatusConflict, rr.Code, "%s: %s", step.path, rr.Body.String())
 		assert.Equal(t, 2, conflictVersion(t, rr.Body.Bytes()))
-		_, running := server.handler.manager.GetRuntime(f.ID)
+		_, running := server.handler.lifecycle.Runtimes().GetRuntime(f.ID)
 		assert.False(t, running, "nothing was deployed")
 	}
 

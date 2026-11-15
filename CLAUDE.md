@@ -109,8 +109,11 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
   `SourcePort` is auto-assigned only when the node has exactly one output port.
   With >1 output it is **dropped with a warning**. Switch/filter-style nodes must
   set `msg.SourcePort` on every emitted message.
-- `RuntimeManager.Deploy/Undeploy` own the lifecycle; flows that were running are
-  restored on startup (`restoreRunningFlows` in `main.go`).
+- `RuntimeManager.Deploy/Undeploy` run and stop a flow's instance, but nothing
+  calls them directly: every deploy, stop, restart and the restore at startup
+  goes through `service.Lifecycle` (`internal/service/lifecycle.go`, ADR-0034),
+  which holds the one lifecycle lock, persists the restart intent and records
+  the deployment marker. Handlers take the lock with `Hold()`/`WithLock`.
 
 ### Shared process-wide singletons
 - `webhook.DefaultHub` — webhook trigger nodes register a path on `Start`; the
@@ -179,7 +182,7 @@ Each deployed flow gets a `FlowRuntime`. Execution model:
   give field diffs plus the alerts whose kinds `agent_deploy = low` refuses
   (`service.LowDeployRefusedAlerts`, `internal/service/deploy.go`; ADR-0019,
   ADR-0022). Agent deploys go through the editor's lifecycle path
-  (`FlowsHandler.WithLock`, one lifecycle) and record the deployment marker
+  (`service.Lifecycle.WithLock`, one lifecycle) and record the deployment marker
   (`flow_deployments`). Runs record the version they ran
   (`flow_runs.flow_version`); agents see run errors only of admin-approved
   versions (ADR-0023). `flow.DryRun` runs in a private runtime from

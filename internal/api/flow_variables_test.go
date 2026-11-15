@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
+	"github.com/Pegasus8/piworker/internal/service"
 	"github.com/Pegasus8/piworker/internal/storage"
 	flowvars "github.com/Pegasus8/piworker/internal/vars"
 	"github.com/gorilla/mux"
@@ -25,7 +26,7 @@ func TestFlowVariablesAPIAndPreviewIsolation(t *testing.T) {
 	f := flow.NewFlow("local")
 	require.NoError(t, db.CreateFlow(f))
 	r := mux.NewRouter()
-	NewFlowsHandler(db, flow.NewRuntimeManager(node.DefaultRegistry, zerolog.Nop()), node.DefaultRegistry, zerolog.Nop()).RegisterRoutes(r)
+	NewFlowsHandler(db, service.NewLifecycle(db, flow.NewRuntimeManager(node.DefaultRegistry, zerolog.Nop()), zerolog.Nop()), node.DefaultRegistry, zerolog.Nop()).RegisterRoutes(r)
 	NewNodeTypesHandler(node.DefaultRegistry, zerolog.Nop(), db).RegisterRoutes(r)
 	request := func(method, path, body string) *httptest.ResponseRecorder {
 		rr := httptest.NewRecorder()

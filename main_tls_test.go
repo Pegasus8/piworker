@@ -26,6 +26,7 @@ import (
 	"github.com/Pegasus8/piworker/internal/events"
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
+	"github.com/Pegasus8/piworker/internal/service"
 	"github.com/Pegasus8/piworker/internal/storage"
 	"github.com/Pegasus8/piworker/internal/tlsca"
 	"github.com/Pegasus8/piworker/internal/types"
@@ -43,7 +44,7 @@ type tlsEnv struct {
 	src       tlsSource
 	servers   *serverSet
 	users     *storage.SQLiteUserStore
-	flows     *api.FlowsHandler
+	flows     *service.Lifecycle
 	manager   *flow.RuntimeManager
 	httpsBase string // https://127.0.0.1:<port>
 	httpBase  string // http://127.0.0.1:<port>, empty when disabled

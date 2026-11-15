@@ -27,8 +27,8 @@ type ConnectionsHandler struct {
 	flows  ConnectionUsers // noUsers until WithFlows
 }
 
-// ConnectionUsers is the editor's lifecycle as the connections see it
-// (FlowsHandler, ADR-0029).
+// ConnectionUsers is the lifecycle path as the connections see it
+// (service.Lifecycle, ADR-0029).
 type ConnectionUsers interface {
 	// RestartFlowsUsing restarts the running flows that use the connection.
 	RestartFlowsUsing(ctx context.Context, names []string) ([]FlowRef, []FlowRestartFailure)

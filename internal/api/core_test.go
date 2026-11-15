@@ -7,6 +7,7 @@ import (
 	"github.com/Pegasus8/piworker/internal/flow"
 	"github.com/Pegasus8/piworker/internal/node"
 	_ "github.com/Pegasus8/piworker/internal/node/builtin"
+	"github.com/Pegasus8/piworker/internal/service"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 	"net/http/httptest"
@@ -62,8 +63,8 @@ func TestCoreManualBranchesAndHistory(t *testing.T) {
 	go func() { defer close(done); recorder.Run(ctx) }()
 	defer func() { cancel(); <-done }()
 	server := NewServer(store, registry, zerolog.Nop())
-	server.handler.manager = flow.NewRuntimeManager(registry, zerolog.Nop(), flow.WithManagerObserver(recorder.Observe))
-	defer func() { server.handler.manager.StopAll() }()
+	server.handler.lifecycle = service.NewLifecycle(store, flow.NewRuntimeManager(registry, zerolog.Nop(), flow.WithManagerObserver(recorder.Observe)), zerolog.Nop())
+	defer func() { server.handler.lifecycle.Runtimes().StopAll() }()
 	NewEventsHandler(hub, store, zerolog.Nop()).RegisterRoutes(server.Router())
 	f := flow.NewFlow("branches")
 	for _, spec := range []struct {
@@ -110,12 +111,12 @@ func TestCoreManualBranchesAndHistory(t *testing.T) {
 		}, 3*time.Second, 10*time.Millisecond)
 	}
 	// A server restart restores deployed flows and retains their branches.
-	server.handler.manager.StopAll()
+	server.handler.lifecycle.Runtimes().StopAll()
 	pending, err := store.GetRunningFlows()
 	require.NoError(t, err)
 	require.Len(t, pending, 1)
-	server.handler.manager = flow.NewRuntimeManager(registry, zerolog.Nop(), flow.WithManagerObserver(recorder.Observe))
-	require.NoError(t, server.handler.manager.Deploy(context.Background(), pending[0]))
+	server.handler.lifecycle = service.NewLifecycle(store, flow.NewRuntimeManager(registry, zerolog.Nop(), flow.WithManagerObserver(recorder.Observe)), zerolog.Nop())
+	require.NoError(t, server.handler.lifecycle.Runtimes().Deploy(context.Background(), pending[0]))
 	require.Equal(t, 200, performRequest(server, "POST", base+"/stop", nil).Code)
 	require.Equal(t, 404, performRequest(server, "POST", base+"/inject/manual", nil).Code)
 	pending, err = store.GetRunningFlows()
@@ -136,7 +137,7 @@ func TestCoreManualBranchesAndHistory(t *testing.T) {
 func TestCoreRejectsChunkedInvalidInjection(t *testing.T) {
 	_, store := createTestServer(t)
 	server := NewServer(store, node.DefaultRegistry, zerolog.Nop())
-	defer server.handler.manager.StopAll()
+	defer server.handler.lifecycle.Runtimes().StopAll()
 	f := flow.NewFlow("manual")
 	n := flow.NewNode("trigger-manual", flow.NodeCategoryInput)
 	f.AddNode(*n)
@@ -151,7 +152,7 @@ func TestCoreRejectsChunkedInvalidInjection(t *testing.T) {
 
 func TestCoreLifecyclePersistenceFailure(t *testing.T) {
 	server, store := createTestServer(t)
-	defer server.handler.manager.StopAll()
+	defer server.handler.lifecycle.Runtimes().StopAll()
 	f := createTestFlow("durable state")
 	require.NoError(t, store.CreateFlow(f))
 	base := "/api/flows/" + f.ID
@@ -159,7 +160,7 @@ func TestCoreLifecyclePersistenceFailure(t *testing.T) {
 	require.NoError(t, err)
 	rr := performRequest(server, "POST", base+"/deploy", nil)
 	require.Equal(t, 500, rr.Code, "do not report a deployment that cannot be restored")
-	rt, ok := server.handler.manager.GetRuntime(f.ID)
+	rt, ok := server.handler.lifecycle.Runtimes().GetRuntime(f.ID)
 	require.False(t, ok && rt.IsRunning(), "roll back an unpersisted deployment")
 	_, err = store.DB().Exec(`DROP TRIGGER fail_state`)
 	require.NoError(t, err)
@@ -168,6 +169,6 @@ func TestCoreLifecyclePersistenceFailure(t *testing.T) {
 	require.NoError(t, err)
 	rr = performRequest(server, "POST", base+"/stop", nil)
 	require.Equal(t, 500, rr.Code, "do not report a stop that will be undone at restart")
-	rt, ok = server.handler.manager.GetRuntime(f.ID)
+	rt, ok = server.handler.lifecycle.Runtimes().GetRuntime(f.ID)
 	require.True(t, ok && rt.IsRunning(), "keep running if stop intent cannot be persisted")
 }
