@@ -1,5 +1,10 @@
 import axios from 'axios'
-import type { CallResult, Flow, FlowListItem, FlowEvent, FlowRun, NodeEventRecord, NodeTestResult, TLSInfo, VersionList } from '@/types'
+import type {
+  AssistantFlowRequest, AssistantFlowResult, CallResult, Flow, FlowListItem, FlowEvent, FlowRun, KnowledgeCollection, KnowledgeDocumentPage,
+  LLMConnection, LLMConnectionRequest, LLMConnectionTest, LLMConversation, LLMConversationInfo, LLMModel, NodeEventRecord, NodeTestResult,
+  TLSInfo, VersionList
+} from '@/types'
+import type { AgentTool } from '@/lib/agentAccess'
 import type { ApplyResult } from '@/lib/drafts'
 import { secretList, type SecretList } from '@/lib/secrets'
 import { importResult, type ImportResult } from '@/lib/storesBackup'
@@ -288,6 +293,84 @@ export function useApi() {
     }
   }
 
+  // LLM connections (docs/design/llm.md §6). The API key is write-only:
+  // listings say whether one is stored; a save without apiKey keeps it.
+  const llmPath = (name: string) => `/llm/connections/${encodeURIComponent(name)}`
+  async function getLLMConnections(): Promise<LLMConnection[]> {
+    const { data } = await api.get('/llm/connections')
+    return data.data?.connections ?? []
+  }
+  async function saveLLMConnection(name: string, body: LLMConnectionRequest): Promise<LLMConnection> {
+    const { data } = await api.put(llmPath(name), body)
+    return data.data
+  }
+  // 409 while a running flow uses it, naming them in data.flows (lib/llm.ts conflictFlows).
+  async function deleteLLMConnection(name: string): Promise<void> {
+    await api.delete(llmPath(name))
+  }
+  // Lists the models with these settings (the stored key when none is
+  // typed); spends no tokens and stores nothing.
+  async function testLLMConnection(name: string, body: LLMConnectionRequest): Promise<LLMConnectionTest> {
+    const { data } = await api.post(`${llmPath(name)}/test`, body)
+    return data.data
+  }
+  async function getLLMModels(name: string): Promise<LLMModel[]> {
+    const { data } = await api.get(`${llmPath(name)}/models`)
+    return data.data?.models ?? []
+  }
+
+  // Conversation memory: keys are path-escaped (they hold ':' and '/').
+  const conversationPath = (key: string) => `/llm/conversations/${encodeURIComponent(key)}`
+  async function getLLMConversations(): Promise<LLMConversationInfo[]> {
+    const { data } = await api.get('/llm/conversations')
+    return data.data?.conversations ?? []
+  }
+  async function getLLMConversation(key: string): Promise<LLMConversation> {
+    const { data } = await api.get(conversationPath(key))
+    return { key: data.data?.key ?? key, turns: data.data?.turns ?? [] }
+  }
+  async function deleteLLMConversation(key: string): Promise<void> {
+    await api.delete(conversationPath(key))
+  }
+
+  // Knowledge base: collections, and their documents a page at a time (limit ≤ 100).
+  const collectionPath = (name: string) => `/llm/knowledge/${encodeURIComponent(name)}`
+  async function getKnowledgeCollections(): Promise<KnowledgeCollection[]> {
+    const { data } = await api.get('/llm/knowledge')
+    return data.data?.collections ?? []
+  }
+  async function getKnowledgeDocuments(collection: string, offset = 0, limit = 50): Promise<KnowledgeDocumentPage> {
+    const { data } = await api.get(collectionPath(collection), { params: { offset, limit } })
+    return { documents: data.data?.documents ?? [], total: data.data?.total ?? 0 }
+  }
+  async function deleteKnowledgeCollection(collection: string): Promise<void> {
+    await api.delete(collectionPath(collection))
+  }
+  async function deleteKnowledgeDocument(collection: string, id: string): Promise<void> {
+    await api.delete(`${collectionPath(collection)}/documents/${encodeURIComponent(id)}`)
+  }
+
+  // The flow assistant (§7): a proposal only; nothing is saved, deployed or
+  // run. One request at a time (409 while busy), bounded to 3 minutes.
+  async function assistFlow(body: AssistantFlowRequest, signal?: AbortSignal): Promise<AssistantFlowResult> {
+    const { data } = await api.post('/llm/assistant/flow', body, { signal })
+    const result = data.data ?? {}
+    const flow = result.flow ?? {}
+    return {
+      flow: { name: flow.name ?? '', description: flow.description ?? '', nodes: flow.nodes ?? [], connections: flow.connections ?? [] },
+      notes: result.notes ?? '',
+      issues: result.issues ?? [],
+      usage: result.usage ?? { inputTokens: 0, outputTokens: 0, requests: 0 }
+    }
+  }
+
+  // The tools running flows publish (docs/design/mcp.md §7): the agent
+  // grant pickers and the agent node's tools suggestions.
+  async function getAgentTools(): Promise<{ version: number; tools: AgentTool[] }> {
+    const { data } = await api.get('/agent/tools')
+    return { version: data.data?.version ?? 0, tools: data.data?.tools ?? [] }
+  }
+
   // The browser manages the HttpOnly cookie; no session secret enters JavaScript.
   async function login(username: string, password: string): Promise<{ username: string }> {
     const { data } = await api.post('/auth/login', { username, password })
@@ -356,6 +439,21 @@ export function useApi() {
     logout,
     getSession,
     getAuthStatus,
-    getTLSInfo
+    getTLSInfo,
+    // LLM
+    getLLMConnections,
+    saveLLMConnection,
+    deleteLLMConnection,
+    testLLMConnection,
+    getLLMModels,
+    getLLMConversations,
+    getLLMConversation,
+    deleteLLMConversation,
+    getKnowledgeCollections,
+    getKnowledgeDocuments,
+    deleteKnowledgeCollection,
+    deleteKnowledgeDocument,
+    assistFlow,
+    getAgentTools
   }
 }

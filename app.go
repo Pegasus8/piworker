@@ -14,6 +14,7 @@ import (
 	"github.com/Pegasus8/piworker/internal/config"
 	"github.com/Pegasus8/piworker/internal/events"
 	"github.com/Pegasus8/piworker/internal/flow"
+	"github.com/Pegasus8/piworker/internal/llm"
 	"github.com/Pegasus8/piworker/internal/mcpserver"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/secrets"
@@ -61,6 +62,12 @@ type appDeps struct {
 	zigbee   *zigbee.Manager
 	events   *events.Hub
 	webhooks *webhook.Hub
+	// llm holds the LLM connections and their daily usage; memory the
+	// conversations and knowledge the knowledge base of the LLM nodes
+	// (ADR-0038).
+	llm       *llm.Store
+	memory    *llm.Memory
+	knowledge *llm.Knowledge
 }
 
 // processDeps are the dependencies over the process-wide stores and hubs
@@ -74,14 +81,30 @@ func processDeps(store *storage.SQLiteStore, runtimes *flow.RuntimeManager, regi
 	}
 	return appDeps{
 		store: store, users: users, registry: registry, runtimes: runtimes,
-		secrets:  secrets.DefaultStore,
-		globals:  vars.DefaultStore,
-		flowVars: vars.DefaultFlows,
-		brokers:  brokers.DefaultStore,
-		zigbee:   networks,
-		events:   events.DefaultHub,
-		webhooks: webhook.DefaultHub,
+		secrets:   secrets.DefaultStore,
+		globals:   vars.DefaultStore,
+		flowVars:  vars.DefaultFlows,
+		brokers:   brokers.DefaultStore,
+		zigbee:    networks,
+		events:    events.DefaultHub,
+		webhooks:  webhook.DefaultHub,
+		llm:       llm.DefaultStore,
+		memory:    llm.DefaultMemory,
+		knowledge: llm.DefaultKnowledge,
 	}
+}
+
+// attachLLM loads the LLM connections (with today's usage), the
+// conversations and the knowledge base from deps.store and writes their
+// changes through to it.
+func attachLLM(deps appDeps) error {
+	if err := deps.llm.Attach(deps.store); err != nil {
+		return err
+	}
+	if err := deps.memory.Attach(deps.store); err != nil {
+		return err
+	}
+	return deps.knowledge.Attach(deps.store)
 }
 
 // openDeps opens the installation's state and builds what runs on it: the
@@ -106,6 +129,10 @@ func openDeps(cfg config.Config, ctx context.Context) (appDeps, <-chan struct{},
 	// Named MQTT broker connections (ADR-0026).
 	if err := deps.brokers.Attach(store); err != nil {
 		log.Fatal().Err(err).Msg("Failed to load broker connections")
+	}
+	// LLM connections, conversations and the knowledge base (ADR-0038).
+	if err := attachLLM(deps); err != nil {
+		log.Fatal().Err(err).Msg("Failed to load the LLM connections, conversations and knowledge base")
 	}
 	// Watch each connection's Zigbee2MQTT network: device discovery for the
 	// editor and the device states expressions read (zigbee.Default).
@@ -190,6 +217,9 @@ func buildRouter(cfg config.Config, store *storage.SQLiteStore, runtimeManager *
 func buildApp(cfg config.Config, deps appDeps, opts ...routerOption) (*mux.Router, *service.Lifecycle, appServices) {
 	store, users, registry, runtimeManager := deps.store, deps.users, deps.registry, deps.runtimes
 	router := mux.NewRouter()
+	// Paths are cleaned as sent, so an escaped conversation key or document
+	// ID holding "//" or ".." reaches its route (first route).
+	api.CleanPathsAsSent(router)
 
 	// CORS allowed origins (from config).
 	corsOrigins := cfg.CORSOrigins
@@ -232,6 +262,9 @@ func buildApp(cfg config.Config, deps appDeps, opts ...routerOption) (*mux.Route
 		MaxResultBytes: cfg.MCP.MaxResultBytes,
 		Logger:         log.Logger,
 	})
+	// Agent nodes (process-llm-agent) call flow tools through the same
+	// service (ADR-0039); set before any flow is deployed or restored.
+	runtimeManager.SetToolCaller(services.tools)
 	// What agents with the read scope may observe (redacted, bounded,
 	// audited).
 	services.reads = service.NewReads(service.ReadsOptions{
@@ -309,11 +342,19 @@ func buildApp(cfg config.Config, deps appDeps, opts ...routerOption) (*mux.Route
 	eventsHandler.RegisterRoutes(router)
 
 	// Secrets management (names listable, values write-only).
-	secretsHandler := api.NewSecretsHandler(deps.secrets, log.Logger).WithUsage(store, deps.brokers)
+	secretsHandler := api.NewSecretsHandler(deps.secrets, log.Logger).WithUsage(store, deps.brokers).WithLLMConnections(deps.llm)
 	secretsHandler.RegisterRoutes(router)
 	api.NewVariablesHandler(deps.globals).RegisterRoutes(router)
 	// Broker connections (passwords write-only).
 	api.NewConnectionsHandler(deps.brokers, brokers.Tester{}, log.Logger).WithFlows(lifecycle).RegisterRoutes(router)
+	// LLM connections (API keys write-only), what the LLM nodes keep
+	// (conversations, knowledge base) and the flow assistant (ADR-0038,
+	// ADR-0041).
+	api.NewLLMConnectionsHandler(deps.llm, deps.secrets, log.Logger).WithFlows(lifecycle).RegisterRoutes(router)
+	api.NewLLMMemoryHandler(deps.memory, deps.knowledge, log.Logger).RegisterRoutes(router)
+	api.NewAssistantHandler(service.NewAssistant(service.AssistantOptions{
+		Registry: registry, LLM: deps.llm, Brokers: deps.brokers, Secrets: deps.secrets, Logger: log.Logger,
+	}), log.Logger).RegisterRoutes(router)
 	// Automatic backups and whole-state restore (ADR-0032).
 	services.backups = newBackupService(cfg, store)
 	api.NewBackupsHandler(api.BackupsOptions{
@@ -322,7 +363,7 @@ func buildApp(cfg config.Config, deps appDeps, opts ...routerOption) (*mux.Route
 	// Export and restore of variables, connections and secrets (ADR-0031).
 	api.NewStoresBackupHandler(api.StoresBackupOptions{
 		Flows: store, Globals: deps.globals, FlowVariables: deps.flowVars,
-		Secrets: deps.secrets, Connections: deps.brokers,
+		Secrets: deps.secrets, Connections: deps.brokers, LLMConnections: deps.llm,
 		Auth: authHandler, Restarter: lifecycle, Logger: log.Logger,
 	}).RegisterRoutes(router)
 	api.NewZigbeeHandler(deps.zigbee).RegisterRoutes(router)

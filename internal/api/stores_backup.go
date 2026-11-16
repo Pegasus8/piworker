@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/brokers"
+	"github.com/Pegasus8/piworker/internal/llm"
 	"github.com/Pegasus8/piworker/internal/secrets"
 	"github.com/Pegasus8/piworker/internal/storesbackup"
 	"github.com/Pegasus8/piworker/internal/vars"
@@ -26,6 +27,10 @@ type StoresBackupOptions struct {
 	FlowVariables *vars.FlowStores // each flow's variables
 	Secrets       *secrets.Store
 	Connections   *brokers.Store
+	// LLMConnections are exported like the broker connections, the API key
+	// only sealed (ADR-0038); nil leaves them out of exports and skips them
+	// on import.
+	LLMConnections *llm.Store
 	// Auth verifies the account password before secret values leave the
 	// device; nil (authentication disabled) refuses such an export.
 	Auth *AuthHandler
@@ -36,7 +41,7 @@ type StoresBackupOptions struct {
 }
 
 // StoresBackupHandler exports and restores the global and flow variables,
-// the broker connections and the secrets (internal/storesbackup).
+// the broker and LLM connections and the secrets (internal/storesbackup).
 type StoresBackupHandler struct {
 	opts StoresBackupOptions
 }
@@ -57,7 +62,8 @@ func (h *StoresBackupHandler) RegisterRoutes(r *mux.Router) {
 
 // sources reads the stores, with every stored flow's variable store.
 func (h *StoresBackupHandler) sources() (storesbackup.Sources, error) {
-	src := storesbackup.Sources{Globals: h.opts.Globals, Secrets: h.opts.Secrets, Connections: h.opts.Connections}
+	src := storesbackup.Sources{Globals: h.opts.Globals, Secrets: h.opts.Secrets, Connections: h.opts.Connections,
+		LLMConnections: h.opts.LLMConnections}
 	if h.opts.Flows == nil || h.opts.FlowVariables == nil {
 		return src, nil
 	}
@@ -76,8 +82,9 @@ func (h *StoresBackupHandler) sources() (storesbackup.Sources, error) {
 }
 
 // StoresExportRequest is POST /api/stores/export's body. With a
-// passphrase the secret values and the connections with their passwords are
-// sealed in the file, which needs the account password (step-up).
+// passphrase the secret values and the connections with their passwords and
+// API keys are sealed in the file, which needs the account password
+// (step-up).
 type StoresExportRequest struct {
 	Passphrase string `json:"passphrase"`
 	Password   string `json:"password"`
@@ -85,7 +92,7 @@ type StoresExportRequest struct {
 
 // Export answers the stores file as an attachment (the bundle itself, not
 // the {success, data} envelope). Without a passphrase it carries no secret
-// value or password. With one, the account password must be confirmed:
+// value, password or API key. With one, the account password must be confirmed:
 // secrets are otherwise write-only, and a stolen session must not read them
 // all in one request. With authentication disabled such an export is
 // refused (403).
@@ -178,6 +185,7 @@ func (h *StoresBackupHandler) Import(w http.ResponseWriter, r *http.Request) {
 	resp := StoresImportResponse{Report: report}
 	resp.Restarted, resp.Failed = h.opts.Restarter.RestartFlowsUsing(r.Context(), report.ChangedConnections)
 	h.opts.Logger.Info().Int("secrets", report.Secrets.Added+report.Secrets.Replaced).
-		Int("connections", report.Connections.Added+report.Connections.Replaced).Msg("Stores imported")
+		Int("connections", report.Connections.Added+report.Connections.Replaced).
+		Int("llmConnections", report.LLMConnections.Added+report.LLMConnections.Replaced).Msg("Stores imported")
 	writeSuccess(w, http.StatusOK, resp, "")
 }

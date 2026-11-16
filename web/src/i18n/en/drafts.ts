@@ -164,8 +164,8 @@ export default {
     `This draft is out of date: the flow is now at version ${current}. Ask the agent to redo it, or reject it.`,
   blockErrors: (n: number) =>
     `The draft has ${plural(n, 'error')} (listed under Issues), so it cannot be saved. Ask the agent to fix them, or reject it.`,
-  blockSecretsRunning: 'The flow is running, so approving redeploys it, but it uses secrets that are not defined (listed under Issues). Define them in Secrets first.',
-  blockSecretsDeploy: 'Deploying needs secrets that are not defined (listed under Issues). Define them in Secrets first, or approve without deploying.',
+  blockSecretsRunning: 'The flow is running, so approving redeploys it, but it uses secrets or connections that are not defined (listed under Issues). Define them first under Secrets, Broker connections or LLM connections.',
+  blockSecretsDeploy: 'Deploying needs secrets or connections that are not defined (listed under Issues). Define them first under Secrets, Broker connections or LLM connections, or approve without deploying.',
 
   // approveConfirmText
   alertsList: (n: number, kinds: string) => `${plural(n, 'alert')}: ${kinds}`,

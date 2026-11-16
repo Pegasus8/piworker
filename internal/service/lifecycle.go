@@ -333,17 +333,24 @@ type FlowRestartFailure struct {
 }
 
 // runningUsers returns the definitions of the running flows whose nodes
-// name any of the connections, sorted by name then ID. It asks the running
-// instances (FlowRuntime.ConnectionsUsed): no storage read, no node built,
-// and it is the definition that runs. Callers hold mu.
+// name any of the broker connections, sorted by name then ID. It asks the
+// running instances (FlowRuntime.ConnectionsUsed): no storage read, no node
+// built, and it is the definition that runs. Callers hold mu.
 func (l *Lifecycle) runningUsers(names []string) []*flow.Flow {
+	return l.runningFlowsNaming(names, (*flow.FlowRuntime).ConnectionsUsed)
+}
+
+// runningFlowsNaming returns the definitions of the running flows for which
+// used (ConnectionsUsed or LLMConnectionsUsed) names any of names, sorted by
+// name then ID. Callers hold mu.
+func (l *Lifecycle) runningFlowsNaming(names []string, used func(*flow.FlowRuntime) []string) []*flow.Flow {
 	var out []*flow.Flow
 	for _, id := range l.manager.ListRunning() {
 		rt, ok := l.manager.GetRuntime(id)
 		if !ok {
 			continue
 		}
-		if slices.ContainsFunc(rt.ConnectionsUsed(), func(c string) bool { return slices.Contains(names, c) }) {
+		if slices.ContainsFunc(used(rt), func(c string) bool { return slices.Contains(names, c) }) {
 			out = append(out, rt.Flow())
 		}
 	}
@@ -397,9 +404,23 @@ func (l *Lifecycle) restart(ctx context.Context, f *flow.Flow) error {
 // under the lifecycle lock unless a running flow uses the connection; then
 // it returns those flows and fn does not run.
 func (l *Lifecycle) UnlessRunningFlowsUse(name string, fn func() error) ([]FlowRef, error) {
+	return l.unlessRunningFlowsName(name, (*flow.FlowRuntime).ConnectionsUsed, fn)
+}
+
+// UnlessRunningFlowsUseLLMConnection runs fn (the deletion of the LLM
+// connection name, ADR-0038) under the lifecycle lock unless a running
+// flow's nodes name it (FlowRuntime.LLMConnectionsUsed, the definition that
+// runs); then it returns those flows, by name, and fn does not run. A
+// change to an LLM connection restarts nothing: the nodes resolve it on
+// every call.
+func (l *Lifecycle) UnlessRunningFlowsUseLLMConnection(name string, fn func() error) ([]FlowRef, error) {
+	return l.unlessRunningFlowsName(name, (*flow.FlowRuntime).LLMConnectionsUsed, fn)
+}
+
+func (l *Lifecycle) unlessRunningFlowsName(name string, used func(*flow.FlowRuntime) []string, fn func() error) ([]FlowRef, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	users := l.runningUsers([]string{name})
+	users := l.runningFlowsNaming([]string{name}, used)
 	if len(users) == 0 {
 		return nil, fn()
 	}

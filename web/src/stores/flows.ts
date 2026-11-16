@@ -4,24 +4,15 @@ import type { Flow, FlowNode, FlowEdge, FlowListItem, NodeCategory, VersionList 
 import type { ApplyResult } from '@/lib/drafts'
 import type { DeployWarning } from '@/lib/deployWarnings'
 import { useApi, type DeployOutcome } from '@/composables/useApi'
-import { ports, validConnection } from '@/lib/ports'
+import { followPorts, outputPorts, ports, validConnection } from '@/lib/ports'
+import { EDITOR_CATEGORY, STORED_CATEGORY, storedConnection } from '@/lib/flowShape'
+import type { ItemRenames } from '@/lib/configValues'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
 import { autoEdge, nextPosition } from '@/lib/autoConnect'
+import { prepareProposal, type ApplyMode } from '@/lib/assistant'
+import { visibleText } from '@/lib/agentAccess'
+import type { AssistantFlow } from '@/types'
 import { msg } from '@/i18n'
-
-// Map backend categories to frontend categories
-const backendCategoryMap: Record<string, NodeCategory> = {
-  input: 'trigger',
-  processing: 'process',
-  output: 'action'
-}
-
-// Map frontend categories back to backend categories
-const frontendCategoryMap: Record<string, string> = {
-  trigger: 'input',
-  process: 'processing',
-  action: 'output'
-}
 
 /** A save or deploy refused because the flow was saved elsewhere (an
  * approved agent draft, another tab) after the editor loaded it. Nothing was
@@ -66,6 +57,12 @@ export const useFlowsStore = defineStore('flows', () => {
   const past = ref<Snapshot[]>([])
   const future = ref<Snapshot[]>([])
   let lastGroup: { key: string; at: number } | null = null
+  // The edges a node's settings took their port from while a row of the
+  // setting that gives its outputs is retyped (blank, or repeating another
+  // row, for a moment), per node: they come back when the row names an
+  // item again (updateNodeConfig, lib/ports.ts followPorts). Never saved;
+  // undo, redo and loading a flow forget them.
+  const parkedEdges = new Map<string, FlowEdge[]>()
   const canUndo = computed(() => past.value.length > 0)
   const canRedo = computed(() => future.value.length > 0)
   function snapshot(): Snapshot {
@@ -79,6 +76,7 @@ export const useFlowsStore = defineStore('flows', () => {
     future.value = []
   }
   function restore(state: Snapshot) {
+    parkedEdges.clear()
     nodes.value = state.nodes
     edges.value = state.edges
     if (selectedNodeId.value && !nodes.value.some(n => n.id === selectedNodeId.value)) selectedNodeId.value = null
@@ -103,9 +101,11 @@ export const useFlowsStore = defineStore('flows', () => {
     past.value = []
     future.value = []
     lastGroup = null
+    parkedEdges.clear()
   }
 
-  const invalidConnections = computed(() => edges.value.filter(edge => !validConnection(edge, nodes.value, edges.value.filter(other => other.id !== edge.id), nodeTypesStore.getById)))
+  // validConnection leaves out the edge itself (by ID) when it looks for a duplicate.
+  const invalidConnections = computed(() => edges.value.filter(edge => !validConnection(edge, nodes.value, edges.value, nodeTypesStore.getById)))
 
   const selectedNode = computed(() => {
     if (!selectedNodeId.value) return null
@@ -167,7 +167,7 @@ export const useFlowsStore = defineStore('flows', () => {
       const nodeType = nodeTypesStore.getById(node.type)
 
       // Map backend category to frontend category
-      const category = backendCategoryMap[node.category] || node.category as NodeCategory
+      const category = EDITOR_CATEGORY[node.category] || node.category as NodeCategory
 
       return {
         id: node.id,
@@ -202,24 +202,19 @@ export const useFlowsStore = defineStore('flows', () => {
     return frontendNodes.map(node => ({
       id: node.id,
       type: node.data.nodeType,
-      category: frontendCategoryMap[node.data.category] || node.data.category,
+      category: STORED_CATEGORY[node.data.category] || node.data.category,
       position: node.position,
       config: node.data.config || {},
       enabled: node.data.enabled ?? true,
       inputs: ports(nodeTypesStore.getById(node.data.nodeType)?.inputs),
-      outputs: ports(nodeTypesStore.getById(node.data.nodeType)?.outputs)
+      // With the ports its settings give it (ADR-0040), as the server stores them.
+      outputs: outputPorts(nodeTypesStore.getById(node.data.nodeType), node.data.config)
     }))
   }
 
   // Reverse transform: frontend edges → backend connections format
   function reverseTransformEdges(frontendEdges: FlowEdge[]): any[] {
-    return frontendEdges.map(edge => ({
-      id: edge.id,
-      sourceNode: edge.source,
-      sourcePort: edge.sourceHandle ?? 'output',
-      targetNode: edge.target,
-      targetPort: edge.targetHandle ?? 'input'
-    }))
+    return frontendEdges.map(storedConnection)
   }
 
   async function createFlow(name: string, description?: string) {
@@ -310,6 +305,7 @@ export const useFlowsStore = defineStore('flows', () => {
         currentFlow.value = null
         nodes.value = []
         edges.value = []
+        parkedEdges.clear()
       }
     } catch (e) {
       error.value = e instanceof Error ? e.message : msg().flowTools.errors.deleteFlow
@@ -502,11 +498,21 @@ export const useFlowsStore = defineStore('flows', () => {
     }
   }
 
-  function updateNodeConfig(id: string, config: Record<string, any>) {
+  // A setting that gives the node its outputs (the classifier's categories,
+  // ADR-0040) takes the edges leaving a port it removes along, in the same
+  // undo step; an item renamed in place keeps them. renames: what the
+  // setting's rows reported about its items (ListInput), so an edge follows
+  // its row while the row is retyped through blank or repeated text.
+  function updateNodeConfig(id: string, config: Record<string, any>, renames: readonly ItemRenames[] = []) {
     const idx = nodes.value.findIndex(n => n.id === id)
     if (idx !== -1) {
       record(`config:${id}`)
-      nodes.value[idx].data.config = config
+      const node = nodes.value[idx]
+      const following = followPorts(id, nodeTypesStore.getById(node.data.nodeType), node.data.config || {}, config, edges.value, parkedEdges.get(id), renames)
+      node.data.config = config
+      if (following.edges !== edges.value) edges.value = following.edges
+      if (following.parked.length) parkedEdges.set(id, following.parked)
+      else parkedEdges.delete(id)
       isDirty.value = true
     }
   }
@@ -515,6 +521,12 @@ export const useFlowsStore = defineStore('flows', () => {
     record()
     nodes.value = nodes.value.filter(n => n.id !== id)
     edges.value = edges.value.filter(e => e.source !== id && e.target !== id)
+    parkedEdges.delete(id)
+    for (const [source, parked] of parkedEdges) {
+      const kept = parked.filter(e => e.target !== id)
+      if (kept.length) parkedEdges.set(source, kept)
+      else parkedEdges.delete(source)
+    }
     if (selectedNodeId.value === id) {
       selectedNodeId.value = null
     }
@@ -523,6 +535,33 @@ export const useFlowsStore = defineStore('flows', () => {
 
   function selectNode(id: string | null) {
     selectedNodeId.value = id
+  }
+
+  // Places the flow assistant's proposal on the canvas (docs/design/llm.md
+  // §7): replacing the nodes (an empty canvas, a change of the current
+  // flow) or beside them with new IDs (lib/assistant.ts prepareProposal),
+  // converted as a loaded flow is, in one undo step. Nodes of types this
+  // editor does not know are left out; with none left nothing changes. A
+  // new flow still named by default takes the proposal's name and
+  // description. Nothing is saved or deployed.
+  function applyProposal(flow: AssistantFlow, mode: ApplyMode) {
+    const prepared = prepareProposal(flow, nodes.value, nodeTypesStore.getById, mode)
+    const applied = { nodes: prepared.nodes.length, connections: prepared.connections.length, skippedTypes: prepared.skippedTypes, skippedConnections: prepared.skippedConnections }
+    if (!prepared.nodes.length) return applied
+    record()
+    if (mode === 'replace') parkedEdges.clear()
+    const placed = transformNodes(prepared.nodes)
+    const connected = transformEdges(prepared.connections)
+    nodes.value = mode === 'replace' ? placed : [...nodes.value, ...placed]
+    edges.value = mode === 'replace' ? connected : [...edges.value, ...connected]
+    if (selectedNodeId.value && !nodes.value.some(n => n.id === selectedNodeId.value)) selectedNodeId.value = null
+    const current = currentFlow.value
+    if (mode === 'replace' && current && !current.id && current.name === msg().editor.untitled) {
+      if (flow.name.trim()) current.name = visibleText(flow.name.trim())
+      if (!current.description && flow.description.trim()) current.description = visibleText(flow.description.trim())
+    }
+    isDirty.value = true
+    return applied
   }
 
   // Edge operations
@@ -625,6 +664,7 @@ export const useFlowsStore = defineStore('flows', () => {
     updateNodeConfig,
     removeNode,
     selectNode,
+    applyProposal,
 
     // Edge operations
     addEdge,

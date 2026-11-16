@@ -22,6 +22,26 @@ const (
 	DataTypeArray   DataType = "array"
 )
 
+// InferDataType is the payload type hint of a Go value as nodes produce
+// and decode them (JSON-shaped values and Go numbers); DataTypeAny for
+// anything else.
+func InferDataType(v any) DataType {
+	switch v.(type) {
+	case string:
+		return DataTypeString
+	case int, int64, float64, float32:
+		return DataTypeNumber
+	case bool:
+		return DataTypeBoolean
+	case []any:
+		return DataTypeArray
+	case map[string]any:
+		return DataTypeObject
+	default:
+		return DataTypeAny
+	}
+}
+
 // NodeCategory represents the functional category of a node.
 type NodeCategory string
 

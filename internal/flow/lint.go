@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Pegasus8/piworker/internal/brokers"
+	"github.com/Pegasus8/piworker/internal/llm"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/secrets"
 )
@@ -68,6 +69,10 @@ const (
 	// (node.ConnectionRequirer, ADR-0026) the store does not define. Like
 	// IssueUndefinedSecret it depends on the environment.
 	IssueUndefinedConnection = "undefined_connection"
+	// IssueUndefinedLLMConnection: a setting names an LLM connection
+	// (node.LLMConnectionRequirer, ADR-0038) the store does not define. Like
+	// IssueUndefinedConnection it depends on the environment.
+	IssueUndefinedLLMConnection = "undefined_llm_connection"
 	// IssueUnresolvedSecret (warning): a setting that resolves secrets but
 	// works without them (node.SecretReferencer: an MQTT or SMTP username
 	// or password, an HTTP request's URL or headers) references a secret
@@ -79,12 +84,16 @@ const (
 )
 
 // EnvironmentIssue reports whether an issue depends on the environment the
-// flow is checked in (the secrets defined) rather than on its definition:
-// such an error still blocks a deploy, but not a dry-run (whose secret store
-// is empty by design) or the storing of a draft (the admin may define the
-// secret before approving it).
+// flow is checked in (the secrets, broker and LLM connections defined)
+// rather than on its definition: such an error still blocks a deploy, but
+// not a dry-run (whose stores are empty by design) or the storing of a draft
+// (the admin may define the secret or connection before approving it).
 func EnvironmentIssue(i Issue) bool {
-	return i.Code == IssueUndefinedSecret || i.Code == IssueUnresolvedSecret || i.Code == IssueUndefinedConnection
+	switch i.Code {
+	case IssueUndefinedSecret, IssueUnresolvedSecret, IssueUndefinedConnection, IssueUndefinedLLMConnection:
+		return true
+	}
+	return false
 }
 
 // BlockingIssues returns the error issues of issues that are not
@@ -333,6 +342,28 @@ func secretFindings(f *Flow, instances map[int]node.Node, store *secrets.Store, 
 // (node.ConnectionRequirer) names and store does not define, in node ID
 // order, then property; the err is the *ValidationError deploy returns.
 func requiredConnectionFindings(f *Flow, instances map[int]node.Node, store *brokers.Store) []finding {
+	return namedConnectionFindings(f, instances, brokerConnectionsOf, func(name string) bool {
+		_, ok := store.Get(name)
+		return ok
+	}, "broker connection", IssueUndefinedConnection)
+}
+
+// requiredLLMConnectionFindings reports every LLM connection a node
+// (node.LLMConnectionRequirer, ADR-0038) names and store does not define,
+// in requiredConnectionFindings' order; the err is the *ValidationError
+// deploy returns.
+func requiredLLMConnectionFindings(f *Flow, instances map[int]node.Node, store *llm.Store) []finding {
+	return namedConnectionFindings(f, instances, llmConnectionsOf, func(name string) bool {
+		_, ok := store.Get(name)
+		return ok
+	}, "LLM connection", IssueUndefinedLLMConnection)
+}
+
+// namedConnectionFindings reports, as code, every connection name that
+// required (by property) of the instances (by node index) holds and defined
+// rejects, in node ID order, then property. kind names the kind of
+// connection in the message ("broker connection").
+func namedConnectionFindings(f *Flow, instances map[int]node.Node, required func(node.Node) map[string]string, defined func(string) bool, kind, code string) []finding {
 	idx := make([]int, 0, len(instances))
 	for i := range instances {
 		idx = append(idx, i)
@@ -345,25 +376,24 @@ func requiredConnectionFindings(f *Flow, instances map[int]node.Node, store *bro
 	})
 	var out []finding
 	for _, i := range idx {
-		req, ok := instances[i].(node.ConnectionRequirer)
-		if !ok {
+		byProp := required(instances[i])
+		if len(byProp) == 0 {
 			continue
 		}
-		required := req.RequiredConnections()
-		props := make([]string, 0, len(required))
-		for prop := range required {
+		props := make([]string, 0, len(byProp))
+		for prop := range byProp {
 			props = append(props, prop)
 		}
 		sort.Strings(props)
 		n := &f.Nodes[i]
 		for _, prop := range props {
-			name := required[prop]
-			if _, defined := store.Get(name); defined {
+			name := byProp[prop]
+			if defined(name) {
 				continue
 			}
-			msg := fmt.Sprintf("config.%s names broker connection %q, which is not defined", prop, name)
+			msg := fmt.Sprintf("config.%s names %s %q, which is not defined", prop, kind, name)
 			err := NewValidationError("node %s (%s): %s", n.ID, n.Type, msg)
-			out = append(out, nodeFinding(i, prop, IssueUndefinedConnection, IssueError, msg, err))
+			out = append(out, nodeFinding(i, prop, code, IssueError, msg, err))
 		}
 	}
 	return out
@@ -677,7 +707,9 @@ func Lint(f *Flow, reg *node.Registry) []Issue {
 
 // LintContext is Lint checking the secrets strict settings require
 // (IssueUndefinedSecret) against the store of ctx (secrets.FromContext,
-// DefaultStore when ctx carries none), exactly as deploy checks them.
+// DefaultStore when ctx carries none), and the broker and LLM connections
+// nodes name against the stores of ctx (brokers.FromContext,
+// llm.FromContext), exactly as deploy checks them.
 func LintContext(ctx context.Context, f *Flow, reg *node.Registry) []Issue {
 	if f == nil {
 		return []Issue{}
@@ -722,7 +754,10 @@ func LintContext(ctx context.Context, f *Flow, reg *node.Registry) []Issue {
 			return in, out, true
 		}
 		if info, ok := reg.Get(n.Type); ok {
-			return info.Inputs, info.Outputs, true
+			// The ports its settings give it (ADR-0040): an edge leaving a
+			// classifier's category is not unknown because the node's
+			// config is refused for another reason.
+			return info.Inputs, node.ConfigOutputs(info, n.Config), true
 		}
 		return nil, nil, false
 	}
@@ -770,11 +805,9 @@ func LintContext(ctx context.Context, f *Flow, reg *node.Registry) []Issue {
 	_, tools := analyzeTools(f, reg, specs)
 	all = append(all, tools...)
 
-	// Secrets the strict settings cannot work without and the broker
-	// connections nodes name (deploy's last checks).
-	all = append(all, requiredSecretFindings(f, instances, secrets.FromContext(ctx))...)
-	all = append(all, unresolvedSecretFindings(f, instances, secrets.FromContext(ctx))...)
-	all = append(all, requiredConnectionFindings(f, instances, brokers.FromContext(ctx))...)
+	// The secrets and the broker and LLM connections nodes need (deploy's
+	// last check, from the same list).
+	all = append(all, environmentFindings(ctx, f, instances)...)
 
 	all = append(all, positionFindings(f)...)
 	return lintIssues(f, reg, all)

@@ -161,7 +161,7 @@ func TestCallRegistryReplyWithoutWaiterDoesNotSerialize(t *testing.T) {
 	assert.False(t, reg.Reply("not-a-call", countingMarshaler{&n}, false))
 	assert.Equal(t, int32(0), n.Load())
 
-	_, err := reg.register("run-1", time.Second)
+	_, err := reg.register("run-1", time.Second, nil)
 	require.NoError(t, err)
 	assert.True(t, reg.Reply("run-1", countingMarshaler{&n}, false))
 	assert.Equal(t, int32(1), n.Load())
@@ -174,7 +174,7 @@ func TestCallRegistryReplyWithoutWaiterDoesNotSerialize(t *testing.T) {
 // completed_no_reply.
 func TestCallRegistryDropIsAnError(t *testing.T) {
 	reg := newTestRegistry(t)
-	w, err := reg.register("run-1", time.Second)
+	w, err := reg.register("run-1", time.Second, nil)
 	require.NoError(t, err)
 
 	reg.dropped("run-1", "slow", "type-a", "queue full")
@@ -185,7 +185,7 @@ func TestCallRegistryDropIsAnError(t *testing.T) {
 	assert.Equal(t, CallStatusError, res.Status)
 	assert.Equal(t, &CallError{NodeID: "slow", NodeType: "type-a", Message: "message dropped at node slow: queue full"}, res.Error)
 
-	w2, err := reg.register("run-2", time.Second)
+	w2, err := reg.register("run-2", time.Second, nil)
 	require.NoError(t, err)
 	require.True(t, reg.Reply("run-2", "ok", false))
 	reg.dropped("run-2", "slow", "type-a", "queue full")

@@ -13,4 +13,6 @@ import zigbee from './zigbee'
 import settings from './settings'
 import flowTools from './flowTools'
 import backups from './backups'
-export default { common, editor, activity, nav, http, flows, examples, drafts, agents, trust, auth, zigbee, settings, flowTools, backups }
+import assistant from './assistant'
+import llm from './llm'
+export default { common, editor, activity, nav, http, flows, examples, drafts, agents, trust, auth, zigbee, settings, flowTools, backups, assistant, llm }

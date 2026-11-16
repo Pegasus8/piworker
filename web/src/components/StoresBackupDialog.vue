@@ -98,6 +98,7 @@ const summaryParts = computed(() => {
   const parts = [t.summaryVariables(s.variables)]
   if (s.flowVariables.length) parts.push(t.summaryFlows(s.flowVariables.map(f => f.flowName)))
   if (s.connections.length) parts.push(t.summaryConnections(s.connections.length))
+  if (s.llmConnections.length) parts.push(t.summaryLLMConnections(s.llmConnections.length))
   parts.push(t.summarySecrets(s.secrets.length))
   return parts
 })

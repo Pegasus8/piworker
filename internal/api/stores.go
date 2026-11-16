@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/flow"
+	"github.com/Pegasus8/piworker/internal/llm"
 	"github.com/Pegasus8/piworker/internal/service"
 	"github.com/Pegasus8/piworker/internal/storage"
 )
@@ -62,4 +63,30 @@ var (
 	_ HealthStore   = (*storage.SQLiteStore)(nil)
 	_ HistoryReader = (*storage.SQLiteStore)(nil)
 	_ AgentStore    = (*storage.SQLiteStore)(nil)
+)
+
+// The AI memory routes read the in-memory LLM stores (they write through to
+// SQLite): *llm.Memory and *llm.Knowledge implement these.
+
+// LLMConversations is the conversation memory (ADR-0038) the editor lists,
+// reads and clears.
+type LLMConversations interface {
+	List() []llm.ConversationInfo
+	Turns(key string) []llm.Turn
+	Clear(key string) error
+}
+
+// KnowledgeBase is the knowledge base (ADR-0038) the editor browses and
+// prunes.
+type KnowledgeBase interface {
+	Collections() []llm.CollectionInfo
+	Collection(name string) (llm.CollectionInfo, bool)
+	Documents(collection string, offset, limit int) ([]llm.Document, int)
+	Delete(collection, id string) error
+	DeleteCollection(collection string) error
+}
+
+var (
+	_ LLMConversations = (*llm.Memory)(nil)
+	_ KnowledgeBase    = (*llm.Knowledge)(nil)
 )

@@ -27,6 +27,7 @@ func TestSingleOutputNodesResetSourcePort(t *testing.T) {
 		{"process-transform", NewTransformProcess, nil},
 		{"process-ratelimit", NewRateLimitProcess, map[string]interface{}{"limit": 10}},
 		{"process-parse", NewParseProcess, nil},
+		{"action-llm-forget", NewLLMForgetAction, map[string]interface{}{"memoryKey": "passthrough-test"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

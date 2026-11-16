@@ -25,3 +25,11 @@ test('empty required settings are reported by label', () => {
   const schema = [f('url', { required: true, label: 'URL' }), f('method', { default: 'GET' })]
   expect(nodeSummary({ url: '  ' }, schema)).toEqual({ text: '', missing: ['URL'] })
 })
+// A list (the classifier's categories) reads as its items; an empty
+// required list is missing.
+test('list settings show their items and are missing when empty', () => {
+  const schema = [f('categories', { type: 'list', required: true, label: 'Categories' })]
+  expect(nodeSummary({ categories: ['bug', ' question ', ''] }, schema)).toEqual({ text: 'bug, question', missing: [] })
+  expect(nodeSummary({ categories: [] }, schema)).toEqual({ text: '', missing: ['Categories'] })
+  expect(nodeSummary({}, schema).missing).toEqual(['Categories'])
+})

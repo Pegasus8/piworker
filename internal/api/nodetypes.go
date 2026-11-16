@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Pegasus8/piworker/internal/flow"
+	"github.com/Pegasus8/piworker/internal/llm"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/types"
 	"github.com/gorilla/mux"
@@ -55,8 +56,26 @@ func (h *NodeTypesHandler) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/api/nodes/{type}/test", h.TestNode).Methods(http.MethodPost)
 }
 
-// testNodeTimeout bounds a single one-shot node execution from the editor.
-const testNodeTimeout = 10 * time.Second
+// testNodeTimeout bounds a single one-shot node execution from the editor;
+// llmTestNodeTimeout that of an LLM node type (one that names an LLM
+// connection: a model can take a minute to answer), whose own timeout
+// setting may be shorter. testNodeWriteDeadline outlasts both: the
+// server's WriteTimeout (15 s) would cut an LLM node's answer.
+const (
+	testNodeTimeout       = 10 * time.Second
+	llmTestNodeTimeout    = 120 * time.Second
+	testNodeWriteDeadline = llmTestNodeTimeout + 15*time.Second
+)
+
+// testNodeTimeoutFor is the bound of a test of the node inst: the longer
+// one when it names an LLM connection (node.LLMConnectionRequirer, what
+// deploy, Lint and the lifecycle go by).
+func testNodeTimeoutFor(inst node.Node) time.Duration {
+	if _, ok := inst.(node.LLMConnectionRequirer); ok {
+		return llmTestNodeTimeout
+	}
+	return testNodeTimeout
+}
 
 // TestNodeRequest is the body of a test-node request: the candidate config and a
 // sample input payload.
@@ -120,7 +139,11 @@ func (h *NodeTypesHandler) TestNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, panicked := h.runOnce(r.Context(), inst, req)
+	timeout := testNodeTimeoutFor(inst)
+	if timeout > testNodeTimeout {
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(testNodeWriteDeadline))
+	}
+	result, panicked := h.runOnce(r.Context(), inst, req, timeout)
 	if panicked {
 		// A node that panics is a server-side fault, distinct from a node that
 		// returns a normal error (which is reported as 200 with an error field).
@@ -133,10 +156,14 @@ func (h *NodeTypesHandler) TestNode(w http.ResponseWriter, r *http.Request) {
 // runOnce executes a node a single time with a timeout, recovering panics so a
 // misbehaving node returns an error instead of crashing the server. It reports
 // whether the node panicked so the caller can distinguish a crash from a normal
-// node error.
-func (h *NodeTypesHandler) runOnce(parent context.Context, inst node.Node, sample TestNodeRequest) (result TestNodeResult, panicked bool) {
-	ctx, cancel := context.WithTimeout(parent, testNodeTimeout)
+// node error. Like the variables, which it previews from copies, the LLM
+// nodes' conversations are never written: the node gets an empty memory, so
+// the test runs as a fresh conversation (the knowledge base is only read
+// there; the LLM connections are the real ones and the provider is called).
+func (h *NodeTypesHandler) runOnce(parent context.Context, inst node.Node, sample TestNodeRequest, timeout time.Duration) (result TestNodeResult, panicked bool) {
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
+	ctx = llm.WithMemory(ctx, llm.NewMemory())
 
 	msg := types.NewMessage(sample.Payload, types.DataTypeAny)
 	msg.Topic = sample.Topic
@@ -200,6 +227,10 @@ type NodeTypeResponse struct {
 	// RiskCanRise: a setting can raise an instance above Risk
 	// (flow.RiskCanRise), so the editor can say so where it is true.
 	RiskCanRise bool `json:"riskCanRise"`
+	// OutputsFrom names the array setting whose items are extra output
+	// ports after Outputs (ADR-0040): the editor renders them from the
+	// node's config. Omitted for the other types.
+	OutputsFrom string `json:"outputsFrom,omitempty"`
 }
 
 // PortResponse represents a port in API responses.
@@ -253,6 +284,7 @@ func toNodeTypeResponse(info node.NodeTypeInfo) NodeTypeResponse {
 		Icon:          info.Icon,
 		Risk:          string(info.Risk),
 		RiskCanRise:   flow.RiskCanRise(info),
+		OutputsFrom:   info.OutputsFrom,
 	}
 }
 

@@ -158,7 +158,7 @@ type CallError struct { NodeID, NodeType, Message string }
 type CallRequest struct {
     TriggerNodeID string
     Args          map[string]any // already validated
-    Actor         string         // "token:<name>", "editor", …
+    Actor         string         // "token:<name>", "editor", "agent-node:<flowID>/<nodeID>" (ADR-0039), …
     Timeout       time.Duration
 }
 // Call starts a run on a trigger-tool node and waits for its reply, the end of
@@ -1020,7 +1020,10 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   `flow.Lint` the process-wide store; an undefined one is `undefined_secret`
   (error, at `/nodes/{id}/config/{prop}`, naming the secret, never a value).
   That error depends on the secret store, not on the definition (the admin
-  may define the secret later): `flow.EnvironmentIssue` reports it, and
+  may define the secret later): `flow.EnvironmentIssue` reports it (and the
+  broker and LLM connections a node names, checked against
+  `brokers.FromContext` and `llm.FromContext`: `undefined_connection`,
+  `undefined_llm_connection`), and
   `flow.BlockingIssues` — the error issues that are not environment issues
   — is what stops a dry-run and the storing or approval of a draft. Lint
   never modifies the flow and closes the node instances it builds
@@ -1042,8 +1045,11 @@ grants_json, all_tools, expires_at, last_used_at, revoked_at, created_at)`.
   `connection_unknown_port`, `self_loop`, `cycle`, `unknown_type`,
   `config_type`, `invalid_config`, `trigger_not_connected`,
   `undefined_secret`, `unresolved_secret` (warning: an optional setting's
-  secret is undefined, ADR-0028), `undefined_connection`,
-  `invalid_position`, and the tool
+  secret is undefined, ADR-0028), `undefined_connection` (a broker
+  connection, ADR-0026), `undefined_llm_connection` (an LLM connection,
+  ADR-0038; like `undefined_secret` and `undefined_connection` an
+  environment issue: `flow.EnvironmentIssue` reports it, so it blocks a
+  deploy but not a dry-run or a draft), `invalid_position`, and the tool
   rules' `dynamic_destination_credentials`, `tool_global_variable`,
   `tool_stateful_aggregate`, `tool_stateful_join`,
   `tool_delay_exceeds_timeout` (warning), `tool_strict_arguments`,

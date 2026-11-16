@@ -29,3 +29,14 @@ test('nothing is connected when either side has no port', () => {
   expect(autoEdge(a, b, [a, b], [], getType)).toBeNull()
   expect(autoEdge(a, t, [a, t], [], getType)).toBeNull()
 })
+// A node whose outputs come from its settings (ADR-0040) connects from the
+// first of them when it declares none itself.
+test('outputs given by the settings count as the node outputs', () => {
+  const sorter = { inputs: ['input'], outputs: [], outputsFrom: 'labels', category: 'process' } as unknown as NodeTypeConfig
+  const get = (id: string) => id === 'sorter' ? sorter : getType(id)
+  const a = { ...node('a', 'sorter'), data: { nodeType: 'sorter', config: { labels: ['urgent', 'later'] } } } as unknown as FlowNode
+  const b = node('b', 'log')
+  expect(autoEdge(a, b, [a, b], [], get)).toMatchObject({ source: 'a', sourceHandle: 'urgent', targetHandle: 'input' })
+  const empty = node('e', 'sorter')
+  expect(autoEdge(empty, b, [empty, b], [], get)).toBeNull()
+})

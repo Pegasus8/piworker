@@ -14,5 +14,7 @@ import zigbee from './zigbee'
 import settings from './settings'
 import flowTools from './flowTools'
 import backups from './backups'
-const es: typeof en = { common, editor, activity, nav, http, flows, examples, drafts, agents, trust, auth, zigbee, settings, flowTools, backups }
+import assistant from './assistant'
+import llm from './llm'
+const es: typeof en = { common, editor, activity, nav, http, flows, examples, drafts, agents, trust, auth, zigbee, settings, flowTools, backups, assistant, llm }
 export default es

@@ -1,5 +1,5 @@
 import type { FlowEdge, FlowNode, NodeTypeConfig } from '@/types'
-import { ports, validConnection } from '@/lib/ports'
+import { outputPorts, ports, validConnection } from '@/lib/ports'
 
 // Where a node added from the palette goes, and the connection it gets: a
 // node added while another is selected follows it (to its right, below
@@ -25,7 +25,7 @@ export function nextPosition(after: FlowNode | undefined, nodes: FlowNode[]): { 
 }
 
 export function autoEdge(source: FlowNode, target: FlowNode, nodes: FlowNode[], edges: FlowEdge[], getType: (id: string) => NodeTypeConfig | undefined): FlowEdge | null {
-  const output = ports(getType(source.data.nodeType)?.outputs)[0]
+  const output = outputPorts(getType(source.data.nodeType), source.data.config)[0]
   const input = ports(getType(target.data.nodeType)?.inputs)[0]
   if (!output || !input) return null
   const edge = { id: `edge_${source.id}_${target.id}_${Date.now()}`, source: source.id, target: target.id, sourceHandle: output.id, targetHandle: input.id, animated: true }

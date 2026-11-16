@@ -252,20 +252,52 @@ Processing nodes change, route or hold the messages that pass through them.
 
 | Node | What it does |
 |------|--------------|
+| [AI Agent](#process-llm-agent) | A language model that calls your flow tools until it can answer |
 | [Aggregate](#process-aggregate) | Collect N messages and emit them together as one array |
 | [Debug](#process-debug) | Inspects and logs messages for debugging |
 | [Delay](#process-delay) | Delays messages by a specified time |
 | [Filter](#process-filter) | Pass a message through only when a condition is true |
 | [Get Variable](#get-var) | Read a named variable into the payload |
 | [Join](#process-join) | Correlate and merge messages by a key or by source node |
+| [LLM Classify](#process-llm-classify) | Route a message by the category a language model picks |
+| [LLM Prompt](#process-llm) | Ask a language model and pass on its answer (text or JSON) |
 | [Parse](#process-parse) | Parse a JSON or CSV string payload into structured data |
 | [Rate Limit](#process-ratelimit) | Pass at most N messages per time window, dropping the rest |
+| [Search Knowledge Base](#process-knowledge-search) | Find the stored documents closest in meaning to a query |
 | [Set Variable](#set-var) | Store a value into a named variable |
 | [Switch (If/Else)](#process-switch) | Route a message to one of two outputs based on a condition |
 | [Template](#process-template) | Render a text template from the message into a string |
 | [Timer](#process-timer) | Fire once no message came for a while (retriggerable) |
+| [Transcribe Audio](#process-transcribe) | Turn speech in an audio message into text |
 | [Transform](#process-transform) | Transform payload using expressions |
 | [Zigbee Get](#process-zigbee-get) | Read a Zigbee device's current value |
+
+<a id="process-llm-agent"></a>
+
+### AI Agent
+
+A language model that calls your flow tools until it can answer.
+
+- **Type:** `process-llm-agent`
+- **Risk:** `external`
+- **Inputs:** `input`
+- **Outputs:** `output`
+
+| Setting | Key | Type | Default | Description |
+|---------|-----|------|---------|-------------|
+| Allow privileged tools | `allowPrivileged` | boolean | `false` | Let the agent call tools that run commands, write files or touch hardware |
+| Connection (required) | `connection` | string | – | LLM connection to use (defined under LLM connections) |
+| Effort | `effort` | `(empty)`, `low`, `medium`, `high`, `xhigh`, `max` | – | How much the model thinks before answering, only for models that support it: others may reject the request (empty: the model's default) |
+| Max steps | `maxSteps` | integer (steps) | `8` | Most requests to the model before the agent gives up, in steps (1 to 32) |
+| Max tokens | `maxTokens` | integer (tokens) | `4096` | Longest answer the model may give, in tokens (1 to 64000); a longer answer is cut |
+| Memory key | `memoryKey` | string | – | Conversation to remember, e.g. telegram:{{payload.body.message.chat.id}} (supports {{templates}}; empty: no memory) |
+| Memory length | `memoryTurns` | integer (messages) | `20` | How many past messages of the conversation to keep and send, in messages (2 to 200) |
+| Model | `model` | string | – | Model to ask; it must support tool use (empty: the connection's default model) |
+| Prompt (required) | `prompt` | string | `{{payload}}` | The request, built from the message (supports {{templates}}) |
+| Result field | `resultField` | string | – | Payload field to store the result in, e.g. answer or ai.summary (empty: the result replaces the payload) |
+| System prompt | `system` | string | – | Instructions for the agent: its role, what its tools are for, its rules (supports {{templates}}) |
+| Timeout (s) | `timeout` | integer (seconds) | `300` | Longest time the whole call may take, in seconds (1 to 600) |
+| Tools | `tools` | array | – | Flow tools the agent may call, by tool name (at most 64; tools that ask for confirmation are never called) |
 
 <a id="process-aggregate"></a>
 
@@ -367,6 +399,53 @@ Correlate and merge messages by a key or by source node.
 | Sources (source mode) | `sources` | string | – | Comma-separated source node IDs to await before emitting an object |
 | Timeout (ms) | `timeoutMs` | number (milliseconds) | `300000` | Drop an incomplete group this long after its first message, in milliseconds |
 
+<a id="process-llm-classify"></a>
+
+### LLM Classify
+
+Route a message by the category a language model picks.
+
+- **Type:** `process-llm-classify`
+- **Risk:** `external`
+- **Inputs:** `input`
+- **Outputs:** `other`, then one per item of `categories`
+
+| Setting | Key | Type | Default | Description |
+|---------|-----|------|---------|-------------|
+| Categories (required) | `categories` | array | – | The categories, one output port each (1 to 20 names of up to 64 characters; "other" is always there) |
+| Connection (required) | `connection` | string | – | LLM connection to use (defined under LLM connections) |
+| Input | `input` | string | `{{payload}}` | The text to classify, built from the message (supports {{templates}}) |
+| Instructions | `instructions` | string | – | Optional guidance: what each category means, examples (supports {{templates}}) |
+| Model | `model` | string | – | Model to ask (empty: the connection's default model) |
+| Timeout (s) | `timeout` | integer (seconds) | `120` | Longest time the whole call may take, in seconds (1 to 600) |
+
+<a id="process-llm"></a>
+
+### LLM Prompt
+
+Ask a language model and pass on its answer (text or JSON).
+
+- **Type:** `process-llm`
+- **Risk:** `external`
+- **Inputs:** `input`
+- **Outputs:** `output`
+
+| Setting | Key | Type | Default | Description |
+|---------|-----|------|---------|-------------|
+| Connection (required) | `connection` | string | – | LLM connection to use (defined under LLM connections) |
+| Effort | `effort` | `(empty)`, `low`, `medium`, `high`, `xhigh`, `max` | – | How much the model thinks before answering, only for models that support it: others may reject the request (empty: the model's default) |
+| Images | `images` | string | – | Message path of the images to send, e.g. payload.image: base64, a data URL, an http(s) URL or a list of them (empty: none) |
+| JSON schema | `schema` | json | – | Optional JSON Schema the answer must match (output json), e.g. {"type": "object", "properties": {...}} |
+| Max tokens | `maxTokens` | integer (tokens) | `1024` | Longest answer the model may give, in tokens (1 to 64000); a longer answer is cut |
+| Memory key | `memoryKey` | string | – | Conversation to remember, e.g. telegram:{{payload.body.message.chat.id}} (supports {{templates}}; empty: no memory) |
+| Memory length | `memoryTurns` | integer (messages) | `20` | How many past messages of the conversation to keep and send, in messages (2 to 200) |
+| Model | `model` | string | – | Model to ask (empty: the connection's default model) |
+| Output | `output` | `text`, `json` | `text` | text: the answer as text; json: the answer parsed as a JSON object |
+| Prompt (required) | `prompt` | string | `{{payload}}` | What to ask, built from the message (supports {{templates}}) |
+| Result field | `resultField` | string | – | Payload field to store the result in, e.g. answer or ai.summary (empty: the result replaces the payload) |
+| System prompt | `system` | string | – | Instructions for the model: its role, tone and rules (supports {{templates}}) |
+| Timeout (s) | `timeout` | integer (seconds) | `120` | Longest time the whole call may take, in seconds (1 to 600) |
+
 <a id="process-parse"></a>
 
 ### Parse
@@ -399,6 +478,28 @@ Pass at most N messages per time window, dropping the rest.
 |---------|-----|------|---------|-------------|
 | Limit (required) | `limit` | number | `1` | Maximum messages allowed per window |
 | Window (ms) (required) | `windowMs` | number (milliseconds) | `1000` | Sliding window length, in milliseconds |
+
+<a id="process-knowledge-search"></a>
+
+### Search Knowledge Base
+
+Find the stored documents closest in meaning to a query.
+
+- **Type:** `process-knowledge-search`
+- **Risk:** `external`
+- **Inputs:** `input`
+- **Outputs:** `output`
+
+| Setting | Key | Type | Default | Description |
+|---------|-----|------|---------|-------------|
+| Collection (required) | `collection` | string | – | Collection to search, e.g. manuals |
+| Connection (required) | `connection` | string | – | LLM connection to use (defined under LLM connections) |
+| Minimum score | `minScore` | number | `0` | Leave out documents less similar than this, from 0 (keep all) to 1 (identical) |
+| Model | `model` | string | – | Embedding model of the collection (empty: the model the collection was built with) |
+| Query (required) | `query` | string | `{{payload}}` | What to look for, built from the message (supports {{templates}}) |
+| Result field | `resultField` | string | – | Payload field to store the result in, e.g. answer or ai.summary (empty: the result replaces the payload) |
+| Results | `topK` | integer (documents) | `4` | Most documents to return, best first, in documents (1 to 50) |
+| Timeout (s) | `timeout` | integer (seconds) | `120` | Longest time the whole call may take, in seconds (1 to 600) |
 
 <a id="set-var"></a>
 
@@ -464,6 +565,26 @@ Fire once no message came for a while (retriggerable).
 | Restart on each message | `restart` | boolean | `true` | Each message starts the countdown again; off: a running timer is not extended |
 | Unit | `durationUnit` | `seconds`, `minutes`, `hours` | `minutes` | Unit of the duration |
 
+<a id="process-transcribe"></a>
+
+### Transcribe Audio
+
+Turn speech in an audio message into text.
+
+- **Type:** `process-transcribe`
+- **Risk:** `external`
+- **Inputs:** `input`
+- **Outputs:** `output`
+
+| Setting | Key | Type | Default | Description |
+|---------|-----|------|---------|-------------|
+| Audio (required) | `audio` | string | `payload` | Message path of the audio, e.g. payload or payload.voice: base64, a data URL, bytes or an http(s) URL (at most 25 MiB) |
+| Connection (required) | `connection` | string | – | LLM connection to use (defined under LLM connections) |
+| Language | `language` | string | – | Language spoken, as an ISO-639-1 code such as en or es (empty: detected); naming it improves accuracy |
+| Model | `model` | string | – | Transcription model, e.g. whisper-1 (empty: the connection's default model, else whisper-1) |
+| Result field | `resultField` | string | – | Payload field to store the result in, e.g. answer or ai.summary (empty: the result replaces the payload) |
+| Timeout (s) | `timeout` | integer (seconds) | `120` | Longest time the whole call may take, in seconds (1 to 600) |
+
 <a id="process-transform"></a>
 
 ### Transform
@@ -503,10 +624,12 @@ Actions do something with a message: notify, call a service, write, switch a pin
 
 | Node | What it does |
 |------|--------------|
+| [Add to Knowledge Base](#action-knowledge-add) | Store text in the local knowledge base for later searches |
 | [Agent Reply](#action-reply) | Answer the agent tool call that started this run |
 | [Database](#action-database) | Run a SQL query or statement against SQLite, Postgres or MySQL |
 | [Email](#action-email) | Send an email via SMTP |
 | [Execute Command](#action-command) | Executes a shell command |
+| [Forget Conversation](#action-llm-forget) | Clear a conversation the LLM nodes remember |
 | [GPIO Write](#action-gpio) | Set a GPIO output pin high or low (experimental) |
 | [HTTP Request](#action-http) | Makes HTTP requests to external APIs |
 | [I2C Read](#action-i2c) | Read bytes from an I2C device (experimental) |
@@ -516,6 +639,28 @@ Actions do something with a message: notify, call a service, write, switch a pin
 | [Telegram](#action-telegram) | Send a message via a Telegram bot |
 | [Write File](#action-file) | Write or append the message content to a file |
 | [Zigbee Set](#action-zigbee) | Turn a Zigbee device on or off or set one of its properties |
+
+<a id="action-knowledge-add"></a>
+
+### Add to Knowledge Base
+
+Store text in the local knowledge base for later searches.
+
+- **Type:** `action-knowledge-add`
+- **Risk:** `external`
+- **Inputs:** `input`
+- **Outputs:** `output`
+
+| Setting | Key | Type | Default | Description |
+|---------|-----|------|---------|-------------|
+| Chunk size | `chunkSize` | integer (characters) | `0` | Split long texts into chunks of at most this many characters, each one a document (0: one document; else 200 to 8000 characters) |
+| Collection (required) | `collection` | string | – | Collection to store the text in, e.g. manuals (created on the first document) |
+| Connection (required) | `connection` | string | – | LLM connection to use (defined under LLM connections) |
+| Document ID | `documentId` | string | – | ID of the document, e.g. {{payload.id}}: adding the same ID again replaces it; it may not end in '#' and a number, the form of chunk IDs (supports {{templates}}; empty: a new ID per message) |
+| Metadata | `metadata` | object | – | Names and values stored with the document and returned by searches, e.g. source = {{topic}} (values support {{templates}}) |
+| Model (required) | `model` | string | – | Embedding model, e.g. text-embedding-3-small (OpenAI) or nomic-embed-text (Ollama); every document of a collection uses the same one |
+| Text | `text` | string | `{{payload}}` | Text to store, built from the message (supports {{templates}}) |
+| Timeout (s) | `timeout` | integer (seconds) | `120` | Longest time the whole call may take, in seconds (1 to 600) |
 
 <a id="action-reply"></a>
 
@@ -591,6 +736,21 @@ Executes a shell command.
 | Command (required) | `command` | string | – | Shell command to execute. Use {{payload}}, {{topic}}, {{meta.key}} for variable substitution. |
 | Shell | `shell` | string | `/bin/sh` | Path to the shell interpreter |
 | Timeout (seconds) | `timeout` | number (seconds) | `30` | Maximum execution time, in seconds (1-3600) |
+
+<a id="action-llm-forget"></a>
+
+### Forget Conversation
+
+Clear a conversation the LLM nodes remember.
+
+- **Type:** `action-llm-forget`
+- **Risk:** `safe`
+- **Inputs:** `input`
+- **Outputs:** `output`
+
+| Setting | Key | Type | Default | Description |
+|---------|-----|------|---------|-------------|
+| Memory key (required) | `memoryKey` | string | – | Conversation to forget: the memory key of the LLM node, e.g. telegram:{{payload.body.message.chat.id}} (supports {{templates}}) |
 
 <a id="action-gpio"></a>
 

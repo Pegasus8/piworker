@@ -226,9 +226,10 @@ value is never shown again, only replaced.
 
 Use a secret by writing `{{secret.NAME}}` in a credential setting: the
 Telegram bot token, the Notify URL, the Database connection string, the
-username and password of Email and MQTT, the Webhook token, and HTTP Request
+username and password of Email and MQTT, the Webhook token, HTTP Request
 headers (`Authorization: Bearer {{secret.api_token}}`) or URL query
-(`?apikey={{secret.api_key}}`).
+(`?apikey={{secret.api_key}}`), and the API key of an
+[LLM connection](ai.md#step-1-add-an-llm-connection).
 
 - Rotating a secret needs no redeploy; the new value is used the next time
   the node runs.
@@ -240,7 +241,7 @@ headers (`Authorization: Bearer {{secret.api_token}}`) or URL query
   the request would fail. Define the secret and the warning goes away on the
   next deploy.
 - The **Secrets** dialog shows where each secret is used (flow, node,
-  setting, or broker connection, and whether it is deployed). Check it before
+  setting, broker or LLM connection, and whether it is deployed). Check it before
   deleting or renaming a secret; deleting one that is used asks first. Names
   that are used but not defined appear under **Referenced but not defined**,
   with a button to define each one.
@@ -292,7 +293,8 @@ History matters most when [AI agents](agents.md) may change your flows:
 ## Backups
 
 PiWorker backs itself up every day: flows, accounts, secrets, variables,
-connections and the HTTPS certificate authority (run history is left out).
+connections, the LLM nodes' conversations and knowledge base, and the HTTPS
+certificate authority (run history is left out).
 The **Backups** page, in the navigation under Settings, shows the last and
 the next backup and lists them.
 
@@ -325,11 +327,11 @@ and secret values are not part of a flow export; they travel in their own
 file:
 
 **Export and restore** (in the navigation, under Settings) writes one file
-with the global variables, each flow's variables, the broker connections and
-the names of the secrets.
+with the global variables, each flow's variables, the broker connections,
+the LLM connections and the names of the secrets.
 
-- To include the secret values and the connections' passwords, tick the
-  option, choose a **passphrase** of at least 12 characters and confirm your
+- To include the secret values, the broker connections' passwords and the
+  LLM connections' API keys, tick the option, choose a **passphrase** of at least 12 characters and confirm your
   account password. They are encrypted with that passphrase: without it
   nobody can read them, PiWorker included. Keep the passphrase apart from the
   file, and the file like a password.
@@ -341,4 +343,10 @@ the names of the secrets.
 - Flow variables follow their flow by ID, or by its name on another
   installation, so import the flows first. The result lists anything it
   could not place, secrets it could not restore, and the running flows it
-  restarted because a connection they use changed.
+  restarted because a broker connection they use changed (a changed LLM
+  connection restarts nothing).
+- An LLM connection whose API key is not in the file keeps the key it has
+  here only if the file leaves its provider and address unchanged;
+  otherwise it is restored without a key (an Anthropic connection, which
+  needs one, is left as it is) and the result names it. Set its key under
+  **LLM connections**.

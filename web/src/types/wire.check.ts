@@ -5,11 +5,25 @@
 // optional, and the hand-written type was not updated with it.
 import type * as wire from './wire.gen'
 import type {
+  AssistantFlow,
+  AssistantFlowResult,
   CallResult,
   DeploymentMark,
   FlowEvent,
   FlowRun,
+  KnowledgeCollection,
+  KnowledgeDocument,
+  KnowledgeDocumentPage,
+  LLMConnection,
+  LLMConnectionTest,
+  LLMConversation,
+  LLMConversationInfo,
+  LLMModel,
+  LLMTurn,
+  LLMUsage,
   NodeEventRecord,
+  StoredFlowConnection,
+  StoredFlowNode,
   TLSInfo,
   VersionEntry,
   VersionList,
@@ -40,6 +54,21 @@ export const wireChecks: {
   versionList: Matches<VersionList, wire.VersionList>
   callResult: Matches<CallResult, wire.CallResult>
   tlsInfo: Matches<TLSInfo, wire.TLSInfo>
+  // LLM connections, memory, knowledge base and the flow assistant (docs/design/llm.md §6).
+  llmConnection: Matches<LLMConnection, wire.LLMConnectionItem>
+  llmUsage: Matches<LLMUsage, wire.Usage>
+  llmModel: Matches<LLMModel, wire.ModelInfo>
+  llmConnectionTest: Matches<LLMConnectionTest, wire.LLMConnectionTest>
+  llmConversationInfo: Matches<LLMConversationInfo, wire.ConversationInfo>
+  llmTurn: Matches<LLMTurn, wire.Turn>
+  llmConversation: Matches<LLMConversation, wire.LLMConversation>
+  knowledgeCollection: Matches<KnowledgeCollection, wire.CollectionInfo>
+  knowledgeDocument: Matches<KnowledgeDocument, wire.Document>
+  knowledgeDocumentPage: Matches<KnowledgeDocumentPage, wire.KnowledgeDocumentPage>
+  assistantFlowResult: Matches<AssistantFlowResult, wire.AssistantFlowResult>
+  assistantFlow: Matches<AssistantFlow, wire.AssistantFlow>
+  storedFlowNode: Matches<StoredFlowNode, wire.Node>
+  storedFlowConnection: Matches<StoredFlowConnection, wire.Connection>
 } = {
   flowRun: true,
   nodeEventRecord: true,
@@ -49,4 +78,18 @@ export const wireChecks: {
   versionList: true,
   callResult: true,
   tlsInfo: true,
+  llmConnection: true,
+  llmUsage: true,
+  llmModel: true,
+  llmConnectionTest: true,
+  llmConversationInfo: true,
+  llmTurn: true,
+  llmConversation: true,
+  knowledgeCollection: true,
+  knowledgeDocument: true,
+  knowledgeDocumentPage: true,
+  assistantFlowResult: true,
+  assistantFlow: true,
+  storedFlowNode: true,
+  storedFlowConnection: true,
 }

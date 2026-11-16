@@ -134,6 +134,21 @@ export default {
     removeLabel: (label: string, n: number) => `Remove ${label} entry ${n}`,
     add: 'Add entry',
   },
+  // List settings (ConfigProperty type "array"): one row per item.
+  list: {
+    unreadable: 'The saved value is not a list, so it is ignored and deploying fails:',
+    addBelow: 'Add each item below, or',
+    removeSaved: 'remove the saved value',
+    item: (label: string, n: number) => `${label} ${n}`,
+    moveUp: (label: string, n: number) => `Move ${label} ${n} up`,
+    moveDown: (label: string, n: number) => `Move ${label} ${n} down`,
+    remove: (label: string, n: number) => `Remove ${label} ${n}`,
+    moved: (item: string, n: number, total: number) => `${item} moved to position ${n} of ${total}.`,
+    removed: (item: string) => `${item} removed.`,
+    empty: 'No items yet.',
+    duplicates: (names: string[]) => `Repeated: ${names.join(', ')}. Each item must be unique.`,
+    add: 'Add item',
+  },
   json: {
     notApplied: (error: string) => `${error}. Not applied until it is fixed.`,
     formatLabel: (label: string) => `Format ${label}`,

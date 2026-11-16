@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { configFieldsFromSchema, integerFromInput, jsonText, numberFromInput, objectFromRows, objectRows, parseJsonObject, setConfigValue } from '../src/lib/configValues'
+import { configFieldsFromSchema, followRows, integerFromInput, selectView, jsonText, listDuplicates, listFromRows, listRows, moveItem, numberFromInput, objectFromRows, objectRows, parseJsonObject, rowItems, setConfigValue, unreadableList, type RowItem } from '../src/lib/configValues'
 
 test('a cleared number input is unset, not 0', () => {
   expect(numberFromInput('')).toBeUndefined()
@@ -120,4 +120,137 @@ test('a string setting with a suggestion source keeps it, unknown sources are ig
   expect(byKey.command.suggest).toBeUndefined()
   expect(byKey.command.options?.length).toBe(2)
   expect(byKey.other.suggest).toBeUndefined()
+})
+
+// List settings (ConfigProperty type "array", docs/design/llm.md §5): a list
+// of strings edited as rows, such as the classifier's categories or the
+// tools an agent node may call.
+test('an array setting is a list field, with its suggestions per item', () => {
+  const fields = configFieldsFromSchema({
+    required: ['categories'],
+    properties: {
+      categories: { type: 'array', title: 'Categories', description: 'One port per category' },
+      tools: { type: 'array', title: 'Tools', options: 'tools' },
+      connection: { type: 'string', title: 'Connection', options: 'llm-connections' },
+      model: { type: 'string', title: 'Model', options: 'llm-models' },
+      collection: { type: 'string', title: 'Collection', options: 'knowledge-collections' }
+    }
+  })
+  const byKey = Object.fromEntries(fields.map(f => [f.key, f]))
+  expect(byKey.categories.type).toBe('list')
+  expect(byKey.categories.required).toBe(true)
+  expect(byKey.categories.suggest).toBeUndefined()
+  expect(byKey.tools.type).toBe('list')
+  expect(byKey.tools.suggest).toBe('tools')
+  expect(byKey.connection.suggest).toBe('llm-connections')
+  expect(byKey.model.suggest).toBe('llm-models')
+  expect(byKey.collection.suggest).toBe('knowledge-collections')
+})
+
+test('a list is edited as rows and stored trimmed, without blank items', () => {
+  expect(listRows(['bug', 'question'])).toEqual(['bug', 'question'])
+  // Items that are not text are shown as text.
+  expect(listRows(['a', 3, true, null])).toEqual(['a', '3', 'true', ''])
+  // Anything but a list (text saved by hand) yields no rows.
+  expect(listRows('bug, question')).toEqual([])
+  expect(listRows(undefined)).toEqual([])
+  expect(listFromRows([' bug ', '', '   ', 'question'])).toEqual(['bug', 'question'])
+  // No item left: unset, so the node uses its default (or is flagged as missing).
+  expect(listFromRows(['', ' '])).toBeUndefined()
+  expect(listFromRows([])).toBeUndefined()
+})
+
+test('a list value that is not a list is reported, an unset one is not', () => {
+  expect(unreadableList('bug, question')).toBe(true)
+  expect(unreadableList({ a: 1 })).toBe(true)
+  expect(unreadableList(['bug'])).toBe(false)
+  expect(unreadableList(undefined)).toBe(false)
+  expect(unreadableList(null)).toBe(false)
+  expect(unreadableList('')).toBe(false)
+})
+
+// Which item each row stands for (ListInput): a row keeps its item while it
+// is blank or repeats another row, and reports the name it takes next, so
+// what refers to the item (a classifier's connections) follows the row.
+const renamed = (rows: string[], items: RowItem[], removed: RowItem[] = []) => {
+  const next = followRows(rows, items, removed)
+  return { items: next.items, renamed: Object.fromEntries(next.renamed) }
+}
+
+test('each row stands for the item it names, unless blank or repeated', () => {
+  expect(rowItems(['bug', ' question ', '', 'bug2'])).toEqual([
+    { name: 'bug', own: true }, { name: 'question', own: true }, { name: null, own: false }, { name: 'bug2', own: true }
+  ])
+  // Repeated text names no item of its own.
+  expect(rowItems(['bug', 'bug'])).toEqual([{ name: null, own: false }, { name: null, own: false }])
+})
+
+test('a row retyped through blank and repeated text keeps its item and reports its new name', () => {
+  let step = renamed(['bu', 'question'], rowItems(['bug', 'question']))
+  expect(step.renamed).toEqual({ bug: 'bu' })
+  step = renamed(['', 'question'], step.items)
+  expect(step.renamed).toEqual({})
+  expect(step.items[0]).toEqual({ name: 'bu', own: false })
+  // Repeating another row: neither names its own item for now.
+  step = renamed(['question', 'question'], step.items)
+  expect(step.renamed).toEqual({})
+  expect(step.items).toEqual([{ name: 'bu', own: false }, { name: 'question', own: false }])
+  // Both name their own again: the second is back to its name.
+  step = renamed(['d', 'question'], step.items)
+  expect(step.renamed).toEqual({ bu: 'd', question: 'question' })
+  step = renamed(['defect', 'question'], step.items)
+  expect(step.renamed).toEqual({ d: 'defect' })
+  // Spaces around the text change nothing.
+  expect(renamed([' defect ', 'question'], step.items).renamed).toEqual({})
+})
+
+test('a new row names a new item, a removed one reports its item gone', () => {
+  const items = rowItems(['bug'])
+  expect(renamed(['bug', 'praise'], [...items, { name: null, own: false }]).renamed).toEqual({})
+  // Removed while it repeated another row: that row names its item again.
+  const repeated = renamed(['bug', 'bug'], rowItems(['bug', 'bugs'])).items
+  expect(renamed(['bug'], [repeated[1]], [repeated[0]]).renamed).toEqual({ bug: null, bugs: 'bug' })
+  // A blank row removed: its item is gone.
+  const blank = renamed(['', 'question'], rowItems(['bug', 'question'])).items
+  expect(renamed(['question'], [blank[1]], [blank[0]]).renamed).toEqual({ bug: null })
+})
+
+test('a row that takes the name a blank row kept ends that row\'s item', () => {
+  const blank = renamed(['', 'xy'], rowItems(['x', 'xy'])).items
+  const step = renamed(['', 'x'], blank)
+  expect(step.renamed).toEqual({ x: null, xy: 'x' })
+  expect(step.items[0]).toEqual({ name: null, own: false })
+})
+
+test('repeated items are named once each', () => {
+  expect(listDuplicates(['bug', 'question', ' bug', 'question', 'praise', 'bug'])).toEqual(['bug', 'question'])
+  expect(listDuplicates(['bug', '', ''])).toEqual([])
+})
+
+test('moving an item returns the reordered list', () => {
+  const list = ['a', 'b', 'c']
+  expect(moveItem(list, 0, 1)).toEqual(['b', 'a', 'c'])
+  expect(moveItem(list, 2, 0)).toEqual(['c', 'a', 'b'])
+  expect(list).toEqual(['a', 'b', 'c'])
+  // Out of range: unchanged.
+  expect(moveItem(list, 0, -1)).toEqual(['a', 'b', 'c'])
+  expect(moveItem(list, 2, 3)).toEqual(['a', 'b', 'c'])
+})
+
+// An enum with an empty value (effort: the model's default; Telegram's
+// parse mode: none) shows that value as an option of its own, and no
+// placeholder: the placeholder would stand for the same value, showing the
+// setting's long description in the closed select.
+test('a select with an empty value names it and needs no placeholder', () => {
+  const [effort, mode] = configFieldsFromSchema({ properties: {
+    effort: { type: 'string', enum: ['', 'low', 'high'], description: 'How much the model thinks before answering' },
+    mode: { type: 'string', enum: ['a', 'b'], description: 'Mode' }
+  } })
+  const labels = { empty: '(default)', choose: 'Select…' }
+  expect(selectView(effort, labels)).toEqual({
+    options: [{ label: '(default)', value: '' }, { label: 'low', value: 'low' }, { label: 'high', value: 'high' }],
+    placeholder: ''
+  })
+  expect(selectView(mode, labels)).toEqual({ options: [{ label: 'a', value: 'a' }, { label: 'b', value: 'b' }], placeholder: 'Mode' })
+  expect(selectView({ options: undefined, placeholder: '' }, labels)).toEqual({ options: [], placeholder: 'Select…' })
 })

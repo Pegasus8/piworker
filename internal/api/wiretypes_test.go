@@ -33,6 +33,16 @@ var wireTypes = []any{
 	service.VersionList{},
 	flow.CallResult{},
 	TLSInfo{},
+	// LLM connections, memory, knowledge base and the flow assistant
+	// (docs/design/llm.md §6).
+	LLMConnectionsResponse{},
+	LLMConnectionTest{},
+	LLMModelsResponse{},
+	LLMConversationsResponse{},
+	LLMConversation{},
+	KnowledgeCollectionsResponse{},
+	KnowledgeDocumentPage{},
+	service.AssistantFlowResult{},
 }
 
 const wireTypesPath = "../../web/src/types/wire.gen.ts"

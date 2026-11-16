@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ERROR_PORT, ports, sourcePorts as sourcePortsOf, validConnection } from '@/lib/ports'
+import { ERROR_PORT, portSettings, ports, sourcePorts as sourcePortsOf, validConnection } from '@/lib/ports'
 import { ref, computed, watch } from 'vue'
 import { useFlowsStore } from '@/stores/flows'
 import { useNodeTypesStore } from '@/stores/nodeTypes'
@@ -13,10 +13,11 @@ const types = useNodeTypesStore()
 const source = ref('')
 const target = ref('')
 const confirmation = ref<InstanceType<typeof ConfirmDialog>>()
-// A node is a source when it has an output or the error port.
+// A node is a source when it has an output (declared, or given by its
+// settings) or the error port.
 const options = (direction: 'inputs' | 'outputs') => store.nodes.flatMap((node, index) => {
   const type = types.getById(node.data.nodeType)
-  const count = direction === 'outputs' ? sourcePortsOf(type).length : type?.inputs?.length
+  const count = direction === 'outputs' ? sourcePortsOf(type, portSettings(type, node)).length : type?.inputs?.length
   return count ? [{ value: node.id, label: `${node.data.label} (${index + 1})` }] : []
 })
 const sources = computed(() => options('outputs'))
@@ -26,7 +27,7 @@ const targetPort = ref('')
 function portOptions(id: string, direction: 'inputs' | 'outputs') {
   const node = store.nodes.find(n => n.id === id)
   const type = node ? types.getById(node.data.nodeType) : undefined
-  const list = direction === 'outputs' ? sourcePortsOf(type) : ports(type?.inputs)
+  const list = direction === 'outputs' ? sourcePortsOf(type, node?.data.config) : ports(type?.inputs)
   return list.map(p => ({ value: p.id, label: direction === 'outputs' && p.id === ERROR_PORT ? m.value.editor.errorPortName : p.name }))
 }
 const sourcePorts = computed(() => portOptions(source.value, 'outputs'))

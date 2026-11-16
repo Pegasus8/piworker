@@ -361,6 +361,10 @@ func TestHTTPActionSSRFProtection(t *testing.T) {
 		_, err = node.(*HTTPAction).Process(ctx, types.NewMessage(nil, types.DataTypeAny))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "non-public address")
+		assert.ErrorIs(t, err, ErrBlockedAddress, "other nodes recognise the refusal by its sentinel")
+		var blocked *BlockedAddressError
+		require.ErrorAs(t, err, &blocked)
+		assert.Equal(t, "127.0.0.1", blocked.IP.String())
 	})
 
 	t.Run("allows loopback when allowPrivate is set", func(t *testing.T) {

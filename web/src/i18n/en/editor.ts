@@ -101,6 +101,8 @@ export default {
   retrySuggestions: 'Retry suggestions',
   defaultValue: (value: string) => `Default: ${value}`,
   selectPlaceholder: 'Select…',
+  // The empty value of a choice: the setting's default.
+  selectDefault: '(default)',
   useExample: 'Use temperature example',
   useExampleFor: (label: string) => `Use example for ${label}`,
   useExampleHint: 'Replaces this field. Use the sample payload in the playground to try it.',
@@ -110,4 +112,22 @@ export default {
   deleteNodeBody: 'Remove this node and its connections? You can undo it, and saving the flow keeps the change.',
   durationUnit: 'Unit',
   units: { ms: 'ms', s: 'seconds', min: 'minutes', h: 'hours' },
+  // Suggestions and hints of the LLM nodes' settings (docs/design/llm.md §5).
+  llm: {
+    providers: { anthropic: 'Anthropic', openai: 'OpenAI-compatible' },
+    documents: (n: number) => plural(n, 'document', 'documents'),
+    connectionHint: (provider: string, endpoint: string, model: string) => `${provider} · ${endpoint}${model ? ` · default model ${model}` : ''}`,
+    undefinedConnection: (name: string) => `No LLM connection is named “${name}”. Create it in LLM connections, or deploying this flow fails.`,
+    connectionModel: (model: string) => `Leave it empty to use the connection's model: ${model}.`,
+    noModel: 'The connection has no default model: set one here or on the connection.',
+    testFailed: 'The connection could not list its models.',
+    modelsUnavailable: 'The models of this connection could not be listed. You can still type one.',
+    unknownModel: 'The connection does not list this model. Check its name.',
+    toolsNotPublished: (names: string[]) => `Not published by a running flow now: ${names.join(', ')}. The agent cannot call them until they are.`,
+    toolsOwnFlow: (names: string[]) => `Published by this flow, so the agent cannot call them: ${names.join(', ')}.`,
+    toolsNeedConfirmation: (names: string[]) => `Wait for a confirmation, so the agent cannot call them: ${names.join(', ')}.`,
+    toolsPrivileged: (names: string[]) => `Privileged: the agent calls them only when privileged tools are allowed: ${names.join(', ')}.`,
+    collectionHint: (documents: number, model: string) => `${plural(documents, 'document', 'documents')}, embedded with ${model}.`,
+    newCollection: 'No collection has this name yet: the first document added creates it.',
+  },
 }

@@ -1,9 +1,9 @@
 // Export and restore of the stores a flow export does not carry: global and
-// flow variables, broker connections and secrets (POST /api/stores/export
-// and /api/stores/import, ADR-0031). The file is read in the browser first
-// so the admin sees what it holds before importing; secret values and
-// connections with passwords are sealed with a passphrase and are never
-// readable here.
+// flow variables, broker and LLM connections and secrets (POST
+// /api/stores/export and /api/stores/import, ADR-0031, ADR-0038). The file is
+// read in the browser first so the admin sees what it holds before
+// importing; secret values, connection passwords and API keys are sealed
+// with a passphrase and are never readable here.
 import { msg } from '@/i18n'
 import { connectionRestarts, type ConnectionRestarts, type FlowRef } from '@/lib/zigbee'
 
@@ -16,6 +16,8 @@ export interface BundleSummary {
   flowVariables: { flowName: string; count: number }[]
   /** Connections readable in the file (without passwords). */
   connections: string[]
+  /** LLM connections readable in the file (without API keys). */
+  llmConnections: string[]
   secrets: string[]
   /** Secret values and connections are sealed: a passphrase opens them. */
   sealed: boolean
@@ -39,6 +41,7 @@ export function bundleSummary(raw: unknown): { summary: BundleSummary } | { erro
       variables: Object.keys(obj(b.variables)).length,
       flowVariables,
       connections: list(b.connections).map(c => obj(c).name).filter((n): n is string => typeof n === 'string'),
+      llmConnections: list(b.llmConnections).map(c => obj(c).name).filter((n): n is string => typeof n === 'string'),
       secrets: list(b.secrets).filter((n): n is string => typeof n === 'string'),
       sealed: !!b.sealed && typeof b.sealed === 'object'
     }
@@ -51,9 +54,13 @@ export interface ImportReport {
   flowVariables: Counts
   secrets: Counts
   connections: Counts
+  /** LLM connections: changing one restarts no flow. */
+  llmConnections: Counts
   unmatchedFlows: FlowRef[]
   secretsNotRestored: string[]
   passwordsNotRestored: string[]
+  /** LLM connections restored without an API key (an Anthropic one is then not imported). */
+  apiKeysNotRestored: string[]
 }
 /** The report, and the running flows restarted because a connection they use changed. */
 export interface ImportResult extends ConnectionRestarts {
@@ -75,7 +82,9 @@ export function importResult(data: unknown): ImportResult {
   return {
     report: {
       variables: counts(r.variables), flowVariables: counts(r.flowVariables), secrets: counts(r.secrets), connections: counts(r.connections),
-      unmatchedFlows: refs(r.unmatchedFlows), secretsNotRestored: names(r.secretsNotRestored), passwordsNotRestored: names(r.passwordsNotRestored)
+      llmConnections: counts(r.llmConnections),
+      unmatchedFlows: refs(r.unmatchedFlows), secretsNotRestored: names(r.secretsNotRestored), passwordsNotRestored: names(r.passwordsNotRestored),
+      apiKeysNotRestored: names(r.apiKeysNotRestored)
     },
     ...connectionRestarts(d)
   }
@@ -89,13 +98,15 @@ export function importResultText(r: ImportResult): { kind: 'success' | 'warning'
     line(t.kindVariables, r.report.variables, true),
     line(t.kindFlowVariables, r.report.flowVariables, true),
     line(t.kindSecrets, r.report.secrets, false),
-    line(t.kindConnections, r.report.connections, true)
+    line(t.kindConnections, r.report.connections, true),
+    line(t.kindLLMConnections, r.report.llmConnections, true)
   ].filter(Boolean)
   if (!lines.length) lines.push(t.nothingImported)
   if (r.restarted.length) lines.push(t.restarted(r.restarted.map(f => f.name)))
   const warnings: string[] = []
   if (r.report.secretsNotRestored.length) warnings.push(t.secretsNotRestored(r.report.secretsNotRestored))
   if (r.report.passwordsNotRestored.length) warnings.push(t.passwordsNotRestored(r.report.passwordsNotRestored))
+  if (r.report.apiKeysNotRestored.length) warnings.push(t.apiKeysNotRestored(r.report.apiKeysNotRestored))
   if (r.report.unmatchedFlows.length) warnings.push(t.unmatchedFlows(r.report.unmatchedFlows.map(f => f.name)))
   if (r.failed.length) warnings.push(msg().zigbee.dialog.restartFailed(r.failed.map(f => `${f.name}: ${f.error}`)))
   return { kind: warnings.length ? 'warning' : 'success', lines: [...lines, ...warnings] }

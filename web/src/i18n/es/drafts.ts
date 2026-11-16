@@ -164,8 +164,8 @@ const es: typeof en = {
     `Este borrador está desactualizado: el flujo está ahora en la versión ${current}. Pide al agente que lo rehaga, o recházalo.`,
   blockErrors: (n: number) =>
     `El borrador tiene ${count(n, 'error', 'errores')} (en Problemas), así que no se puede guardar. Pide al agente que los corrija, o recházalo.`,
-  blockSecretsRunning: 'El flujo está en marcha, así que aprobarlo lo vuelve a desplegar, pero usa secretos que no están definidos (en Problemas). Defínelos antes en Secretos.',
-  blockSecretsDeploy: 'Para desplegar hacen falta secretos que no están definidos (en Problemas). Defínelos antes en Secretos, o aprueba sin desplegar.',
+  blockSecretsRunning: 'El flujo está en marcha, así que aprobarlo lo vuelve a desplegar, pero usa secretos o conexiones que no están definidos (en Problemas). Defínelos antes en Secretos, Conexiones a brokers o Conexiones LLM.',
+  blockSecretsDeploy: 'Para desplegar hacen falta secretos o conexiones que no están definidos (en Problemas). Defínelos antes en Secretos, Conexiones a brokers o Conexiones LLM, o aprueba sin desplegar.',
 
   alertsList: (n: number, kinds: string) => `${count(n, 'alerta', 'alertas')}: ${kinds}`,
   noAlertsLower: 'sin alertas',

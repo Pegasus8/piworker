@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/Pegasus8/piworker/internal/brokers"
+	"github.com/Pegasus8/piworker/internal/llm"
 	"github.com/Pegasus8/piworker/internal/node"
 	"github.com/Pegasus8/piworker/internal/secrets"
 )
@@ -51,15 +52,30 @@ func validateDeployable(rt *FlowRuntime, reg *node.Registry) ([]ToolInfo, []Issu
 // (secrets.FromContext: the process-wide store for a deploy). It is Lint's
 // collector (requiredSecretFindings), so Lint reports the same secrets
 // (IssueUndefinedSecret). It also refuses a broker connection a node names
-// (node.ConnectionRequirer) that is not defined (IssueUndefinedConnection).
-// The dry-run does not call it.
+// (node.ConnectionRequirer) that is not defined (IssueUndefinedConnection),
+// and an LLM connection a node names (node.LLMConnectionRequirer) that is
+// not defined (IssueUndefinedLLMConnection). The dry-run does not call it.
 func checkRequiredSecrets(ctx context.Context, rt *FlowRuntime) error {
-	instances := rt.instancesByIndex()
-	if err := firstError(requiredSecretFindings(rt.flow, instances, secrets.FromContext(ctx))); err != nil {
-		return err
-	}
-	// The broker connections nodes name (ADR-0026), from the store of ctx.
-	return firstError(requiredConnectionFindings(rt.flow, instances, brokers.FromContext(ctx)))
+	return firstError(environmentFindings(ctx, rt.flow, rt.instancesByIndex()))
+}
+
+// environmentFindings are the findings that depend on the stores of ctx
+// rather than on the definition (EnvironmentIssue), in this order: the
+// secrets the strict settings cannot work without, the undefined secrets
+// of optional settings (warnings), the broker connections (ADR-0026) and
+// the LLM connections (ADR-0038) nodes name. Deploy refuses the first error
+// among them (checkRequiredSecrets) and Lint reports them all: one list,
+// so a flow Lint finds clean is not refused here. The nodes resolve the
+// LLM connections again on every call: this only refuses a flow that
+// could never work.
+func environmentFindings(ctx context.Context, f *Flow, instances map[int]node.Node) []finding {
+	store := secrets.FromContext(ctx)
+	return slices.Concat(
+		requiredSecretFindings(f, instances, store),
+		unresolvedSecretFindings(f, instances, store),
+		requiredConnectionFindings(f, instances, brokers.FromContext(ctx)),
+		requiredLLMConnectionFindings(f, instances, llm.FromContext(ctx)),
+	)
 }
 
 // instancesByIndex returns the runtime's node instances keyed by their
@@ -109,16 +125,43 @@ func deployWarnings(ctx context.Context, rt *FlowRuntime, reg *node.Registry, to
 // nodes name (node.ConnectionRequirer), sorted, each once: what a change to
 // one of them must restart (ADR-0029). It asks the running instances, so it
 // is the definition that runs, not a later stored one.
-func (r *FlowRuntime) ConnectionsUsed() []string {
+func (r *FlowRuntime) ConnectionsUsed() []string { return r.namesUsed(brokerConnectionsOf) }
+
+// LLMConnectionsUsed returns the LLM connections (ADR-0038) the runtime's
+// nodes name (node.LLMConnectionRequirer), sorted, each once. A change to
+// one restarts nothing (the nodes resolve it per call); the API refuses to
+// delete one while a running flow uses it. It asks the running instances,
+// so it is the definition that runs, not a later stored one.
+func (r *FlowRuntime) LLMConnectionsUsed() []string { return r.namesUsed(llmConnectionsOf) }
+
+// namesUsed returns every name of gives for the runtime's nodes, sorted,
+// each once.
+func (r *FlowRuntime) namesUsed(of func(node.Node) map[string]string) []string {
 	set := map[string]bool{}
 	for _, in := range r.nodes {
-		if req, ok := in.(node.ConnectionRequirer); ok {
-			for _, name := range req.RequiredConnections() {
-				set[name] = true
-			}
+		for _, name := range of(in) {
+			set[name] = true
 		}
 	}
 	return slices.Sorted(maps.Keys(set))
+}
+
+// brokerConnectionsOf returns the broker connections a node instance names
+// (node.ConnectionRequirer), by setting; nil for other nodes.
+func brokerConnectionsOf(in node.Node) map[string]string {
+	if req, ok := in.(node.ConnectionRequirer); ok {
+		return req.RequiredConnections()
+	}
+	return nil
+}
+
+// llmConnectionsOf returns the LLM connections a node instance names
+// (node.LLMConnectionRequirer), by setting; nil for other nodes.
+func llmConnectionsOf(in node.Node) map[string]string {
+	if req, ok := in.(node.LLMConnectionRequirer); ok {
+		return req.RequiredLLMConnections()
+	}
+	return nil
 }
 
 // Warnings returns the warnings the runtime deployed with (deployWarnings).

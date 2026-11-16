@@ -14,6 +14,8 @@ function shorten(text: string) {
 function shown(field: ConfigField, value: unknown): string {
   if (value === undefined || value === null) return ''
   if (typeof value === 'number' && field.unit && isDurationUnit(field.unit)) return formatDuration(value, field.unit)
+  // A list (ConfigProperty type "array") reads as its items.
+  if (Array.isArray(value)) return shorten(value.filter((v): v is string => typeof v === 'string').map(v => v.trim()).filter(Boolean).join(', '))
   if (typeof value === 'object') return ''
   return shorten(String(value))
 }

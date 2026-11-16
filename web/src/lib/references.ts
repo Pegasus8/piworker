@@ -9,10 +9,23 @@ const credentials: Record<string, string[]> = {
 const templates: Record<string, string[]> = {
  'process-template': ['template'], 'action-http': ['url','body'], 'action-email': ['subject','body'],
  'action-telegram': ['message'], 'action-notify': ['message'], 'action-mqtt': ['topic','payload'], 'action-file': ['content'],
- 'action-zigbee': ['device','value','payload']
+ 'action-zigbee': ['device','value','payload'],
+ // LLM nodes (docs/design/llm.md §3).
+ 'process-llm': ['system','prompt','memoryKey'], 'process-llm-classify': ['instructions','input'],
+ 'process-llm-agent': ['system','prompt','memoryKey'], 'action-llm-forget': ['memoryKey'],
+ 'action-knowledge-add': ['text','documentId'], 'process-knowledge-search': ['query']
 }
 const expressions: Record<string, string[]> = {
  'process-transform': ['expression'], 'process-switch': ['condition'], 'process-filter': ['condition'], 'set-var': ['value']
+}
+// Settings edited on several lines: expressions, conditions and templates
+// by name, set-var's value, and the prompts and texts of the LLM nodes.
+const multiline: Record<string, string[]> = {
+ 'set-var': ['value'], 'process-llm': ['system','prompt'], 'process-llm-classify': ['instructions','input'],
+ 'process-llm-agent': ['system','prompt'], 'action-knowledge-add': ['text']
+}
+export function multilineField(nodeType: string, field: string): boolean {
+ return ['expression','condition','template'].includes(field) || !!multiline[nodeType]?.includes(field)
 }
 export function referenceMode(nodeType: string, field: string): ReferenceMode {
  if (credentials[nodeType]?.includes(field)) return 'secret'

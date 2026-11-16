@@ -12,6 +12,7 @@ A **visual flow-based automation system** for Raspberry Pi and other devices. Cr
 - **Extensible** - Easy to add new node types
 - **Lightweight** - Single binary with embedded frontend, optimized for Raspberry Pi
 - **HTTPS by default** - Local certificate authority generated on first start, with automatic certificate renewal
+- **AI in flows** - Nodes that ask a language model (a prompt with text or JSON answers, a classifier with one port per category, an agent that calls your tool flows), transcribe audio and answer from a local knowledge base; Claude through the official Anthropic Go SDK, OpenAI, or a model on your own network (Ollama, LM Studio); daily token limits per connection; and **Create with AI**, which proposes a flow from a description for you to review
 - **AI agents (MCP)** - Publish flows as typed tools that Claude Code, Claude Desktop and other MCP clients can call, with scoped tokens, approvals and an audit log; agents can draft flows for you to review, and deploy only if you opt in
 - **English and Spanish** - The whole interface in both languages
 - **Version history** - Every save of a flow is a numbered version, with one-click rollback to the version you last approved
@@ -26,8 +27,9 @@ installation to a running flow without reading this whole page:
 |-------|----------------|
 | [Getting started](docs/guide/getting-started.md) | Install, open the editor, create your account and build your first flow |
 | [Concepts](docs/guide/concepts.md) | Messages, templates and expressions, deploy and stop, variables, secrets, versions |
-| [Recipes](docs/guide/recipes.md) | Complete flows to copy: notifications, webhooks, schedules, sensors, GPIO |
+| [Recipes](docs/guide/recipes.md) | Complete flows to copy: notifications, webhooks, schedules, sensors, GPIO, a chat bot, an agent, answers from documents |
 | [Node reference](docs/guide/nodes.md) | Every node with its ports and settings |
+| [AI in flows](docs/guide/ai.md) | LLM connections (Claude, OpenAI, Ollama, LM Studio), what leaves the device, daily limits, the LLM nodes, memory, the knowledge base, the AI Agent's limits and Create with AI |
 | [AI agents](docs/guide/agents.md) | Publish a flow as a tool and connect Claude, step by step |
 | [Troubleshooting](docs/guide/troubleshooting.md) | Symptoms and fixes |
 
@@ -452,6 +454,11 @@ sudo systemctl start piworker
 | **Join** | `process-join` | Merge messages by key or source |
 | **Set Variable** | `set-var` | Store a value into a named variable |
 | **Get Variable** | `get-var` | Read a named variable into the payload |
+| **LLM Prompt** | `process-llm` | Ask a language model; pass on its answer as text or JSON (optional schema, images and conversation memory) |
+| **LLM Classify** | `process-llm-classify` | Route a message by the category a language model picks (one output per category, plus `other`) |
+| **AI Agent** | `process-llm-agent` | A language model that calls your published tool flows until it can answer ([limits](docs/guide/ai.md#the-ai-agent-and-its-limits)) |
+| **Transcribe Audio** | `process-transcribe` | Turn speech into text (OpenAI-compatible speech-to-text) |
+| **Search Knowledge Base** | `process-knowledge-search` | Find the stored documents closest in meaning to a query, ready for a prompt |
 
 ### Actions (Output)
 | Node | Type | Description |
@@ -469,6 +476,8 @@ sudo systemctl start piworker
 | **I2C Read** | `action-i2c` | Read from an I2C device (experimental) |
 | **Write File** | `action-file` | Write or append the message to a file |
 | **Agent Reply** | `action-reply` | Answer the agent tool call that started the run |
+| **Add to Knowledge Base** | `action-knowledge-add` | Embed text and store it in a local knowledge collection |
+| **Forget Conversation** | `action-llm-forget` | Clear a conversation the LLM nodes remember |
 
 > **Experimental hardware nodes.** GPIO Edge, GPIO Write, I2C Read and DS18B20
 > Temperature are covered by automated tests but have not been validated on
@@ -483,7 +492,10 @@ sudo systemctl start piworker
 Each node type also declares a **risk**: `privileged` for nodes that act on
 the host (Execute Command, Write File, Database, GPIO Write, I2C Read),
 `external` for nodes that send data elsewhere (HTTP Request, MQTT Publish,
-Zigbee Set, Zigbee Get, Email, Telegram, Notify) and `safe` for the rest. The
+Zigbee Set, Zigbee Get, Email, Telegram, Notify, and the LLM nodes, which send
+message data to the model's provider) and `safe` for the rest (Forget
+Conversation included). The AI Agent's `allowPrivileged` setting is a
+RiskSwitch: turned on, the instance is `privileged`. The
 risk is listed in the node reference, reported to agents by
 `pw_list_node_types`, returned by `/api/node-types` (`risk`) and shown in
 the editor: the node list marks external and privileged types, and the
@@ -979,8 +991,8 @@ not refused but reported: the deploy answers it as a warning
 startup log repeats it for the flows it restores (ADR-0028).
 
 The Secrets dialog says where each secret is used: every flow node setting
-(and whether that flow is deployed or that node disabled) and every broker
-connection credential that references it. Deleting a used secret asks first
+(and whether that flow is deployed or that node disabled), every broker
+connection credential and every LLM connection API key that references it. Deleting a used secret asks first
 and says how many places use it. Names referenced somewhere that no secret
 has are listed under **Referenced but not defined**, each with a button that
 prefills the name for you to define it.
@@ -1029,20 +1041,27 @@ Debug; use the separate secret store for credentials.
 A flow export carries no variables, connection settings or secret values.
 **Export and restore** (in the navigation, under Settings) writes them to one
 JSON file (`piworker-stores`, ADR-0031): the global variables, each flow's
-variables, the broker connections without passwords and the secret names.
+variables, the broker connections without passwords, the LLM connections
+without API keys and the secret names.
 With a passphrase (at least 12 characters) the secret values and the
-connections with their passwords are added, sealed with scrypt and
+connections with their passwords and API keys are added, sealed with scrypt and
 AES-256-GCM; that export asks for your account password and is not
 available while authentication is disabled. Importing shows what the file
 holds, keeps existing values unless you choose to replace them, matches flow
 variables by flow ID or a unique flow name, restarts the running flows that
-use a connection it changed, and reports what it could not restore.
+use a broker connection it changed (a changed LLM connection restarts
+nothing), and reports what it could not restore. An LLM connection the file
+carries without its API key keeps the local key only while the file leaves
+its provider and endpoint unchanged; otherwise it is restored without a key
+(an Anthropic connection, which needs one, is left as it is) and listed in
+`apiKeysNotRestored` (ADR-0038).
 
 ### Backups
 
 PiWorker backs itself up every day (ADR-0032): flows and their versions,
-accounts, agent tokens, secrets, variables, broker connections, settings,
-the local CA (`tls/`) and the configuration file, in one
+accounts, agent tokens, secrets, variables, broker and LLM connections (with
+today's token usage), the LLM nodes' conversations and knowledge base,
+settings, the local CA (`tls/`) and the configuration file, in one
 `piworker-backup-<UTC time>.tar.gz`. Run history, node events, the agent
 audit and sign-in sessions are left out. The database is copied with
 `VACUUM INTO` while PiWorker runs.
@@ -1129,6 +1148,35 @@ Deleting a connection that a running flow uses is refused (409) and names
 the flows; a stopped flow that names a missing connection is refused at
 deploy (`undefined_connection`). **Test connection** tries settings without
 storing them.
+
+### LLM connections
+
+**LLM connections** (in the navigation, under Settings) name a language
+model provider once for the LLM nodes ([guide](docs/guide/ai.md), ADR-0038):
+a provider (`anthropic`, the Claude API through the official Anthropic Go
+SDK, or `openai`, for OpenAI and every OpenAI-compatible server such as
+Ollama, LM Studio, OpenRouter, vLLM or LocalAI), an optional base URL (a
+model on the device or the LAN, e.g. `http://192.168.1.20:11434/v1`), an
+API key (write-only; required for Anthropic; may be a `{{secret.NAME}}`
+reference), a default model and an optional daily token limit (input plus
+output tokens per local day; once reached the connection's calls fail until
+midnight). The dialog shows today's usage; **Test connection** lists the
+models without storing anything and spends no tokens. Nodes resolve the
+connection on every call, so a change restarts nothing. Deleting a
+connection a running flow uses is refused (409, naming the flows); a stopped
+flow that names a missing one is refused at deploy
+(`undefined_llm_connection`).
+
+What the nodes send (prompts, images, audio, text to embed, the agent's
+tool results) goes to the connection's provider: with a cloud provider it
+leaves the device. Conversations (`memoryKey`) and the knowledge base are
+kept in PiWorker's database; **AI memory** shows and clears them. **Create
+with AI** in the editor asks a connection for a proposed flow, checked with
+the same rules as a deploy, which you review and place on the canvas;
+nothing is saved or deployed (ADR-0041). The **AI Agent** node calls only
+the tool flows it lists, through the same path as MCP agents, never tools of
+its own flow or of a flow whose agent waits for it, never tools that need
+confirmation, and privileged ones only with `allowPrivileged` (ADR-0039).
 
 ### Environment Variables
 
@@ -1419,10 +1467,10 @@ accounts.
 | PUT, DELETE | `/api/variables/{name}` | Set (`{"value": …}`) or delete a global variable |
 | GET | `/api/flows/{id}/variables` | List the variables of one flow |
 | PUT, DELETE | `/api/flows/{id}/variables/{name}` | Set or delete a flow variable |
-| GET | `/api/secrets` | `{"secrets": [{"name", "short"}], "shortBelow": 16}`; with `?usage=1` each secret also has `uses` and the answer an `undefined` list (both omitted when empty): names only, never values or lengths; `short` marks a value under `shortBelow` characters, which an agent could confirm a guess of. `uses` lists where each secret is referenced (`flowId`, `flowName`, `flowRunning`, `nodeId`, `nodeType`, `nodeDisabled`, `setting`, or `connection` and `setting`); `undefined` lists the referenced names no secret has |
+| GET | `/api/secrets` | `{"secrets": [{"name", "short"}], "shortBelow": 16}`; with `?usage=1` each secret also has `uses` and the answer an `undefined` list (both omitted when empty): names only, never values or lengths; `short` marks a value under `shortBelow` characters, which an agent could confirm a guess of. `uses` lists where each secret is referenced (`flowId`, `flowName`, `flowRunning`, `nodeId`, `nodeType`, `nodeDisabled`, `setting`, or `connection` and `setting`, or `llmConnection` and `setting` `apiKey`); `undefined` lists the referenced names no secret has |
 | PUT, DELETE | `/api/secrets/{name}` | Set (`{"value": "…"}`) or delete a secret |
-| POST | `/api/stores/export` | Download the variables, connections and secret names as a `piworker-stores` file. `{"passphrase", "password"}` adds the secret values and connection passwords sealed with the passphrase (12+ characters); it needs the account password and authentication enabled |
-| POST | `/api/stores/import` | Restore such a file: `{"bundle", "passphrase", "overwrite"}`; answers counts per kind (`added`, `replaced`, `skipped`), what was not restored and the flows restarted. A wrong passphrase or another file is `400` and writes nothing |
+| POST | `/api/stores/export` | Download the variables, broker and LLM connections and secret names as a `piworker-stores` file. `{"passphrase", "password"}` adds the secret values, connection passwords and LLM API keys sealed with the passphrase (12+ characters); it needs the account password and authentication enabled |
+| POST | `/api/stores/import` | Restore such a file: `{"bundle", "passphrase", "overwrite"}`; answers counts per kind (`added`, `replaced`, `skipped`; `llmConnections` among them), what was not restored (`apiKeysNotRestored` for LLM connections) and the flows restarted. A wrong passphrase or another file is `400` and writes nothing |
 
 ### Backups
 
@@ -1452,13 +1500,30 @@ accounts.
 | GET | `/api/zigbee`, `/api/zigbee/{name}` | Zigbee2MQTT networks: bridge state, devices and their last state |
 | POST | `/api/zigbee/{name}/permit-join` | Allow devices to join for a while |
 
+### LLM connections, memory and the flow assistant
+
+Editor session only; none of these are on MCP ([design](docs/design/llm.md#6-rest-api-admin-session-under-api-none-of-it-on-mcp)).
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/llm/connections` | `{"connections": [{"name", "provider", "baseUrl", "hasApiKey", "model", "dailyTokenLimit", "usageToday": {"inputTokens", "outputTokens", "requests"}}]}`, never the key |
+| PUT | `/api/llm/connections/{name}` | Create or replace (`{"provider", "baseUrl", "apiKey", "model", "dailyTokenLimit"}`; no `apiKey` keeps the stored one, `""` clears it); restarts nothing |
+| DELETE | `/api/llm/connections/{name}` | Delete; `409` with `data.flows` while a running flow uses it |
+| POST | `/api/llm/connections/{name}/test` | List the models with the settings sent (the stored key when none is sent), store nothing, spend no tokens: `{"ok", "error", "models"}` |
+| GET | `/api/llm/connections/{name}/models` | The models of a stored connection (`404` unknown, `400` its key's secret is undefined, `502` the provider failed) |
+| GET | `/api/llm/conversations`, `/api/llm/conversations/{key}` | The remembered conversations; one conversation's turns (key path-escaped) |
+| DELETE | `/api/llm/conversations/{key}` | Clear a conversation |
+| GET | `/api/llm/knowledge`, `/api/llm/knowledge/{collection}?offset=&limit=` | The knowledge collections; a page of a collection's documents (`limit` at most 100) |
+| DELETE | `/api/llm/knowledge/{collection}`, `/api/llm/knowledge/{collection}/documents/{id}` | Delete a collection or one document |
+| POST | `/api/llm/assistant/flow` | `{"connection", "model", "description", "flow"}`: a proposed flow `{"flow", "notes", "issues", "usage"}`; stores nothing. `409` while another runs, `429` daily limit spent, `504` after 3 minutes, `502` the model failed |
+
 ### Node Types
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/node-types` | List available node types (`category` filters by `input`, `processing` or `output`); each carries its `risk` (`safe`, `external`, `privileged`) and `riskCanRise` (a setting can raise an instance to privileged) |
+| GET | `/api/node-types` | List available node types (`category` filters by `input`, `processing` or `output`); each carries its `risk` (`safe`, `external`, `privileged`) and `riskCanRise` (a setting can raise an instance to privileged); `outputsFrom` names the list setting whose items are extra output ports (the LLM Classify categories, ADR-0040) |
 | GET | `/api/node-types/{type}` | One node type with its documentation and configuration schema |
-| POST | `/api/nodes/{type}/test` | Run one processing node once on a sample message (the editor's payload playground); nothing is deployed |
+| POST | `/api/nodes/{type}/test` | Run one processing node once on a sample message (the editor's payload playground); nothing is deployed. LLM nodes call their provider for real and spend from the connection's daily limit, within 2 minutes (other nodes 10 s) and with an empty conversation memory |
 
 ### Health and metrics
 
@@ -1537,7 +1602,8 @@ piworker/
 │   ├── node/               # Node system
 │   │   ├── builtin/        # Built-in node implementations
 │   │   └── ...
-│   ├── service/            # Agent tool calls, reads, drafts and deploy policy
+│   ├── service/            # Agent tool calls, reads, drafts, deploy policy, flow assistant
+│   ├── llm/                # LLM connections, Anthropic and OpenAI-compatible clients, memory, knowledge base
 │   ├── mcpserver/          # The /mcp endpoint
 │   ├── agentauth/          # Agent token verification
 │   ├── toolschema/         # Closed JSON Schema subset of tool inputs

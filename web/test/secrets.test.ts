@@ -87,6 +87,7 @@ test('the listing keeps where each secret is used and the undefined references',
   const list = secretList({
     secrets: [{ name: 'smtp', short: false, uses: [
       { connection: 'home', setting: 'password', extra: 'dropped' },
+      { llmConnection: 'claude', setting: 'apiKey' },
       { flowId: 'f1', flowName: 'Mailer', flowRunning: true, nodeId: 'mail', nodeType: 'action-email', setting: 'password' },
       { flowId: 'f2', nodeId: 'n', setting: 42 }
     ] }],
@@ -95,6 +96,7 @@ test('the listing keeps where each secret is used and the undefined references',
   })
   expect(list.secrets[0].uses).toEqual([
     { connection: 'home', setting: 'password' },
+    { llmConnection: 'claude', setting: 'apiKey' },
     { flowId: 'f1', flowName: 'Mailer', flowRunning: true, nodeId: 'mail', nodeType: 'action-email', setting: 'password' }
   ])
   expect(list.undefined).toEqual([{ name: 'ghost', uses: [{ flowId: 'f1', flowName: 'Mailer', nodeId: 'mail', nodeDisabled: true, setting: 'username' }] }])
@@ -107,4 +109,8 @@ test('uses read as lines and a summary', () => {
   expect(secretUseText({ connection: 'home', setting: 'username' })).toBe('Broker connection “home” · username')
   expect(secretUsesSummary([])).toBe('Not used by any flow or connection.')
   expect(secretUsesSummary([running, { flowId: 'f2', nodeId: 'x', setting: 'url' }])).toBe('Used in 2 places, 1 in use now.')
+  // An LLM connection's API key: connections are always in use.
+  const llmUse = { llmConnection: 'claude', setting: 'apiKey' }
+  expect(secretUseText(llmUse)).toBe('LLM connection “claude” · apiKey')
+  expect(secretUsesSummary([llmUse, { flowId: 'f2', nodeId: 'x', setting: 'url' }])).toBe('Used in 2 places, 1 in use now.')
 })

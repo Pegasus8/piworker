@@ -1,3 +1,53 @@
+# Dependency addition — 2026-11-15: Anthropic Go SDK (LLM nodes)
+
+Change: the LLM nodes (ADR-0038) add
+`github.com/anthropics/anthropic-sdk-go/v2` **v2.9.0** (Apache-2.0), the
+official client of the Claude API, used only by `internal/llm/anthropic.go`.
+The OpenAI-compatible client is plain `net/http` and adds nothing.
+
+New modules in `go.mod` (compare with `git diff origin/revival -- go.mod`),
+all indirect through the SDK:
+
+| Module | Version | License | Why it is there |
+|---|---|---|---|
+| `github.com/tidwall/gjson`, `sjson`, `match`, `pretty` | v1.18.0, v1.2.5, v1.1.1, v1.2.1 | MIT | The SDK's JSON decoding and request building |
+| `github.com/invopop/jsonschema` | v0.14.0 | MIT | Schemas from Go types in the SDK's helpers |
+| `github.com/bahlo/generic-list-go` | v0.2.0 | BSD-3-Clause | Through `invopop/jsonschema` |
+| `github.com/buger/jsonparser` | v1.1.2 | MIT | Through `invopop/jsonschema` |
+| `github.com/pb33f/ordered-map/v2` | v2.3.1 | Apache-2.0 | Through `invopop/jsonschema` |
+| `go.yaml.in/yaml/v4` | v4.0.0-rc.2 | MIT and Apache-2.0 | Through `invopop/jsonschema` |
+| `github.com/standard-webhooks/standard-webhooks/libraries` | v0.0.1 | MIT | The SDK's webhook verification (linked, not used by PiWorker) |
+| `go.opentelemetry.io/otel`, `otel/metric`, `otel/trace`, `auto/sdk` | v1.33.0, v1.1.0 | Apache-2.0 | The SDK's tracing spans; PiWorker registers no tracer provider, so the global no-op one is used and nothing is exported |
+| `github.com/go-logr/logr`, `go-logr/stdr` | v1.4.2, v1.2.2 | Apache-2.0 | Through OpenTelemetry |
+
+The SDK's own `go.mod` also requires the AWS and Google Cloud SDKs (for its
+`bedrock` and `vertex` packages); PiWorker does not import those packages,
+so their modules are neither in PiWorker's `go.mod` nor built.
+`go list -deps .` counts 55 packages from the new modules in the binary,
+all pure Go (the MCP bridge `cmd/piworker-mcp` does not import them and
+stays `CGO_ENABLED=0`).
+
+How it is used: the client is built per call with
+`option.WithoutEnvironmentDefaults()` (no `ANTHROPIC_*` environment
+variables, profiles or custom headers: the LLM connection is the only source
+of key and endpoint), `option.WithMaxRetries(0)` and PiWorker's own HTTP
+client; error texts are taken from the API's message, capped and with the
+key redacted, never from the SDK's error string.
+
+Checks on this tree (Go 1.27.4, CGO enabled):
+
+- `govulncheck` v1.9.0 `./...`: **0 reachable, 0 imported-package
+  vulnerabilities**; 1 module-level finding, the known
+  [GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932) in
+  `golang.org/x/crypto` (`openpgp`, not imported). The database now lists a
+  fix in a pseudo-version after v0.58.0
+  (`v0.58.1-0.20261009181718-2f1f834330b2`); move to the next tagged
+  x/crypto release when one exists.
+- Not covered: the SDK's behaviour against the live API (the tests use a
+  local fake server), and `bun audit` (the frontend gained no dependency).
+
+---
+
 # Release candidate audit — 2026-11-14 (`v1.0.0-beta.1`)
 
 Candidate baseline: `0c7abfe` on `revival`; the remediation below is part of the

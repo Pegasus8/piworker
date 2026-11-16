@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -180,7 +181,7 @@ func newGuardedHTTPClient(timeout time.Duration, allowPrivate bool) *http.Client
 
 			for _, ip := range ips {
 				if isBlockedIP(ip.IP) {
-					return nil, fmt.Errorf("blocked connection to non-public address %s (set allowPrivate to allow)", ip.IP)
+					return nil, &BlockedAddressError{IP: ip.IP}
 				}
 			}
 
@@ -191,6 +192,26 @@ func newGuardedHTTPClient(timeout time.Duration, allowPrivate bool) *http.Client
 
 	return &http.Client{Timeout: timeout, Transport: transport}
 }
+
+// ErrBlockedAddress is the guarded client's refusal of a non-public address
+// (newGuardedHTTPClient): errors.Is finds it in a request's error, so a node
+// can tell it from a network failure (it is never transient).
+var ErrBlockedAddress = errors.New("blocked connection to non-public address")
+
+// BlockedAddressError is the guarded client's refusal to connect to IP, a
+// non-public address; it is ErrBlockedAddress. Its message names the
+// allowPrivate setting of the HTTP Request node; a node without that
+// setting words its own (with IP).
+type BlockedAddressError struct {
+	IP net.IP
+}
+
+func (e *BlockedAddressError) Error() string {
+	return fmt.Sprintf("%s %s (set allowPrivate to allow)", ErrBlockedAddress, e.IP)
+}
+
+// Is makes errors.Is(err, ErrBlockedAddress) true.
+func (e *BlockedAddressError) Is(target error) bool { return target == ErrBlockedAddress }
 
 // isBlockedIP reports whether ip is a non-public address that SSRF protection
 // should refuse to connect to.

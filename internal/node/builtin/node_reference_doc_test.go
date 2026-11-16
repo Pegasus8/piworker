@@ -89,7 +89,7 @@ func renderNode(b *strings.Builder, info node.NodeTypeInfo) {
 	fmt.Fprintf(b, "<a id=\"%s\"></a>\n\n### %s\n\n", anchor(info), info.Name)
 	fmt.Fprintf(b, "%s.\n\n", strings.TrimSuffix(info.Description, "."))
 	fmt.Fprintf(b, "- **Type:** `%s`\n- **Risk:** `%s`\n", info.Type, info.Risk)
-	fmt.Fprintf(b, "- **Inputs:** %s\n- **Outputs:** %s\n\n", ports(info.Inputs), ports(info.Outputs))
+	fmt.Fprintf(b, "- **Inputs:** %s\n- **Outputs:** %s\n\n", ports(info.Inputs), outputs(info))
 	if info.Config == nil || len(info.Config.Properties) == 0 {
 		b.WriteString("No settings.\n\n")
 		return
@@ -122,6 +122,19 @@ func renderNode(b *strings.Builder, info node.NodeTypeInfo) {
 		fmt.Fprintf(b, "| %s | `%s` | %s | %s | %s |\n", cell(title), name, propType(p), propDefault(p), cell(p.Description))
 	}
 	b.WriteString("\n")
+}
+
+// outputs lists the static outputs and, for a type whose outputs come from
+// a setting (OutputsFrom, ADR-0040), says so.
+func outputs(info node.NodeTypeInfo) string {
+	if info.OutputsFrom == "" {
+		return ports(info.Outputs)
+	}
+	from := "one per item of `" + info.OutputsFrom + "`"
+	if len(info.Outputs) == 0 {
+		return from
+	}
+	return ports(info.Outputs) + ", then " + from
 }
 
 func ports(list []types.Port) string {
