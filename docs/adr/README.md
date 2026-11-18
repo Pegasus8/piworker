@@ -75,10 +75,10 @@ node recipe, UI changes and documentation do **not** need an ADR.
 | [0031](0031-export-and-restore-of-variables-connections-and-secrets.md) | Export and restore of variables, connections and secrets | Accepted |
 | [0032](0032-automatic-backups-and-whole-state-restore.md) | Automatic backups and whole-state restore | Accepted |
 | [0033](0033-update-checks-and-requested-updates.md) | Update checks and requested updates | Proposed |
-| [0034](0034-lifecycle-service-owns-deploy-and-stop.md) | A lifecycle service owns deploy, stop and restore | Proposed |
-| [0035](0035-numbered-schema-migrations.md) | Numbered schema migrations recorded in the database | Proposed |
-| [0036](0036-error-port-on-every-node.md) | Every node has an error port | Proposed |
-| [0037](0037-triggers-wait-for-room.md) | Triggers wait for room in the flow | Proposed |
+| [0034](0034-lifecycle-service-owns-deploy-and-stop.md) | A lifecycle service owns deploy, stop and restore | Accepted |
+| [0035](0035-numbered-schema-migrations.md) | Numbered schema migrations recorded in the database | Accepted |
+| [0036](0036-error-port-on-every-node.md) | Every node has an error port | Accepted |
+| [0037](0037-triggers-wait-for-room.md) | Triggers wait for room in the flow | Accepted |
 | [0038](0038-llm-connections-and-the-anthropic-go-sdk.md) | LLM connections, providers and the official Anthropic Go SDK | Accepted |
 | [0039](0039-agent-nodes-call-flow-tools-through-the-tool-service.md) | Agent nodes call flow tools through the tool service | Accepted |
 | [0040](0040-node-outputs-from-a-setting.md) | Node outputs from a setting | Accepted |

@@ -1,6 +1,13 @@
 # Release notes
 
-## Unreleased
+## v1.0.0-beta.2 — not yet published (prerelease)
+
+A prerelease like beta.1: install it by tag (`v1.0.0-beta.2`). Updating a
+beta.1 installation: `sudo piworkerctl update v1.0.0-beta.2`. The update
+backs up the data first (`/var/backups/piworker/`) and moves the database
+to schema version 2. To go back to beta.1, restore that backup: beta.1
+predates the schema check and would start on the migrated database without
+noticing it.
 
 ### Added
 
@@ -47,9 +54,9 @@
 ### Changed
 
 - The database moves to schema version 2 (new tables for LLM connections,
-  their daily usage, conversations and the knowledge base). An older
-  PiWorker refuses to open it; restore the backup made before the update to
-  go back ([ADR-0035](docs/adr/0035-numbered-schema-migrations.md)).
+  their daily usage, conversations and the knowledge base). Restore the
+  backup made before the update to go back
+  ([ADR-0035](docs/adr/0035-numbered-schema-migrations.md)).
 - **Export and restore** also carries the LLM connections, their API keys
   only inside the passphrase-sealed part. A restored LLM connection keeps
   this installation's key only when the file leaves its provider and
@@ -60,32 +67,16 @@
   backup as unchanged.
 - New dependency: `github.com/anthropics/anthropic-sdk-go/v2`
   ([audit](docs/dependency-audit.md)).
-
 - When messages arrive faster than a flow finishes them, its triggers now
   wait instead of starting runs that lose messages halfway: a Webhook
   answers 503, a timer skips ticks. Before, the messages were dropped at the
   slow node after the first nodes had already run
   ([ADR-0037](docs/adr/0037-triggers-wait-for-room.md)).
-- The database records its schema version. Starting an older PiWorker on a
-  database a newer release migrated is refused with a clear error instead of
-  running on tables it does not know; restoring a backup from a newer
-  release is refused the same way
-  ([ADR-0035](docs/adr/0035-numbered-schema-migrations.md)).
-
-### Internal
-
-- One lifecycle service owns deploy, stop, restart and the restore at
-  startup ([ADR-0034](docs/adr/0034-lifecycle-service-owns-deploy-and-stop.md));
-  explicit composition root; the editor's response types are checked against
-  the server's.
-
-## v1.0.0-beta.2 — 2026-11-15 (prerelease)
-
-A prerelease like beta.1: install it by tag (`v1.0.0-beta.2`). Updating a
-beta.1 installation: `sudo piworkerctl update v1.0.0-beta.2`.
-
-### Changed
-
+- The database records its schema version. From this release on, starting
+  PiWorker on a database a newer release migrated is refused with a clear
+  error instead of running on tables it does not know, and restoring a
+  backup from a newer release is refused the same way (beta.1 has no such
+  check) ([ADR-0035](docs/adr/0035-numbered-schema-migrations.md)).
 - Smooth motion: the node settings panel slides in from the edge (and rises
   into place on phones), dialogs and menus fade in and out, the activity
   panel and the phone navigation drawer animate open and closed. All of it
@@ -105,6 +96,13 @@ beta.1 installation: `sudo piworkerctl update v1.0.0-beta.2`.
 - A call to a tool the token is not served (unknown, hidden, or a deploy
   tool while agent deploy is off) is refused with "No tool … is available to
   this token" instead of a message about a missing `call` scope.
+
+### Internal
+
+- One lifecycle service owns deploy, stop, restart and the restore at
+  startup ([ADR-0034](docs/adr/0034-lifecycle-service-owns-deploy-and-stop.md));
+  explicit composition root; the editor's response types are checked against
+  the server's.
 
 ## v1.0.0-beta.1 — 2026-11-15 (prerelease)
 

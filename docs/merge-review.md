@@ -87,3 +87,22 @@ No merge, tag, release publication or default-branch rename is authorized here.
   the explicitly documented braces development-tool advisory.
 - Remote CI results must be read against the latest pushed SHA. This document's
   local evidence does not certify a pending remote multi-platform Docker build.
+
+## Scope added since this review — 2026-11-18
+
+This review covered `revival` up to `83534cf`. Since then nine pull requests
+were merged into `revival`, each reviewed and green in CI on its own:
+#289 (runtime/API/node hardening after a bug review), #290 (MCP agent access,
+native HTTPS; ADR-0009…0023), #291 (CI timing), #292 (user guide,
+prerelease publication), #293 (Zigbee), #294 (editor overhaul, English and
+Spanish), #295 (backups and restore; ADR-0030…0033), #296 (lifecycle
+service, schema migrations, error port, trigger admission; ADR-0034…0037)
+and #297 (LLM nodes; ADR-0038…0041). They were not re-reviewed here as one
+diff against `master`.
+
+State at `a423579`: CI green (runs 70 and 71); the braces advisory above no
+longer appears; `v1.0.0-beta.1` was published and installed on the owner's
+Pi; the beta.2 candidate passed the checks in the
+[validation report](release-validation.md#v100-beta2-candidate-validation--2026-11-18),
+including an update from beta.1's data. Gates left before merging: none in
+the code; before announcing, see the [release checklist](release-checklist.md).

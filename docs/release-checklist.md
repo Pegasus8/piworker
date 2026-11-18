@@ -48,12 +48,22 @@ candidate, publication and repository housekeeping. In order:
   prerelease, and the README documents installing by tag.
 - [x] Choose the version number: **`v1.0.0-beta.1`** (decided 2026-11-14).
   The only earlier tag is `v0.1.0-alpha.1` (2020), so it sorts after it.
+  `v1.0.0-beta.1` was published on 2026-11-15. **`v1.0.0-beta.2`** was
+  prepared the same day but never tagged; decided 2026-11-18: it is the
+  next prerelease and carries everything since beta.1 (LLM nodes, error
+  port, numbered schema migrations), tagged from `master` after
+  `revival` merges.
 - [ ] Run every unchecked item under [Candidate validation](#candidate-validation)
   against the tagged commit: archives and checksums, the six bridge binaries,
   `scripts/smoke_container.py`, the agent authoring smoke test, browser setup
   and editing on the Pi. 2026-11-14: everything but the Pi browser check and
   the draft's own assets passed on the candidate
   ([report](release-validation.md#v100-beta1-candidate-validation--2026-11-14)).
+  2026-11-18, beta.2 candidate (`a423579` plus documentation): the same
+  checks passed, plus an update from the published beta.1's data
+  ([report](release-validation.md#v100-beta2-candidate-validation--2026-11-18)).
+  Still open: the draft's assets, ARM images under emulation, and the Pi
+  (update from beta.1, browser setup and editing).
 - [x] Hardware nodes (GPIO Edge/Write, I2C Read, DS18B20) have no recorded run
   on a real Pi: they ship marked **experimental** (decided 2026-11-11) in the
   editor's node list and documentation card, the node reference, the README,
@@ -75,10 +85,12 @@ candidate, publication and repository housekeeping. In order:
   published release is `v0.1.0-alpha.1` (2020), so
   `releases/latest/download/piworkerctl` and the `ghcr.io` image in the README
   and the user guide do not resolve to the revival yet.
-- [ ] PR #288 (`revival` → `master`) is still a draft. Until it merges (or the
+- [ ] PR #288 (`revival` → `master`) is still a draft (description
+  refreshed 2026-11-18; CI green on the head). Merge it with a merge commit
+  (not a squash), then tag the merge commit. Until it merges (or the
   default branch changes) the repository homepage shows the 2020 README, and
   Dependabot keeps opening pull requests against the removed `webui/frontend`
-  (about twenty are open). Merge, then close those.
+  (30 are open, #251–#286, plus the 2021 PR #250). Merge, then close those.
 - [ ] After publication, remove the prepublication notices from the README and
   from `docs/guide/getting-started.md`, and rerun their commands on a fresh
   machine.

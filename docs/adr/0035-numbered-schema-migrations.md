@@ -1,6 +1,6 @@
 # ADR-0035: Numbered schema migrations recorded in the database
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-15
 **Deciders:** maintainer
 

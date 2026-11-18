@@ -1,6 +1,6 @@
 # ADR-0034: A lifecycle service owns deploy, stop and restore
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-15
 **Deciders:** maintainer
 

@@ -1,6 +1,6 @@
 # ADR-0036: Every node has an error port
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-15
 **Deciders:** maintainer
 

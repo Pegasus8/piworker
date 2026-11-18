@@ -1,3 +1,21 @@
+# Release candidate check — 2026-11-18 (v1.0.0-beta.2)
+
+On `a423579` (Go 1.27.4, Bun 1.4.4):
+
+- `govulncheck` v1.10.0 `-mode=binary` on the CGO release binary: **0
+  reachable, 0 imported-package vulnerabilities**; one module-level finding,
+  [GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932) (`golang.org/x/crypto/openpgp`
+  is unmaintained), a package PiWorker does not import. (`./...` source mode
+  could not load Go 1.27 code with this govulncheck release; the binary mode
+  covers what ships.)
+- `bun audit`: one **high** advisory, picomatch ≤4.0.7
+  ([GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf),
+  ReDoS through repeated extglobs), reached through Vite, vue-tsc, Tailwind
+  and vue-router's build plugin. No fixed release exists yet (4.0.7 is the
+  newest), so there is no override to add. picomatch only matches the
+  project's own file globs at build time; it is not in the shipped bundle
+  (`web/dist` has no trace of it). Recheck when a fix is published.
+
 # Dependency addition — 2026-11-15: Anthropic Go SDK (LLM nodes)
 
 Change: the LLM nodes (ADR-0038) add

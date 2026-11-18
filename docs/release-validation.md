@@ -267,3 +267,41 @@ the administrator in the browser. Two findings:
 
 Still open on the Pi: trusting the CA, editing and deploying a flow in the
 browser, and a reboot with the published package.
+
+## v1.0.0-beta.2 candidate validation — 2026-11-18
+
+`v1.0.0-beta.2` was prepared on 2026-11-15 but never tagged; it now carries
+everything since beta.1, including the LLM nodes, the error port and
+numbered schema migrations (see the [release notes](../CHANGELOG.md)).
+Candidate: `a423579` on `revival` (CI runs
+[70](https://github.com/Pegasus8/piworker/actions/runs/43781551331) and
+[71](https://github.com/Pegasus8/piworker/actions/runs/43781556921) green:
+Go race tests, frontend unit and browser tests, installer tests, the three
+Linux archives with `SHA256SUMS`, the six bridges and the multi-platform
+Docker build) plus documentation-only commits. Built locally with
+`VERSION=v1.0.0-beta.2`. Environment: Linux x86_64 cloud container, Go
+1.27.4, Bun 1.4.4, Docker 29.9.2.
+
+| Check | Result |
+|-------|--------|
+| `make fmt-check vet`, `go test -race -count=1 ./...` | Passed, every package. |
+| Frontend unit tests, `vue-tsc`, production build | 350 tests passed; typecheck and build passed. The committed `internal/webui/dist` is identical to a fresh build. |
+| Installer and validation-kit tests | 55 passed (1 skipped: needs a real binary). |
+| `govulncheck -mode=binary` (v1.10.0) on the candidate | 0 reachable, 0 in imported packages; one module-only finding (`x/crypto/openpgp`, not imported). |
+| `bun audit` | One **high** advisory in build tooling only: picomatch ≤4.0.7 ([GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf)), no fixed release yet; not in the shipped bundle (see the [dependency audit](dependency-audit.md)). |
+| **Update from beta.1's data** (published `v1.0.0-beta.1` linux-amd64 archive, checksums verified) | 19 checks passed: the candidate starts on a beta.1 database (user_version 0) and migrates it to schema 2 with the LLM tables; the session cookie and the login survive; the deployed flow is restored and the stopped one stays stopped; flow version, global and flow variables, the secret (listed, value hidden), run history, the agent token and the beta.1 backup are kept; the flow runs again; a new flow's error port catches a failing Transform; a backup and a restart work on the migrated data. |
+| beta.1 started on the migrated database | **Starts and runs** (it predates the schema check). The release notes said an older PiWorker refuses it; corrected: going back to beta.1 means restoring the update backup. |
+| Agent authoring smoke test (checklist §Agent authoring), over HTTPS through the linux-amd64 bridge | All 6 steps passed with MCP protocol 2025-11-25, checked through the API (marks, versions, 409) rather than the editor's screens. The per-token rate limit throttled the scripted agent 9 times; it retried after `retryAfter`. |
+| Bridge guards | A wrong `--ca-fingerprint` gets no answer; a token file with mode 0644 is refused (exit 2). |
+| `scripts/smoke_container.py` | Passed for `linux/amd64` (image from the release Dockerfile plus this environment's proxy CA). ARM images were not run: the container has no QEMU and installing it needs a privileged container; CI builds them. |
+
+Observation: after **Agent deploy** is set to Off, `pw_deploy_flow` is
+refused at once (`forbidden`, "agent deploy is off"), but the deploy tools
+stay in `tools/list` until the tokens epoch is next read (every 5 s; 2.2 s
+here). Expected from the verifier's design; harmless because the call
+itself is refused.
+
+Not covered here: the draft release's own assets, public downloads, GHCR
+publication, ARM images, Claude Desktop itself, browser setup and editing on
+the Pi, a real LLM provider (connections were exercised through the API only),
+ARMv7 and x86_64 on real devices.

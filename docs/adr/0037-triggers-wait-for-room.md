@@ -1,6 +1,6 @@
 # ADR-0037: Triggers wait for room in the flow
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-15
 **Deciders:** maintainer
 **Supersedes:** the backpressure consequence of ADR-0005
