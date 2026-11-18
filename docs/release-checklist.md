@@ -85,12 +85,10 @@ candidate, publication and repository housekeeping. In order:
   published release is `v0.1.0-alpha.1` (2020), so
   `releases/latest/download/piworkerctl` and the `ghcr.io` image in the README
   and the user guide do not resolve to the revival yet.
-- [ ] PR #288 (`revival` → `master`) is still a draft (description
-  refreshed 2026-11-18; CI green on the head). Merge it with a merge commit
-  (not a squash), then tag the merge commit. Until it merges (or the
-  default branch changes) the repository homepage shows the 2020 README, and
-  Dependabot keeps opening pull requests against the removed `webui/frontend`
-  (30 are open, #251–#286, plus the 2021 PR #250). Merge, then close those.
+- [x] PR #288 (`revival` → `master`) merged on 2026-11-18 with a merge
+  commit (`42731bd`), tagged `v1.0.0-beta.2`. The 30 Dependabot pull
+  requests against the removed `webui/frontend` and old Go modules
+  (#251–#286) and the 2021 PR #250 were closed; `revival` is retired.
 - [ ] After publication, remove the prepublication notices from the README and
   from `docs/guide/getting-started.md`, and rerun their commands on a fresh
   machine.
@@ -259,7 +257,7 @@ from Claude Code or the bridge (see the README's
 
 ## Publication sequence
 
-1. Select the candidate commit on `revival` and obtain green CI. Both workflows
+1. Select the candidate commit on `master` and obtain green CI. Both workflows
    and the manager must exist in the commit being tagged.
 2. Choose the release version, finalize the notes, push a `v*` tag at that commit,
    and wait for the draft-release job to succeed.
@@ -273,10 +271,7 @@ from Claude Code or the bridge (see the README's
 6. Update the release checklist with links to actual evidence and publish the
    user-facing announcement only after the advertised artifacts work.
 
-The default branch is currently `master`, whose workflow directory contains only
-`golangci-lint.yml`. Decide separately when to merge revival or change the default
-branch so the repository homepage and dependency monitoring reflect the new code.
-This is not a prerequisite for the tag-based `release` event: it uses the tagged
-commit. Manual `workflow_dispatch` availability does require the workflow on the
+The default branch `master` holds the revived code and its workflows since
+2026-11-18. The tag-based `release` event uses the tagged commit. Manual `workflow_dispatch` availability does require the workflow on the
 default branch. See GitHub's [event reference](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release)
 and [token-trigger rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
