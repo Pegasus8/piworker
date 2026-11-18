@@ -1,0 +1,28 @@
+import type en from '../en/activity'
+const es: typeof en = {
+  title: 'Actividad',
+  live: 'en vivo',
+  connecting: 'conectando…',
+  idle: 'en reposo',
+  idleHint: 'Despliega el flujo para ver su actividad en vivo.',
+  runs: 'Ejecuciones',
+  debug: 'Depuración',
+  refresh: 'Actualizar ejecuciones',
+  clear: 'Vaciar la actividad',
+  expand: 'Expandir la actividad',
+  collapse: 'Contraer la actividad',
+  loadingRuns: 'Cargando ejecuciones…',
+  noRuns: 'Todavía no hay ejecuciones. Despliega el flujo y dispáralo para verlas aquí.',
+  viewRun: (id: string) => `Ver la ejecución ${id}`,
+  nodeCount: (n: number) => `${n} ${n === 1 ? 'nodo' : 'nodos'}`,
+  errorCount: (n: number) => `${n} ${n === 1 ? 'error' : 'errores'}`,
+  noDebug: 'No hay salida de depuración. Añade un nodo Debug a un flujo en marcha para inspeccionar los mensajes.',
+  runDetails: 'Detalles de la ejecución',
+  startedBy: 'Iniciada por:',
+  runDetailsHint: 'Eventos de los nodos, duraciones y errores registrados. Los mensajes no se guardan en este historial.',
+  loadingEvents: 'Cargando eventos…',
+  noEvents: 'No hay eventos de nodos registrados para esta ejecución.',
+  refreshDetails: 'Actualizar los detalles',
+  phases: { running: 'en curso', success: 'correcto', error: 'error', debug: 'depuración', completed: 'completada' },
+}
+export default es

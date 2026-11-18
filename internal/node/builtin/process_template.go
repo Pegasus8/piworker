@@ -1,0 +1,308 @@
+package builtin
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"github.com/Pegasus8/piworker/internal/vars"
+	"strings"
+	"time"
+
+	"github.com/Pegasus8/piworker/internal/node"
+	"github.com/Pegasus8/piworker/internal/secrets"
+	"github.com/Pegasus8/piworker/internal/types"
+)
+
+// TemplateProcess renders a text template from the message, producing a string
+// payload. Useful for building notification/log messages.
+type TemplateProcess struct {
+	*node.BaseNode
+
+	template string
+}
+
+// NewTemplateProcess creates a new TemplateProcess from configuration.
+func NewTemplateProcess(config map[string]interface{}) (node.Node, error) {
+	base := node.NewBaseNode(config)
+	tmpl := base.GetConfigString("template", "")
+	if tmpl == "" {
+		return nil, fmt.Errorf("template is required")
+	}
+	return &TemplateProcess{BaseNode: base, template: tmpl}, nil
+}
+
+// Process renders the template and sets the result as the message payload.
+func (p *TemplateProcess) Process(ctx context.Context, msg *types.Message) ([]*types.Message, error) {
+	rendered := renderTemplate(p.template, msg, ctx)
+
+	out := msg.Clone()
+	out.Payload = rendered
+	out.PayloadType = types.DataTypeString
+	out.SourcePort = "output"
+	return []*types.Message{out}, nil
+}
+
+// Ports returns the port definitions.
+func (p *TemplateProcess) Ports() (inputs []types.Port, outputs []types.Port) {
+	return []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny, Required: true}},
+		[]types.Port{{ID: "output", Name: "Output", DataType: types.DataTypeString, Multiple: true}}
+}
+
+// Validate checks the configuration.
+func (p *TemplateProcess) Validate() error {
+	if p.template == "" {
+		return fmt.Errorf("template is required")
+	}
+	return nil
+}
+
+func templateProcessConfigSchema() node.ConfigSchema {
+	return node.ConfigSchema{
+		Properties: map[string]node.ConfigProperty{
+			"template": {
+				Type:        "string",
+				Title:       "Template",
+				Description: "Text with {{payload.field}}, {{topic}}, {{meta.key}}, {{id}}, {{timestamp}} placeholders",
+			},
+		},
+		Required: []string{"template"},
+	}
+}
+
+// GetConfigSchema returns the configuration schema for UI.
+func (p *TemplateProcess) GetConfigSchema() node.ConfigSchema {
+	return templateProcessConfigSchema()
+}
+
+// TemplateProcessInfo returns the node type info for registration.
+func TemplateProcessInfo() node.NodeTypeInfo {
+	schema := templateProcessConfigSchema()
+	return node.NodeTypeInfo{
+		Type:        "process-template",
+		Name:        "Template",
+		Description: "Render a text template from the message into a string",
+		Documentation: `## Template
+
+Renders a text template using values from the message and outputs the rendered
+string as the new payload. Great for composing human-readable notification or
+log text before an action node.
+
+## Placeholders
+
+| Placeholder | Value |
+|-------------|-------|
+| {{payload}} | Entire payload as JSON |
+| {{payload.field}} | Nested payload field (dot notation) |
+| {{meta.key}} | Metadata value |
+| {{topic}} | Message topic |
+| {{id}} | Message ID |
+| {{timestamp}} | ISO timestamp |
+
+## Example
+
+` + "```" + `
+Temperature is {{payload.temperature}}°C in {{payload.room}}
+` + "```" + `
+`,
+		Category: types.NodeCategoryProcessing,
+		Risk:     node.RiskSafe,
+		Inputs:   []types.Port{{ID: "input", Name: "Input", DataType: types.DataTypeAny, Required: true}},
+		Outputs:  []types.Port{{ID: "output", Name: "Output", DataType: types.DataTypeString, Multiple: true}},
+		Config:   &schema,
+		Icon:     "type",
+	}
+}
+
+// renderTemplate expands {{...}} placeholders in tmpl using the message. It is
+// shared by template-style nodes and reuses the package-level templateRe. ctx
+// is the node's context: variables and secrets resolve through its stores.
+func renderTemplate(tmpl string, msg *types.Message, ctx context.Context) string {
+	return renderTemplateEscaped(tmpl, msg, ctx, nil)
+}
+
+// renderTemplateEscaped is renderTemplate with per-placeholder escaping:
+// escaperAt receives the literal template text preceding a placeholder and
+// returns the escape function for the value substituted there (nil = raw).
+// Unresolved placeholders are left untouched and never escaped.
+func renderTemplateEscaped(tmpl string, msg *types.Message, ctx context.Context, escaperAt func(prefix string) func(string) string) string {
+	return renderTemplateWith(tmpl, msg, ctx, escaperAt, nil)
+}
+
+// renderTemplateWith is renderTemplateEscaped with an extra resolver that is
+// consulted first for each placeholder written in tmpl. Substituted values are
+// never scanned again, so text coming from the message can never reach extra:
+// that is what makes it safe to resolve {{secret.NAME}} through it.
+//
+// In a sandbox (node.SandboxFrom) every substituted value is charged to it
+// first, and the text may not grow past its per-value cap: once a check
+// fails the expansion stops there (the sandbox is marked exceeded and its
+// caller discards the result), so a template cannot expand to more text than
+// the sandbox allows.
+func renderTemplateWith(tmpl string, msg *types.Message, ctx context.Context, escaperAt func(prefix string) func(string) string, extra func(parts []string) (string, bool)) string {
+	if ctx == nil {
+		// No node context: resolve against empty stores, never the real ones.
+		ctx = secrets.WithStore(vars.WithStore(context.Background(), nil), nil)
+	}
+	sb := node.SandboxFrom(ctx)
+	locs := templateRe.FindAllStringIndex(tmpl, -1)
+	if len(locs) == 0 {
+		return tmpl
+	}
+	var b strings.Builder
+	var literal strings.Builder // template text outside placeholders seen so far
+	last := 0
+	for _, loc := range locs {
+		b.WriteString(tmpl[last:loc[0]])
+		literal.WriteString(tmpl[last:loc[0]])
+		match := tmpl[loc[0]:loc[1]]
+		value, ok := "", false
+		if extra != nil {
+			value, ok = extra(placeholderParts(match))
+		}
+		if !ok {
+			value, ok = resolvePlaceholder(match, msg, ctx)
+		}
+		if !ok {
+			b.WriteString(match)
+		} else {
+			if escaperAt != nil {
+				if esc := escaperAt(literal.String()); esc != nil {
+					value = esc(value)
+				}
+			}
+			if sb != nil && (sb.Limit(int64(b.Len()+len(value))) != nil || sb.Charge(int64(len(value))) != nil) {
+				return b.String()
+			}
+			b.WriteString(value)
+		}
+		last = loc[1]
+	}
+	b.WriteString(tmpl[last:])
+	return b.String()
+}
+
+// resolvePlaceholder returns the value for one {{...}} match, or false when
+// the placeholder is not a known template variable (it is then kept as is).
+func resolvePlaceholder(match string, msg *types.Message, ctx context.Context) (string, bool) {
+	parts := placeholderParts(match)
+
+	switch parts[0] {
+	case "vars", "flowVars":
+		store := vars.FromContext(ctx)
+		if parts[0] == "flowVars" {
+			store = vars.FlowFromContext(ctx)
+		}
+		if store == nil {
+			return "", true
+		}
+		if len(parts) > 1 {
+			if v, ok := store.Get(parts[1]); ok {
+				return tmplStringify(v), true
+			}
+		}
+		return "", true
+	case "payload":
+		if len(parts) == 1 {
+			return tmplStringify(msg.Payload), true
+		}
+		return tmplNestedValue(msg.Payload, parts[1]), true
+	case "meta":
+		if len(parts) > 1 {
+			if v, ok := msg.GetMeta(parts[1]); ok {
+				return tmplStringify(v), true
+			}
+		}
+		return "", true
+	case "topic":
+		return msg.Topic, true
+	case "id":
+		return msg.ID, true
+	case "timestamp":
+		return msg.Timestamp.Format(time.RFC3339), true
+	default:
+		// NOTE: {{secret.NAME}} is deliberately NOT resolved here.
+		// renderTemplate produces message payloads — its output is echoed by
+		// the node-test endpoint and flows downstream into logs/files/HTTP.
+		// Resolving secrets here would let any flow exfiltrate them. Secrets
+		// are resolved only in expandSecrets, used by credential fields of
+		// action nodes whose resolved value goes to the network, never the
+		// payload.
+		return match, false
+	}
+}
+
+// expandSecrets resolves only {{secret.NAME}} placeholders, leaving every other
+// placeholder untouched. Use it for credential fields (tokens, passwords) that
+// must reference a secret without interpolating message payload. Secrets come
+// from the store carried by ctx (secrets.FromContext): call it when the node
+// runs, with the context it was given, never from a factory.
+func expandSecrets(ctx context.Context, s string) string {
+	return secrets.Expand(ctx, s)
+}
+
+// expandSecretsStrict is expandSecrets for values that must not silently
+// degrade: a reference to an undefined secret is an error, not "".
+func expandSecretsStrict(ctx context.Context, s string) (string, error) {
+	store := secrets.FromContext(ctx)
+	var missing string
+	out := templateRe.ReplaceAllStringFunc(s, func(match string) string {
+		name, ok := secretRef(placeholderParts(match))
+		if !ok {
+			return match
+		}
+		v, exists := store.Get(name)
+		if !exists && missing == "" {
+			missing = name
+		}
+		return v
+	})
+	if missing != "" {
+		return "", fmt.Errorf("secret %q is not defined (referenced as {{secret.%s}})", missing, missing)
+	}
+	return out, nil
+}
+
+// placeholderParts splits a {{...}} match into its dot-separated head and rest
+// (e.g. "{{payload.user.email}}" → ["payload", "user.email"]).
+func placeholderParts(match string) []string {
+	varPath := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(match, "{{"), "}}"))
+	return strings.SplitN(varPath, ".", 2)
+}
+
+// tmplNestedValue resolves a dot-path within a nested map structure.
+func tmplNestedValue(data interface{}, path string) string {
+	current := data
+	for _, part := range strings.Split(path, ".") {
+		m, ok := current.(map[string]interface{})
+		if !ok {
+			return ""
+		}
+		current, ok = m[part]
+		if !ok {
+			return ""
+		}
+	}
+	return tmplStringify(current)
+}
+
+// tmplStringify renders a value as a string (JSON for composites).
+func tmplStringify(v interface{}) string {
+	switch val := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return val
+	default:
+		if b, err := json.Marshal(v); err == nil {
+			return string(b)
+		}
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+func init() {
+	info := TemplateProcessInfo()
+	if err := node.Register(info, NewTemplateProcess); err != nil {
+		panic("failed to register template process: " + err.Error())
+	}
+}

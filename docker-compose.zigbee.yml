@@ -1,0 +1,78 @@
+# PiWorker with a Zigbee network: Mosquitto (MQTT broker), Zigbee2MQTT (drives
+# the USB coordinator) and PiWorker, on one host. Works on a Raspberry Pi
+# (arm64/armv7) and on an x86_64 PC. See docs/guide/zigbee.md.
+#
+#   ZIGBEE_ADAPTER=/dev/serial/by-id/usb-ITead_Sonoff_Zigbee_3.0_USB_Dongle_Plus_...-if00-port0 \
+#   ZIGBEE_ADAPTER_TYPE=ember \
+#   docker compose -f docker-compose.zigbee.yml up -d
+#
+# ZIGBEE_ADAPTER: the coordinator's stable path (ls /dev/serial/by-id/).
+# ZIGBEE_ADAPTER_TYPE: ember (SONOFF ZBDongle-E), zstack (ZBDongle-P, CC2652),
+# deconz (ConBee) — see Zigbee2MQTT's adapter list.
+# Then open PiWorker (https://<host>:8443), add the connection
+# "home" with broker tcp://mosquitto:1883 under Connections, and pair devices
+# from the Zigbee page (Allow joining).
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+
+  zigbee2mqtt:
+    # Pin a version (e.g. koenkk/zigbee2mqtt:2.x.y) once your setup works.
+    image: koenkk/zigbee2mqtt:latest
+    container_name: zigbee2mqtt
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    devices:
+      - "${ZIGBEE_ADAPTER:?set ZIGBEE_ADAPTER to the coordinator, e.g. /dev/serial/by-id/usb-...}:/dev/ttyZigbee"
+    volumes:
+      - zigbee2mqtt-data:/app/data
+      - /run/udev:/run/udev:ro
+    environment:
+      - TZ=${TZ:-America/Argentina/Buenos_Aires}
+      - ZIGBEE2MQTT_CONFIG_MQTT_SERVER=mqtt://mosquitto:1883
+      - ZIGBEE2MQTT_CONFIG_MQTT_BASE_TOPIC=zigbee2mqtt
+      - ZIGBEE2MQTT_CONFIG_SERIAL_PORT=/dev/ttyZigbee
+      - ZIGBEE2MQTT_CONFIG_SERIAL_ADAPTER=${ZIGBEE_ADAPTER_TYPE:-ember}
+      # PiWorker's Zigbee Device trigger reports devices going offline.
+      - ZIGBEE2MQTT_CONFIG_AVAILABILITY_ENABLED=true
+      - ZIGBEE2MQTT_CONFIG_HOMEASSISTANT_ENABLED=false
+      # Zigbee2MQTT's own web UI on :8081 (optional).
+      - ZIGBEE2MQTT_CONFIG_FRONTEND_ENABLED=true
+      - ZIGBEE2MQTT_CONFIG_FRONTEND_PORT=8081
+    ports:
+      - "8081:8081"
+
+  piworker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: piworker:latest
+    container_name: piworker
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    ports:
+      - "8443:8443"
+      - "8080:8080"
+    volumes:
+      - piworker-data:/app/data
+    environment:
+      - PIWORKER_ADMIN_USER=${PIWORKER_ADMIN_USER:-}
+      - PIWORKER_ADMIN_PASS=${PIWORKER_ADMIN_PASS:-}
+      - PIWORKER_ALLOWED_HOSTS=${PIWORKER_ALLOWED_HOSTS:-raspberrypi,raspberrypi.local}
+      - PIWORKER_TLS_HOSTS=${PIWORKER_TLS_HOSTS:-}
+      - TZ=${TZ:-America/Argentina/Buenos_Aires}
+
+volumes:
+  mosquitto-data:
+  zigbee2mqtt-data:
+  piworker-data:

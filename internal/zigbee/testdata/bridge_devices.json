@@ -1,0 +1,25 @@
+[
+  {"ieee_address": "0x00124b0000000000", "type": "Coordinator", "friendly_name": "Coordinator", "supported": true, "disabled": false, "interview_completed": true, "definition": null},
+  {"ieee_address": "0xa4c1380000000001", "type": "Router", "friendly_name": "living/plug", "power_source": "Mains (single phase)", "model_id": "S60ZBTPF", "supported": true, "disabled": false, "interview_completed": true,
+   "definition": {"model": "S60ZBTPF", "vendor": "SONOFF", "description": "Zigbee smart plug with power monitoring",
+     "exposes": [
+       {"type": "switch", "features": [{"type": "binary", "name": "state", "property": "state", "access": 7, "value_on": "ON", "value_off": "OFF", "value_toggle": "TOGGLE", "description": "On/off state of the switch"}]},
+       {"type": "enum", "name": "power_on_behavior", "property": "power_on_behavior", "access": 7, "values": ["off", "on", "toggle", "previous"], "description": "Controls the behavior when the device is powered on after power loss"},
+       {"type": "numeric", "name": "power", "property": "power", "access": 5, "unit": "W", "description": "Instantaneous measured power"},
+       {"type": "numeric", "name": "voltage", "property": "voltage", "access": 5, "unit": "V", "description": "Measured electrical potential value"},
+       {"type": "numeric", "name": "current", "property": "current", "access": 5, "unit": "A", "description": "Instantaneous measured electrical current"},
+       {"type": "numeric", "name": "energy", "property": "energy", "access": 5, "unit": "kWh", "description": "Sum of consumed energy"},
+       {"type": "numeric", "name": "overload_protection", "property": "overload_protection", "access": 7, "unit": "W", "value_min": 0.1, "value_max": 4000, "description": "Overload protection"},
+       {"type": "numeric", "name": "linkquality", "property": "linkquality", "access": 1, "unit": "lqi", "value_min": 0, "value_max": 255, "description": "Link quality (signal strength)"}
+     ]}},
+  {"ieee_address": "0xa4c1380000000002", "type": "EndDevice", "friendly_name": "bedroom_climate", "power_source": "Battery", "model_id": "SNZB-02P", "supported": true, "disabled": false, "interview_completed": true,
+   "definition": {"model": "SNZB-02P", "vendor": "SONOFF", "description": "Temperature and humidity sensor",
+     "exposes": [
+       {"type": "numeric", "name": "temperature", "property": "temperature", "access": 1, "unit": "°C", "description": "Measured temperature value"},
+       {"type": "numeric", "name": "humidity", "property": "humidity", "access": 1, "unit": "%", "description": "Measured relative humidity"},
+       {"type": "numeric", "name": "battery", "property": "battery", "access": 1, "unit": "%", "value_min": 0, "value_max": 100, "description": "Remaining battery in %"},
+       {"type": "numeric", "name": "temperature_calibration", "property": "temperature_calibration", "access": 7, "unit": "°C", "value_min": -50, "value_max": 50, "value_step": 0.1, "description": "Offset to add/subtract to the temperature"},
+       {"type": "numeric", "name": "linkquality", "property": "linkquality", "access": 1, "unit": "lqi", "value_min": 0, "value_max": 255, "description": "Link quality (signal strength)"}
+     ]}},
+  {"ieee_address": "0xa4c1380000000003", "type": "EndDevice", "friendly_name": "0xa4c1380000000003", "supported": false, "disabled": false, "interview_completed": false, "definition": null}
+]
