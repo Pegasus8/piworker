@@ -382,4 +382,6 @@ convention: `trigger-*`, `process-*`, `action-*`, plus `set-var`/`get-var`.
   (`server_scaffold_test.go`).
 - The stray `./piworker` binary and `./piworker.db` at the repo root are old
   artifacts; the build output is `build/piworker`.
-- Main branch is `master`; active work is on `revival`.
+- Main branch is `master`: work on a short-lived branch and open a pull
+  request against it. (`revival` was the branch of the 2026 rewrite, merged
+  in #288 and retired.)

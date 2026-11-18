@@ -26,7 +26,9 @@ func TestExpressionsReadZigbeeState(t *testing.T) {
 	prev := zigbee.Default
 	zigbee.Default = m
 	t.Cleanup(func() { zigbee.Default = prev })
-	require.Eventually(t, func() bool { n, _ := m.Network("home"); return n.Connected }, 5*time.Second, 10*time.Millisecond)
+	// Connected is the client's connection; the subscription is acknowledged
+	// apart, and Route only reaches filters the broker already holds.
+	require.Eventually(t, func() bool { _, subs, _, _ := b.Snapshot(); return len(subs) == 1 }, 5*time.Second, 10*time.Millisecond)
 	b.Route("zigbee2mqtt/bedroom_climate", `{"humidity":72,"temperature":21}`)
 	require.Eventually(t, func() bool { _, ok := m.DeviceState("home", "bedroom_climate"); return ok }, 5*time.Second, 10*time.Millisecond)
 

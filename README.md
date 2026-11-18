@@ -152,7 +152,7 @@ supported: the revival is a new program with a different data model, and it
 does not read the old tasks or database. Install it separately and recreate
 your automations as flows.
 
-This README describes the revival branch, including changes not yet released.
+This README describes `master`, including changes not yet released.
 Until a stable release exists, use the `v1.0.0-beta.2` tag instead of `latest`
 for images and downloads; `latest` may still point to the previous
 implementation. Check the release notes of what you install.
@@ -200,7 +200,7 @@ the legacy 2020 release uses its own packaging.
 
 ```bash
 # Clone the repository
-git clone --branch revival https://github.com/Pegasus8/piworker.git
+git clone https://github.com/Pegasus8/piworker.git
 cd piworker
 
 # Install locked frontend dependencies and build with embedded frontend
@@ -1638,7 +1638,7 @@ the release tag as the `VERSION` build argument. `piworker -version` prints that
 value without loading configuration or opening the database. Direct `go build`
 and Docker builds without an explicit version identify themselves as `dev`.
 
-CI runs on pull requests and pushes to `master`, `main`, and `revival`. It checks
+CI runs on pull requests and pushes to `master` and `main`. It checks
 the installer lifecycle with isolated OS/download fixtures and ShellCheck,
 Go formatting, `go vet`, race-enabled tests, frontend unit/browser tests and typechecking/build, Linux
 CGO builds for amd64/arm64/ARMv7, and multi-platform Docker builds. Linux archives
