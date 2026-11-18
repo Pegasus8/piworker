@@ -82,6 +82,13 @@ noticing it.
   panel and the phone navigation drawer animate open and closed. All of it
   follows the system's "reduce motion" setting.
 
+- From this release on, `piworkerctl update` (and `install` on an installed system) refuses a
+  release older than the installed one, before downloading or stopping
+  anything; to go back, restore the update backup
+  ([operations](docs/operations.md#going-back-to-an-earlier-version)).
+  Without a version it also refuses today's "latest" GitHub release, the
+  2020 `v0.1.0-alpha.1`, instead of failing on a missing download.
+
 ### Fixed
 
 - Creating the first account or resetting the password when the database

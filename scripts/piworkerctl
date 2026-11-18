@@ -21,7 +21,8 @@ Usage: sudo piworkerctl install [vVERSION]
        sudo piworkerctl tls on|off
        sudo piworkerctl restore FILE
 
-Install/update defaults to the latest stable GitHub release.
+Install/update defaults to the latest stable GitHub release. A release older
+than the installed one is refused; restore an update backup to go back.
 Uninstall preserves accounts, flows, configuration and backups.
 Requires Linux with systemd, glibc 2.35+, curl and tar.
 Supports x86_64, aarch64 and ARMv7 (not ARMv6).
@@ -190,6 +191,77 @@ set_tls_mode() {
     newconfig=''
 }
 
+# num_cmp A B compares two digit strings of any length: -1, 0 or 1.
+num_cmp() {
+    local a=$1 b=$2
+    while [ "${#a}" -gt 1 ] && [ "${a:0:1}" = 0 ]; do a=${a:1}; done
+    while [ "${#b}" -gt 1 ] && [ "${b:0:1}" = 0 ]; do b=${b:1}; done
+    if [ "${#a}" -ne "${#b}" ]; then
+        [ "${#a}" -lt "${#b}" ] && echo -1 || echo 1
+    elif [ "$a" = "$b" ]; then echo 0
+    elif [[ "$a" < "$b" ]]; then echo -1
+    else echo 1
+    fi
+}
+
+# version_cmp A B orders two release tags by semantic-version precedence
+# (vMAJOR.MINOR.PATCH[-PRERELEASE][+BUILD]; build metadata is ignored):
+# prints -1, 0 or 1, or fails when a tag is not of that form.
+version_cmp() {
+    local re='^v([0-9]+)\.([0-9]+)\.([0-9]+)(-([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?(\+[0-9A-Za-z.-]+)?$'
+    local a=() b=() pa pb i r x y
+    [[ "$1" =~ $re ]] || return 1
+    a=("${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}"); pa=${BASH_REMATCH[5]}
+    [[ "$2" =~ $re ]] || return 1
+    b=("${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}"); pb=${BASH_REMATCH[5]}
+    for i in 0 1 2; do
+        r=$(num_cmp "${a[i]}" "${b[i]}")
+        [ "$r" = 0 ] || { echo "$r"; return 0; }
+    done
+    # A release without a prerelease ranks above any prerelease of it.
+    if [ -z "$pa" ] || [ -z "$pb" ]; then
+        if [ "$pa" = "$pb" ]; then echo 0; elif [ -z "$pa" ]; then echo 1; else echo -1; fi
+        return 0
+    fi
+    IFS=. read -r -a a <<< "$pa"
+    IFS=. read -r -a b <<< "$pb"
+    for ((i = 0; i < ${#a[@]} && i < ${#b[@]}; i++)); do
+        x=${a[i]} y=${b[i]}
+        if [[ "$x" =~ ^[0-9]+$ ]] && [[ "$y" =~ ^[0-9]+$ ]]; then
+            r=$(num_cmp "$x" "$y")
+        elif [[ "$x" =~ ^[0-9]+$ ]]; then r=-1   # numeric identifiers rank lower
+        elif [[ "$y" =~ ^[0-9]+$ ]]; then r=1
+        elif [ "$x" = "$y" ]; then r=0
+        elif [[ "$x" < "$y" ]]; then r=-1
+        else r=1
+        fi
+        [ "$r" = 0 ] || { echo "$r"; return 0; }
+    done
+    # Equal so far: more identifiers rank higher.
+    if [ "${#a[@]}" -eq "${#b[@]}" ]; then echo 0
+    elif [ "${#a[@]}" -lt "${#b[@]}" ]; then echo -1
+    else echo 1
+    fi
+}
+
+# refuse_downgrade stops before anything changes when $version is older
+# than the installed one: an older release may not understand the data a
+# newer one migrated (beta.1 even runs on it without noticing).
+refuse_downgrade() {
+    local installed order
+    [ -f "$CONFIG/installed-version" ] || return 0
+    installed=$(head -n 1 "$CONFIG/installed-version")
+    if ! order=$(version_cmp "$version" "$installed"); then
+        echo "PiWorker: cannot compare $version with the installed version '$installed'; updating anyway." >&2
+        return 0
+    fi
+    [ "$order" != -1 ] && return 0
+    die "$version is older than the installed $installed; nothing was changed.
+To go back to an earlier version, restore the update backup made before you
+updated (in $BACKUPS; see the operations guide), not an older release.
+To update, run: sudo piworkerctl update vVERSION with a release newer than $installed."
+}
+
 # prune_backups keeps the newest $keep_backups update backups (the
 # directories this script names DATE-TIME.random); other entries are left.
 prune_backups() {
@@ -286,6 +358,7 @@ if [ -z "$version" ]; then
     version=${resolved##*/}
     [[ "$version" =~ ^v[0-9][a-zA-Z0-9.+-]*$ ]] || die "Could not resolve a stable release. Specify vVERSION."
 fi
+[ "$managed" = 0 ] || refuse_downgrade
 archive=piworker-linux-$arch.tar.gz
 if [ -n "${PIWORKER_RELEASE_DIR:-}" ]; then
     echo "Reading local PiWorker $version ($arch)..."

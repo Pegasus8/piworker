@@ -65,7 +65,7 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 case "$url" in
-  */releases/latest) printf 'https://github.com/Pegasus8/piworker/releases/tag/v2.0.0' ;;
+  */releases/latest) printf 'https://github.com/Pegasus8/piworker/releases/tag/%s' "${LATEST:-v2.0.0}" ;;
   */api/health) echo "$ALL" >> "$FIXTURE/health"; [ ! -f "$FIXTURE/fail-health" ] ;;
   *) cp "$RELEASE/${url##*/}" "$out" ;;
 esac
@@ -334,6 +334,70 @@ esac
         self.assertIn("# old", self.path("/usr/local/bin/piworker").read_text())
         self.assertEqual(self.db.read_text(), "flows and accounts")
         self.assertEqual(self.path("/etc/piworker/installed-version").read_text(), "v2.0.0\n")
+
+    def installed_as(self, version):
+        self.install()
+        self.path("/etc/piworker/installed-version").write_text(version + "\n")
+        self.bundle("new")
+        return (self.root / "services").read_text()
+
+    def assert_unchanged(self, services, version):
+        self.assertEqual((self.root / "services").read_text(), services)
+        self.assertIn("# old", self.path("/usr/local/bin/piworker").read_text())
+        self.assertEqual(self.path("/etc/piworker/installed-version").read_text(), version + "\n")
+        self.assertEqual(list(self.path("/var/backups/piworker").glob("*")) if self.path("/var/backups/piworker").exists() else [], [])
+
+    def test_update_refuses_an_older_release_before_changing_anything(self):
+        services = self.installed_as("v2.0.0")
+        self.mock("curl", 'case "$*" in */releases/download/*) echo downloaded >> "$FIXTURE/downloads" ;; esac; exit 0')
+        result = self.run_ctl("update", "v1.9.0", ok=False)
+        self.assertIn("v1.9.0 is older than the installed v2.0.0", result.stderr)
+        self.assertIn("update backup", result.stderr)
+        self.assertFalse((self.root / "downloads").exists())
+        self.assert_unchanged(services, "v2.0.0")
+        # install on a managed installation updates it: the same rule applies.
+        self.run_ctl("install", "v1.9.0", ok=False)
+        self.assert_unchanged(services, "v2.0.0")
+
+    def test_versions_follow_semver_precedence(self):
+        refused = [("v1.0.0-beta.2", "v1.0.0-beta.1"), ("v1.0.0-beta.10", "v1.0.0-beta.9"),
+                   ("v1.0.0", "v1.0.0-rc.1"), ("v1.0.0-beta.1", "v1.0.0-alpha.5"),
+                   ("v1.0.0-beta.1", "v1.0.0-1"), ("v1.10.0", "v1.9.9"), ("v2.0.0", "v1.99.99"),
+                   ("v1.0.0-beta.2.1", "v1.0.0-beta.2")]
+        for installed, target in refused:
+            with self.subTest(installed=installed, target=target):
+                self.setUp()
+                services = self.installed_as(installed)
+                self.run_ctl("update", target, ok=False)
+                self.assert_unchanged(services, installed)
+        allowed = [("v1.0.0-beta.1", "v1.0.0-beta.2"), ("v1.0.0-beta.9", "v1.0.0-beta.10"),
+                   ("v1.0.0-rc.1", "v1.0.0"), ("v1.0.0-beta.2", "v1.0.0-rc.1"),
+                   ("v1.0.0-beta.2", "v1.0.0-beta.2"), ("v1.0.0", "v1.0.0+build.5"), ("v1.9.9", "v1.10.0")]
+        for installed, target in allowed:
+            with self.subTest(installed=installed, target=target):
+                self.setUp()
+                self.installed_as(installed)
+                self.run_ctl("update", target)
+                self.assertIn("# new", self.path("/usr/local/bin/piworker").read_text())
+                self.assertEqual(self.path("/etc/piworker/installed-version").read_text(), target + "\n")
+
+    def test_update_without_version_refuses_an_older_latest_stable(self):
+        services = self.installed_as("v1.0.0-beta.2")
+        self.env["LATEST"] = "v0.1.0-alpha.1"
+        result = self.run_ctl("update", ok=False)
+        self.assertIn("v0.1.0-alpha.1 is older than the installed v1.0.0-beta.2", result.stderr)
+        self.assertIn("sudo piworkerctl update vVERSION", result.stderr)
+        self.assert_unchanged(services, "v1.0.0-beta.2")
+
+    def test_unreadable_installed_version_warns_and_updates(self):
+        self.installed_as("custom-build")
+        result = self.run_ctl("update", "v2.1.0")
+        self.assertIn("cannot compare", result.stderr)
+        self.assertIn("# new", self.path("/usr/local/bin/piworker").read_text())
+
+    def test_fresh_install_has_no_version_to_compare(self):
+        self.run_ctl("install", "v0.0.1")
+        self.assertEqual(self.path("/etc/piworker/installed-version").read_text(), "v0.0.1\n")
 
     def test_missing_release_keeps_running_installation(self):
         self.install()

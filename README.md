@@ -81,8 +81,11 @@ The service also starts after a reboot. Re-running `install` updates a managed
 installation; reinstalling after `uninstall` reuses the retained data.
 
 You can select a release explicitly with `sudo piworkerctl update vX.Y.Z`
-(replace `vX.Y.Z` with an actual compatible release tag). **Prereleases** are
-never "latest", so they are always installed by tag:
+(replace `vX.Y.Z` with an actual compatible release tag). A release older
+than the installed one is refused before anything changes: going back means
+restoring the backup the update made (see the
+[operations guide](docs/operations.md#going-back-to-an-earlier-version)).
+**Prereleases** are never "latest", so they are always installed by tag:
 
 ```bash
 curl -fL https://github.com/Pegasus8/piworker/releases/download/v1.0.0-beta.2/piworkerctl -o piworkerctl && sudo bash ./piworkerctl install v1.0.0-beta.2

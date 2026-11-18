@@ -179,6 +179,19 @@ printed backup directory. To recover manually:
 A backup restores the state at its creation time, not changes made afterward.
 Automatic rollback does not undo external effects from running flows.
 
+### Going back to an earlier version
+
+`piworkerctl update` and `install` refuse a release older than the one in
+`/etc/piworker/installed-version`, before downloading or stopping anything
+(semantic-version order: `v1.0.0-beta.2` is older than `v1.0.0-rc.1`, which
+is older than `v1.0.0`; the same version again is allowed, to repair an
+installation). An older release may not understand a database a newer one
+migrated; `v1.0.0-beta.1` would even start on it without noticing. To go
+back, restore the update backup made before the update you want to undo,
+following the steps above: changes made since that update are lost. If
+the marker holds something that is not a version, the manager says it
+cannot compare and updates anyway.
+
 ## Agents: when one misbehaves
 
 If an AI agent did something you did not expect (a prompt injection, a
